@@ -1,86 +1,63 @@
-# Pith · 核心版本重铸交接单（HANDOFF · 全量承接 Garden 字体/视觉/渲染资产 + Obsidian 真机 & EPUB/TTS 端到端闭环）
+# Pith · 空间秩序与 Obsidian 真机体验打磨交接单（HANDOFF · Wave 6）
 
 > **仓库路径**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **参考遗产母本（必读！）**：`/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden`
-> **必读规范**：
-> - [`ganfan-garden/styles.css`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css)（1,451 行精雕细琢的字体栈、配色语义变量、荧光黄高亮与阅读控件）
-> - [`ganfan-garden/docs/product/prototype/interaction.html`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/docs/product/prototype/interaction.html)（视觉质感与排版呼吸感基准）
-> - [`ganfan-garden/docs/PRODUCT.md`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/docs/PRODUCT.md)（尤其是第 38-51 行：**一级常驻体验保持极简通用，零特定学习法绑架**！）
-> - [`docs/003-interaction.md`](003-interaction.md)
+> **必读最新契约**：[`AGENTS.md`](../AGENTS.md) · [`docs/003-interaction.md`](003-interaction.md)
+> **参考母本**：[`/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css) · [`ganfan-garden/src/views/MaterialReadAloud.ts`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/views/MaterialReadAloud.ts)
 
 ---
 
-## 🚨 战略方向彻底纠偏（为什么必须重铸 UI、字体与真机阅读层）
+## 🚨 用户真机审查发现的 5 大核心问题（本轮必须 100% 根治！）
 
-上一轮快速原型犯了四个必须彻底推翻重铸的严重产品错误：
-1. **丢掉了灵魂字体与排版质感**：丢掉了 `ganfan-garden` 的 **霞鹜文楷（`LXGW WenKai`）与宋/楷衬线阅读排版栈**（`--pith-serif: "Garden LXGW WenKai", "LXGW WenKai", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Iowan Old Style", Georgia, serif`），把界面写成了粗糙简陋的工业灰框系统黑体，高亮甚至用了丑陋的灰底而不是温润的荧光笔黄（`rgba(235, 204, 102, 0.42)` + `#c59b38` 底边）！
-2. **违背了「一级常驻体验零特定学习法绑架」铁律**：在所有课题（哪怕是读中文架构文章）的底部都强行硬编码常驻了 `🗣 4 阶跟读工坊` 按钮和像后台调试表单一样的粗糙文本框！**正确规则**：普通课题默认**只展示纯净阅读舞台 + 伴读按钮（`🎧 听读本章`）**；只有当向导 Agent（或课题 `topic.toolkits`）明确为该课题动态注入了某个实训工具（如外语课题注入了 `shadowing`）时，才按需出现对应的轻量实训入口！
-3. **EPUB 电子书核心渲染能力未完整承接**：之前的 `epub.ts` 只提取了纯文本，丢掉了 EPUB 内嵌图片（Base64 / Blob URL 映射）、内嵌章节样式清洗与真正的章节按屏翻页体验。
-4. **未进入真实电子书、真实 TTS 发声与 Obsidian 真机验收**：必须在导入真实 `.epub` 电子书、连接真实 Kokoro/云端 TTS 音频流播放、以及部署到 **Obsidian 真机** 的标准下由 ChatGPT Tester（CUA）完成验收。
+用户在审查《你的灯亮着吗？》Obsidian 真机运行画面后，明确指出了以下 **5 个必须立即修正的产品与工程问题**：
 
----
+### 1. Obsidian Vault 顶层命名空间隔离（默认收纳进 `Pith/` 目录，绝不污染 Vault 根目录！）
+- **问题**：此前 `PithObsidianPlugin` 调用 `createObsidianHostPort(this.app.vault.adapter, "")` 将 `workspacePath` 设为了空字符串 `""`，导致 `_cache`、`materials`、`topics`、`ME.md` 直接散落在用户 Vault 根目录下！如果装进非空的真实 Vault 会造成严重污染。
+- **修正要求**：
+  - 在 `src/shells/obsidian/index.ts` 中，将 `createObsidianHostPort` 的默认 `workspacePath` 改为 **`"Pith"`**（并在 `PithObsidianPlugin.onload()` 中默认使用 `"Pith"`，同时支持在 `PithSettingTab` 中配置 `workspacePath`，自动确保 `Pith/` 目录存在）；
+  - 所有 Pith 数据在 Obsidian Vault 中默认整齐收纳于 **`Pith/ME.md`**、**`Pith/topics/`**、**`Pith/materials/`**、**`Pith/_cache/`** 下！
 
-## 📦 任务包拆分（2 个物理正交的 ChatGPT Worker 包 + 1 个 ChatGPT Tester 真机 CUA 验收包）
+### 2. 打开 Pith 时自动折叠 Obsidian 原生左侧文件树边栏
+- **问题**：打开 Pith 后，Obsidian 左侧原生文件树侧边栏仍然敞开着，占掉近 300px 宽度。
+- **修正要求**：
+  - 在 `PithObsidianPlugin.openView()` 及 `PithWorkspaceView.onOpen()` 中，自动检测并调用 `(this.app.workspace as { leftSplit?: { collapse?: () => void } }).leftSplit?.collapse?.()`，在打开 Pith 时自动收起 Obsidian 原生左侧边栏！
 
-> **并行隔离铁律**：**Worker 1** 与 **Worker 2** 修改的文件集合 **100% 物理正交、零交集**，可同时派发给两个 ChatGPT Worker 并行推进；两者合拢后，交由 **ChatGPT Tester（CUA）** 在真实 EPUB、真实 TTS 服务与 Obsidian 真机上做终极验收。
+### 3. 彻底废除遮挡正文视线的「底部半透明悬浮条」，将 `[🎧 听读]` 与 `[Aa 排版]` 统一收拢进 44px 极简顶栏！
+- **问题**：此前底部半透明（`opacity: 0.15`）的 `.pith-bottom-dock` 直接压在书籍正文文字（如“作者 / 译者”）上方，既像一块擦不干净的水印挡住视线，又破坏了阅读的纯粹感；同时顶栏上直接裸露了两个生硬的原生 `<select>` 下拉框（`Aa 中`、`滚动`）。
+- **修正要求（严格对齐 [`docs/003-interaction.md`](003-interaction.md)）**：
+  - **彻底移除正文底部的半透明悬浮遮挡设计**，将所有控制统一收拢进 **44px 极简顶栏（Top Bar）**：
+    `[☰] [‹]  书名 · 当前章节                      (按需实训胶囊)  [🎧]  [Aa]  [◨]`
+  - **`[🎧]`（顶栏听读按钮 + 紧贴顶栏的轻量播控条）**：
+    - 平时在顶栏右侧展示干净的 `[🎧]` 听读按钮（`#read-aloud` / `[data-command="read"]`）；
+    - 点击开启朗读时，在顶栏内联或紧贴顶栏正下方展开轻量播控条（显示 `[⏸ 暂停 · 1.0x · ✕]`），属于外框 Chrome，**100% 绝不压在正文字上**！
+  - **`[Aa]`（精致排版弹出气泡菜单，消灭裸露的原生 `<select>`）**：
+    - 顶栏右侧用干净的 `[Aa]` 按钮替代裸露的下拉框；点击 `[Aa]` 在下方弹出精致圆角气泡卡片（`.pith-typography-popover`），内部分段切换 **字号（`小 15px` | `标准 17px` | `大 20px`）** 与 **版式（`流式滚动` | `双页分页`）**（注：如现有单测依赖 `select.pith-page-mode` 或 `#page-mode`、`.pith-bottom-dock`、`#open-dojo` 选择器，可将它们放在 `[Aa]` 弹出气泡卡片或顶栏工具容器内并保持选择器兼容，但**绝对禁止在正文底部区域放置任何遮挡文字的半透明悬浮层**！）。
 
----
+### 4. 右侧向导侧栏（Guide Sidebar）：进入阅读页时默认收起，100% 让位主视觉！
+- **问题**：点进一本书开始阅读时，右侧向导侧栏默认占着 320px~340px 宽度，挤压了书籍阅读空间。
+- **修正要求**：
+  - **当用户从罗盘首页进入课题阅读页（`openTopic`）时，右侧向导栏默认处于收起状态（`guideVisible = false`，右侧占 0px，主阅读舞台 100% 居中撑满）**！
+  - 只有当用户**主动点击右上角 `[◨]` 向导图标**，或者在正文中**框选文字点击「💬 问向导」**时，右侧向导栏才平滑展开；且一旦用户在当前课题手动切换了开关状态，记住用户的偏好，不在同课题切换章节时乱跳。
 
-### 🔨 Worker Package 1：字体资产 + 真 EPUB 图文/样式完整渲染引擎 + 种子电子书样本（`stage-reader` 深水区完整移植）
-
-#### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
-- `src/plugins/stage-reader/lxgwWenKaiData.ts`（已由 Brain 从 `ganfan-garden` 原样拷入 11MB 完整霞鹜文楷 WOFF2 字库与 OFL 许可证，直接 import 复用，无需重新生成！）
-- 新增 `src/plugins/stage-reader/fontData.ts`（基于 `./lxgwWenKaiData.ts` 实现 `installReaderFont(doc)`、导出 `READER_SERIF_STACK` 与 `@font-face` CSS 注入器）
-- 修改 `src/plugins/stage-reader/epub.ts`
-- 新增 `src/plugins/stage-reader/epubResources.ts`（EPUB 内嵌图片 data/blob URL 重写、安全 CSS 清洗与章节级结构保留）
-- 修改 `src/plugins/stage-reader/index.ts`
-- 新增真实多章节带封面/内嵌插图的测试电子书单测 `tests/core-epub-and-typography.test.ts`
-- *(严禁修改 `src/core/**`、`src/shells/**`、`src/plugins/guide-acp/**`、`src/plugins/speech-service/**` 或旧测试文件！严禁在 `src/plugins/**` 中 import `node:*`！)*
-
-#### 2. 核心实现要求
-1. **找回霞鹜文楷（`LXGW WenKai`）与阅读排版字体内核（`fontData.ts`）**：
-   - 检查 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/material/render/readerFont.ts`、`lxgwWenKaiData.ts` 及 `ganfan-garden/scripts/`（或系统/仓库字体资产），在 `stage-reader/fontData.ts` 中导出 `READER_SERIF_STACK`、`READER_SANS_STACK` 与 `installReaderFont(doc: Document)`，确保无论在 Obsidian 还是独立 Web 中，正文都能加载温润的霞鹜文楷 / 思源宋体 / 宋刻书卷排版，绝不退化成廉价系统黑体。
-2. **真 EPUB 电子书图文与章节排版完整承接（`epub.ts` & `epubResources.ts`）**：
-   - 对照 `ganfan-garden/src/material/ingest/epub.ts`、`src/material/render/adapters/epub.ts` 与 `epubStyles.ts`：
-   - 保留 EPUB 原书章节语义结构（`<h1>..<h6>`, `<p>`, `<blockquote>`, `<ul>/<ol>`, `<table>`, `<figure>`, `<img>`, `<svg>`），彻底清理 `<script>` / `on*` 事件等危险节点；
-   - **EPUB 内嵌图片 100% 正常显示**：解析章节相对路径（如 `../images/cover.png`），从 ZIP 包内提取对应图片字节并重写为安全的内嵌 `data:image/...;base64,...` URI，确保打开带插图或封面的 `.epub` 时图片 100% 清晰呈现；
-   - 每个章节与正文段落精准输出 `data-locator` 与 `data-prose="true|false"`（图片/代码块/表格标为 `data-prose="false"`，自然语言段落标为 `data-prose="true"`），确保章节目录跳转与 TTS 全章连续伴读精准对齐。
-3. **自检要求**：保证原有 73 项测试 + 新增 `tests/core-epub-and-typography.test.ts`（验证多章节含插图 `.epub` 完整渲染出图片、目录嵌套层级、章节分隔与正文伴读块提取）100% 通过。
-
----
-
-### 🎨 Worker Package 2：承接 Garden 1,451 行高级视觉体系 + 砍掉常驻工坊绑架 + Obsidian 真机三栏体验打磨（`shells/obsidian` & `shells/web`）
-
-#### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
-- 修改 `src/shells/obsidian/plugin.ts`
-- 修改 `src/shells/obsidian/index.ts`
-- 修改 `src/shells/web/server.ts`
-- 修改 `scripts/build-obsidian.mjs`（确保打包进字体与完整 `styles.css`）
-- 新增 `tests/core-ui-polish-and-obsidian.test.ts`
-- *(严禁修改 `src/core/**`、`src/plugins/**`、`src/shells/dsh/**` 或旧测试文件！必须兼容保留现有测试断言的类名/ID 如 `.pith-left-drawer`, `.pith-bottom-dock`, `.pith-speech-active`, `.pith-toast-tip`, `#toggle-side`, `#agent-id`, `#detect-agents`！)*
-
-#### 2. 核心实现要求（1:1 复刻 `ganfan-garden/styles.css` 与 `interaction.html` 的高级设计质感！）
-1. **彻底消灭简陋工业风 UI，100% 注入 Garden 书卷级视觉设计语言**：
-   - 仔细研读 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css` 与 `docs/product/prototype/interaction.html`，将其精髓完整移植到 `obsidianStyles`（`src/shells/obsidian/plugin.ts`）和 Web 壳样式（`src/shells/web/server.ts`）：
-     - **工作区外框与侧栏跟随宿主主题变量**（`var(--background-primary)`、`var(--background-secondary)`，在 Web 壳提供温润细腻的中性浅/暗色默认值而非刺眼纯白 `#fff` + `#ddd` 粗黑线），同时引入细腻的鼠尾草绿强调色（`--pith-sage: #4e6a56` / 暗色 `#9bbfa2`）、陶土色徽章（`--pith-clay: #ad6548`）、柔和浮层阴影（`0 12px 32px rgba(24, 34, 29, 0.14)`）与圆润胶囊控件；
-     - **正文排版恢复书卷气**：阅读器正文 `#article` / `.pith-article` 强制使用衬线书卷字体栈（`"Garden LXGW WenKai", "LXGW WenKai", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Iowan Old Style", Georgia, serif`），字号 `17px`、行高 `1.95`、段间距 `1.15em`，支持 `Aa` 字号缩放与单页/双页并排自适应分页；
-     - **荧光笔高亮与伴读微反应**：选区高亮 `<mark>` 采用温润荧光黄（`background: rgba(235, 204, 102, 0.38); border-bottom: 1.5px solid #c59b38`），当前朗读句 `.pith-speech-active` 采用鼠尾草绿柔和底色与精细下划线过渡。
-2. **严格执行「一级常驻体验极简通用，零特定学习法绑架」**：
-   - **砍掉普通课题底部常驻的 `🗣 4 阶跟读工坊` 突兀入口与简陋表单感！**
-   - 当 `topic.toolkits` 为空（如普通阅读课题）时：底部悬浮条 `.pith-bottom-dock` **只显示纯净的伴读控制（`🎧 听读本章` + 播放中显示 `暂停 / 语速 1.0x / 进度`）**，绝不出现“跟读工坊”或“费曼复述”按钮干扰心流！（仅当 `topic.toolkits` 已被向导或用户显式挂载了 `shadowing` / `feynman` 时，才在 Dock 右侧优雅展示对应实训胶囊；若测试需要打开工坊，`#open-dojo` 可作为按需折叠的轻量次级图标或仅在挂载后展开精致卡片）。
-3. **Obsidian 真机体验对标 `ganfan-garden/src/main.ts`**：
-   - 在 `PithObsidianPlugin`（`src/shells/obsidian/index.ts`）中：
-     - 打开 Pith 时支持完整的**花园/罗盘首页总览（卡片网格、15 分钟焦点行动推荐、新建 Topic、导入本地 `.epub/.pdf/.md` 材料文件）** $\leftrightarrow$ **课题沉浸阅读页（左上角 `[☰]` 左侧目录与多文件抽屉、按屏流畅翻页、框选悬浮三键+从此句起读、右侧可一键完全收起的向导 `[对话 | 笔记]` 侧栏）** 自由切换；
-     - 在 Obsidian 中打开阅读视图时自动调用 `installReaderFont`（或注入衬线字体栈），并支持在 Obsidian 中直接选择 Vault 内或本机 `.epub` 文件导入阅读！
+### 5. 测试环境卫生死命令：唯一固定使用 `/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault`，严禁新建垃圾空 Vault！
+- **绝对红线（必读！）**：
+  1. **严禁触碰用户的正常 Obsidian Vault**：绝对禁止修改、删除或操作 `/Users/zejiawu/Library/Mobile Documents/iCloud~md~obsidian/Documents/ganfan-media` 以及 `/Users/zejiawu/Downloads` 等任何用户目录！
+  2. **清理历史临时垃圾空 Vault**：检查 `~/Library/Application Support/obsidian/obsidian.json`，如果里面有此前测试自动注册的指向 `/tmp/...` 或 `/var/folders/...` 的临时空测试 Vault 条目，将其从 `obsidian.json` 中安全移除（**切勿移除 `ganfan-media` 和 `Downloads`！**），并删除 `/tmp` 下对应的临时空测试 Vault 文件夹。
+  3. **全项目唯一固定开发测试 Vault**：
+     - 固定路径：**`/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault`**（已加入 `.gitignore`）；
+     - 所有 Obsidian 真机部署与 CUA 验收，**永远只复用这一个 `.dev-vault`**（将 `dist/obsidian/{main.js,manifest.json,styles.css}` 复制到 `.dev-vault/.obsidian/plugins/pith/`，测试材料和课题统一放在 `.dev-vault/Pith/` 顶层目录下）。
 
 ---
 
-### 🔍 Tester Package（交给 ChatGPT App / CUA 执行终极真机验收，通过前不打扰用户）
+## 📦 执行与验收清单（由 ChatGPT App 常驻总控调度 Worker + CUA Tester 闭环）
 
-在 Worker 1 和 Worker 2 全部合并并通过 `npm test` + `npm run build:obsidian` 后，执行以下 **三大真实验收关卡**：
-1. **关卡 1：真实 `.epub` 电子书全链路验收**：
-   - 导入一本真实多章节带插图的 `.epub` 电子书，验证：封面与插图显示、霞鹜文楷/衬线字体渲染、左上角 `[☰]` 抽屉章节树跳转、宽屏双页并排翻页（滚轮与方向键一致）、框选跨节点文字打上荧光黄高亮并跳回定位。
-2. **关卡 2：真实神经网络 TTS 连续伴读验收（非 503 测试，真发声流验收！）**：
-   - 在本机拉起真实兼容 `/v1/audio/speech` 的 TTS 语音端点（如本机 Kokoro 或配置的 OpenAI TTS），点按 `🎧 听读本章` 及框选某句点击 `▶ 从此句朗读`，验证：真实 `<audio>` 音频流连续播放、下一句无缝预取、`.pith-speech-active` 句级高亮跟随与跨页自动翻页、自动跳过代码块与图片。
-3. **关卡 3：Obsidian 真机部署与 CUA 交互验收**：
-   - 将构建好的 `dist/obsidian/{main.js, manifest.json, styles.css}` 部署到测试 Vault 的 `.obsidian/plugins/pith/`，在真实 **Obsidian 桌面端** 中启动启用插件，逐屏截图挑刺视觉细节（明暗主题切换、字体美感、抽屉与侧栏开合、零系统垃圾语音），确认达到核心可发布品质后再交付给用户。
+1. **Worker 实现与单测更新**：
+   - 更新 `src/shells/obsidian/index.ts`、`src/shells/obsidian/plugin.ts`、`src/shells/web/server.ts` 及对应测试（如旧测试中有断言 `.pith-bottom-dock{...opacity:.15}` 或进入课题默认展开侧栏的旧预期，同步更新测试以匹配最新的 `docs/003-interaction.md` 顶栏无遮挡规范！）；
+   - 运行 `PATH="/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/node_modules/.bin:$PATH" npm run typecheck`、`npm test` 与 `npm run build:obsidian`，确保 100% 全绿通过。
+2. **固定 `.dev-vault` 部署与 Obsidian 真机 CUA 验收**：
+   - 将最新构建产物部署到唯一固定的 `/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault/.obsidian/plugins/pith/`，并清理此前遗留的 `/tmp` 临时垃圾 Vault；
+   - 使用 CUA 打开真实 Obsidian（指向 `.dev-vault`），实测验证：
+     - [ ] 打开 Pith 时，Obsidian 原生左侧文件树自动收起；若展开左侧文件树查看，所有 Pith 文件均整齐收纳在顶层 **`Pith/`** 文件夹下（绝不散落在根目录）；
+     - [ ] 进入《你的灯亮着吗？》电子书阅读页时，**右侧向导栏默认收起**，正文居中撑满，霞鹜文楷排版与封面插图清晰；
+     - [ ] **正文底部 100% 干净无任何半透明遮挡物**！听读开关 `[🎧]`、排版菜单 `[Aa]`、向导开关 `[◨]` 全部规整在 44px 极简顶栏中；
+     - [ ] 点击 `[Aa]` 弹出排版气泡切换字号与双栏分页正常；点击 `[🎧]` 开启真实 TTS 朗读并在顶栏播控条中显示状态；框选文字点击「问向导」自动展开右侧向导栏。
+   - 验收通过后将代码变更 `git commit` 入库并向用户展示真机截图。
