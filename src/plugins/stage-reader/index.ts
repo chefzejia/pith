@@ -1,0 +1,104 @@
+import { registerPlugin, type Material, type MaterialFileEntry, type ProseBlock, type ReaderSectionHeading, type RenderedDocumentView, type StageReaderService } from "../../core/index.ts";
+import { renderEpub } from "./epub.ts";
+
+export function readerInUse(materials: readonly Material[]): number {
+  return materials.filter(material => material.kind === "book" || material.kind === "article").length;
+}
+
+const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+const inline = (text: string): string => escape(text).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "code" | "table" | "meta" | "rule" | "math"; level?: number; display?: string }
+
+function markdownBlocks(markdown: string): MarkdownBlock[] {
+  const lines = markdown.split(/\r?\n/);
+  const blocks: MarkdownBlock[] = [];
+  const add = (line: number, text: string, kind: MarkdownBlock["kind"], isProse: boolean, level?: number, display?: string) => {
+    blocks.push({ index: blocks.length, locator: `text:line:${line}`, text, isProse, kind, level, display });
+  };
+  let i = 0;
+  if (lines[0]?.trim() === "---") {
+    const end = lines.findIndex((line, n) => n > 0 && /^(---|\.\.\.)\s*$/.test(line));
+    if (end >= 0) { add(0, lines.slice(0, end + 1).join("\n"), "meta", false); i = end + 1; }
+  }
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (!line.trim()) { i++; continue; }
+    const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const start = i++;
+      while (i < lines.length && !new RegExp(`^\\s{0,3}${fence[1]![0]}{${fence[1]!.length},}\\s*$`).test(lines[i]!)) i++;
+      if (i < lines.length) i++;
+      add(start, lines.slice(start, i).join("\n"), "code", false); continue;
+    }
+    if (/^\s*\$\$/.test(line)) {
+      const start = i++;
+      if (!/^\s*\$\$.+\$\$\s*$/.test(line)) { while (i < lines.length && !/^\s*\$\$\s*$/.test(lines[i]!)) i++; if (i < lines.length) i++; }
+      add(start, lines.slice(start, i).join("\n"), "math", false); continue;
+    }
+    if (/^ {4}|^\t/.test(line)) {
+      const start = i++;
+      while (i < lines.length && /^( {4}|\t)/.test(lines[i]!)) i++;
+      add(start, lines.slice(start, i).join("\n"), "code", false); continue;
+    }
+    const tableDivider = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+    if (line.includes("|") && i + 1 < lines.length && tableDivider.test(lines[i + 1]!)) {
+      const start = i; i += 2;
+      while (i < lines.length && lines[i]!.trim() && lines[i]!.includes("|")) i++;
+      add(start, lines.slice(start, i).join("\n"), "table", false); continue;
+    }
+    if (/^\s{0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(line) || tableDivider.test(line)) { add(i++, line, "rule", false); continue; }
+    const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) { add(i++, heading[2]!, "heading", true, heading[1]!.length); continue; }
+    const quote = /^\s*>\s?(.*)$/.exec(line);
+    const list = /^\s*(?:[-+*]|\d+[.)])\s+(.+)$/.exec(line);
+    const text = quote ? quote[1]! : list ? list[1]! : line.trim();
+    const clean = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "").trim();
+    const isProse = /[\p{L}\p{N}]/u.test(clean) && !/^\s*\$.*\$\s*$/.test(text) && !/^\s*<[^>]+>/.test(text);
+    add(i++, clean, quote ? "quote" : "paragraph", isProse, undefined, text);
+  }
+  return blocks;
+}
+
+export function extractProseBlocks(markdown: string): readonly ProseBlock[] { return markdownBlocks(markdown); }
+
+export function markdownSections(markdown: string): ReaderSectionHeading[] {
+  return markdownBlocks(markdown).filter(block => block.kind === "heading").map(block => ({ title: block.text, level: block.level!, line: Number(block.locator.slice(10)), locator: block.locator }));
+}
+
+export function renderMarkdown(markdown: string): string {
+  return markdownBlocks(markdown).map(block => {
+    const attrs = `data-locator="${block.locator}" data-prose="${block.isProse}"`;
+    const line = block.locator.slice(10);
+    if (block.kind === "meta") return "";
+    if (block.kind === "code" || block.kind === "math" || block.kind === "table") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
+    if (block.kind === "rule") return `<hr ${attrs}>`;
+    if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
+    const tag = block.kind === "quote" ? "blockquote" : "p";
+    return `<${tag} ${attrs}>${inline(block.display ?? block.text)}</${tag}>`;
+  }).join("");
+}
+
+export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {
+  if (/\.epub$/i.test(file.name) || file.mimeType === "application/epub+zip") return renderEpub(bytes);
+  if (/\.md$/i.test(file.name) || file.mimeType === "text/markdown") {
+    const markdown = new TextDecoder().decode(bytes);
+    const sections = markdownSections(markdown);
+    return { format: "markdown", title: sections[0]?.title ?? file.name, html: renderMarkdown(markdown), sections, blocks: extractProseBlocks(markdown), totalUnits: markdown.split(/\r?\n/).length };
+  }
+  throw new Error(`Unsupported reader format: ${file.name}`);
+}
+
+registerPlugin({
+  id: "stage-reader", api: "^1", requires: ["host", "store", "window"], provides: ["stage.reader"], essential: true,
+  name: "Document & Book Stage", description: "Paginated EPUB, fixed-page PDF, and reflowable Markdown reading stage with intrinsic locators",
+  parts: [{ slot: "stage", key: "reader" }],
+  settings: {
+    fontScale: { type: "number", title: "Font scale", description: "Relative reading typography scale", default: 1, minimum: 0.75, maximum: 1.75 },
+    columns: { type: "string", title: "Column mode", default: "auto", enum: ["auto", "single", "double"] },
+  },
+  apply(ctx) {
+    const service: StageReaderService = { formats: ["epub", "pdf", "markdown"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, renderFile };
+    ctx.provide("stage.reader", service);
+  },
+});
