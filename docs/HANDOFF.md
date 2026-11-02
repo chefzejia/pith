@@ -1,101 +1,86 @@
-# Pith · Wave 4 并行独立 Agent 开发交接单（HANDOFF · Track A / Track B）
+# Pith · 核心版本重铸交接单（HANDOFF · 全量承接 Garden 字体/视觉/渲染资产 + Obsidian 真机 & EPUB/TTS 端到端闭环）
 
 > **仓库路径**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **必读契约**：[`AGENTS.md`](../AGENTS.md) · [`docs/002-architecture.md`](002-architecture.md) · [`docs/003-interaction.md`](003-interaction.md) · [`src/core/seams.ts`](../src/core/seams.ts)
-> **产品品质死命令（Zero System-TTS Garbage · 严格 Fail-Closed）**：
-> - **严禁使用任何操作系统/浏览器自带的低劣机械语音或语音识别**（全仓永久封杀 `window.speechSynthesis`、`SpeechSynthesisUtterance`、`webkitSpeechRecognition`、`SpeechRecognition` 及 macOS `say` 命令）！
-> - **保持极致轻量 + 严选官方可选项 + 用户自备/自下载 + 不具备条件即直接失败（Fail-Closed）**：Pith 安装包绝不内置或偷偷下载几百 MB 模型；我们在设置中提供严选的官方高品质预设（TTS 默认 `kokoro-local` 备选 `openai-tts` / `azure-neural`；ASR 默认 `whisper-local` 备选 `sensevoice-local` / `openai-whisper`），附清晰的本机启动/安装指引。若用户本机未启动对应服务或未配 Key，点击伴读或转写时**直接快速失败并弹出轻量 `.pith-toast-tip` 引导去设置中连接**，绝不退化用系统自带语音糊弄用户！
-> **并行隔离铁律**：以下 **2 个任务包（Track A / Track B）的修改文件集 100% 物理正交，零交集**！每个 Agent **严禁触碰自己 Write Scope 之外的任何文件**（尤其严禁修改 `src/core/**` 和现有旧测试文件）。
+> **参考遗产母本（必读！）**：`/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden`
+> **必读规范**：
+> - [`ganfan-garden/styles.css`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css)（1,451 行精雕细琢的字体栈、配色语义变量、荧光黄高亮与阅读控件）
+> - [`ganfan-garden/docs/product/prototype/interaction.html`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/docs/product/prototype/interaction.html)（视觉质感与排版呼吸感基准）
+> - [`ganfan-garden/docs/PRODUCT.md`](/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/docs/PRODUCT.md)（尤其是第 38-51 行：**一级常驻体验保持极简通用，零特定学习法绑架**！）
+> - [`docs/003-interaction.md`](003-interaction.md)
 
 ---
 
-## 📦 Wave 4 · Track A（Agent A 负责）：严选高品质神经网络 TTS/ASR 引擎（Fail-Closed）+ 音视频时间轴视图 + 防 SSRF 外部摄取管线
+## 🚨 战略方向彻底纠偏（为什么必须重铸 UI、字体与真机阅读层）
 
-### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
-- `src/plugins/speech-service/index.ts`
-- 新增 `src/plugins/speech-service/neuralSpeech.ts`（严选官方 TTS/ASR 预设清单、基于 `HostPort.http` & `HostPort.secrets` 的高品质语音合成与转写客户端、下一句预取器 `PrefetchSpeechQueue`）
-- `src/plugins/stage-timeline/index.ts`
-- `src/plugins/guide-acp/index.ts`
-- `src/plugins/guide-acp/tools.ts`
-- 新增 `src/plugins/guide-acp/externalIngest.ts`（零 Node 耦合、基于 `HostPort.http` 的防 SSRF 外部网页/媒体摄取器）
-- `src/shells/dsh/index.ts`
-- 新增 `tests/wave4-trackA-speech-timeline-ingest.test.ts`
-- *(严禁修改 `src/core/**`、`src/plugins/stage-reader/**`、`src/shells/web/**`、`src/shells/obsidian/**` 或其他现有测试文件！严禁在 `src/plugins/**` 中 import `node:*`！)*
-
-### 2. 核心设计目标（对齐 [`src/core/seams.ts`](../src/core/seams.ts) 已定型签名）
-
-1. **严选官方高品质 TTS & ASR 预设与 Fail-Closed 客户端（`src/plugins/speech-service/neuralSpeech.ts` & `index.ts`）**：
-   - 定义并导出官方严选预设清单 `CURATED_TTS_PRESETS` 与 `CURATED_ASR_PRESETS`（符合 `SpeechEnginePreset`）：
-     - **TTS 预设（`CuratedTtsProviderId`）**：
-       1. `"kokoro-local"`（默认推荐 · 轻量开源首选）：`label: "Kokoro-82M (本机开源引擎)"`, `kind: "local"`, `defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech"`, `defaultVoice: "af_heart"`, `installHint: "在终端运行 Kokoro OpenAI 兼容服务（如 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest 或 mlx-audio）"`；
-       2. `"openai-tts"`：`label: "OpenAI gpt-4o-mini-tts (云端)"`, `kind: "cloud"`, `defaultEndpoint: "https://api.openai.com/v1/audio/speech"`, `defaultVoice: "alloy"`, `installHint: "需配置 OPENAI_API_KEY"`；
-       3. `"azure-neural"`：`label: "Azure Neural TTS (微软神经网络音色)"`, `kind: "cloud"`, `defaultEndpoint: "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"`, `defaultVoice: "zh-CN-XiaoxiaoNeural"`, `installHint: "需配置 AZURE_SPEECH_KEY 与区域"`。
-     - **ASR 预设（`CuratedAsrProviderId`）**：
-       1. `"whisper-local"`（默认推荐）：`label: "MLX / Faster Whisper (本机回环)"`, `kind: "local"`, `defaultEndpoint: "http://localhost:8765"`, `installHint: "在本机启动 Whisper 回环服务监听 8765 端口"`；
-       2. `"sensevoice-local"`：`label: "SenseVoice-Small (本机极速多语种)"`, `kind: "local"`, `defaultEndpoint: "http://127.0.0.1:8766"`, `installHint: "在本机启动 SenseVoice HTTP 服务监听 8766 端口"`；
-       3. `"openai-whisper"`：`label: "Whisper-large-v3-turbo (云端 API)"`, `kind: "cloud"`, `defaultEndpoint: "https://api.openai.com/v1/audio/transcriptions"`, `installHint: "需配置 OPENAI_API_KEY"`。
-   - **严格安全与 Fail-Closed 合成/转写实现**：
-     - 本地预设（`kind === "local"`）强制校验 `isLoopbackSafe(endpoint)`（防数据外泄）；云端预设强制校验 `HostPort.secrets?.getSecret(...)` 非空（缺密钥直接抛清晰错误，绝不回退系统语音！）；
-     - `speech.tts.synthesizeSpeech(text, signal?)`: 通过 `HostPort.http` 调用对应端点合成音频（`kokoro-local` 与 `openai-tts` 发送 OpenAI `/v1/audio/speech` JSON 请求；`azure-neural` 发送 SSML XML 请求），校验返回 HTTP 2xx 且 `bytes.byteLength > 0`（空音频或连接失败直接抛含 `installHint` 的明确错误！）；
-     - 实现并导出 `PrefetchSpeechQueue`（参考 `ganfan-garden/src/speech/cloudPlayer.ts`）：在播放第 `i` 句时自动并发预取第 `i+1` 句音频，支持 `AbortSignal` 立即取消；
-     - `speech.asr.checkHealth()` 与 `speech.asr.transcribeAudio(audioBytes, mimeType, signal?)`：支持本地回环 `/health` & `/transcribe` 以及 OpenAI 兼容 JSON/纯文本响应解析，空音频或未连接直接 Fail-Closed 抛错。
-   - 扩展 `speech-service` 插件 `settings`：增加 `ttsProvider`（默认 `"kokoro-local"`）、`ttsEndpoint`、`ttsVoice`、`azureRegion`、`asrProvider`（默认 `"whisper-local"`），保留原有 `rate` 与 `asrLoopbackUrl` 默认值以兼容旧单测。
-
-2. **音视频时间轴舞台 HTML 视图（`src/plugins/stage-timeline/index.ts` & `renderTimelineView`）**：
-   - 实现 `renderTimelineView(input): string`：输出 `<section class="pith-timeline-stage" data-media-kind="...">`，包含 A-B 循环区间状态栏与每条带 `data-cue-id`、`data-locator="time:${cue.startSec}"`、`data-prose="true"` 的 `.pith-cue` 字幕节点。
-
-3. **防 SSRF 外部网页/媒体摄取管线（`src/plugins/guide-acp/externalIngest.ts` & `pith_ingest_external` 工具）**：
-   - 实现零 `node:*` 依赖的 `isPublicHttpUrl(url)`（严格拦截 `localhost`、`127.*`、`10.*`、`172.16-31.*`、`192.168.*`、`169.254.*`、`[::1]`、`.local` 等内网 SSRF 地址）与 `ingestExternalUrl(input, http)`；
-   - 在 `guide-acp/tools.ts` 与 `shells/dsh/index.ts` 中注册 `pith_ingest_external` 工具，将清洗后的外部文章/字幕导入 `WorkspaceStore` 并可选绑定到 `topicId`。
-
-4. **测试要求（`tests/wave4-trackA-speech-timeline-ingest.test.ts`）**：
-   - 验证 `kokoro-local`、`openai-tts`、`azure-neural` 合成请求格式、下一句 `PrefetchSpeechQueue` 预取命中、以及未启动本机服务/缺 API Key 时的 **严格 Fail-Closed 拒绝**；
-   - 验证 `whisper-local` / `sensevoice-local` 回环校验与转写解析；
-   - 验证 `renderTimelineView` 与 `pith_ingest_external`（含 SSRF 拦截）。
+上一轮快速原型犯了四个必须彻底推翻重铸的严重产品错误：
+1. **丢掉了灵魂字体与排版质感**：丢掉了 `ganfan-garden` 的 **霞鹜文楷（`LXGW WenKai`）与宋/楷衬线阅读排版栈**（`--pith-serif: "Garden LXGW WenKai", "LXGW WenKai", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Iowan Old Style", Georgia, serif`），把界面写成了粗糙简陋的工业灰框系统黑体，高亮甚至用了丑陋的灰底而不是温润的荧光笔黄（`rgba(235, 204, 102, 0.42)` + `#c59b38` 底边）！
+2. **违背了「一级常驻体验零特定学习法绑架」铁律**：在所有课题（哪怕是读中文架构文章）的底部都强行硬编码常驻了 `🗣 4 阶跟读工坊` 按钮和像后台调试表单一样的粗糙文本框！**正确规则**：普通课题默认**只展示纯净阅读舞台 + 伴读按钮（`🎧 听读本章`）**；只有当向导 Agent（或课题 `topic.toolkits`）明确为该课题动态注入了某个实训工具（如外语课题注入了 `shadowing`）时，才按需出现对应的轻量实训入口！
+3. **EPUB 电子书核心渲染能力未完整承接**：之前的 `epub.ts` 只提取了纯文本，丢掉了 EPUB 内嵌图片（Base64 / Blob URL 映射）、内嵌章节样式清洗与真正的章节按屏翻页体验。
+4. **未进入真实电子书、真实 TTS 发声与 Obsidian 真机验收**：必须在导入真实 `.epub` 电子书、连接真实 Kokoro/云端 TTS 音频流播放、以及部署到 **Obsidian 真机** 的标准下由 ChatGPT Tester（CUA）完成验收。
 
 ---
 
-## 📦 Wave 4 · Track B（Agent B 负责）：彻底铲除双壳系统垃圾语音 + 接入高品质音频流伴读/ASR 面板 + 多材料导入工作台
+## 📦 任务包拆分（2 个物理正交的 ChatGPT Worker 包 + 1 个 ChatGPT Tester 真机 CUA 验收包）
 
-### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
-- `src/shells/web/server.ts`
-- `src/shells/obsidian/index.ts`
-- `src/shells/obsidian/plugin.ts`
-- 新增 `tests/wave4-trackB-workbench-and-media.test.ts`
-- *(严禁修改 `src/core/**`、`src/plugins/**`、`src/shells/dsh/**` 或其他现有测试文件！注意：`src/shells/web/nodeHttp.ts` 已由上游备好可直接 import `NodeHttpPort`！)*
-
-### 2. 核心设计目标（彻底根除 `speechSynthesis` 垃圾语音，打通高品质语音设置、流式 `<audio>` 伴读与多材料工作台）
-
-1. **在 `shells/web/server.ts` 和 `shells/obsidian/plugin.ts` 中 100% 铲除 `speechSynthesis` / `SpeechSynthesisUtterance`！**
-   - **红线要求**：删除 `src/shells/web/server.ts` 与 `src/shells/obsidian/plugin.ts` 中所有 `speechSynthesis`、`SpeechSynthesisUtterance`、`webkitSpeechRecognition` 相关代码！
-   - 改为 **高品质神经网络音频流播放（Fail-Closed）**：
-     - 在 `src/shells/web/server.ts` 中挂载 `http: new NodeHttpPort()`（来自 `./nodeHttp.ts`）与 `secrets`（从设置或环境变量读取 `OPENAI_API_KEY` / `AZURE_SPEECH_KEY`）；
-     - 新增 `GET /api/speech/presets`（返回 TTS/ASR 官方严选预设清单与连接健康状态）、`POST /api/speech/synthesize`（调用 `speech.tts.synthesizeSpeech(text)` 返回音频二进制流或 Base64，失败时返回 503 与清晰的 `installHint` 指引）、`POST /api/speech/transcribe`（调用 `speech.asr.transcribeAudio`）；
-     - Web 前端 `startSpeech()` 改为：按句请求 `/api/speech/synthesize`（并在播放当前句 `HTMLAudioElement` 时预取下一句音频），同步高亮 `.pith-speech-active` 并自动滚动翻页；若服务端返回未连接高品质 TTS 引擎错误，立即停止并用 2 秒自动消散的 `.pith-toast-tip` 提示用户前往 `⚙ 设置` 连接 Kokoro 或云端 TTS，**绝不调用浏览器自带语音**！
-     - `PithObsidianView`（`src/shells/obsidian/plugin.ts`）同样移除 `speechSynthesis`，改为通过注入的 `ObsidianViewActions.synthesizeSpeech?(text, signal)` 播放真实音频二进制流（未配置音频合成器时直接通过 `.pith-toast-tip` 提示“未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音”）。
-
-2. **升级 `⚙ 设置` 面板：提供「官方严选 TTS / ASR 引擎选择与一键检测」**：
-   - 在设置抽屉中，除了本机向导 Agent（`dsh / claude / codex`）外，新增 **「语音伴读 (TTS) 与跟读识别 (ASR)」** 配置区：
-     - 从官方严选下拉框选择 TTS 引擎（默认 `kokoro-local` Kokoro-82M 本机开源引擎，可选 `openai-tts` / `azure-neural`）与 ASR 引擎（默认 `whisper-local`，可选 `sensevoice-local` / `openai-whisper`）；
-     - 展示对应的本机自下载/启动命令提示（`installHint`）、自定义端点 URL 输入框、可选 API Key 输入框，以及 `[ 检测语音引擎 ]` 按钮。
-
-3. **支持本地材料上传导入与音视频时间轴舞台切换**：
-   - 新增 `POST /api/materials` 路由与前端 `＋ 导入材料` 入口（支持导入 Markdown、EPUB、PDF/CBZ 或 WebVTT/SRT 字幕材料并绑定到课题）；
-   - 当打开 `kind === "media"` 或 `.vtt/.srt` 文件时，自动渲染 `.pith-timeline-stage` 与 `.pith-cue` 字幕时间轴，点击字幕可直接送入底部 4 阶跟读工坊；
-   - 在 `PithObsidianController` 中同步提供 `importMaterial`、`renderMaterialFile` 与 `setSpeechConfig`。
-
-4. **测试要求（`tests/wave4-trackB-workbench-and-media.test.ts`）**：
-   - **静态门禁测试**：扫描整个 `src/` 目录所有源码，断言 **零 `speechSynthesis`、零 `SpeechSynthesisUtterance`、零 `webkitSpeechRecognition`** 残留！
-   - 验证未连接 TTS 服务时，`POST /api/speech/synthesize` 严格 Fail-Closed 返回明确指引；连接模拟 Kokoro 端点时正常返回音频字节流；
-   - 验证 `POST /api/materials` 导入材料、字幕时间轴自动切换渲染、以及 `npm run build:obsidian` 构建全绿。
+> **并行隔离铁律**：**Worker 1** 与 **Worker 2** 修改的文件集合 **100% 物理正交、零交集**，可同时派发给两个 ChatGPT Worker 并行推进；两者合拢后，交由 **ChatGPT Tester（CUA）** 在真实 EPUB、真实 TTS 服务与 Obsidian 真机上做终极验收。
 
 ---
 
-## 三、 每个 Agent 交付前必跑的自检命令
+### 🔨 Worker Package 1：字体资产 + 真 EPUB 图文/样式完整渲染引擎 + 种子电子书样本（`stage-reader` 深水区完整移植）
 
-```bash
-PATH="/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/node_modules/.bin:$PATH" npm run typecheck
-PATH="/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/node_modules/.bin:$PATH" npm test
-npm run build:obsidian
-git status -s
-```
+#### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
+- `src/plugins/stage-reader/lxgwWenKaiData.ts`（已由 Brain 从 `ganfan-garden` 原样拷入 11MB 完整霞鹜文楷 WOFF2 字库与 OFL 许可证，直接 import 复用，无需重新生成！）
+- 新增 `src/plugins/stage-reader/fontData.ts`（基于 `./lxgwWenKaiData.ts` 实现 `installReaderFont(doc)`、导出 `READER_SERIF_STACK` 与 `@font-face` CSS 注入器）
+- 修改 `src/plugins/stage-reader/epub.ts`
+- 新增 `src/plugins/stage-reader/epubResources.ts`（EPUB 内嵌图片 data/blob URL 重写、安全 CSS 清洗与章节级结构保留）
+- 修改 `src/plugins/stage-reader/index.ts`
+- 新增真实多章节带封面/内嵌插图的测试电子书单测 `tests/core-epub-and-typography.test.ts`
+- *(严禁修改 `src/core/**`、`src/shells/**`、`src/plugins/guide-acp/**`、`src/plugins/speech-service/**` 或旧测试文件！严禁在 `src/plugins/**` 中 import `node:*`！)*
+
+#### 2. 核心实现要求
+1. **找回霞鹜文楷（`LXGW WenKai`）与阅读排版字体内核（`fontData.ts`）**：
+   - 检查 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/material/render/readerFont.ts`、`lxgwWenKaiData.ts` 及 `ganfan-garden/scripts/`（或系统/仓库字体资产），在 `stage-reader/fontData.ts` 中导出 `READER_SERIF_STACK`、`READER_SANS_STACK` 与 `installReaderFont(doc: Document)`，确保无论在 Obsidian 还是独立 Web 中，正文都能加载温润的霞鹜文楷 / 思源宋体 / 宋刻书卷排版，绝不退化成廉价系统黑体。
+2. **真 EPUB 电子书图文与章节排版完整承接（`epub.ts` & `epubResources.ts`）**：
+   - 对照 `ganfan-garden/src/material/ingest/epub.ts`、`src/material/render/adapters/epub.ts` 与 `epubStyles.ts`：
+   - 保留 EPUB 原书章节语义结构（`<h1>..<h6>`, `<p>`, `<blockquote>`, `<ul>/<ol>`, `<table>`, `<figure>`, `<img>`, `<svg>`），彻底清理 `<script>` / `on*` 事件等危险节点；
+   - **EPUB 内嵌图片 100% 正常显示**：解析章节相对路径（如 `../images/cover.png`），从 ZIP 包内提取对应图片字节并重写为安全的内嵌 `data:image/...;base64,...` URI，确保打开带插图或封面的 `.epub` 时图片 100% 清晰呈现；
+   - 每个章节与正文段落精准输出 `data-locator` 与 `data-prose="true|false"`（图片/代码块/表格标为 `data-prose="false"`，自然语言段落标为 `data-prose="true"`），确保章节目录跳转与 TTS 全章连续伴读精准对齐。
+3. **自检要求**：保证原有 73 项测试 + 新增 `tests/core-epub-and-typography.test.ts`（验证多章节含插图 `.epub` 完整渲染出图片、目录嵌套层级、章节分隔与正文伴读块提取）100% 通过。
+
+---
+
+### 🎨 Worker Package 2：承接 Garden 1,451 行高级视觉体系 + 砍掉常驻工坊绑架 + Obsidian 真机三栏体验打磨（`shells/obsidian` & `shells/web`）
+
+#### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
+- 修改 `src/shells/obsidian/plugin.ts`
+- 修改 `src/shells/obsidian/index.ts`
+- 修改 `src/shells/web/server.ts`
+- 修改 `scripts/build-obsidian.mjs`（确保打包进字体与完整 `styles.css`）
+- 新增 `tests/core-ui-polish-and-obsidian.test.ts`
+- *(严禁修改 `src/core/**`、`src/plugins/**`、`src/shells/dsh/**` 或旧测试文件！必须兼容保留现有测试断言的类名/ID 如 `.pith-left-drawer`, `.pith-bottom-dock`, `.pith-speech-active`, `.pith-toast-tip`, `#toggle-side`, `#agent-id`, `#detect-agents`！)*
+
+#### 2. 核心实现要求（1:1 复刻 `ganfan-garden/styles.css` 与 `interaction.html` 的高级设计质感！）
+1. **彻底消灭简陋工业风 UI，100% 注入 Garden 书卷级视觉设计语言**：
+   - 仔细研读 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/styles.css` 与 `docs/product/prototype/interaction.html`，将其精髓完整移植到 `obsidianStyles`（`src/shells/obsidian/plugin.ts`）和 Web 壳样式（`src/shells/web/server.ts`）：
+     - **工作区外框与侧栏跟随宿主主题变量**（`var(--background-primary)`、`var(--background-secondary)`，在 Web 壳提供温润细腻的中性浅/暗色默认值而非刺眼纯白 `#fff` + `#ddd` 粗黑线），同时引入细腻的鼠尾草绿强调色（`--pith-sage: #4e6a56` / 暗色 `#9bbfa2`）、陶土色徽章（`--pith-clay: #ad6548`）、柔和浮层阴影（`0 12px 32px rgba(24, 34, 29, 0.14)`）与圆润胶囊控件；
+     - **正文排版恢复书卷气**：阅读器正文 `#article` / `.pith-article` 强制使用衬线书卷字体栈（`"Garden LXGW WenKai", "LXGW WenKai", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Iowan Old Style", Georgia, serif`），字号 `17px`、行高 `1.95`、段间距 `1.15em`，支持 `Aa` 字号缩放与单页/双页并排自适应分页；
+     - **荧光笔高亮与伴读微反应**：选区高亮 `<mark>` 采用温润荧光黄（`background: rgba(235, 204, 102, 0.38); border-bottom: 1.5px solid #c59b38`），当前朗读句 `.pith-speech-active` 采用鼠尾草绿柔和底色与精细下划线过渡。
+2. **严格执行「一级常驻体验极简通用，零特定学习法绑架」**：
+   - **砍掉普通课题底部常驻的 `🗣 4 阶跟读工坊` 突兀入口与简陋表单感！**
+   - 当 `topic.toolkits` 为空（如普通阅读课题）时：底部悬浮条 `.pith-bottom-dock` **只显示纯净的伴读控制（`🎧 听读本章` + 播放中显示 `暂停 / 语速 1.0x / 进度`）**，绝不出现“跟读工坊”或“费曼复述”按钮干扰心流！（仅当 `topic.toolkits` 已被向导或用户显式挂载了 `shadowing` / `feynman` 时，才在 Dock 右侧优雅展示对应实训胶囊；若测试需要打开工坊，`#open-dojo` 可作为按需折叠的轻量次级图标或仅在挂载后展开精致卡片）。
+3. **Obsidian 真机体验对标 `ganfan-garden/src/main.ts`**：
+   - 在 `PithObsidianPlugin`（`src/shells/obsidian/index.ts`）中：
+     - 打开 Pith 时支持完整的**花园/罗盘首页总览（卡片网格、15 分钟焦点行动推荐、新建 Topic、导入本地 `.epub/.pdf/.md` 材料文件）** $\leftrightarrow$ **课题沉浸阅读页（左上角 `[☰]` 左侧目录与多文件抽屉、按屏流畅翻页、框选悬浮三键+从此句起读、右侧可一键完全收起的向导 `[对话 | 笔记]` 侧栏）** 自由切换；
+     - 在 Obsidian 中打开阅读视图时自动调用 `installReaderFont`（或注入衬线字体栈），并支持在 Obsidian 中直接选择 Vault 内或本机 `.epub` 文件导入阅读！
+
+---
+
+### 🔍 Tester Package（交给 ChatGPT App / CUA 执行终极真机验收，通过前不打扰用户）
+
+在 Worker 1 和 Worker 2 全部合并并通过 `npm test` + `npm run build:obsidian` 后，执行以下 **三大真实验收关卡**：
+1. **关卡 1：真实 `.epub` 电子书全链路验收**：
+   - 导入一本真实多章节带插图的 `.epub` 电子书，验证：封面与插图显示、霞鹜文楷/衬线字体渲染、左上角 `[☰]` 抽屉章节树跳转、宽屏双页并排翻页（滚轮与方向键一致）、框选跨节点文字打上荧光黄高亮并跳回定位。
+2. **关卡 2：真实神经网络 TTS 连续伴读验收（非 503 测试，真发声流验收！）**：
+   - 在本机拉起真实兼容 `/v1/audio/speech` 的 TTS 语音端点（如本机 Kokoro 或配置的 OpenAI TTS），点按 `🎧 听读本章` 及框选某句点击 `▶ 从此句朗读`，验证：真实 `<audio>` 音频流连续播放、下一句无缝预取、`.pith-speech-active` 句级高亮跟随与跨页自动翻页、自动跳过代码块与图片。
+3. **关卡 3：Obsidian 真机部署与 CUA 交互验收**：
+   - 将构建好的 `dist/obsidian/{main.js, manifest.json, styles.css}` 部署到测试 Vault 的 `.obsidian/plugins/pith/`，在真实 **Obsidian 桌面端** 中启动启用插件，逐屏截图挑刺视觉细节（明暗主题切换、字体美感、抽屉与侧栏开合、零系统垃圾语音），确认达到核心可发布品质后再交付给用户。
