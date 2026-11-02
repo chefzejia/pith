@@ -130,6 +130,24 @@ export interface StageTimelineService {
   }): string;
 }
 
+export type CuratedTtsProviderId = "kokoro-local" | "openai-tts" | "azure-neural";
+export type CuratedAsrProviderId = "whisper-local" | "sensevoice-local" | "openai-whisper";
+
+export interface SpeechEnginePreset<TId extends string = string> {
+  readonly id: TId;
+  readonly label: string;
+  readonly kind: "local" | "cloud";
+  readonly defaultEndpoint: string;
+  readonly defaultVoice?: string;
+  readonly installHint: string;
+}
+
+export interface SpeechSynthesisAudio {
+  readonly bytes: Uint8Array;
+  readonly mimeType: string;
+  readonly providerId: CuratedTtsProviderId;
+}
+
 export interface SpeechSentenceSegment {
   readonly text: string;
   readonly offset: number;
@@ -138,21 +156,30 @@ export interface SpeechSentenceSegment {
 }
 
 export interface SpeechTtsService {
+  readonly providerId?: CuratedTtsProviderId;
+  readonly endpoint?: string;
+  readonly voice?: string;
   readonly rate: number;
   splitSentences(text: string): readonly SpeechSentenceSegment[];
   filterProseOnly?(blocks: readonly ProseBlock[]): readonly SpeechSentenceSegment[];
+  listPresets?(): readonly SpeechEnginePreset<CuratedTtsProviderId>[];
+  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly providerId: CuratedTtsProviderId; readonly note: string }>;
+  synthesizeSpeech?(text: string, signal?: AbortSignal): Promise<SpeechSynthesisAudio>;
 }
 
 export interface AsrTranscriptionResult {
   readonly text: string;
   readonly language?: string;
   readonly durationSec?: number;
+  readonly providerId?: CuratedAsrProviderId;
 }
 
 export interface SpeechAsrService {
+  readonly providerId?: CuratedAsrProviderId;
   readonly url: string;
   isLoopbackSafe(url: string): boolean;
-  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly note: string }>;
+  listPresets?(): readonly SpeechEnginePreset<CuratedAsrProviderId>[];
+  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly providerId?: CuratedAsrProviderId; readonly note: string }>;
   transcribeAudio?(audioBytes: Uint8Array, mimeType?: string, signal?: AbortSignal): Promise<AsrTranscriptionResult>;
 }
 
