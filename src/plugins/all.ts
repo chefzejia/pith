@@ -6,6 +6,7 @@
  * - a plugin never imports another plugin.
  */
 
+import "./dojo-feynman/index.ts";
 import "./dojo-shadowing/index.ts";
 import "./guide-acp/index.ts";
 import "./speech-service/index.ts";

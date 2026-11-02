@@ -45,7 +45,10 @@ export function quickActionsForTopic(topic: Topic, activeDojos: readonly DojoToo
 
 export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic; userMessage: string; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[] }): string {
   const { topic } = input;
-  const available = input.availableToolkits ?? [{ id: "shadowing", label: "4-Stage Language Shadowing", category: "language" }];
+  const available = input.availableToolkits ?? [
+    { id: "shadowing", label: "4-Stage Language Shadowing", category: "language" },
+    { id: "feynman", label: "4-Stage Feynman Recall", category: "comprehension" },
+  ];
   return [
     `# 学习者画像\n${input.profileMarkdown}`,
     `# 当前课题\nID：${topic.id}\n材料 ID：${topic.materialId ?? "无"}\n标题：${topic.title}\n目标：${topic.target}\n状态：${topic.status}\n下一步：${topic.nextAction ?? "未设置"}`,

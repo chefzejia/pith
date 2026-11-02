@@ -1,5 +1,6 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type GuideAgentService, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { builtinRegistry } from "../../plugins/all.ts";
+import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
@@ -18,12 +19,15 @@ interface ObsidianPluginBase {
   registerView(type: string, factory: (leaf: ObsidianLeaf) => ObsidianItemViewBase): void;
   addRibbonIcon(icon: string, title: string, callback: () => void): HTMLElement;
   addCommand(command: { id: string; name: string; callback: () => void }): void;
+  addSettingTab?(tab: ObsidianSettingTabBase): void;
 }
 interface ObsidianItemViewBase { contentEl: HTMLElement }
+interface ObsidianSettingTabBase { containerEl: HTMLElement }
 type ObsidianApi = {
   Plugin: new (...args: never[]) => ObsidianPluginBase;
   ItemView: new (leaf: ObsidianLeaf) => ObsidianItemViewBase;
   Notice: new (message: string) => unknown;
+  PluginSettingTab?: new (app: ObsidianPluginBase["app"], plugin: ObsidianPluginBase) => ObsidianSettingTabBase;
 };
 // Obsidian supplies this module at runtime; plain Node imports keep the controller usable.
 const obsidian: ObsidianApi = typeof require === "function" ? require("obsidian") as ObsidianApi : {
@@ -95,17 +99,20 @@ export class PithObsidianController {
   constructor(host: HostPort) {
     this.host = host;
     this.store = new DefaultWorkspaceStore(host.storage);
-    this.engine = new DefaultAttentionEngine(this.store, host.storage);
+    let provider: GuideProvider | undefined;
+    this.engine = new DefaultAttentionEngine(this.store, host.storage, () => this.agentId ? provider : undefined);
     const manifests = builtinRegistry.list().map(manifest => {
-      if (!["stage-reader", "stage-timeline", "dojo-shadowing"].includes(manifest.id)) return manifest;
+      if (!["stage-reader", "stage-timeline", "dojo-shadowing", "dojo-feynman"].includes(manifest.id)) return manifest;
       return { ...manifest, inUse: () => {
         if (!this.topics || !this.materials) throw new Error("Workspace snapshot unavailable");
         if (manifest.id === "stage-reader") return this.materials.filter(item => item.kind === "book" || item.kind === "article").length;
         if (manifest.id === "stage-timeline") return this.materials.filter(item => item.kind === "media").length;
-        return this.topics.filter(topic => topic.toolkits.includes("shadowing") || topic.toolkits.includes("dojo-shadowing")).length;
+        const id = manifest.id === "dojo-feynman" ? "feynman" : "shadowing";
+        return this.topics.filter(topic => topic.toolkits.includes(id) || topic.toolkits.includes(`dojo-${id}`)).length;
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
+    if (host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
@@ -179,6 +186,8 @@ export class PithObsidianController {
   }
   async setPlugins(config: PluginsConfigFile): Promise<void> { this.config = config; await this.refresh(); const available = this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"); for (const view of this.views) view.setGuideAvailable(available); await this.save({ preset: config.preset ?? "all", plugins: config.plugins ?? {} }); }
   getPersona(): "sanctuary" | "studio" { return this.persona; }
+  getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona }; }
+  getSpeechConfig(): Record<string, string> { return { ...this.speechConfig }; }
   createView(root: HTMLElement, actions: ObsidianViewActions): PithObsidianView {
     const view = new PithObsidianView(root, actions);
     view.setGuideAvailable(this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"));
@@ -191,11 +200,10 @@ export class PithObsidianController {
 
 const PITH_VIEW_TYPE = "pith-reader";
 
-class PithWorkspaceView extends obsidian.ItemView {
+export class PithWorkspaceView extends obsidian.ItemView {
   private view: PithObsidianView | null = null;
   private readonly controller: PithObsidianController;
-  private readonly host: HostPort;
-  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, host: HostPort) { super(leaf); this.controller = controller; this.host = host; }
+  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort) { super(leaf); this.controller = controller; }
   getViewType(): string { return PITH_VIEW_TYPE; }
   getDisplayText(): string { return "Pith"; }
   getIcon(): string { return "book-open"; }
@@ -222,7 +230,10 @@ class PithWorkspaceView extends obsidian.ItemView {
     if (!topic || !topic.materialId) throw new Error("课题没有关联材料");
     const material = await this.controller.store.getMaterial(topic.materialId);
     if (!material || !material.files.length) throw new Error("材料没有可读取的文件");
+    let currentFile = material.files[0]!.name;
+    const dojos = (): DojoToolkitDescriptor[] => ["shadowing", "feynman"].flatMap(id => { const service = this.controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [service] : []; });
     const render = async (name: string): Promise<void> => {
+      currentFile = name;
       const document = await this.controller.renderMaterialFile(material.id, name);
       if (this.view) this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections });
     };
@@ -230,14 +241,33 @@ class PithWorkspaceView extends obsidian.ItemView {
     this.view = this.controller.createView(this.contentEl, {
       openFile: render,
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音"); return tts.synthesizeSpeech(text, signal); },
-      openDojo: () => { new obsidian.Notice("此视图尚未提供跟读工坊"); },
-      selection: (action, text) => {
-        if (action === "ask") { new obsidian.Notice("此视图尚未提供向导对话"); return; }
-        void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text }).catch(error => this.report(error));
-      },
+      openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
+      selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
+      guideData: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
+      sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); },
+      savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
+      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (!current) throw new Error("课题不存在"); if (!current.toolkits.includes(id) && !current.toolkits.includes(`dojo-${id}`)) await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); },
     });
-    this.view.setGuideAvailable(false);
     await render(material.files[0]!.name);
+    await this.view.refreshGuide();
+  }
+}
+
+const SettingTabBase = obsidian.PluginSettingTab || class { containerEl!: HTMLElement; constructor(_app: ObsidianPluginBase["app"], _plugin: ObsidianPluginBase) {} };
+export class PithSettingTab extends SettingTabBase {
+  private readonly controller: PithObsidianController;
+  constructor(app: ObsidianPluginBase["app"], plugin: ObsidianPluginBase, controller: PithObsidianController) { super(app, plugin); this.controller = controller; }
+  display(): void {
+    const root = this.containerEl; root.replaceChildren();
+    const doc = root.ownerDocument;
+    const addSelect = (label: string, choices: readonly (readonly [string, string])[], value: string): HTMLSelectElement => { const row = doc.createElement("label"); row.textContent = label; const select = doc.createElement("select"); for (const [id, title] of choices) { const option = doc.createElement("option"); option.value = id; option.textContent = title; select.append(option); } select.value = value; row.append(select); root.append(row); return select; };
+    const config = this.controller.getAgentConfig(), speech = this.controller.getSpeechConfig();
+    const agent = addSelect("本机 Agent", [["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId);
+    const persona = addSelect("术语风格", [["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona);
+    const tts = addSelect("TTS", [["kokoro-local", "Kokoro 本机"], ["openai-tts", "OpenAI TTS"], ["azure-neural", "Azure Neural"]], speech.ttsProvider || "kokoro-local");
+    const asr = addSelect("ASR", [["whisper-local", "Whisper 本机"], ["sensevoice-local", "SenseVoice 本机"], ["openai-whisper", "OpenAI Whisper"]], speech.asrProvider || "whisper-local");
+    const status = doc.createElement("p"); status.setAttribute("role", "status"); const scan = doc.createElement("button"); scan.textContent = "扫描并配置本机 Agent"; scan.onclick = () => { scan.disabled = true; void this.controller.detectAgents(true).then(async agents => { const available = agents.find(item => item.available && ["dsh", "claude", "codex"].includes(item.id)); if (!available) { status.textContent = "未发现可用 Agent"; return; } agent.value = available.id; await this.controller.setAgentConfig({ ...config, agentId: available.id as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); status.textContent = `已配置 ${available.label}`; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); };
+    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, asrProvider: asr.value }); status.textContent = "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, save, status);
   }
 }
 
@@ -251,6 +281,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     try {
       await controller.initialize();
       this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host));
+      if (this.addSettingTab && obsidian.PluginSettingTab) this.addSettingTab(new PithSettingTab(this.app, this, controller));
       const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };
       this.addRibbonIcon("book-open", "打开 Pith", open);
       this.addCommand({ id: "open-pith", name: "打开 Pith", callback: open });

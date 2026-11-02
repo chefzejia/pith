@@ -19,7 +19,7 @@ Pith 采用受 `magpie` 与 `dsh-superagent` 启发的同心圆三层架构：
    ┌──────────────────┬──────────────────┬──────────────────┬─────────────────┐
    │ 主视觉区 stage-* │ 主动功能区 dojo-*│ 辅助协同区 guide-*│ 公共底座 *-service│
    │ - stage-reader   │ - dojo-shadowing │ - guide-acp      │ - speech-service│
-   │ - stage-timeline │ (Agent 按课题挂载)│   (向导协同面板)  │   (TTS & ASR)   │
+   │ - stage-timeline │ - dojo-feynman   │   (向导协同面板)  │   (TTS & ASR)   │
    └──────────────────┴──────────────────┴──────────────────┴─────────────────┘
 ================================================================================
                                       │
@@ -56,7 +56,7 @@ Pith 采用受 `magpie` 与 `dsh-superagent` 启发的同心圆三层架构：
 | 前缀分类 | 界面与架构定位 | 现有内置插件 | 核心设计准则 |
 | :--- | :--- | :--- | :--- |
 | **`stage-*`** | **主视觉呈现区（Primary Stage）** | `stage-reader`（文档/电子书）<br>`stage-timeline`（音视频时间轴） | 根据当前 `Material` 的格式自动调度呈现，向上汇报与屏幕尺寸无关的内在位置 `IntrinsicLocator` 与选区锚点 `SelectionAnchor`。 |
-| **`dojo-*`** | **主动实训功能区（Active Dojo）** | `dojo-shadowing`（外语 4 阶跟读） | **由 Agent（或课题意图）通过 `topic.toolkits` 动态按需挂载**；对不涉及该实训的课题默认隐藏，遵循 `拆解 -> 跟练 -> 骨干挖空 -> 盲产诊断(LCS)` 四阶撤拐杖规律。 |
+| **`dojo-*`** | **主动实训功能区（Active Dojo）** | `dojo-shadowing`（外语 4 阶跟读）<br>`dojo-feynman`（费曼盲写复述） | **由 Agent（或课题意图）通过 `topic.toolkits` 动态按需挂载**；对不涉及该实训的课题默认隐藏，遵循 `拆解 -> 跟练 -> 骨干挖空 -> 盲产诊断` 四阶撤拐杖规律。 |
 | **`guide-*`** | **Agent 辅助协同区（AI Guide）** | `guide-acp`（向导与课程教练） | 结合 `ME.md` 因人施教，感知系统可用 `Dojo` 工具清单并帮用户动态挂载，消费后台 `Effects` 队列，通过深水区毕业一问（Settlement Gate）把关课题沉淀。 |
 | **`*-service`** | **无界面公共能力底座** | `speech-service`（分句 TTS 与本地回环 ASR） | 不直接占据主界面区域，向多个上层 `stage-*` 或 `dojo-*` 插件提供共享底层服务（如本地回环安全校验与音频能力）。 |
 

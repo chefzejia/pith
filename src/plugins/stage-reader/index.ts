@@ -13,7 +13,12 @@ export function readerInUse(materials: readonly Material[]): number {
 }
 
 const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-const inline = (text: string): string => escape(text).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
+const inline = (text: string): string =>
+  escape(text.replace(/\$(?:\\rightarrow|\\to)\$/g, "→"))
+    .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 
 interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "code" | "table" | "meta" | "rule" | "math" | "teaching"; level?: number; display?: string; teaching?: TeachingBlockSpec }
 
