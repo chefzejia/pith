@@ -26,6 +26,7 @@ Pith 是一个宿主无关的**个人注意力与深度内化系统（Personal A
 4. **测试环境卫生与真实 Vault 保护铁律（`Single Dev Vault & Real Vault Protection`）**：
    - **严禁触碰用户的真实 Obsidian Vault**（特别是 `/Users/zejiawu/Library/Mobile Documents/iCloud~md~obsidian/Documents/ganfan-media` 与 `/Users/zejiawu/Downloads` 等任何用户目录）！
    - **严禁每次测试创建新的随机空 Vault 污染 Obsidian 列表**！所有 Obsidian 真机调试与 CUA 验收必须且只能复用仓库内唯一的固定测试 Vault：`/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault`（并在其中验证 `Pith/` 顶层命名空间隔离）。
+   - **严禁在测试或验证中调用废弃的 `Qwen3-TTS`（`ganfan-audio/models/Qwen3-TTS-12Hz-0.6B-Base`）或系统自带语音（`say`/`SiriTTS`/`speechSynthesis`）取巧凑数**！Pith 实时伴读首选轻量的 `kokoro-local` 或云端 `openai-tts`/`azure-neural`，本机高保真克隆只认可 `IndexTTS-2.5`（`ganfan-audio/bin/tts-clone`）。
 
 ## 验证
 
