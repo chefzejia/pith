@@ -1,5 +1,10 @@
 import { registerPlugin, type Material, type MaterialFileEntry, type ProseBlock, type ReaderSectionHeading, type RenderedDocumentView, type StageReaderService } from "../../core/index.ts";
 import { renderEpub } from "./epub.ts";
+import { extractTeachingBlocks, teachingBlockRanges } from "./teachingBlocks.ts";
+import { matchTextAnchor } from "./textAnchor.ts";
+import type { TeachingBlockSpec } from "../../core/index.ts";
+
+export { extractTeachingBlocks, matchTextAnchor };
 
 export function readerInUse(materials: readonly Material[]): number {
   return materials.filter(material => material.kind === "book" || material.kind === "article").length;
@@ -8,11 +13,12 @@ export function readerInUse(materials: readonly Material[]): number {
 const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const inline = (text: string): string => escape(text).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
 
-interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "code" | "table" | "meta" | "rule" | "math"; level?: number; display?: string }
+interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "code" | "table" | "meta" | "rule" | "math" | "teaching"; level?: number; display?: string; teaching?: TeachingBlockSpec }
 
 function markdownBlocks(markdown: string): MarkdownBlock[] {
   const lines = markdown.split(/\r?\n/);
   const blocks: MarkdownBlock[] = [];
+  const teaching = new Map(teachingBlockRanges(markdown).map(range => [range.start, range]));
   const add = (line: number, text: string, kind: MarkdownBlock["kind"], isProse: boolean, level?: number, display?: string) => {
     blocks.push({ index: blocks.length, locator: `text:line:${line}`, text, isProse, kind, level, display });
   };
@@ -24,6 +30,12 @@ function markdownBlocks(markdown: string): MarkdownBlock[] {
   while (i < lines.length) {
     const line = lines[i]!;
     if (!line.trim()) { i++; continue; }
+    const range = teaching.get(i);
+    if (range) {
+      blocks.push({ index: blocks.length, locator: range.spec.locator, text: lines.slice(i, range.end).join("\n"), isProse: false, kind: "teaching", teaching: range.spec });
+      i = range.end;
+      continue;
+    }
     const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
       const start = i++;
@@ -71,6 +83,7 @@ export function renderMarkdown(markdown: string): string {
     const attrs = `data-locator="${block.locator}" data-prose="${block.isProse}"`;
     const line = block.locator.slice(10);
     if (block.kind === "meta") return "";
+    if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title)}</h3><p>${inline(block.teaching.body).replace(/\n/g, "<br>")}</p></section>`;
     if (block.kind === "code" || block.kind === "math" || block.kind === "table") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
     if (block.kind === "rule") return `<hr ${attrs}>`;
     if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
@@ -98,7 +111,7 @@ registerPlugin({
     columns: { type: "string", title: "Column mode", default: "auto", enum: ["auto", "single", "double"] },
   },
   apply(ctx) {
-    const service: StageReaderService = { formats: ["epub", "pdf", "markdown"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, renderFile };
+    const service: StageReaderService = { formats: ["epub", "pdf", "markdown"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, extractTeachingBlocks, matchTextAnchor, renderFile };
     ctx.provide("stage.reader", service);
   },
 });

@@ -58,6 +58,11 @@ export function findCueAt(cues: readonly TranscriptCue[], value: number): Transc
   return cues.find(cue => cue.startSec <= value && value < cue.endSec) ?? null;
 }
 
+export function sliceLoopRange(cues: readonly TranscriptCue[], startSec: number, endSec: number): readonly TranscriptCue[] {
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || startSec < 0 || endSec <= startSec) throw new Error("Invalid loop range");
+  return cues.filter(cue => cue.endSec > startSec && cue.startSec < endSec);
+}
+
 registerPlugin({
   id: "stage-timeline",
   api: "^1",
@@ -72,7 +77,7 @@ registerPlugin({
   apply(ctx) {
     const service: StageTimelineService = {
       formats: ["audio", "video"],
-      parseTranscript, formatTimestamp, findCueAt,
+      parseTranscript, formatTimestamp, findCueAt, sliceLoopRange,
     };
     ctx.provide("stage.timeline", service);
   },

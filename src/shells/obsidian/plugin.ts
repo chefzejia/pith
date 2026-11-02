@@ -1,3 +1,10 @@
+export interface ObsidianAgentConfig {
+  readonly agentId: "" | "dsh" | "claude" | "codex";
+  readonly model: string;
+  readonly effort: string;
+  readonly persona: "sanctuary" | "studio";
+}
+
 export const obsidianStyles = `
 .pith-view{position:relative;height:100%;display:flex;flex-direction:column;background:var(--background-primary);color:var(--text-normal);font-family:var(--font-interface)}
 .pith-view *{box-sizing:border-box}.pith-view [hidden]{display:none!important}

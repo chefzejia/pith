@@ -58,6 +58,25 @@ export interface AcpPromptResult {
   readonly stopReason: string;
 }
 
+export function normalizeToolkits(value: readonly unknown[]): string[] {
+  if (!Array.isArray(value) || !value.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item))) {
+    throw new Error("Invalid toolkit IDs");
+  }
+  return [...new Set(value as readonly string[])];
+}
+
+export function parseToolkitDirective(text: string): { text: string; toolkits: string[] | null } {
+  const match = /(?:^|\r?\n)```pith-toolkits[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/.exec(text);
+  if (!match) return { text, toolkits: null };
+  try {
+    const parsed: unknown = JSON.parse(match[1]!);
+    if (!Array.isArray(parsed)) return { text, toolkits: null };
+    return { text: text.slice(0, match.index).trimEnd(), toolkits: normalizeToolkits(parsed) };
+  } catch {
+    return { text, toolkits: null };
+  }
+}
+
 function extractTextFromPromptResult(result: unknown): { text: string; stopReason: string } {
   if (!result || typeof result !== "object") {
     return { text: "", stopReason: "end_turn" };
@@ -367,6 +386,10 @@ export class LocalAcpGuideProvider implements GuideProvider {
       },
       signal,
     );
-    return result.text;
+    const directive = parseToolkitDirective(result.text);
+    if (directive.toolkits !== null) {
+      await this.options.store.updateTopic(input.topicId, { toolkits: directive.toolkits });
+    }
+    return directive.text;
   }
 }

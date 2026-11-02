@@ -1,10 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, type DojoScaffoldStage, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageReaderService } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type DojoScaffoldStage, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageReaderService } from "../../core/index.ts";
+import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 
-interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }> }
+interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; model: string; effort: string }
 export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -39,23 +40,30 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const storage = new NodeWorkspaceStorage(options.workspaceDir);
   const store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
-  const engine = new DefaultAttentionEngine(store, storage, () => options.guideProvider);
+  let localProvider: GuideProvider | undefined;
+  const engine = new DefaultAttentionEngine(store, storage, () => options.guideProvider ?? (settings.agentId ? localProvider : undefined));
   const snapshot: WorkspaceSnapshot = { topics: [], materials: [], known: false };
-  let settings: WebSettings = { preset: "all", persona: "sanctuary", plugins: {} };
+  let settings: WebSettings = { preset: "all", persona: "sanctuary", plugins: {}, agentId: "", model: "", effort: "" };
   async function loadSettings(): Promise<void> {
     if (!await storage.exists("_cache/web-settings.json")) return;
     const saved: unknown = JSON.parse(await storage.readText("_cache/web-settings.json"));
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid web settings");
-    const value = saved as WebSettings;
-    if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object") throw new Error("Invalid web settings");
-    settings = value;
+    const value = saved as Partial<WebSettings>;
+    if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && !["", "dsh", "claude", "codex"].includes(value.agentId)) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid web settings");
+    settings = { ...value, preset: value.preset, persona: value.persona, plugins: value.plugins, agentId: value.agentId ?? "", model: value.model ?? "", effort: value.effort ?? "" };
   }
   await loadSettings();
-  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: settings.plugins });
+  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona } } } });
   const processPort = new NodeAgentProcessPort();
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  localProvider = new LocalAcpGuideProvider({ processPort, store, getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
+    const guide = runtime.getService<GuideAgentService>("guide.agent");
+    if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
+    return (await guide.detectAgents()).find(item => item.id === id) ?? null;
+  }, buildScenePrompt });
+  let appliedGuideConfig = JSON.stringify([settings.agentId, settings.model, settings.effort, settings.persona]);
   const processEffects = (): void => {
-    if (options.guideProvider) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
+    if (options.guideProvider || settings.agentId) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
   };
   async function refresh(): Promise<void> {
     snapshot.known = false;
@@ -63,7 +71,15 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       await loadSettings();
       const [topics, materials] = await Promise.all([store.listTopics(), store.listMaterials()]);
       snapshot.topics = topics; snapshot.materials = materials; snapshot.known = true;
-    } finally { runtime.reconcile(config()); }
+    } finally {
+      const nextGuideConfig = JSON.stringify([settings.agentId, settings.model, settings.effort, settings.persona]);
+      if (nextGuideConfig !== appliedGuideConfig) {
+        const next = config();
+        runtime.reconcile({ ...next, plugins: { ...next.plugins, "guide-acp": { enabled: false } } });
+        appliedGuideConfig = nextGuideConfig;
+      }
+      runtime.reconcile(config());
+    }
   }
   await refresh();
   processEffects();
@@ -81,6 +97,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (method === "GET" && url.pathname === "/api/state") {
         await refresh(); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, settings, plugins: runtime.statuses() });
+      }
+      if (method === "GET" && url.pathname === "/api/agents") {
+        const guide = runtime.getService<GuideAgentService>("guide.agent");
+        if (!guide || !guide.detectAgents) return send(res, 503, { error: "Guide service unavailable" });
+        return send(res, 200, await guide.detectAgents(url.searchParams.get("force") === "true"));
       }
       if (method === "POST" && url.pathname === "/api/topics") {
         const data = await body(req);
@@ -165,20 +186,39 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (url.pathname === "/api/chat" && method === "POST") {
         const data = await body(req);
-        return send(res, 201, await engine.sendMessage({ topicId: str(data, "topicId"), text: str(data, "text"), anchor: anchor(data.anchor), saveAsNote: data.saveAsNote === true }));
+        const result = await engine.sendMessage({ topicId: str(data, "topicId"), text: str(data, "text"), anchor: anchor(data.anchor), saveAsNote: data.saveAsNote === true });
+        if (data.saveAsNote === true) processEffects();
+        return send(res, 201, result);
+      }
+      if (url.pathname === "/api/settings" && method === "POST") {
+        const data = await body(req);
+        if (data.agentId !== undefined && (typeof data.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(data.agentId))) throw new Error("Invalid agentId");
+        if (data.model !== undefined && typeof data.model !== "string") throw new Error("Invalid model");
+        if (data.effort !== undefined && typeof data.effort !== "string") throw new Error("Invalid effort");
+        if (data.persona !== undefined && data.persona !== "sanctuary" && data.persona !== "studio") throw new Error("Invalid persona");
+        await MutationQueue.forStorage(storage).run(async () => {
+          await loadSettings();
+          settings = { ...settings, ...(data.agentId !== undefined ? { agentId: data.agentId as WebSettings["agentId"] } : {}), ...(data.model !== undefined ? { model: data.model as string } : {}), ...(data.effort !== undefined ? { effort: data.effort as string } : {}), ...(data.persona !== undefined ? { persona: data.persona as WebSettings["persona"] } : {}) };
+          await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
+        });
+        await refresh(); processEffects();
+        return send(res, 200, { settings, plugins: runtime.statuses() });
       }
       if (url.pathname === "/api/plugins" && method === "POST") {
         const data = await body(req);
         if (data.preset !== undefined && data.preset !== "all" && data.preset !== "essentials") throw new Error("Invalid preset");
         if (data.persona !== undefined && data.persona !== "sanctuary" && data.persona !== "studio") throw new Error("Invalid persona");
-        if (data.id !== undefined) {
-          const id = str(data, "id");
-          if (!runtime.statuses().some(plugin => plugin.id === id) || typeof data.enabled !== "boolean") throw new Error("Invalid plugin");
-          settings.plugins[id] = { enabled: data.enabled };
-        }
-        if (data.preset === "all" || data.preset === "essentials") settings.preset = data.preset;
-        if (data.persona === "sanctuary" || data.persona === "studio") settings.persona = data.persona;
-        await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
+        await MutationQueue.forStorage(storage).run(async () => {
+          await loadSettings();
+          if (data.id !== undefined) {
+            const id = str(data, "id");
+            if (!runtime.statuses().some(plugin => plugin.id === id) || typeof data.enabled !== "boolean") throw new Error("Invalid plugin");
+            settings.plugins[id] = { enabled: data.enabled };
+          }
+          if (data.preset === "all" || data.preset === "essentials") settings.preset = data.preset;
+          if (data.persona === "sanctuary" || data.persona === "studio") settings.persona = data.persona;
+          await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
+        });
         await refresh(); return send(res, 200, { settings, plugins: runtime.statuses() });
       }
       return send(res, 404, { error: "Not found" });
@@ -217,10 +257,10 @@ function markExisting(){const root=$('#article');if(!root)return;for(const n of 
 async function updateQuickActions(){const id=topic.id;const actions=await api('/api/topics/'+encodeURIComponent(id)+'/actions');const target=$('.side-content > .chips');if(!target||!topic||topic.id!==id||tab!=='chat')return;target.innerHTML=actions.map(a=>'<button data-choice="'+esc(a.prompt)+'">'+esc(a.label)+'</button>').join('')}
 async function openTopic(id){const previous=topic&&topic.id;if(previous!==id){stopSpeech();trainingOpen=false;trainingTarget='';trainingProduced='';trainingView='';trainingResult=null;trainingAnchor=null;selection=null}await refresh();topic=[...state.compass.exploring,...state.compass.settled].find(t=>t.id===id);if(!topic)throw Error('课题不存在');conversation=await api('/api/chat?topicId='+encodeURIComponent(id));const m=state.materials.find(m=>m.id===topic.materialId);if(previous!==id||!m||!m.files.some(f=>f.name===file))file=m&&m.files.length?m.files[0].name:null;$('#crumb').textContent=topic.title;$('#toggle-navigation').hidden=false;const guide=state.plugins.find(p=>p.id==='guide-acp');if(!guide||guide.state!=='active')sideVisible=false;$('#toggle-side').hidden=!guide||guide.state!=='active';await workspace()}
 async function workspace(){stopSpeech();const m=state.materials.find(m=>m.id===topic.materialId);let documentData=null;if(m&&file)documentData=await api('/api/materials/file?id='+encodeURIComponent(m.id)+'&name='+encodeURIComponent(file));const heads=documentData?documentData.sections.filter(h=>h.level<=3):[];$('#navigation').innerHTML='<h2>材料</h2>'+(m?m.files.map(f=>'<button data-file="'+esc(f.name)+'" aria-current="'+(f.name===file)+'">'+esc(f.name)+'</button>').join(''):'')+'<h2>目录</h2>'+heads.map(h=>'<button data-locator="'+esc(h.locator)+'" style="padding-left:'+(8+(h.level-1)*12)+'px">'+esc(h.title)+'</button>').join('');main.innerHTML='<div class="workspace '+(sideVisible?'':'guide-closed')+'"><section class="reader-wrap"><article class="reader" tabindex="0" aria-label="阅读舞台"><div id="article">'+(documentData?documentData.html:'<p class="empty">这个课题还没有关联材料。</p>')+'</div></article><div id="training"></div></section><aside class="side '+(sideVisible?'':'hidden-side')+'"><div class="side-tabs"><button data-tab="chat" class="'+(tab==='chat'?'active':'')+'">对话</button><button data-tab="notes" class="'+(tab==='notes'?'active':'')+'">笔记 '+topic.notes.length+'</button></div><div class="side-content">'+(tab==='chat'?conversation.map(e=>'<div class="message '+esc(e.role)+'"><b>'+(e.role==='user'?'你':label())+'</b>'+esc(e.text)+(e.choices&&e.choices.length?'<div class="chips">'+e.choices.map(c=>'<button data-choice="'+esc(c)+'">'+esc(c)+'</button>').join('')+'</div>':'')+'</div>').join('')+'<div class="chips"></div>':topic.notes.map(n=>'<div class="note"><span class="small">'+esc(n.createdAt)+' · '+esc(n.kind)+'</span><div>'+esc(n.body)+'</div></div>').join(''))+'</div><div class="compose"><div class="quote-preview" id="preview">'+(pending?'引用：'+esc(pending.quote):'')+'</div><textarea id="message" placeholder="写下你的想法"></textarea><button class="button primary" id="send">发送</button></div></aside></div>';$('#toggle-side').setAttribute('aria-pressed',String(sideVisible));markExisting()}
-function settings(){drawer.hidden=false;drawer.innerHTML='<button class="button" id="close-drawer">关闭</button><h2>插件与皮肤</h2><label>界面风格 <select id="persona"><option value="sanctuary">花园 / 园丁</option><option value="studio">工作区 / 向导</option></select></label><label>插件预设 <select id="preset"><option value="all">全部</option><option value="essentials">基础</option></select></label><h3>插件</h3>'+state.plugins.map(p=>'<label><span>'+esc(p.id)+(p.inUseCount?' <span class="small">使用中 '+p.inUseCount+'</span>':'')+'</span><input type="checkbox" data-plugin="'+esc(p.id)+'" '+(p.state==='active'?'checked':'')+' '+(p.inUseCount?'disabled':'')+'></label>').join('');$('#persona').value=state.settings.persona;$('#preset').value=state.settings.preset}
+function settings(){drawer.hidden=false;drawer.innerHTML='<button class="button" id="close-drawer">关闭</button><h2>向导 Agent 与工作区设置</h2><form id="settings-form" class="form"><label for="agent-id">本机 Agent</label><select id="agent-id"><option value="">离线模式</option><option value="dsh">DeepSeek Harness</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select><button type="button" class="button" id="detect-agents">扫描本机 Agent</button><div id="agent-status" role="status" aria-live="polite"></div><label for="agent-model">模型</label><input id="agent-model" autocomplete="off"><label for="agent-effort">推理强度</label><input id="agent-effort" autocomplete="off"><label for="persona">术语风格</label><select id="persona"><option value="sanctuary">花园 / 园丁</option><option value="studio">工作区 / 向导</option></select><button class="button primary" type="submit">保存设置</button></form>';$('#persona').value=state.settings.persona;$('#agent-id').value=state.settings.agentId;$('#agent-model').value=state.settings.model;$('#agent-effort').value=state.settings.effort}
 document.addEventListener('click',async e=>{try{const t=e.target.closest('button');if(!t)return;if(t.id==='home'){await refresh();home()}else if(t.id==='settings')settings();else if(t.id==='close-drawer')drawer.hidden=true;else if(t.id==='toggle-navigation'){const nav=$('#navigation');nav.hidden=!nav.hidden;t.setAttribute('aria-expanded',String(!nav.hidden))}else if(t.id==='toggle-side'){sideVisible=!sideVisible;$('.side').classList.toggle('hidden-side',!sideVisible);$('.workspace').classList.toggle('guide-closed',!sideVisible);t.setAttribute('aria-pressed',String(sideVisible))}else if(t.dataset.locator){closeNavigation();const target=[...document.querySelectorAll('#article [data-locator]')].find(node=>node.dataset.locator===t.dataset.locator);if(target)target.scrollIntoView({block:'start'})}else if(t.dataset.open)await openTopic(t.dataset.open);else if(t.id==='new-topic')$('#new-form').innerHTML='<form class="form" id="create"><input name="title" placeholder="课题名称" required><input name="target" placeholder="探索目标"><input name="nextAction" placeholder="下一步行动"><select name="materialId"><option value="">不关联材料</option>'+state.materials.map(m=>'<option value="'+esc(m.id)+'">'+esc(m.title)+'</option>').join('')+'</select><button class="button primary">创建</button></form>';else if(t.dataset.file){closeNavigation();file=t.dataset.file;selection=null;await workspace()}else if(t.dataset.tab){tab=t.dataset.tab;await workspace()}else if(t.dataset.choice){$('#message').value=t.dataset.choice;$('#message').focus()}else if(t.id==='send'){const text=$('#message').value.trim();if(!text)return;if(tab==='notes'){await api('/api/notes',{topicId:topic.id,kind:'note',body:text,anchor:pending||undefined})}else await api('/api/chat',{topicId:topic.id,text,anchor:pending||undefined});pending=null;await openTopic(topic.id)}else if(t.dataset.action&&selection){if(t.dataset.action==='speak'){startSpeech(true)}else if(t.dataset.action==='highlight'){await api('/api/notes',{topicId:topic.id,kind:'highlight',body:selection.quote,anchor:selection});await openTopic(topic.id)}else{pending=selection;tab=t.dataset.action==='note'?'notes':'chat';sideVisible=true;await workspace();$('#message').focus()}$('#toolbar').style.display='none'}}catch(err){notify(err)}});
-document.addEventListener('submit',async e=>{if(e.target.id!=='create')return;e.preventDefault();try{const d=Object.fromEntries(new FormData(e.target));const t=await api('/api/topics',d);await openTopic(t.id)}catch(err){notify(err)}});
-document.addEventListener('change',async e=>{try{if(e.target.id==='persona'||e.target.id==='preset'){await api('/api/plugins',{[e.target.id]:e.target.value});await refresh();if(topic){const guide=state.plugins.find(p=>p.id==='guide-acp');if(!guide||guide.state!=='active'){sideVisible=false;$('#toggle-side').hidden=true}else $('#toggle-side').hidden=false;await workspace()}settings()}else if(e.target.dataset.plugin){await api('/api/plugins',{id:e.target.dataset.plugin,enabled:e.target.checked});await refresh();if(topic){const guide=state.plugins.find(p=>p.id==='guide-acp');if(!guide||guide.state!=='active'){sideVisible=false;$('#toggle-side').hidden=true}else $('#toggle-side').hidden=false;await workspace()}settings()}}catch(err){notify(err)}});
+document.addEventListener('submit',async e=>{if(e.target.id!=='create'&&e.target.id!=='settings-form')return;e.preventDefault();try{if(e.target.id==='create'){const d=Object.fromEntries(new FormData(e.target));const t=await api('/api/topics',d);await openTopic(t.id)}else{await api('/api/settings',{agentId:$('#agent-id').value,model:$('#agent-model').value,effort:$('#agent-effort').value,persona:$('#persona').value});await refresh();if(topic)await workspace();drawer.hidden=true}}catch(err){notify(err)}});
+document.addEventListener('click',async e=>{const button=e.target.closest('#detect-agents');if(!button)return;button.disabled=true;const status=$('#agent-status');status.textContent='正在扫描...';try{const agents=await api('/api/agents?force=true');status.innerHTML=agents.map(a=>'<p><strong>'+esc(a.label)+'</strong> · '+(a.available?'可用':'不可用')+(a.version?' · '+esc(a.version):'')+'<br><span class="small">'+esc(a.note)+'</span></p>').join('')}catch(err){status.textContent=err.message||String(err)}finally{button.disabled=false}});
 document.addEventListener('mouseup',()=>{const s=window.getSelection(),article=$('#article'),bar=$('#toolbar');if(!article||!s||s.isCollapsed||!article.contains(s.anchorNode)||!article.contains(s.focusNode)){if(!bar.matches(':hover'))bar.style.display='none';return}const range=s.getRangeAt(0),quote=s.toString();selectionRange=range.cloneRange();if(!quote.trim())return;const prefix=document.createRange();prefix.selectNodeContents(article);prefix.setEnd(range.startContainer,range.startOffset);selection={file,locator:'text:offset:'+prefix.toString().length,quote};const rect=range.getBoundingClientRect();bar.style.display='block';bar.querySelectorAll('button').forEach(button=>button.hidden=false);bar.style.left=Math.max(8,Math.min(innerWidth-bar.offsetWidth-8,rect.left))+'px';bar.style.top=Math.max(8,rect.top-bar.offsetHeight-8)+'px'});
 let trainingOpen=false,stage='listen-decompose',trainingTarget='',trainingProduced='',trainingView='',trainingResult=null,trainingAnchor=null,speechActive=false,selectionRange=null,speechGeneration=0,lastWheel=-Infinity;
 function closeNavigation(){$('#navigation').hidden=true;$('#toggle-navigation').setAttribute('aria-expanded','false')}
