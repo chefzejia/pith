@@ -1,0 +1,13 @@
+{
+  "name": "pith",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pith: Agents automate your output. Pith grows your core.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "web": "node --experimental-strip-types src/shells/web/cli.ts"
+  },
+  "license": "GPL-3.0-only"
+}

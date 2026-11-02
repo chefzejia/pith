@@ -1,4 +1,4 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type HostPort, type PluginsConfigFile, type SelectionAnchor, type StorageEntry, type WorkspaceStoragePort } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type HostPort, type PluginsConfigFile, type SelectionAnchor, type StorageEntry, type WorkspaceStoragePort } from "../../core/index.ts";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { PithObsidianView, type ObsidianViewActions } from "./plugin.ts";
 
@@ -12,7 +12,7 @@ export interface ObsidianVaultAdapter {
   list(path: string): Promise<{ files: string[]; folders: string[] }>;
 }
 
-export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = ""): HostPort {
+export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "", processPort?: AgentProcessPort): HostPort {
   const root = workspacePath.replace(/\/$/, "");
   const path = (value: string): string => {
     if (!value || value.startsWith("/") || value.includes("\\") || value.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid workspace path");
@@ -36,7 +36,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
       return [...result.folders.map(entry => ({ path: relative(entry), type: "folder" as const })), ...result.files.map(entry => ({ path: relative(entry), type: "file" as const }))] satisfies StorageEntry[];
     },
   };
-  return { id: "obsidian", storage };
+  return { id: "obsidian", storage, ...(processPort ? { process: processPort } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {

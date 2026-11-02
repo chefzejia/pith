@@ -1,0 +1,365 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  PluginRuntime,
+  ViewKernel,
+  isApiCompatible,
+  type HostPort,
+  type PluginManifest,
+} from "../src/core/index.ts";
+import { bootStandaloneShell } from "../src/shells/web/index.ts";
+
+test("Reconcile: topological order, failed plugin rollback, reverse cascading disposal", () => {
+  const events: string[] = [];
+  const note = (label: string) => () => {
+    events.push(label);
+  };
+
+  const manifests: PluginManifest[] = [
+    {
+      id: "consumer-a",
+      requires: ["svc.b"],
+      name: "A",
+      description: "Requires B",
+      apply(ctx) {
+        assert.equal(ctx.service("svc.b"), "service-b-instance");
+        ctx.onDispose(note("a.1"));
+        ctx.onDispose(note("a.2"));
+      },
+    },
+    {
+      id: "provider-b",
+      provides: ["svc.b"],
+      name: "B",
+      description: "Provides B",
+      apply(ctx) {
+        ctx.provide("svc.b", "service-b-instance");
+        ctx.onDispose(note("b"));
+      },
+    },
+    {
+      id: "broken",
+      name: "Broken",
+      description: "Throws mid-apply after registering a disposer",
+      apply(ctx) {
+        ctx.onDispose(note("broken.partial"));
+        throw new Error("boom");
+      },
+    },
+    {
+      id: "future-api",
+      api: "^2",
+      name: "Future",
+      description: "Targets major API 2",
+    },
+    {
+      id: "waiting",
+      requires: ["svc.missing"],
+      name: "Waiting",
+      description: "Waits for an unprovided service",
+    },
+    {
+      id: "ui-only",
+      name: "UI",
+      description: "Contributes slot part only",
+      parts: [{ slot: "nav.page", key: "compass" }],
+    },
+  ];
+
+  const rt = new PluginRuntime(manifests);
+  rt.reconcile({
+    "consumer-a": true,
+    "provider-b": true,
+    broken: true,
+    "future-api": true,
+    waiting: true,
+    "ui-only": true,
+  });
+
+  // Broken plugin's partial disposer ran immediately on failure; others still activated
+  assert.deepEqual(events, ["broken.partial"]);
+  events.length = 0;
+
+  const byId = new Map(rt.statuses().map((s) => [s.id, s]));
+  assert.equal(byId.get("provider-b")?.state, "active");
+  assert.equal(byId.get("consumer-a")?.state, "active");
+  assert.equal(byId.get("broken")?.state, "failed");
+  assert.equal(byId.get("future-api")?.state, "failed");
+  assert.equal(byId.get("waiting")?.state, "pending");
+  assert.match(byId.get("waiting")?.why ?? "", /svc\.missing/);
+  assert.equal(byId.get("ui-only")?.state, "active");
+  assert.deepEqual(byId.get("ui-only")?.parts, [{ slot: "nav.page", key: "compass" }]);
+
+  // Turn off provider-b while consumer-a still wants to be on:
+  // consumer-a must dispose first (newest first: a.2 -> a.1), then provider-b ("b").
+  rt.reconcile({
+    "consumer-a": true,
+    "provider-b": false,
+    "ui-only": true,
+  });
+
+  assert.deepEqual(events, ["a.2", "a.1", "b"]);
+  assert.equal(rt.active("provider-b"), false);
+  assert.equal(rt.active("consumer-a"), false);
+  assert.equal(rt.active("ui-only"), true);
+
+  // Turn provider-b back on: consumer-a recovers automatically
+  events.length = 0;
+  rt.reconcile({
+    "consumer-a": true,
+    "provider-b": true,
+    "ui-only": true,
+  });
+  assert.equal(rt.active("provider-b"), true);
+  assert.equal(rt.active("consumer-a"), true);
+
+  rt.stop();
+  assert.deepEqual(events, ["a.2", "a.1", "b"]);
+});
+
+test("Compose & InUse guard: active Topic keeps plugin on under essentials preset or explicit off", () => {
+  let topicsUsingDojo = 2;
+  const manifests: PluginManifest[] = [
+    {
+      id: "core-stage",
+      essential: true,
+      name: "Core Stage",
+      description: "Essential reading stage",
+    },
+    {
+      id: "dojo-shadowing",
+      essential: false,
+      name: "Shadowing",
+      description: "Optional language dojo",
+      inUse: () => topicsUsingDojo,
+      settings: {
+        speed: { type: "number", title: "Speed", default: 1, minimum: 0.5, maximum: 2 },
+      },
+    },
+  ];
+
+  const rt = new PluginRuntime(manifests);
+  rt.reconcile({
+    preset: "essentials",
+    plugins: {
+      "dojo-shadowing": {
+        enabled: false,
+        config: { speed: 99 }, // invalid out-of-range value -> falls back to default 1
+      },
+    },
+  });
+
+  // Because 2 Topics use dojo-shadowing, InUse forces it active despite essentials + enabled:false
+  assert.equal(rt.active("core-stage"), true);
+  assert.equal(rt.active("dojo-shadowing"), true);
+  const dojoStatus = rt.statuses().find((s) => s.id === "dojo-shadowing");
+  assert.equal(dojoStatus?.source, "in-use");
+  assert.equal(dojoStatus?.inUseCount, 2);
+
+  const composed = rt.compose({
+    preset: "essentials",
+    plugins: { "dojo-shadowing": { enabled: false, config: { speed: 99 } } },
+  });
+  assert.equal(composed.find((p) => p.id === "dojo-shadowing")?.config["speed"], 1);
+
+  // Once no Topic uses it anymore, reconciling turns it off cleanly
+  topicsUsingDojo = 0;
+  rt.reconcile({
+    preset: "essentials",
+    plugins: { "dojo-shadowing": { enabled: false } },
+  });
+  assert.equal(rt.active("dojo-shadowing"), false);
+});
+
+test("ViewKernel error boundary: broken slot isolates failure and recovers on retry()", async () => {
+  const kernel = new ViewKernel();
+  let shouldThrow = true;
+  const rendered: string[] = [];
+
+  kernel.add("plugin-broken", {
+    key: "broken-stage",
+    slot: "stage",
+    title: "Broken Stage",
+    render(state: string) {
+      if (shouldThrow) throw new Error("render exploded");
+      rendered.push(`recovered:${state}`);
+    },
+  });
+
+  kernel.add("plugin-healthy", {
+    key: "healthy-guide",
+    slot: "guide",
+    title: "Healthy Guide",
+    render(state: string) {
+      rendered.push(`guide:${state}`);
+    },
+  });
+
+  await kernel.start();
+  await kernel.call("broken-stage", "render", "topic-1");
+  await kernel.call("healthy-guide", "render", "topic-1");
+
+  // Healthy slot kept working; broken slot captured error and ignores further calls until retried
+  assert.deepEqual(rendered, ["guide:topic-1"]);
+  const broken = kernel.status("broken-stage");
+  assert.notEqual(broken, null);
+  assert.equal(broken!.message, "render exploded");
+
+  await kernel.call("broken-stage", "render", "ignored-while-broken");
+  assert.deepEqual(rendered, ["guide:topic-1"]);
+
+  // Fix underlying issue and invoke retry()
+  shouldThrow = false;
+  await broken!.retry();
+  assert.equal(kernel.status("broken-stage"), null);
+  assert.deepEqual(rendered, ["guide:topic-1", "recovered:topic-1"]);
+});
+
+test("Standalone shell boots all built-in plugins cleanly without Obsidian", () => {
+  const memoryHost: HostPort = {
+    id: "memory",
+    storage: {
+      exists: async () => false,
+      readText: async () => "",
+      readBinary: async () => new Uint8Array(),
+      writeText: async () => {},
+      createText: async () => {},
+      writeBinary: async () => {},
+      createBinary: async () => {},
+      processText: async (_p, fn) => fn(""),
+      mkdir: async () => {},
+      list: async () => [],
+    },
+  };
+
+  const rt = bootStandaloneShell(memoryHost, { preset: "all" });
+  assert.equal(rt.active("stage-reader"), true);
+  assert.equal(rt.active("stage-timeline"), true);
+  assert.equal(rt.active("speech-service"), true);
+  assert.equal(rt.active("dojo-shadowing"), true);
+  assert.equal(rt.active("guide-acp"), true);
+  rt.stop();
+});
+
+test("API version caret compatibility matches Magpie rules", () => {
+  assert.equal(isApiCompatible(""), true);
+  assert.equal(isApiCompatible("^1"), true);
+  assert.equal(isApiCompatible("^1.0"), true);
+  assert.equal(isApiCompatible("^1.1"), false);
+  assert.equal(isApiCompatible("^2"), false);
+  assert.equal(isApiCompatible("1.0"), false);
+});
+
+test("Compose transitive in-use: kept-alive dojo automatically pulls in its required base providers", () => {
+  let activeShadowingTopics = 1;
+  const manifests: PluginManifest[] = [
+    {
+      id: "speech-service",
+      essential: false,
+      provides: ["speech.asr"],
+      name: "Speech",
+      description: "Base ASR provider",
+      apply(ctx) {
+        ctx.provide("speech.asr", { engine: "whisper-local" });
+      },
+    },
+    {
+      id: "stage-timeline",
+      essential: false,
+      provides: ["stage.timeline"],
+      name: "Timeline",
+      description: "Base media timeline provider",
+      apply(ctx) {
+        ctx.provide("stage.timeline", { player: "html5" });
+      },
+    },
+    {
+      id: "dojo-shadowing",
+      essential: false,
+      requires: ["stage.timeline", "speech.asr"],
+      inUse: () => activeShadowingTopics,
+      name: "Shadowing",
+      description: "4-stage shadowing dojo",
+    },
+  ];
+
+  const rt = new PluginRuntime(manifests);
+
+  // Under "essentials", all three are non-essential, but dojo-shadowing is inUse (1).
+  // Compose must transitively promote speech-service and stage-timeline so dojo-shadowing reaches "active"!
+  rt.reconcile({ preset: "essentials" });
+  assert.equal(rt.active("speech-service"), true);
+  assert.equal(rt.active("stage-timeline"), true);
+  assert.equal(rt.active("dojo-shadowing"), true);
+
+  // Once the user archives the Topic (inUse -> 0), all three turn off under essentials
+  activeShadowingTopics = 0;
+  rt.reconcile({ preset: "essentials" });
+  assert.equal(rt.active("dojo-shadowing"), false);
+  assert.equal(rt.active("stage-timeline"), false);
+  assert.equal(rt.active("speech-service"), false);
+});
+
+test("Service stacking: later provider takes over top-of-stack and falls back cleanly on dispose", () => {
+  const consumerDisposed: string[] = [];
+  const manifests: PluginManifest[] = [
+    {
+      id: "tts-01-basic",
+      provides: ["speech.tts"],
+      name: "Basic System TTS",
+      description: "Fallback system speech",
+      apply(ctx) {
+        ctx.provide("speech.tts", "basic-tts");
+      },
+    },
+    {
+      id: "tts-02-hq",
+      provides: ["speech.tts"],
+      name: "HQ Neural TTS",
+      description: "Upgraded neural speech",
+      apply(ctx) {
+        ctx.provide("speech.tts", "hq-neural-tts");
+      },
+    },
+    {
+      id: "reader-readaloud",
+      requires: ["speech.tts"],
+      name: "Read Aloud",
+      description: "Consumer of speech.tts",
+      apply(ctx) {
+        ctx.onDispose(() => consumerDisposed.push("disposed"));
+      },
+    },
+  ];
+
+  const rt = new PluginRuntime(manifests);
+
+  // 1. Both TTS providers on -> alphabetical activation puts tts-02-hq on top of stack
+  rt.reconcile({
+    "tts-01-basic": true,
+    "tts-02-hq": true,
+    "reader-readaloud": true,
+  });
+  assert.equal(rt.getService("speech.tts"), "hq-neural-tts");
+  assert.equal(rt.active("reader-readaloud"), true);
+
+  // 2. Turn off tts-02-hq -> falls back seamlessly to tts-01-basic WITHOUT tearing down reader-readaloud!
+  rt.reconcile({
+    "tts-01-basic": true,
+    "tts-02-hq": false,
+    "reader-readaloud": true,
+  });
+  assert.equal(rt.getService("speech.tts"), "basic-tts");
+  assert.equal(rt.active("reader-readaloud"), true);
+  assert.deepEqual(consumerDisposed, []);
+
+  // 3. Turn off the last remaining provider -> now reader-readaloud cascades off
+  rt.reconcile({
+    "tts-01-basic": false,
+    "tts-02-hq": false,
+    "reader-readaloud": true,
+  });
+  assert.equal(rt.getService("speech.tts"), undefined);
+  assert.equal(rt.active("reader-readaloud"), false);
+  assert.deepEqual(consumerDisposed, ["disposed"]);
+});

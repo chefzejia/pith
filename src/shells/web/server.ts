@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, type DojoScaffoldStage, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageReaderService } from "../../core/index.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
+import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }> }
@@ -51,7 +52,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   }
   await loadSettings();
   const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: settings.plugins });
-  const runtime = bootStandaloneShell({ id: "web", storage }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  const processPort = new NodeAgentProcessPort();
+  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort }, config(), { store, engine, snapshot, provider: options.guideProvider });
   const processEffects = (): void => {
     if (options.guideProvider) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
   };
