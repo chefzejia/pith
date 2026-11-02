@@ -80,13 +80,29 @@ export function markdownSections(markdown: string): ReaderSectionHeading[] {
   return markdownBlocks(markdown).filter(block => block.kind === "heading").map(block => ({ title: block.text, level: block.level!, line: Number(block.locator.slice(10)), locator: block.locator }));
 }
 
+function renderTableHtml(rawTable: string, attrs: string): string {
+  const rows = rawTable.split(/\r?\n/).filter((line) => line.trim());
+  const parseCells = (line: string): string[] =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => inline(cell.trim()));
+  if (rows.length < 2) return `<pre ${attrs}><code>${escape(rawTable)}</code></pre>`;
+  const headCells = parseCells(rows[0]!);
+  const bodyRows = rows.slice(2).map(parseCells);
+  return `<table ${attrs}><thead><tr>${headCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
 export function renderMarkdown(markdown: string): string {
   return markdownBlocks(markdown).map(block => {
     const attrs = `data-locator="${block.locator}" data-prose="${block.isProse}"`;
     const line = block.locator.slice(10);
     if (block.kind === "meta") return "";
     if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title)}</h3><p>${inline(block.teaching.body).replace(/\n/g, "<br>")}</p></section>`;
-    if (block.kind === "code" || block.kind === "math" || block.kind === "table") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
+    if (block.kind === "table") return renderTableHtml(block.text, attrs);
+    if (block.kind === "code" || block.kind === "math") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
     if (block.kind === "rule") return `<hr ${attrs}>`;
     if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
     const tag = block.kind === "quote" ? "blockquote" : "p";
