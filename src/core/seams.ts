@@ -58,12 +58,22 @@ export interface ProseBlock {
   readonly isProse: boolean;
 }
 
+export interface FixedPageEntry {
+  readonly page: number;
+  readonly label: string;
+  readonly mimeType: string;
+  readonly bytes?: Uint8Array;
+  readonly text?: string;
+}
+
 export interface RenderedDocumentView {
-  readonly format: "markdown" | "epub" | "pdf";
+  readonly format: "markdown" | "epub" | "pdf" | "cbz" | "image";
+  readonly layout?: "reflowable" | "fixed-page";
   readonly title: string;
   readonly html: string;
   readonly sections: readonly ReaderSectionHeading[];
   readonly blocks?: readonly ProseBlock[];
+  readonly pages?: readonly FixedPageEntry[];
   readonly totalUnits: number;
 }
 
@@ -83,13 +93,24 @@ export interface TextQuoteMatch {
   readonly suffix?: string;
 }
 
+export interface PaginationMetrics {
+  readonly columns: 1 | 2;
+  readonly columnWidthPx: number;
+  readonly columnGapPx: number;
+  readonly horizontalInsetPx: number;
+  readonly verticalInsetPx: number;
+  readonly contentHeightPx: number;
+  readonly totalScreens: number;
+}
+
 export interface StageReaderService {
-  readonly formats: readonly ("markdown" | "epub" | "pdf")[];
+  readonly formats: readonly ("markdown" | "epub" | "pdf" | "cbz" | "image")[];
   sections(markdown: string): ReaderSectionHeading[];
   render(markdown: string): string;
   extractProseBlocks?(markdownOrHtml: string): readonly ProseBlock[];
   extractTeachingBlocks?(markdown: string): readonly TeachingBlockSpec[];
   matchTextAnchor?(fullText: string, anchor: { readonly locator: IntrinsicLocator; readonly quote?: string; readonly prefix?: string; readonly suffix?: string }): TextQuoteMatch | null;
+  computePagination?(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode?: "auto" | "single" | "double"): PaginationMetrics;
   renderFile?(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView>;
 }
 
@@ -145,6 +166,13 @@ export interface DiscoveredAgentDescriptor {
   readonly note: string;
 }
 
+export interface GuideMcpToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+  execute(input: Readonly<Record<string, unknown>>): Promise<unknown>;
+}
+
 export interface GuideAgentService {
   readonly persona: SurfacePersona;
   readonly timeoutMs: number;
@@ -152,6 +180,7 @@ export interface GuideAgentService {
   detectAgents?(force?: boolean): Promise<readonly DiscoveredAgentDescriptor[]>;
   quickActionsForTopic?(topic: Topic, activeDojos: readonly DojoToolkitDescriptor[]): readonly GuideQuickAction[];
   configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
+  listWorkspaceTools?(): readonly GuideMcpToolSpec[];
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
     readonly topic: Topic;

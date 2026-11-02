@@ -1,90 +1,111 @@
-# Pith · Wave 2 并行独立 Agent 开发交接单（HANDOFF · Track A / Track B）
+# Pith · Wave 3 并行独立 Agent 开发交接单（HANDOFF · Track 1 / Track 2 / Track 3）
 
 > **仓库路径**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **必读契约**：[`AGENTS.md`](../AGENTS.md) · [`docs/002-architecture.md`](002-architecture.md) · [`docs/003-interaction.md`](003-interaction.md) · [`src/core/seams.ts`](../src/core/seams.ts)
-> **并行隔离铁律**：以下 **2 个任务包（Track A / Track B）的修改文件集 100% 物理正交，零交集**！每个 Agent **严禁触碰自己 Write Scope 之外的任何文件**（尤其严禁修改 `src/core/**` 和现有旧测试文件），确保两人同时开发零冲突。
+> **并行隔离铁律**：以下 **3 个任务包（Track 1 / Track 2 / Track 3）的修改文件集 100% 物理正交，零交集**！每个 Agent **严禁触碰自己 Write Scope 之外的任何文件**（尤其严禁修改 `src/core/**` 和现有旧测试文件），确保三人同时开发零冲突。
 
 ---
 
-## 📦 Wave 2 · Track A（Agent A 负责）：插件层深水区升级（Agent 动态挂载工具 + 阅读教学块/精准锚点 + 时间轴循环切分）
+## 📦 Wave 3 · Track 1（Agent 1 负责）：阅读舞台全版式升级（Readest 多栏分页 + CBZ/图片漫画与 PDF 固定页解析）
+
+### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
+- `src/plugins/stage-reader/index.ts`
+- `src/plugins/stage-reader/epub.ts`（如需复用其中的 ZIP 读取函数，可 export `readZipEntries`）
+- 新增 `src/plugins/stage-reader/pagination.ts`（Readest 级 CSS 多栏分页几何计算与 DOM 应用器）
+- 新增 `src/plugins/stage-reader/fixedPage.ts`（CBZ 漫画压缩包、单张图片与轻量 PDF 固定版式解析器）
+- 新增 `tests/wave3-track1-reader-formats.test.ts`
+- *(严禁修改 `src/core/**`、`src/plugins/guide-acp/**`、`src/shells/**` 或其他现有测试文件！严禁在 `src/plugins/**` 中 import `node:*`！)*
+
+### 2. 核心设计目标（对齐 [`src/core/seams.ts`](../src/core/seams.ts) 已定型签名，参考 `ganfan-garden/src/material/render/pagination.ts` & `adapters/cbz.ts` & `adapters/pdf.ts`）
+
+1. **Readest 级 CSS 多栏分页几何计算器（`src/plugins/stage-reader/pagination.ts` & `StageReaderService.computePagination`）**：
+   - 实现纯函数 `computePagination(viewportWidth, viewportHeight, scrollWidth, mode = "auto"): PaginationMetrics`：
+     - 当 `mode === "double"` 或（`mode === "auto"` 且 `viewportWidth >= 900`）时，`columns = 2`，否则 `columns = 1`；
+     - 计算 `horizontalInsetPx = Math.min(48, Math.max(16, viewportWidth * 0.05), viewportWidth / (columns * 4))`；
+     - 计算 `verticalInsetPx = Math.min(32, Math.max(12, viewportHeight * 0.05))`；
+     - 计算 `columnWidthPx = Math.max(1, viewportWidth / columns - 2 * horizontalInsetPx)`、`columnGapPx = 2 * horizontalInsetPx`、`contentHeightPx = Math.max(1, viewportHeight - 2 * verticalInsetPx)`；
+     - 计算总屏数 `totalScreens = Math.max(1, Math.ceil(( Math.max(viewportWidth, scrollWidth) - 1 ) / Math.max(1, viewportWidth)))`。
+   - 导出辅助函数 `applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, mode?: "auto" | "single" | "double"): PaginationMetrics`：将计算出的多栏 CSS 变量与宽高写入 DOM 节点。
+
+2. **固定版式解析器：CBZ 漫画包、图片与 PDF（`src/plugins/stage-reader/fixedPage.ts` & `renderFile` 扩展）**：
+   - **CBZ 漫画包解析（`renderCbz(file, bytes)`）**：
+     - 复用 `stage-reader/epub.ts` 的零依赖 ZIP 解压能力，提取所有图片条目（`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`），忽略目录与非图片文件，按自然序（Natural Sort：`page-2.png < page-10.png`）排序；
+     - 生成 `FixedPageEntry[]`（`page: 1..N`, `label: "第 N 页"`, `mimeType`, `bytes`），并将每页渲染为 `<figure class="pith-fixed-page" data-locator="page:${page}" data-prose="false"><img alt="第 ${page} 页" data-page="${page}"></figure>`，返回 `RenderedDocumentView`（`format: "cbz"`, `layout: "fixed-page"`, `pages`, `sections` 每页一条目录项，`totalUnits: pages.length`）；若 ZIP 中无图片则抛明确错误。
+   - **单张图片与 PDF 解析（`renderImage(file, bytes)` & `renderPdf(file, bytes)`）**：
+     - 对 `.png/.jpg/.jpeg/.webp/.gif` 返回单页 `format: "image"`, `layout: "fixed-page"`；
+     - 对 `.pdf`（`application/pdf`）：实现零外部依赖的轻量 PDF 页面与文本流扫描器（扫描 `/Type /Page\b` 统计页数，提取括号文本流 `( ... )` 或 `BT ... ET` 中的可读文本行构建每页 `FixedPageEntry` 与 `ProseBlock`），返回 `format: "pdf"`, `layout: "fixed-page"`，使 PDF 无需重型 Canvas 也能在内核中提取目录、页码 `page:1..N` 与可伴读文本。
+   - 更新 `StageReaderService.formats` 为 `["epub", "pdf", "markdown", "cbz", "image"]`，并在 `stage-reader/index.ts` 中暴露 `computePagination` 与扩展后的 `renderFile`。
+
+3. **测试要求（`tests/wave3-track1-reader-formats.test.ts`）**：
+   - 验证 `computePagination` 在窄屏（单栏）、宽屏（双栏 `>= 900px`）及强制 `single/double` 模式下的几何精度与总屏数计算；
+   - 验证合成 `.cbz` 压缩包的自然排序（`page2.png` 排在 `page10.png` 前）、目录生成与空包报错；
+   - 验证最小合成 `.pdf` 二进制字节流的页数识别、页级 `page:1` 定位符生成与文本提取。
+
+---
+
+## 📦 Wave 3 · Track 2（Agent 2 负责）：向导受控工作区工具箱 + 毕业门控（Settlement Gate）+ 会话内工具自动执行
 
 ### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
 - `src/plugins/guide-acp/index.ts`
 - `src/plugins/guide-acp/acpSession.ts`
-- `src/plugins/stage-reader/index.ts`
-- 新增 `src/plugins/stage-reader/teachingBlocks.ts`（内嵌交互式教学块解析与渲染）
-- 新增 `src/plugins/stage-reader/textAnchor.ts`（基于 `locator` + `quote` + `prefix/suffix` 的跨文本精准重定位）
-- `src/plugins/stage-timeline/index.ts`
+- 新增 `src/plugins/guide-acp/tools.ts`（向导受控工作区工具箱与权限门控）
 - `src/shells/dsh/index.ts`
-- 新增 `tests/wave2-trackA-plugins.test.ts`
-- *(严禁修改 `src/core/**`、`src/shells/web/**`、`src/shells/obsidian/**` 或其他现有测试文件！)*
+- 新增 `tests/wave3-track2-guide-tools.test.ts`
+- *(严禁修改 `src/core/**`、`src/plugins/stage-*`、`src/shells/web/**`、`src/shells/obsidian/**` 或其他现有测试文件！严禁在 `src/plugins/**` 中 import `node:*`！)*
 
-### 2. 核心设计目标（对齐 [`src/core/seams.ts`](../src/core/seams.ts) 已定型签名）
+### 2. 核心设计目标（参考 `ganfan-garden/src/gardener/tools.ts` & `GardenerService.ts:354-379`）
 
-1. **由 Agent 驱动课题工具包动态挂载（`guide-acp` & `shells/dsh`）**：
-   - 在 `src/plugins/guide-acp/index.ts` 中：
-     - 升级 `buildScenePrompt(input)`：当传入 `availableToolkits`（或默认列出可用 Dojo 工具，如 `shadowing: 4-Stage Language Shadowing`）时，在 Prompt 中输出 `# 可用实训工具包（Dojo Toolkits）` 与当前课题已挂载的 `topic.toolkits`，引导 Agent 根据用户学习目标主动建议或调整实训工具；
-     - 在 `GuideAgentService` 上实现 `configureTopicToolkits(topicId, toolkits): Promise<Topic>`：校验 `toolkits` ID 合法性（`^[a-z][a-z0-9-]*$` 且去重），调用 `store.updateTopic(topicId, { toolkits })` 动态为课题启用/卸载 Dojo 工具；
-     - 支持解析 Agent 回复尾部的可选工具挂载指令块（例如 ````pith-toolkits\n["shadowing"]\n````），或在 `LocalAcpGuideProvider.reply()` 中保留清晰的扩展钩子。
-   - 在 `src/shells/dsh/index.ts` 的 `createDshPluginBundle()` 中：
-     - 新增工具 `pith_configure_toolkits`（参数 `{ topicId: string, toolkits: string[] }`），允许 DSH Agent 直接为指定课题开启或关闭实训工具包（如 `["shadowing"]`）。
+1. **提纯向导受控工作区工具箱（`src/plugins/guide-acp/tools.ts` & `GuideAgentService.listWorkspaceTools`）**：
+   - 创建 `createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine): readonly GuideMcpToolSpec[]`，提供 6 个受控工具（所有写入只走 `WorkspaceStore` / `AttentionEngine`）：
+     1. `pith_get_context`：读取学习者画像 `ME.md`、罗盘状态与指定课题详情；
+     2. `pith_read_material_section`：按 `materialId` + `file` 读取材料文件内容（支持按 `locator` 如 `text:line:<n>` 截取附近段落，绝不一次性塞爆上下文）；
+     3. `pith_save_note`：为课题保存一条 `note` / `highlight` / `practice` 笔记（可带 `guideRemark` 点评与 `anchor`）；
+     4. `pith_write_lesson`：调用 `store.writeGeneratedFile(materialId, fileName, markdown)` 为当前课题生成定制导读讲义（严格保持原始导入材料只读）；
+     5. `pith_configure_toolkits`：动态为课题挂载或卸载 `toolkits`（如 `["shadowing"]`）；
+     6. `pith_settle_topic`：**毕业门控（Settlement Gate）**——将课题状态从 `"exploring"` 沉淀为 `"settled"`，但**强制校验**：目标课题必须至少有 1 条学习者笔记（`topic.notes.length > 0`）且传入非空的 `verificationSummary`（记录学习者通过深水区检验的回答摘要，并自动追加为一条总结笔记后才将 `status` 更新为 `"settled"`；若无笔记或未提供检验摘要则拒绝毕业并抛错）。
 
-2. **`stage-reader` 深水区升级：交互式教学块（`teachingBlocks.ts`）与精准文本锚点（`textAnchor.ts`）**：
-   - 参考 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/material/render/teachingBlocks.ts` 与 `textAnchor.ts`：
-   - **内嵌教学块（`src/plugins/stage-reader/teachingBlocks.ts` & `StageReaderService.extractTeachingBlocks`）**：
-     - 识别 Markdown 中的围栏教学块（如 ````pith-teaching` 或 ````garden-teaching` 或 Callout `> [!reflection|hint|checkpoint|explanation] 标题`），提取出 `TeachingBlockSpec`（`id`, `kind: "reflection" | "hint" | "checkpoint" | "explanation"`, `title`, `body`, `locator: "text:line:<n>"`）；
-     - 在 `renderMarkdown(markdown)` 中将其渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">...</section>`（注意 `data-prose="false"`，确保全文伴读自动跳过教学卡片元数据，不打断正文朗读）。
-   - **跨文本精准锚点匹配（`src/plugins/stage-reader/textAnchor.ts` & `StageReaderService.matchTextAnchor`）**：
-     - 实现 `matchTextAnchor(fullText, anchor): TextQuoteMatch | null`：
-       1. 若 `anchor.locator` 为 `text:offset:<n>` 且 `fullText.slice(n, n + quote.length) === quote`，直接命中返回 `{ startOffset, endOffset, exact, prefix, suffix }`；
-       2. 若偏移漂移（文章前部被微调），遍历 `fullText` 中所有 `anchor.quote` 的出现位置，优先选择 `prefix` / `suffix` 上下文匹配度最高或距离原 `offset` 最近的匹配项；
-   - 在 `stage-reader/index.ts` 的 `StageReaderService` 实例上挂载 `extractTeachingBlocks` 与 `matchTextAnchor`。
+2. **会话内受控工具指令执行与权限门控（`src/plugins/guide-acp/acpSession.ts`）**：
+   - 实现 `createGuidePermissionGate(allowedToolNames: readonly string[])`：仅当 ACP `tool-call` 属于已注册的受控 `pith_*` 工具时返回 `"allow_once"`，任何试图直接写磁盘或执行未知工具的请求一律返回 `"reject_once"`；
+   - 在 `LocalAcpGuideProvider.reply()`（及 `guide-acp/index.ts`）中：支持识别并执行 Agent 回复中的受控工具调用块（例如 ````pith-tool\n{"name":"pith_write_lesson","arguments":{...}}\n```` 或 `pith-toolkits`），自动在 `WorkspaceStore` 上安全执行工具并将结果落盘。
 
-3. **`stage-timeline` 深水区升级：A-B 区间循环切片与双语/多行字幕清理**：
-   - 在 `src/plugins/stage-timeline/index.ts` 中实现 `sliceLoopRange(cues, startSec, endSec): readonly TranscriptCue[]`：
-     - 校验 `startSec >= 0` 且 `endSec > startSec`，返回所有与 `[startSec, endSec]` 时间区间有交集（`cue.endSec > startSec && cue.startSec < endSec`）的字幕片段，供 A-B 复读与一键送入 `dojo-shadowing` 使用；
-     - 挂载到 `StageTimelineService.sliceLoopRange`。
+3. **同步升级 `src/shells/dsh/index.ts`**：
+   - 将新增的 `pith_read_material_section` 与带毕业门控校验的 `pith_settle_topic` 同步暴露到 `createDshPluginBundle()` 中。
 
-4. **测试要求（`tests/wave2-trackA-plugins.test.ts`）**：
-   - 验证 `guide.agent.configureTopicToolkits` 与 `dsh` 工具 `pith_configure_toolkits` 动态挂载/卸载课题工具包，以及 `buildScenePrompt` 包含可用工具包上下文；
-   - 验证 `extractTeachingBlocks` 与 `renderMarkdown` 正确渲染教学块且标记 `data-prose="false"`；
-   - 验证 `matchTextAnchor` 在原文前部插入/删除文字导致 offset 漂移后，仍能通过 `quote` + `prefix/suffix` 精准找回高亮区间；
-   - 验证 `stage-timeline` 的 `sliceLoopRange` 准确切出 `[startSec, endSec]` 区间字幕。
+4. **测试要求（`tests/wave3-track2-guide-tools.test.ts`）**：
+   - 验证 6 个受控工具（特别是 `pith_read_material_section` 局部读取、`pith_write_lesson` 写定制讲义、以及 `pith_settle_topic` 毕业门控在无笔记时拒绝、有笔记+检验摘要时成功沉淀课题）；
+   - 验证 `createGuidePermissionGate` 只放行白名单内的 `pith_*` 工具并拒绝越权工具；
+   - 验证 `LocalAcpGuideProvider` 在回复中携带 `pith-tool` 指令块时自动安全执行对应工作区写入。
 
 ---
 
-## 📦 Wave 2 · Track B（Agent B 负责）：壳层纠偏升级（砍掉用户插件开关 UI + 本机 Agent 探测配置面板 + 真实 ACP 联机对话）
+## 📦 Wave 3 · Track 3（Agent 3 负责）：Obsidian 一键生产构建链路（`main.js` + `manifest.json` + `styles.css`）+ 双壳阅读舞台联调
 
 ### 1. 唯一允许修改的文件范围（Write Scope · 严禁越界）
-- `src/shells/web/server.ts`
+- `package.json`（新增 `"build:obsidian"` 脚本）
+- 新增 `manifest.json`（Obsidian 插件标准清单，id 为 `"pith"`）
+- 新增 `scripts/build-obsidian.mjs`（调用 `../ganfan-garden/node_modules/esbuild` 一键打包生成 Obsidian 插件 `dist/obsidian/{main.js,manifest.json,styles.css}`）
 - `src/shells/obsidian/index.ts`
 - `src/shells/obsidian/plugin.ts`
-- 新增 `tests/wave2-trackB-shells.test.ts`
-- *(严禁修改 `src/core/**`、`src/plugins/**`、`src/shells/dsh/**` 或其他现有测试文件！注意保证 `tests/web-shell.test.ts` 和 `tests/track3-spatial-ui-and-obsidian.test.ts` 继续 100% 通过！)*
+- `src/shells/web/server.ts`
+- 新增 `tests/wave3-track3-obsidian-build.test.ts`
+- *(严禁修改 `src/core/**`、`src/plugins/**`、`src/shells/dsh/**` 或其他现有测试文件！)*
 
-### 2. 核心设计目标（对齐「插件由 Agent 编排、不暴露给用户手工开关」的新铁律）
+### 2. 核心设计目标（让 Pith 真正具备拖进 Obsidian 即装即用的生产产物，并与 Web 壳 100% 同步）
 
-1. **彻底移除面向用户的「插件开关列表与 Preset 选择器」UI，升级为「本机 AI 向导连接与外观设置面板」**：
-   - **产品铁律**：普通用户绝不需要手动开关 `stage-reader`、`dojo-shadowing`、`speech-service`！所有内置插件在内核中默认开启就绪，由课题材料类型和 Agent 驱动的 `topic.toolkits` 动态决定界面上展示什么工具。
-   - 在 `src/shells/web/server.ts` 的前端 `settings()` 抽屉中：
-     - **彻底删除** `插件预设 (all/essentials)` 下拉框与 `input[type="checkbox"][data-plugin]` 插件勾选框列表！
-     - 替换为干净现代的 **「向导 Agent 与工作区设置」**：
-       - **本机 Agent 选择器（`#agent-id`）**：下拉选择 `""`（离线模式 / 不启用 AI）、`"dsh"`（DeepSeek Harness）、`"claude"`（Claude Code）、`"codex"`（Codex）；
-       - **一键扫描本机 Agent 按钮（`#detect-agents`）与状态列表**：调用 `GET /api/agents?force=true` 扫描本机已安装的 CLI，清晰展示每个 Agent 的可用状态（`available`）、版本号（`version`）与诊断说明（`note`）；
-       - **模型与推理强度（`#agent-model`、`#agent-effort`）** 与 **术语风格（`#persona`：`studio` 工作区/向导 vs `sanctuary` 花园/园丁）**。
+1. **Obsidian 标准插件清单与一键打包脚本（`manifest.json` & `scripts/build-obsidian.mjs` & `package.json`）**：
+   - 在仓库根目录创建标准 `manifest.json`（`id: "pith"`, `name: "Pith"`, `version: "0.1.0"`, `minAppVersion: "1.5.0"`, `description: "Agents automate your output. Pith grows your core."`, `isDesktopOnly: true`）；
+   - 编写 `scripts/build-obsidian.mjs`：通过直接导入 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/node_modules/esbuild/lib/main.js`（或 `createRequire` 解析 `../ganfan-garden/node_modules/esbuild`），将 `src/shells/obsidian/index.ts` 打包为 CommonJS 格式的 `dist/obsidian/main.js`（external `["obsidian", "electron", ...builtinModules]`），同时自动把 `obsidianStyles` 写出为 `dist/obsidian/styles.css`、复制 `manifest.json` 到 `dist/obsidian/manifest.json`；
+   - 在 `package.json` 的 `scripts` 中增加 `"build:obsidian": "node scripts/build-obsidian.mjs"`（保持 `dependencies` 为空，零运行时第三方依赖污染）。
 
-2. **打通 `shells/web/server.ts` 的本机 Agent API 与真实对话闭环**：
-   - 新增 `GET /api/agents` 路由：调用 `runtime.getService<GuideAgentService>("guide.agent")?.detectAgents(url.searchParams.get("force") === "true")`，返回本机 Agent 探测结果数组；
-   - 新增（并兼容保留 `/api/plugins` 以免破坏旧接口测试）`POST /api/settings` 路由：支持保存 `agentId`（`"" | "dsh" | "claude" | "codex"`）、`model`、`effort`、`persona` 到 `_cache/web-settings.json`，并将 `agentId / model / effort` 传入 `guide-acp` 插件配置触发 `runtime.reconcile()`；
-   - **真实本机 Agent 对话闭环**：当用户未传入外部 mock `options.guideProvider`，但在设置中配置了有效的本机 `agentId`（如 `"dsh"`）时，`POST /api/chat` 与后台 `processEffects()` 自动使用 `LocalAcpGuideProvider`（或由 `guide-acp` 提供的 provider）完成对话与下一步建议生成！
+2. **增强 `src/shells/obsidian/` 与 `src/shells/web/server.ts` 的阅读舞台与教学块样式呈现**：
+   - 在 `obsidianStyles`（`src/shells/obsidian/plugin.ts`）与 Web 壳样式（`src/shells/web/server.ts`）中：
+     - 补齐内嵌教学块 `.pith-teaching-block` 与固定页 `.pith-fixed-page` 的原生主题自适应样式（使用 `var(--background-secondary)`、`var(--background-modifier-border)`、`var(--text-accent)`，零硬编码暖黄纸色）；
+     - 在 `src/shells/obsidian/index.ts` 中导出默认的 Obsidian 插件入口类 `PithObsidianPlugin`（兼容 Obsidian `Plugin` 生命周期 `onload` / `onunload`，自动注入 `NodeAgentProcessPort` 以支持本机 Agent 扫描与 ACP 会话）。
 
-3. **同步升级 `src/shells/obsidian/index.ts` 与 `plugin.ts`**：
-   - 在 `PithObsidianController` 中增加 `detectAgents(force?: boolean)` 与 `setAgentConfig({ agentId, model, effort, persona })` 方法，将设置持久化并在 `runtime.reconcile()` 时传入 `guide-acp` 插件配置。
-
-4. **测试要求（`tests/wave2-trackB-shells.test.ts`）**：
-   - 验证 Web 壳 HTML 中不再渲染任何 `data-plugin=` 手工开关插件勾选框，而是包含本机 Agent 探测与配置控件（`#agent-id`、`#detect-agents`）；
-   - 验证 `GET /api/agents` 与 `POST /api/settings` 能正确探测本机 Agent 并持久化 `agentId / model / effort / persona`；
-   - 验证 `PithObsidianController` 的 `detectAgents()` 与 `setAgentConfig()` 正常工作，且原有全部测试（`web-shell.test.ts`、`track3-spatial-ui-and-obsidian.test.ts` 等）保持 100% 全绿。
+3. **测试要求（`tests/wave3-track3-obsidian-build.test.ts`）**：
+   - 端到端运行 `buildObsidianBundle()`（或执行 `scripts/build-obsidian.mjs`），断言 `dist/obsidian/main.js`、`dist/obsidian/manifest.json`、`dist/obsidian/styles.css` 全部成功生成且非空；
+   - 验证生成的 `styles.css` 遵循宿主 CSS 变量规范且包含 `.pith-teaching-block`、`.pith-left-drawer`、`.pith-bottom-dock`；
+   - 验证 `PithObsidianPlugin` 的 `onload()` / `onunload()` 生命周期与控制器联动正常。
 
 ---
 
