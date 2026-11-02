@@ -120,6 +120,14 @@ export interface StageTimelineService {
   formatTimestamp(seconds: number): string;
   findCueAt(cues: readonly TranscriptCue[], seconds: number): TranscriptCue | null;
   sliceLoopRange?(cues: readonly TranscriptCue[], startSec: number, endSec: number): readonly TranscriptCue[];
+  renderTimelineView?(input: {
+    readonly title: string;
+    readonly mediaFile?: string;
+    readonly mediaKind?: "audio" | "video";
+    readonly cues: readonly TranscriptCue[];
+    readonly activeCueId?: string;
+    readonly loopRange?: { readonly startSec: number; readonly endSec: number };
+  }): string;
 }
 
 export interface SpeechSentenceSegment {
@@ -135,9 +143,17 @@ export interface SpeechTtsService {
   filterProseOnly?(blocks: readonly ProseBlock[]): readonly SpeechSentenceSegment[];
 }
 
+export interface AsrTranscriptionResult {
+  readonly text: string;
+  readonly language?: string;
+  readonly durationSec?: number;
+}
+
 export interface SpeechAsrService {
   readonly url: string;
   isLoopbackSafe(url: string): boolean;
+  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly note: string }>;
+  transcribeAudio?(audioBytes: Uint8Array, mimeType?: string, signal?: AbortSignal): Promise<AsrTranscriptionResult>;
 }
 
 export interface DojoToolkitDescriptor {
@@ -173,6 +189,19 @@ export interface GuideMcpToolSpec {
   execute(input: Readonly<Record<string, unknown>>): Promise<unknown>;
 }
 
+export interface ExternalIngestInput {
+  readonly url: string;
+  readonly kind?: "article" | "discussion" | "media";
+  readonly transcriptMarkdown?: string;
+}
+
+export interface ExternalIngestBundle {
+  readonly title: string;
+  readonly kind: "article" | "discussion" | "media";
+  readonly files: readonly { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }[];
+  readonly warnings: readonly string[];
+}
+
 export interface GuideAgentService {
   readonly persona: SurfacePersona;
   readonly timeoutMs: number;
@@ -181,6 +210,7 @@ export interface GuideAgentService {
   quickActionsForTopic?(topic: Topic, activeDojos: readonly DojoToolkitDescriptor[]): readonly GuideQuickAction[];
   configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
   listWorkspaceTools?(): readonly GuideMcpToolSpec[];
+  ingestExternalUrl?(input: ExternalIngestInput): Promise<ExternalIngestBundle>;
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
     readonly topic: Topic;
