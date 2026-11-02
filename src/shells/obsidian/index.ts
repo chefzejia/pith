@@ -3,7 +3,7 @@ import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
-import { PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
+import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
 
 interface ObsidianLeaf {
   setViewState(state: { type: string; active: boolean }): Promise<void>;
@@ -156,7 +156,7 @@ export class PithObsidianController {
   }
   async openCompass() { await this.refresh(); return this.engine.compass(); }
   async openTopic(id: string) { return this.store.getTopic(id); }
-  async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId && !await this.store.getTopic(topicId)) throw new Error("Topic not found"); const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
+  async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId) { const topic = await this.store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); if (topic.materialId) throw new Error("课题已有材料，无法替换"); } const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
   async setSpeechConfig(config: Record<string, string>): Promise<void> {
     if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
     this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig });
@@ -202,6 +202,8 @@ const PITH_VIEW_TYPE = "pith-reader";
 
 export class PithWorkspaceView extends obsidian.ItemView {
   private view: PithObsidianView | null = null;
+  private generation = 0;
+  private homeRequest = 0;
   private readonly controller: PithObsidianController;
   constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort) { super(leaf); this.controller = controller; }
   getViewType(): string { return PITH_VIEW_TYPE; }
@@ -209,47 +211,63 @@ export class PithWorkspaceView extends obsidian.ItemView {
   getIcon(): string { return "book-open"; }
 
   async onOpen(): Promise<void> {
+    const previousGeneration = this.generation, request = ++this.homeRequest;
     const compass = await this.controller.openCompass();
-    this.contentEl.replaceChildren();
-    const heading = this.contentEl.ownerDocument.createElement("h2");
-    heading.textContent = "Pith";
-    this.contentEl.append(heading);
-    for (const topic of [...compass.exploring, ...compass.settled]) {
-      const button = this.contentEl.ownerDocument.createElement("button");
-      button.textContent = topic.title;
-      button.addEventListener("click", () => { void this.openTopic(topic.id).catch(error => this.report(error)); });
-      this.contentEl.append(button);
-    }
+    if (previousGeneration !== this.generation || request !== this.homeRequest) return;
+    const generation = ++this.generation;
+    if (this.view) { this.controller.releaseView(this.view); this.view = null; }
+    const root = this.contentEl, doc = root.ownerDocument;
+    const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    root.classList.add("pith-view");
+    root.innerHTML = `<style>${obsidianStyles}</style><header class="pith-view-header"><strong>Pith</strong></header><div class="pith-home-scroll"><main class="pith-home"><h1>注意力罗盘</h1><div class="pith-home-actions"><button data-home-new>新建课题</button><button data-home-import>导入材料</button><input type="file" accept=".epub,.pdf,.md,.markdown" multiple hidden></div><form class="pith-home-form" hidden><label>课题名称<input name="title" required></label><label>探索目标<input name="target"></label><label>下一步行动<input name="nextAction"></label><button>创建课题</button></form><div class="pith-home-status" role="status"></div><section class="pith-focus">${compass.focusRecommendation ? `<div><span class="pith-topic-status">下一步 · 15 分钟</span><br><strong>${escape(compass.focusRecommendation.nextAction)}</strong><br>${escape(compass.focusRecommendation.title)}</div><button data-topic="${escape(compass.focusRecommendation.topicId)}">继续探索</button>` : "选择一个课题，开始今天的探索。"}</section>${[["探索中", compass.exploring], ["已沉淀", compass.settled]].map(([label, topics]) => `<section><div class="pith-home-heading"><h2>${label}</h2><span>${(topics as typeof compass.exploring).length}</span></div><div class="pith-topic-grid">${(topics as typeof compass.exploring).map(topic => `<button class="pith-topic-card" data-topic="${escape(topic.id)}"><span class="pith-topic-status ${topic.status === "settled" ? "settled" : ""}">${label}</span><strong>${escape(topic.title)}</strong><span>${escape(topic.nextAction || topic.target || "尚未设置下一步")}</span></button>`).join("")}</div></section>`).join("")}</main></div>`;
+    const input = root.querySelector<HTMLInputElement>('input[type="file"]');
+    const form = root.querySelector<HTMLFormElement>("form");
+    const status = root.querySelector<HTMLElement>(".pith-home-status");
+    if (!input || !form || !status) throw new Error("首页初始化失败");
+    let importTopic: string | undefined;
+    root.querySelector<HTMLButtonElement>("[data-home-new]")!.onclick = () => { form.hidden = !form.hidden; };
+    root.querySelector<HTMLButtonElement>("[data-home-import]")!.onclick = () => { importTopic = undefined; input.click(); };
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-topic]")) button.onclick = () => { const id = button.dataset.topic; if (!id) return; void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); };
+    form.onsubmit = event => { event.preventDefault(); void (async () => { const data = new FormData(form); const title = String(data.get("title") || "").trim(); if (!title) throw new Error("请输入课题名称"); await this.controller.store.createTopic({ title, target: String(data.get("target") || ""), nextAction: String(data.get("nextAction") || "") }); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); };
+    input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|md|markdown)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF 和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = files[0]!; const kind = files.some(file => /\.(epub|pdf)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title: first.name, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title: first.name.replace(/\.[^.]+$/, ""), materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
   }
 
-  async onClose(): Promise<void> { if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
+  async onClose(): Promise<void> { this.generation++; if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
 
   private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
   private async openTopic(id: string): Promise<void> {
+    const generation = ++this.generation;
     const topic = await this.controller.openTopic(id);
+    if (generation !== this.generation) return;
     if (!topic || !topic.materialId) throw new Error("课题没有关联材料");
     const material = await this.controller.store.getMaterial(topic.materialId);
+    if (generation !== this.generation) return;
     if (!material || !material.files.length) throw new Error("材料没有可读取的文件");
     let currentFile = material.files[0]!.name;
+    let renderGeneration = 0;
     const dojos = (): DojoToolkitDescriptor[] => ["shadowing", "feynman"].flatMap(id => { const service = this.controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [service] : []; });
     const render = async (name: string): Promise<void> => {
-      currentFile = name;
+      const request = ++renderGeneration;
       const document = await this.controller.renderMaterialFile(material.id, name);
-      if (this.view) this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections });
+      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections }); }
     };
     if (this.view) this.controller.releaseView(this.view);
-    this.view = this.controller.createView(this.contentEl, {
+    let originatingView: PithObsidianView;
+    originatingView = this.controller.createView(this.contentEl, {
+      home: () => this.onOpen(),
       openFile: render,
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音"); return tts.synthesizeSpeech(text, signal); },
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
-      guideData: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
+      guideData: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
       sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
-      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (!current) throw new Error("课题不存在"); if (!current.toolkits.includes(id) && !current.toolkits.includes(`dojo-${id}`)) await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); },
+      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const updated = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`) ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
+    this.view = originatingView;
+    this.view.setToolkits(topic.toolkits);
     await render(material.files[0]!.name);
-    await this.view.refreshGuide();
+    if (generation === this.generation && this.view) await this.view.refreshGuide();
   }
 }
 

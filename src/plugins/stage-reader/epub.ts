@@ -1,9 +1,36 @@
 import type { ProseBlock, ReaderSectionHeading, RenderedDocumentView } from "../../core/index.ts";
+import { directoryOf as dir, escapeHtml as escape, imageDataUrl, resolveEpubPath as resolve, sanitizeDeclarations, sanitizeStylesheet } from "./epubResources.ts";
 
 const LIMIT = 16 * 1024 * 1024;
 const BOOK_LIMIT = 64 * 1024 * 1024;
 const decoder = new TextDecoder("utf-8", { fatal: true });
-const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+class HtmlWriter {
+  private parts: string[] = [];
+  private pending = "";
+  private error: string;
+  remaining = BOOK_LIMIT;
+  constructor(error: string) { this.error = error; }
+  ensure(length: number): void { if (length > this.remaining) throw new Error(this.error); }
+  append(value: string): void {
+    this.ensure(value.length);
+    this.remaining -= value.length;
+    if (value.length >= 16 * 1024) {
+      if (this.pending) { this.parts.push(this.pending); this.pending = ""; }
+      this.parts.push(value);
+    } else {
+      this.pending += value;
+      if (this.pending.length >= 16 * 1024) { this.parts.push(this.pending); this.pending = ""; }
+    }
+  }
+  escaped(value: string): void {
+    let length = value.length;
+    for (const match of value.matchAll(/[&<>"']/g)) length += match[0] === "&" ? 4 : match[0] === "'" ? 4 : match[0] === '"' ? 5 : 3;
+    this.ensure(length);
+    this.append(escape(value));
+  }
+  finish(): string { if (this.pending) this.parts.push(this.pending); return this.parts.join(""); }
+}
 
 interface Entry { offset: number; compressed: number; size: number; method: number }
 
@@ -42,6 +69,8 @@ class Zip {
     return decoder.decode(await this.read(name));
   }
   names(): string[] { return [...this.entries.keys()]; }
+  has(name: string): boolean { return this.entries.has(name); }
+  size(name: string): number { return this.entries.get(name)!.size; }
   async read(name: string): Promise<Uint8Array> {
     const entry = this.entries.get(name);
     if (!entry) throw new Error(`Missing EPUB entry: ${name}`);
@@ -117,19 +146,93 @@ function xml(source: string): XmlNode {
 function descendants(node: XmlNode, name: string): XmlNode[] {
   return node.children.flatMap(child => typeof child === "string" ? [] : [...(local(child.name) === name.toLowerCase() ? [child] : []), ...descendants(child, name)]);
 }
-function content(node: XmlNode): string {
-  if (["script", "style"].includes(local(node.name))) return "";
-  return node.children.map(child => typeof child === "string" ? child : content(child)).join("").replace(/\s+/g, " ").trim();
+const dropped = new Set(["script", "style", "nav", "head", "iframe", "object", "embed", "form", "input", "button", "link", "meta", "audio", "video", "foreignobject", "use"]);
+function rawContent(node: XmlNode): string {
+  if (dropped.has(local(node.name))) return "";
+  return node.children.map(child => typeof child === "string" ? child : rawContent(child)).join("");
 }
-function resolve(base: string, href: string): string {
-  const raw = decodeURIComponent(href.split("#")[0]!.split("?")[0]!);
-  if (!raw || raw.startsWith("/") || raw.includes("\\") || /^[a-z][a-z\d+.-]*:/i.test(raw)) throw new Error("Invalid EPUB path");
-  const parts = base ? base.split("/") : [];
-  for (const part of raw.split("/")) { if (!part || part === ".") continue; if (part === "..") { if (!parts.length) throw new Error("EPUB path traversal"); parts.pop(); } else parts.push(part); }
-  return parts.join("/");
-}
-const dir = (path: string): string => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+function content(node: XmlNode): string { return rawContent(node).replace(/\s+/g, " ").trim(); }
 
+function safeSvgValue(key: string, value: string): boolean {
+  if (/[\\<>\u0000-\u001f\u007f]|\/\*|\*\/|(?:javascript|data)\s*:|(?:var|env|attr|expression|image(?:-set)?)\s*\(/i.test(value)) return false;
+  if (/url\s*\(/i.test(value)) return /^(fill|stroke|clip-path|mask|filter)$/.test(key) && /^url\(\s*#[\w.-]+\s*\)$/i.test(value.trim());
+  return true;
+}
+
+function safeSvgStyle(style: string, ids: ReadonlyMap<string, string>): string {
+  return style.split(";").flatMap(declaration => {
+    const colon = declaration.indexOf(":");
+    if (colon < 0) return [];
+    const key = declaration.slice(0, colon).trim().toLowerCase(), value = declaration.slice(colon + 1).trim();
+    if (!/^(fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|opacity|stop-color|stop-opacity|clip-path|mask)$/.test(key) || !value || !/^[\w\s#.,%()+\-]*$/.test(value) || !safeSvgValue(key, value) || /(?:expression|var|attr|image)\s*\(/i.test(value)) return [];
+    const mapped = svgValue(key, value, ids);
+    return mapped === null ? [] : [`${key}: ${mapped}`];
+  }).join("; ");
+}
+
+const svgTags = new Set(["svg", "g", "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "pattern", "use", "image", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "title", "desc"]);
+const svgNames: Record<string, string> = { lineargradient: "linearGradient", radialgradient: "radialGradient", clippath: "clipPath", viewbox: "viewBox", preserveaspectratio: "preserveAspectRatio", gradientunits: "gradientUnits", gradienttransform: "gradientTransform", spreadmethod: "spreadMethod", patternunits: "patternUnits", patterncontentunits: "patternContentUnits", patterntransform: "patternTransform", clippathunits: "clipPathUnits", maskunits: "maskUnits", maskcontentunits: "maskContentUnits" };
+function svgValue(key: string, value: string, ids: ReadonlyMap<string, string>): string | null {
+  if (!safeSvgValue(key, value)) return null;
+  const match = /^url\(\s*#([\w.-]+)\s*\)$/i.exec(value.trim());
+  if (!match) return value;
+  const target = ids.get(match[1]!);
+  return target ? `url(#${target})` : null;
+}
+
+async function renderSvg(root: XmlNode, resource: (href: string) => Promise<string | null>, writer: HtmlWriter, prefix = "", rootAttributes = ""): Promise<void> {
+  const ids = new Map<string, string>();
+  const collectIds = (node: XmlNode): void => {
+    if (!svgTags.has(local(node.name))) return;
+    const id = node.attrs["id"];
+    if (id && /^[\w.-]+$/.test(id)) ids.set(id, `${prefix}${id}`);
+    for (const child of node.children) if (typeof child !== "string") collectIds(child);
+  };
+  collectIds(root);
+  const render = async (node: XmlNode | string): Promise<void> => {
+    if (typeof node === "string") { writer.escaped(node); return; }
+    const tag = local(node.name);
+    if (!svgTags.has(tag)) return;
+    const outputTag = svgNames[tag] ?? tag;
+    writer.append(`<${outputTag}`);
+    const attribute = (name: string, value: string): void => {
+      writer.append(` ${name}="`); writer.escaped(value); writer.append('"');
+    };
+    for (const [name, value] of Object.entries(node.attrs)) {
+      const key = name.toLowerCase();
+      if ((key === "href" || key === "xlink:href") && tag === "image") {
+        const url = await resource(value);
+        if (url) attribute(key, url);
+      } else if ((key === "href" || key === "xlink:href") && ["use", "lineargradient", "radialgradient", "pattern"].includes(tag) && /^#[\w.-]+$/.test(value)) {
+        const target = ids.get(value.slice(1));
+        if (target) attribute(key, `#${target}`);
+      }
+      else if (key === "style") {
+        const style = safeSvgStyle(value, ids);
+        if (style) attribute("style", style);
+      }
+      else if (/^(xmlns|xmlns:xlink|id|viewbox|preserveaspectratio|width|height|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|fx|fy|fr|d|points|fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|transform|opacity|offset|stop-color|stop-opacity|gradientunits|gradienttransform|spreadmethod|patternunits|patterncontentunits|patterntransform|clippathunits|clip-path|mask|maskunits|maskcontentunits)$/.test(key) && safeSvgValue(key, value)) {
+        if ((key === "xmlns" && value !== "http://www.w3.org/2000/svg") || (key === "xmlns:xlink" && value !== "http://www.w3.org/1999/xlink")) continue;
+        const mapped = key === "id" ? ids.get(value) ?? null : svgValue(key, value, ids);
+        if (mapped !== null) attribute(svgNames[key] ?? key, mapped);
+      }
+    }
+    if (node === root) writer.append(rootAttributes);
+    writer.append(">");
+    for (const child of node.children) await render(child);
+    writer.append(`</${outputTag}>`);
+  };
+  await render(root);
+}
+
+async function safeSvg(bytes: Uint8Array, resource: (href: string) => Promise<string | null>): Promise<Uint8Array> {
+  const doc = xml(decoder.decode(bytes));
+  const root = doc.children.find(child => typeof child !== "string" && local(child.name) === "svg");
+  if (!root || typeof root === "string") throw new Error("Invalid SVG image");
+  const writer = new HtmlWriter("EPUB intermediate output budget exceeded");
+  await renderSvg(root, resource, writer);
+  return new TextEncoder().encode(writer.finish());
+}
 export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentView> {
   const zip = new Zip(bytes);
   const container = xml(await zip.text("META-INF/container.xml"));
@@ -147,43 +250,155 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     return entry.path;
   });
   if (!spine.length) throw new Error("EPUB spine is empty");
-  const blocks: ProseBlock[] = [], html: string[] = [], sections: ReaderSectionHeading[] = [];
+  const blocks: ProseBlock[] = [], sections: ReaderSectionHeading[] = [];
+  const html = new HtmlWriter("EPUB output budget exceeded");
   const locations = new Map<string, string>();
+  let resourceBudget = 64 * 1024 * 1024, intermediateBudget = 64 * 1024 * 1024;
+  const resourceCache = new Map<string, Promise<string | null>>();
   for (const [chapter, path] of spine.entries()) {
     const doc = xml(await zip.text(path));
     const body = descendants(doc, "body")[0];
     if (!body) throw new Error(`EPUB chapter body missing: ${path}`);
-    let number = 0;
-    const blockTags = /^(p|h[1-6]|li|blockquote|pre|table|math)$/;
-    const hasBlocks = (node: XmlNode): boolean => node.children.some(child => typeof child !== "string" && (blockTags.test(local(child.name)) || hasBlocks(child)));
-    const emit = (tag: string, text: string, id?: string): void => {
-      if (!text) return;
-      const prose = !["pre", "table", "math"].includes(tag) && /[\p{L}\p{N}]/u.test(text);
-      const locator = `text:section:${chapter};block:${number++}`;
-      blocks.push({ index: blocks.length, locator, text, isProse: prose });
-      if (id) locations.set(`${path}#${id}`, locator);
-      if (!locations.has(path)) locations.set(path, locator);
-      const htmlTag = prose ? (tag === "li" ? "p" : tag) : "pre";
-      html.push(`<${htmlTag} data-locator="${locator}" data-prose="${prose}">${escape(text)}</${htmlTag}>`);
+    let number = 0, svgSequence = 0;
+    const locator = (): string => `text:section:${chapter};block:${number}`;
+    const addBlock = (text: string, prose: boolean): string => {
+      const value = locator(); number++;
+      blocks.push({ index: blocks.length, locator: value, text, isProse: prose });
+      if (!locations.has(path)) locations.set(path, value);
+      return ` data-locator="${value}" data-prose="${prose}"`;
     };
-    const visit = (node: XmlNode): void => {
+    const allowed = new Set(["body", "div", "section", "article", "aside", "header", "footer", "p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "figure", "figcaption", "img", "svg", "image", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "title", "desc", "pre", "code", "math", "span", "strong", "em", "b", "i", "u", "s", "sup", "sub", "a", "br", "hr"]);
+    const blockTags = /^(div|section|article|aside|header|footer|p|h[1-6]|blockquote|ul|ol|li|dl|dt|dd|table|figure|figcaption|pre|math|hr)$/;
+    const nonProse = /^(pre|code|table|math|img|svg|hr)$/;
+    const proseTags = /^(p|h[1-6]|li|blockquote|figcaption|dt|dd)$/;
+    const inlineOnly = (node: XmlNode): boolean => node.children.every(child => typeof child === "string" || (!dropped.has(local(child.name)) && !blockTags.test(local(child.name)) && !nonProse.test(local(child.name)) && inlineOnly(child)));
+    const loadResource = async (base: string, href: string, ancestors: ReadonlySet<string>): Promise<string | null> => {
+      let target: string;
+      try { target = resolve(dir(base), href); } catch { return null; }
+      if (!zip.has(target) || ancestors.has(target)) return null;
+      if (ancestors.size >= 4) throw new Error(`EPUB image nesting limit exceeded: ${target}`);
+      const key = target.toLowerCase().endsWith(".svg") ? `${target}\0${[...ancestors].sort().join("\0")}` : target;
+      let pending = resourceCache.get(key);
+      if (!pending) {
+        const size = zip.size(target);
+        if (size > resourceBudget) throw new Error(`EPUB resource budget exceeded: ${target}`);
+        resourceBudget -= size;
+        const next = new Set(ancestors); next.add(target);
+        pending = imageDataUrl(target, name => zip.read(name), data => safeSvg(data, nested => loadResource(target, nested, next)), length => {
+          if (length > resourceBudget) throw new Error(`EPUB resource budget exceeded: ${target}`);
+          if (ancestors.size) {
+            if (length > intermediateBudget) throw new Error(`EPUB intermediate output budget exceeded: ${target}`);
+          } else html.ensure(length);
+          resourceBudget -= length;
+        });
+        resourceCache.set(key, pending);
+      }
+      const url = await pending;
+      if (!url) return null;
+      if (ancestors.size) {
+        if (url.length > intermediateBudget) throw new Error(`EPUB intermediate output budget exceeded: ${target}`);
+        intermediateBudget -= url.length;
+      } else {
+        html.ensure(url.length);
+      }
+      return url;
+    };
+    const resource = (href: string): Promise<string | null> => loadResource(path, href, new Set());
+    const attribute = (name: string, value: string): void => {
+      html.append(` ${name}="`); html.escaped(value); html.append('"');
+    };
+    const attributes = async (node: XmlNode, tag: string): Promise<void> => {
+      for (const [name, value] of Object.entries(node.attrs)) {
+        const key = name.toLowerCase();
+        if ((tag === "img" && key === "src") || (tag === "image" && (key === "href" || key === "xlink:href"))) {
+          const url = await resource(value);
+          if (url) attribute(key, url);
+        } else if (key === "style") {
+          const style = sanitizeDeclarations(value);
+          if (style) attribute("style", style);
+        } else if (key === "href" && tag === "a" && /^#[\w.:-]+$/.test(value)) attribute("href", value);
+        else if (/^(id|class|title|alt|lang|dir|width|height|colspan|rowspan|viewbox|preserveaspectratio|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|d|points|fill|stroke|stroke-width|transform|xmlns|xmlns:xlink)$/.test(key) && safeSvgValue(key, value)) {
+          const outputName = key === "viewbox" ? "viewBox" : key === "preserveaspectratio" ? "preserveAspectRatio" : key;
+          attribute(outputName, value);
+        }
+      }
+    };
+    const markIds = (element: XmlNode): void => {
+      if (element.attrs["id"]) locations.set(`${path}#${element.attrs["id"]}`, locator());
+      for (const child of element.children) if (typeof child !== "string") markIds(child);
+    };
+    const serialize = async (node: XmlNode | string, plain = false): Promise<void> => {
+      if (typeof node === "string") { html.escaped(node); return; }
       const tag = local(node.name);
-      if (["script", "style", "nav", "head"].includes(tag)) return;
-      if (blockTags.test(tag) && (["pre", "table", "math"].includes(tag) || !hasBlocks(node))) {
-        emit(tag, content(node), node.attrs["id"]);
+      if (dropped.has(tag)) return;
+      if (node.attrs["id"] && !locations.has(`${path}#${node.attrs["id"]}`)) locations.set(`${path}#${node.attrs["id"]}`, locator());
+      if (!allowed.has(tag)) { for (const child of node.children) await serialize(child, plain); return; }
+      if (plain && tag === "svg") { await renderSvg(node, resource, html, `pith-svg-${chapter}-${svgSequence++}-`); return; }
+      const writeElement = async (extra: string): Promise<void> => {
+        html.append(`<${tag}`); await attributes(node, tag); html.append(`${extra}>`);
+        for (const child of node.children) await serialize(child, true);
+        html.append(`</${tag}>`);
+      };
+      if (plain) { await writeElement(""); return; }
+      if (nonProse.test(tag)) {
+        markIds(node);
+        if (tag === "svg") {
+          const prefix = `pith-svg-${chapter}-${svgSequence++}-`;
+          const block = addBlock(rawContent(node), false);
+          await renderSvg(node, resource, html, prefix, block);
+          return;
+        }
+        const block = addBlock(rawContent(node), false);
+        await writeElement(block);
         return;
       }
-      if (node.attrs["id"]) locations.set(`${path}#${node.attrs["id"]}`, `text:section:${chapter};block:${number}`);
-      let pending = "";
-      const flush = (): void => { emit("p", pending.replace(/\s+/g, " ").trim()); pending = ""; };
-      for (const child of node.children) {
-        if (typeof child === "string") { if (blockTags.test(tag)) pending += child; }
-        else if (blockTags.test(tag) && !blockTags.test(local(child.name)) && !hasBlocks(child) && !["ul", "ol"].includes(local(child.name))) pending += content(child);
-        else { flush(); visit(child); }
+      if (proseTags.test(tag) && inlineOnly(node)) {
+        const text = rawContent(node), prose = /[\p{L}\p{N}]/u.test(text);
+        markIds(node);
+        const block = addBlock(text, prose);
+        await writeElement(block);
+        return;
       }
-      flush();
+      if (tag !== "body") { html.append(`<${tag}`); await attributes(node, tag); html.append(">"); }
+      let pending: (XmlNode | string)[] = [];
+      const flush = async (): Promise<void> => {
+        if (!pending.length) return;
+        const text = pending.map(child => typeof child === "string" ? child : rawContent(child)).join("");
+        const prose = !!text && /[\p{L}\p{N}]/u.test(text);
+        if (prose) {
+          for (const child of pending) if (typeof child !== "string") markIds(child);
+          html.append(`<span${addBlock(text, true)}>`);
+        }
+        for (const child of pending) await serialize(child, true);
+        if (prose) html.append("</span>");
+        pending = [];
+      };
+      for (const child of node.children) {
+        if (typeof child === "string" || (!dropped.has(local(child.name)) && !blockTags.test(local(child.name)) && !nonProse.test(local(child.name)) && inlineOnly(child))) pending.push(child);
+        else { await flush(); await serialize(child); }
+      }
+      await flush();
+      if (tag !== "body") html.append(`</${tag}>`);
     };
-    visit(body);
+    const bodyClass = body.attrs["class"] ? ` ${body.attrs["class"]}` : "";
+    const bodyStyle = body.attrs["style"] ? sanitizeDeclarations(body.attrs["style"]) : "";
+    html.append(`<section class="pith-epub-chapter pith-epub-chapter-${chapter}`);
+    html.escaped(bodyClass); html.append('"');
+    if (bodyStyle) attribute("style", bodyStyle);
+    html.append(` data-locator="text:section:${chapter};block:0">`);
+    const writeStyle = (css: string): void => {
+      const style = sanitizeStylesheet(css, chapter, Math.max(0, html.remaining - 15));
+      if (style) { html.append("<style>"); html.append(style); html.append("</style>"); }
+    };
+    for (const style of descendants(doc, "style")) writeStyle(style.children.filter((child): child is string => typeof child === "string").join(""));
+    for (const link of descendants(doc, "link")) {
+      if (!(link.attrs["rel"] ?? "").toLowerCase().split(/\s+/).includes("stylesheet") || !link.attrs["href"]) continue;
+      let cssPath: string;
+      try { cssPath = resolve(dir(path), link.attrs["href"]); } catch { continue; }
+      if (zip.has(cssPath) && [...manifest.values()].some(item => item.path === cssPath && item.media === "text/css")) writeStyle(await zip.text(cssPath));
+    }
+    await serialize(body);
+    html.append("</section>");
   }
   const nav = [...manifest.values()].find(item => item.properties.split(/\s+/).includes("nav"));
   const ncx = [...manifest.values()].find(item => item.media === "application/x-dtbncx+xml");
@@ -216,5 +431,5 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     walk(doc, 0);
   }
   if (!sections.length) for (const [index, path] of spine.entries()) sections.push({ title: path.split("/").at(-1)!.replace(/\.[^.]+$/, ""), level: 1, line: index, locator: locations.get(path) ?? `text:section:${index};block:0` });
-  return { format: "epub", title: content(descendants(opf, "title")[0] ?? { name: "", attrs: {}, children: [] }) || "Untitled EPUB", html: html.join(""), sections, blocks, totalUnits: spine.length };
+  return { format: "epub", title: content(descendants(opf, "title")[0] ?? { name: "", attrs: {}, children: [] }) || "Untitled EPUB", html: html.finish(), sections, blocks, totalUnits: spine.length };
 }

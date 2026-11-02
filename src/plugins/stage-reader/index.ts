@@ -7,6 +7,7 @@ import { matchTextAnchor } from "./textAnchor.ts";
 import type { TeachingBlockSpec } from "../../core/index.ts";
 
 export { computePagination, extractTeachingBlocks, matchTextAnchor };
+export { installReaderFont, READER_SANS_STACK, READER_SERIF_STACK } from "./fontData.ts";
 
 export function readerInUse(materials: readonly Material[]): number {
   return materials.filter(material => material.kind === "book" || material.kind === "article").length;
