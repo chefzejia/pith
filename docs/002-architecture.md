@@ -15,11 +15,11 @@ Pith 采用受 `magpie` 与 `dsh-superagent` 启发的同心圆三层架构：
                                       │
                                       ▼ 注入 HostPort & 驱动 PluginRuntime
 ================================================================================
- 第二层：平级可开关内置插件 (src/plugins/*) —— 互不 import，按空间与职责前缀命名
+ 第二层：平级可插拔内置插件 (src/plugins/*) —— 互不 import，由工程解耦与 Agent 动态调度驱动
    ┌──────────────────┬──────────────────┬──────────────────┬─────────────────┐
    │ 主视觉区 stage-* │ 主动功能区 dojo-*│ 辅助协同区 guide-*│ 公共底座 *-service│
    │ - stage-reader   │ - dojo-shadowing │ - guide-acp      │ - speech-service│
-   │ - stage-timeline │   (按课题按需挂载)│   (园丁/向导面板) │   (TTS & ASR)   │
+   │ - stage-timeline │ (Agent 按课题挂载)│   (向导协同面板)  │   (TTS & ASR)   │
    └──────────────────┴──────────────────┴──────────────────┴─────────────────┘
 ================================================================================
                                       │
@@ -47,15 +47,17 @@ Pith 采用受 `magpie` 与 `dsh-superagent` 启发的同心圆三层架构：
    - 借鉴 `dsh-superagent`：对外只暴露领域动作（读取首页罗盘 `compass()`、秒存高亮与笔记 `captureSelection()`），绝不让前台界面阻塞等待 AI 会话；
    - 后台异步工作统一写入 `_cache/effects.json` 持久化队列，按 `(kind, key)` 自动合并去重（Coalesce：同一课题连续划多条笔记只合并触发一次下一步建议计算）；无 AI 配置时 100% 离线降级可用。
 
-## 3. 插件层四类命名与设计原则（`src/plugins/`）
+## 3. 插件层四类命名与「Agent 驱动编排」铁律（`src/plugins/`）
+
+> **核心哲学纠偏**：Pith 的插件化架构（`PluginRuntime`）是**为了研发解耦（支持多 Agent 并行独立开发）与运行时由 AI 向导动态为用户按需挂载工具**，**绝不是让人类用户在设置面板里手工勾选开关底层插件**！所有内置插件在内核启动时默认就绪，界面上严禁向用户暴露 `stage-reader`、`speech-service` 等底层插件开关列表或 `preset: all/essentials` 选择器。
 
 所有内置插件遵循统一的**前缀语义契约**，通过 [`src/core/seams.ts`](../src/core/seams.ts) 中定义的标准接口协作：
 
 | 前缀分类 | 界面与架构定位 | 现有内置插件 | 核心设计准则 |
 | :--- | :--- | :--- | :--- |
-| **`stage-*`** | **主视觉呈现区（Primary Stage）** | `stage-reader`（文档/电子书）<br>`stage-timeline`（音视频时间轴） | 负责打开特定格式的 `Material`，向上汇报与屏幕尺寸无关的内在位置 `IntrinsicLocator` 与选区锚点 `SelectionAnchor`。 |
-| **`dojo-*`** | **主动实训功能区（Active Dojo）** | `dojo-shadowing`（外语 4 阶跟读） | **默认对普通课题隐藏**，绝不污染纯阅读体验；仅当 `topic.toolkits` 挂载对应工具时原地激活，遵循 `拆解 -> 跟练 -> 骨干挖空 -> 盲产诊断(LCS)` 四阶撤拐杖规律。 |
-| **`guide-*`** | **Agent 辅助协同区（AI Guide）** | `guide-acp`（向导与课程教练） | 结合 `ME.md` 因人施教，按活跃 `dojo` 动态合并快捷胶囊，消费后台 `Effects` 队列，并通过深水区毕业一问（Settlement Gate）把关课题沉淀。 |
+| **`stage-*`** | **主视觉呈现区（Primary Stage）** | `stage-reader`（文档/电子书）<br>`stage-timeline`（音视频时间轴） | 根据当前 `Material` 的格式自动调度呈现，向上汇报与屏幕尺寸无关的内在位置 `IntrinsicLocator` 与选区锚点 `SelectionAnchor`。 |
+| **`dojo-*`** | **主动实训功能区（Active Dojo）** | `dojo-shadowing`（外语 4 阶跟读） | **由 Agent（或课题意图）通过 `topic.toolkits` 动态按需挂载**；对不涉及该实训的课题默认隐藏，遵循 `拆解 -> 跟练 -> 骨干挖空 -> 盲产诊断(LCS)` 四阶撤拐杖规律。 |
+| **`guide-*`** | **Agent 辅助协同区（AI Guide）** | `guide-acp`（向导与课程教练） | 结合 `ME.md` 因人施教，感知系统可用 `Dojo` 工具清单并帮用户动态挂载，消费后台 `Effects` 队列，通过深水区毕业一问（Settlement Gate）把关课题沉淀。 |
 | **`*-service`** | **无界面公共能力底座** | `speech-service`（分句 TTS 与本地回环 ASR） | 不直接占据主界面区域，向多个上层 `stage-*` 或 `dojo-*` 插件提供共享底层服务（如本地回环安全校验与音频能力）。 |
 
 ## 4. 架构门禁测试（Architecture Gates）

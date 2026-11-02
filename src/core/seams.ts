@@ -67,11 +67,29 @@ export interface RenderedDocumentView {
   readonly totalUnits: number;
 }
 
+export interface TeachingBlockSpec {
+  readonly id: string;
+  readonly kind: "reflection" | "hint" | "checkpoint" | "explanation";
+  readonly title: string;
+  readonly body: string;
+  readonly locator: IntrinsicLocator;
+}
+
+export interface TextQuoteMatch {
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly exact: string;
+  readonly prefix?: string;
+  readonly suffix?: string;
+}
+
 export interface StageReaderService {
   readonly formats: readonly ("markdown" | "epub" | "pdf")[];
   sections(markdown: string): ReaderSectionHeading[];
   render(markdown: string): string;
   extractProseBlocks?(markdownOrHtml: string): readonly ProseBlock[];
+  extractTeachingBlocks?(markdown: string): readonly TeachingBlockSpec[];
+  matchTextAnchor?(fullText: string, anchor: { readonly locator: IntrinsicLocator; readonly quote?: string; readonly prefix?: string; readonly suffix?: string }): TextQuoteMatch | null;
   renderFile?(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView>;
 }
 
@@ -80,6 +98,7 @@ export interface StageTimelineService {
   parseTranscript(raw: string): readonly TranscriptCue[];
   formatTimestamp(seconds: number): string;
   findCueAt(cues: readonly TranscriptCue[], seconds: number): TranscriptCue | null;
+  sliceLoopRange?(cues: readonly TranscriptCue[], startSec: number, endSec: number): readonly TranscriptCue[];
 }
 
 export interface SpeechSentenceSegment {
@@ -132,10 +151,12 @@ export interface GuideAgentService {
   readonly actions: readonly string[];
   detectAgents?(force?: boolean): Promise<readonly DiscoveredAgentDescriptor[]>;
   quickActionsForTopic?(topic: Topic, activeDojos: readonly DojoToolkitDescriptor[]): readonly GuideQuickAction[];
+  configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
     readonly topic: Topic;
     readonly userMessage: string;
     readonly anchor?: SelectionAnchor;
+    readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[];
   }): string;
 }
