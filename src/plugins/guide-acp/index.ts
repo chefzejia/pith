@@ -13,7 +13,8 @@ import {
   type Topic,
   type WorkspaceStore,
 } from "../../core/index.ts";
-import { LocalAcpGuideProvider, buildReadOnlyAgentEnv, normalizeToolkits, parseToolkitDirective, runOneShotAcpPrompt } from "./acpSession.ts";
+import { LocalAcpGuideProvider, buildReadOnlyAgentEnv, createGuidePermissionGate, normalizeToolkits, parseToolkitDirective, runOneShotAcpPrompt } from "./acpSession.ts";
+import { createGuideWorkspaceTools } from "./tools.ts";
 import { BUILTIN_LOCAL_AGENTS, CachedAgentDetector, discoverLocalAgents } from "./discovery.ts";
 
 export {
@@ -21,6 +22,8 @@ export {
   CachedAgentDetector,
   LocalAcpGuideProvider,
   buildReadOnlyAgentEnv,
+  createGuidePermissionGate,
+  createGuideWorkspaceTools,
   discoverLocalAgents,
   parseToolkitDirective,
   runOneShotAcpPrompt,
@@ -43,7 +46,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
   const available = input.availableToolkits ?? [{ id: "shadowing", label: "4-Stage Language Shadowing", category: "language" }];
   return [
     `# 学习者画像\n${input.profileMarkdown}`,
-    `# 当前课题\n标题：${topic.title}\n目标：${topic.target}\n状态：${topic.status}\n下一步：${topic.nextAction ?? "未设置"}`,
+    `# 当前课题\nID：${topic.id}\n材料 ID：${topic.materialId ?? "无"}\n标题：${topic.title}\n目标：${topic.target}\n状态：${topic.status}\n下一步：${topic.nextAction ?? "未设置"}`,
     `# 笔记\n${topic.notes.map((note) => note.body).join("\n\n") || "暂无"}`,
     input.anchor
       ? `# 当前选区\n文件：${input.anchor.file}\n位置：${input.anchor.locator}\n引用：${input.anchor.quote ?? ""}`
@@ -51,6 +54,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
     `# 可用实训工具包（Dojo Toolkits）\n${available.map(toolkit => `- ${toolkit.id}: ${toolkit.label} (${toolkit.category})`).join("\n") || "无"}\n当前已挂载：${topic.toolkits.join(", ") || "无"}\n根据学习目标建议或调整实训工具；需要调整时，在回复末尾用 pith-toolkits 围栏输出完整的工具 ID JSON 数组。`,
     `# 学习者问题\n${input.userMessage}`,
     "# 毕业门控（Settlement Gate）\n提出一道针对课题目标的深水区问题，要求学习者独立解释或迁移应用。只有回答证明理解后，才建议将课题沉淀；不要替学习者回答或自行宣布毕业。",
+    '# 工作区工具\n需要执行操作时，在回复末尾输出独立的 pith-tool 围栏，内容为单行 JSON，格式为 {"name":"pith_save_note","arguments":{"topicId":"课题ID","body":"笔记"}}。支持 pith_get_context、pith_read_material_section、pith_save_note、pith_write_lesson、pith_configure_toolkits、pith_settle_topic。毕业必须已有学习者笔记，且 pith_settle_topic 必须提供非空 verificationSummary。',
   ].join("\n\n");
 }
 
@@ -119,6 +123,10 @@ registerPlugin({
       detectAgents: (force?: boolean) => detector.detect(force),
       quickActionsForTopic,
       buildScenePrompt,
+      listWorkspaceTools: () => {
+        if (!store || !engine) throw new Error("Workspace services unavailable");
+        return createGuideWorkspaceTools(store, engine, host?.storage);
+      },
       configureTopicToolkits: async (topicId, toolkits) => {
         if (!store || typeof store.updateTopic !== "function") throw new Error("Workspace store unavailable");
         return store.updateTopic(topicId, { toolkits: normalizeToolkits(toolkits) });
@@ -131,6 +139,8 @@ registerPlugin({
       provider = new LocalAcpGuideProvider({
         processPort: host.process,
         store,
+        engine,
+        storage: host.storage,
         getAgentConfig: () => ({
           agentId,
           ...(model ? { model } : {}),

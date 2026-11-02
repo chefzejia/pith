@@ -1,10 +1,12 @@
 import { registerPlugin, type Material, type MaterialFileEntry, type ProseBlock, type ReaderSectionHeading, type RenderedDocumentView, type StageReaderService } from "../../core/index.ts";
 import { renderEpub } from "./epub.ts";
+import { renderCbz, renderImage, renderPdf } from "./fixedPage.ts";
+import { computePagination } from "./pagination.ts";
 import { extractTeachingBlocks, teachingBlockRanges } from "./teachingBlocks.ts";
 import { matchTextAnchor } from "./textAnchor.ts";
 import type { TeachingBlockSpec } from "../../core/index.ts";
 
-export { extractTeachingBlocks, matchTextAnchor };
+export { computePagination, extractTeachingBlocks, matchTextAnchor };
 
 export function readerInUse(materials: readonly Material[]): number {
   return materials.filter(material => material.kind === "book" || material.kind === "article").length;
@@ -94,6 +96,9 @@ export function renderMarkdown(markdown: string): string {
 
 export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {
   if (/\.epub$/i.test(file.name) || file.mimeType === "application/epub+zip") return renderEpub(bytes);
+  if (/\.pdf$/i.test(file.name) || file.mimeType === "application/pdf") return renderPdf(file, bytes);
+  if (/\.cbz$/i.test(file.name) || ["application/vnd.comicbook+zip", "application/x-cbz"].includes(file.mimeType)) return renderCbz(file, bytes);
+  if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) || ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mimeType)) return renderImage(file, bytes);
   if (/\.md$/i.test(file.name) || file.mimeType === "text/markdown") {
     const markdown = new TextDecoder().decode(bytes);
     const sections = markdownSections(markdown);
@@ -111,7 +116,7 @@ registerPlugin({
     columns: { type: "string", title: "Column mode", default: "auto", enum: ["auto", "single", "double"] },
   },
   apply(ctx) {
-    const service: StageReaderService = { formats: ["epub", "pdf", "markdown"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, extractTeachingBlocks, matchTextAnchor, renderFile };
+    const service: StageReaderService = { formats: ["epub", "pdf", "markdown", "cbz", "image"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, extractTeachingBlocks, matchTextAnchor, computePagination, renderFile };
     ctx.provide("stage.reader", service);
   },
 });

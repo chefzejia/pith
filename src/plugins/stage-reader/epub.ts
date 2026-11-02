@@ -39,6 +39,10 @@ class Zip {
   }
   private data: Uint8Array;
   async text(name: string): Promise<string> {
+    return decoder.decode(await this.read(name));
+  }
+  names(): string[] { return [...this.entries.keys()]; }
+  async read(name: string): Promise<Uint8Array> {
     const entry = this.entries.get(name);
     if (!entry) throw new Error(`Missing EPUB entry: ${name}`);
     const { offset, compressed, size, method } = entry, v = this.view;
@@ -62,8 +66,15 @@ class Zip {
       for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
     }
     if (bytes.length !== size) throw new Error("Invalid ZIP entry size");
-    return decoder.decode(bytes);
+    return bytes;
   }
+}
+
+export async function readZipEntries(bytes: Uint8Array, include: (name: string) => boolean): Promise<Map<string, Uint8Array>> {
+  const zip = new Zip(bytes);
+  const entries = new Map<string, Uint8Array>();
+  for (const name of zip.names()) if (include(name)) entries.set(name, await zip.read(name));
+  return entries;
 }
 
 interface XmlNode { name: string; attrs: Record<string, string>; children: (XmlNode | string)[] }

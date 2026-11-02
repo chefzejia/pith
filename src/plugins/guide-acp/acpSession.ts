@@ -2,13 +2,18 @@ import type {
   AgentProcessPort,
   AgentProcessSpawnSpec,
   AgentStdioHandle,
+  AttentionEngine,
   DiscoveredAgentDescriptor,
   GuideConversationEntry,
   GuideProvider,
   SelectionAnchor,
   Topic,
   WorkspaceStore,
+  WorkspaceStoragePort,
 } from "../../core/index.ts";
+import { createGuideWorkspaceTools, normalizeToolkits } from "./tools.ts";
+
+export { normalizeToolkits } from "./tools.ts";
 
 export interface JsonRpcRequestMessage {
   readonly jsonrpc: "2.0";
@@ -58,23 +63,59 @@ export interface AcpPromptResult {
   readonly stopReason: string;
 }
 
-export function normalizeToolkits(value: readonly unknown[]): string[] {
-  if (!Array.isArray(value) || !value.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item))) {
-    throw new Error("Invalid toolkit IDs");
-  }
-  return [...new Set(value as readonly string[])];
+export function createGuidePermissionGate(allowedToolNames: readonly string[]): {
+  observe(event: { readonly type: string; readonly toolCallId: string; readonly title?: string; readonly rawInput?: unknown; readonly status?: string }): void;
+  decide(request: { readonly toolCallId: string }): "allow_once" | "reject_once";
+} {
+  const names = new Set(allowedToolNames.filter(name => /^pith_[a-z0-9_]+$/.test(name)));
+  const calls = new Set<string>();
+  return {
+    observe(event) {
+      if (event.type === "tool-call") {
+        calls.delete(event.toolCallId);
+        const input = event.rawInput;
+        if (!input || typeof input !== "object" || Array.isArray(input)) return;
+        const record = input as Record<string, unknown>;
+        if (record.server === "pith-tools" && typeof record.tool === "string" && names.has(record.tool) && event.title === `mcp.pith-tools.${record.tool}`) calls.add(event.toolCallId);
+      } else if (event.type === "tool-call-update" && (event.status === "completed" || event.status === "failed")) calls.delete(event.toolCallId);
+    },
+    decide(request) { return calls.delete(request.toolCallId) ? "allow_once" : "reject_once"; },
+  };
 }
 
 export function parseToolkitDirective(text: string): { text: string; toolkits: string[] | null } {
-  const match = /(?:^|\r?\n)```pith-toolkits[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/.exec(text);
+  const match = trailingDirective(text, "pith-toolkits");
   if (!match) return { text, toolkits: null };
   try {
-    const parsed: unknown = JSON.parse(match[1]!);
+    const parsed: unknown = JSON.parse(match.json);
     if (!Array.isArray(parsed)) return { text, toolkits: null };
-    return { text: text.slice(0, match.index).trimEnd(), toolkits: normalizeToolkits(parsed) };
+    return { text: text.slice(0, match.start).trimEnd(), toolkits: normalizeToolkits(parsed) };
   } catch {
     return { text, toolkits: null };
   }
+}
+
+function trailingDirective(text: string, name: string): { start: number; json: string } | null {
+  const lines = [...text.matchAll(/[^\n]*(?:\n|$)/g)].filter(match => match[0].length > 0);
+  let fence: { marker: string; length: number; start: number; contentStart: number; tool: boolean } | null = null;
+  let last: { start: number; end: number; json: string } | null = null;
+  for (const line of lines) {
+    const value = line[0].replace(/\r?\n$/, "");
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(value);
+    if (!match) continue;
+    const marker = match[1]![0]!;
+    const suffix = match[2]!;
+    if (fence) {
+      if (marker === fence.marker && match[1]!.length >= fence.length && !suffix.trim()) {
+        if (fence.tool) last = { start: fence.start, end: line.index! + line[0].length, json: text.slice(fence.contentStart, line.index).trim() };
+        fence = null;
+      }
+    } else {
+      fence = { marker, length: match[1]!.length, start: line.index!, contentStart: line.index! + line[0].length, tool: marker === "`" && match[1]!.length === 3 && suffix.trim() === name };
+    }
+  }
+  if (fence || !last || text.slice(last.end).trim()) return null;
+  return { start: last.start, json: last.json };
 }
 
 function extractTextFromPromptResult(result: unknown): { text: string; stopReason: string } {
@@ -133,6 +174,7 @@ export async function runOneShotAcpPrompt(
   let nextId = 0;
   let streamedText = "";
   let sessionId = "";
+  const permissions = createGuidePermissionGate([]);
   const pending = new Map<
     number,
     {
@@ -165,14 +207,18 @@ export async function runOneShotAcpPrompt(
       return;
     }
 
-    // Handle server-initiated permission requests strictly in read-only mode (reject mutations)
     if (typeof parsed.method === "string" && parsed.id !== undefined && parsed.id !== null) {
       if (parsed.method === "session/request_permission") {
+        const toolCall = parsed.params?.toolCall;
+        const id = toolCall && typeof toolCall === "object" && !Array.isArray(toolCall) ? (toolCall as Record<string, unknown>).toolCallId : undefined;
+        const decision = permissions.decide({ toolCallId: typeof id === "string" ? id : "" });
+        const choices = parsed.params?.options;
+        const option = Array.isArray(choices) ? choices.find(item => item && typeof item === "object" && item.kind === decision && typeof item.optionId === "string") as { optionId: string } | undefined : undefined;
         void handle.writeLine(
           JSON.stringify({
             jsonrpc: "2.0",
             id: parsed.id,
-            result: { outcome: { outcome: "cancelled" }, optionId: "reject_once" },
+            result: { outcome: option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } },
           }),
         );
         return;
@@ -315,6 +361,8 @@ export async function runOneShotAcpPrompt(
 export interface LocalAcpGuideProviderOptions {
   readonly processPort: AgentProcessPort;
   readonly store: WorkspaceStore;
+  readonly engine?: AttentionEngine;
+  readonly storage?: WorkspaceStoragePort;
   readonly getAgentConfig: () => {
     readonly agentId: string;
     readonly model?: string;
@@ -386,10 +434,33 @@ export class LocalAcpGuideProvider implements GuideProvider {
       },
       signal,
     );
-    const directive = parseToolkitDirective(result.text);
-    if (directive.toolkits !== null) {
-      await this.options.store.updateTopic(input.topicId, { toolkits: directive.toolkits });
+    signal?.throwIfAborted();
+    const toolkitDirective = parseToolkitDirective(result.text);
+    let reply = toolkitDirective.text;
+    const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage);
+    const directives: { name: string; arguments: Record<string, unknown> }[] = [];
+    for (;;) {
+      const match = trailingDirective(reply, "pith-tool");
+      if (!match) break;
+      const parsed: unknown = JSON.parse(match.json);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid tool directive");
+      const record = parsed as Record<string, unknown>;
+      if (Object.keys(record).some(key => key !== "name" && key !== "arguments") || typeof record.name !== "string" || !record.arguments || typeof record.arguments !== "object" || Array.isArray(record.arguments)) throw new Error("Invalid tool directive");
+      directives.unshift({ name: record.name, arguments: record.arguments as Record<string, unknown> });
+      reply = reply.slice(0, match.start).trimEnd();
     }
-    return directive.text;
+    if (toolkitDirective.toolkits !== null) directives.push({ name: "pith_configure_toolkits", arguments: { topicId: input.topicId, toolkits: toolkitDirective.toolkits } });
+    for (const directive of directives) {
+      const tool = tools.find(item => item.name === directive.name);
+      if (!tool) throw new Error(`Unknown guide tool: ${directive.name}`);
+      const args = directive.arguments;
+      if (args.topicId !== undefined && args.topicId !== input.topicId) throw new Error("Tool topic is outside the current session");
+      if (args.materialId !== undefined && (!topic.materialId || args.materialId !== topic.materialId)) throw new Error("Tool material is outside the current session");
+    }
+    for (const directive of directives) {
+      signal?.throwIfAborted();
+      await tools.find(item => item.name === directive.name)!.execute(directive.arguments);
+    }
+    return reply;
   }
 }

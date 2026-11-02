@@ -7,6 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build:obsidian": "node scripts/build-obsidian.mjs",
     "web": "node --experimental-strip-types src/shells/web/cli.ts"
   },
   "license": "GPL-3.0-only"

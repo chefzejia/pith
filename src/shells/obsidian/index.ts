@@ -1,6 +1,35 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type GuideAgentService, type HostPort, type PluginsConfigFile, type SelectionAnchor, type StorageEntry, type WorkspaceStoragePort } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type GuideAgentService, type HostPort, type PluginsConfigFile, type SelectionAnchor, type StageReaderService, type StorageEntry, type WorkspaceStoragePort } from "../../core/index.ts";
 import { builtinRegistry } from "../../plugins/all.ts";
+import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
+
+interface ObsidianLeaf {
+  setViewState(state: { type: string; active: boolean }): Promise<void>;
+}
+interface ObsidianWorkspace {
+  getLeavesOfType(type: string): ObsidianLeaf[];
+  getLeaf(type: "tab"): ObsidianLeaf;
+  revealLeaf(leaf: ObsidianLeaf): Promise<void>;
+  detachLeavesOfType(type: string): void;
+}
+interface ObsidianPluginBase {
+  app: { vault: { adapter: ObsidianVaultAdapter }; workspace: ObsidianWorkspace };
+  registerView(type: string, factory: (leaf: ObsidianLeaf) => ObsidianItemViewBase): void;
+  addRibbonIcon(icon: string, title: string, callback: () => void): HTMLElement;
+  addCommand(command: { id: string; name: string; callback: () => void }): void;
+}
+interface ObsidianItemViewBase { contentEl: HTMLElement }
+type ObsidianApi = {
+  Plugin: new (...args: never[]) => ObsidianPluginBase;
+  ItemView: new (leaf: ObsidianLeaf) => ObsidianItemViewBase;
+  Notice: new (message: string) => unknown;
+};
+// Obsidian supplies this module at runtime; plain Node imports keep the controller usable.
+const obsidian: ObsidianApi = typeof require === "function" ? require("obsidian") as ObsidianApi : {
+  Plugin: class { constructor() { throw new Error("Obsidian host required"); } } as unknown as ObsidianApi["Plugin"],
+  ItemView: class { constructor() { throw new Error("Obsidian host required"); } } as unknown as ObsidianApi["ItemView"],
+  Notice: class { constructor() { throw new Error("Obsidian host required"); } },
+};
 
 export interface ObsidianVaultAdapter {
   exists(path: string): Promise<boolean>;
@@ -129,5 +158,96 @@ export class PithObsidianController {
     this.views.add(view);
     return view;
   }
+  releaseView(view: PithObsidianView): void { if (this.views.delete(view)) view.dispose(); }
   dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.runtime.stop(); }
+}
+
+const PITH_VIEW_TYPE = "pith-reader";
+
+class PithWorkspaceView extends obsidian.ItemView {
+  private view: PithObsidianView | null = null;
+  private readonly controller: PithObsidianController;
+  private readonly host: HostPort;
+  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, host: HostPort) { super(leaf); this.controller = controller; this.host = host; }
+  getViewType(): string { return PITH_VIEW_TYPE; }
+  getDisplayText(): string { return "Pith"; }
+  getIcon(): string { return "book-open"; }
+
+  async onOpen(): Promise<void> {
+    const compass = await this.controller.openCompass();
+    this.contentEl.replaceChildren();
+    const heading = this.contentEl.ownerDocument.createElement("h2");
+    heading.textContent = "Pith";
+    this.contentEl.append(heading);
+    for (const topic of [...compass.exploring, ...compass.settled]) {
+      const button = this.contentEl.ownerDocument.createElement("button");
+      button.textContent = topic.title;
+      button.addEventListener("click", () => { void this.openTopic(topic.id).catch(error => this.report(error)); });
+      this.contentEl.append(button);
+    }
+  }
+
+  async onClose(): Promise<void> { if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
+
+  private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
+  private async openTopic(id: string): Promise<void> {
+    const topic = await this.controller.openTopic(id);
+    if (!topic || !topic.materialId) throw new Error("课题没有关联材料");
+    const material = await this.controller.store.getMaterial(topic.materialId);
+    if (!material || !material.files.length) throw new Error("材料没有可读取的文件");
+    const reader = this.controller.runtime.getService<StageReaderService>("stage.reader");
+    if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
+    const render = async (name: string): Promise<void> => {
+      const file = material.files.find(entry => entry.name === name);
+      if (!file || !reader.renderFile) throw new Error("材料文件不存在");
+      const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
+      const document = await reader.renderFile(file, bytes);
+      if (this.view) this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections });
+    };
+    if (this.view) this.controller.releaseView(this.view);
+    this.view = this.controller.createView(this.contentEl, {
+      openFile: render,
+      openDojo: () => { new obsidian.Notice("此视图尚未提供跟读工坊"); },
+      selection: (action, text) => {
+        if (action === "ask") { new obsidian.Notice("此视图尚未提供向导对话"); return; }
+        void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text }).catch(error => this.report(error));
+      },
+    });
+    this.view.setGuideAvailable(false);
+    await render(material.files[0]!.name);
+  }
+}
+
+export default class PithObsidianPlugin extends obsidian.Plugin {
+  private controller: PithObsidianController | null = null;
+
+  async onload(): Promise<void> {
+    const host = createObsidianHostPort(this.app.vault.adapter, "", new NodeAgentProcessPort());
+    const controller = new PithObsidianController(host);
+    this.controller = controller;
+    try {
+      await controller.initialize();
+      this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host));
+      const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };
+      this.addRibbonIcon("book-open", "打开 Pith", open);
+      this.addCommand({ id: "open-pith", name: "打开 Pith", callback: open });
+    } catch (error) {
+      controller.dispose();
+      this.controller = null;
+      throw error;
+    }
+  }
+
+  onunload(): void {
+    this.app.workspace.detachLeavesOfType(PITH_VIEW_TYPE);
+    if (this.controller) { this.controller.dispose(); this.controller = null; }
+  }
+
+  private async openView(): Promise<void> {
+    const workspace = this.app.workspace;
+    const existing = workspace.getLeavesOfType(PITH_VIEW_TYPE)[0];
+    const leaf = existing ?? workspace.getLeaf("tab");
+    if (!existing) await leaf.setViewState({ type: PITH_VIEW_TYPE, active: true });
+    await workspace.revealLeaf(leaf);
+  }
 }

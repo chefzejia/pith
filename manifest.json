@@ -1,0 +1,8 @@
+{
+  "id": "pith",
+  "name": "Pith",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Agents automate your output. Pith grows your core.",
+  "isDesktopOnly": true
+}
