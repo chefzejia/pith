@@ -6,6 +6,7 @@ import type {
   DiscoveredAgentDescriptor,
   GuideConversationEntry,
   GuideProvider,
+  HttpPort,
   SelectionAnchor,
   Topic,
   WorkspaceStore,
@@ -363,6 +364,7 @@ export interface LocalAcpGuideProviderOptions {
   readonly store: WorkspaceStore;
   readonly engine?: AttentionEngine;
   readonly storage?: WorkspaceStoragePort;
+  readonly http?: HttpPort;
   readonly getAgentConfig: () => {
     readonly agentId: string;
     readonly model?: string;
@@ -437,7 +439,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
     signal?.throwIfAborted();
     const toolkitDirective = parseToolkitDirective(result.text);
     let reply = toolkitDirective.text;
-    const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage);
+    const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage, this.options.http);
     const directives: { name: string; arguments: Record<string, unknown> }[] = [];
     for (;;) {
       const match = trailingDirective(reply, "pith-tool");

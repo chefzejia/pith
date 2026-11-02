@@ -1,4 +1,5 @@
-import type { AttentionEngine, GuideMcpToolSpec, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
+import type { AttentionEngine, GuideMcpToolSpec, HttpPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
+import { ingestExternalUrl } from "./externalIngest.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
   if (!Array.isArray(value) || !value.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item))) throw new Error("Invalid toolkit IDs");
@@ -25,8 +26,19 @@ function anchorValue(value: unknown): SelectionAnchor {
   return { file: text(anchor, "file", 500), locator: text(anchor, "locator", 300), ...(anchor.quote === undefined ? {} : { quote: text(anchor, "quote") }) };
 }
 
-export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort): readonly GuideMcpToolSpec[] {
+export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort): readonly GuideMcpToolSpec[] {
   return [
+    ...(http ? [{ name: "pith_ingest_external", description: "Import a public external document or media into the workspace.", inputSchema: schema({ url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
+      keys(input, ["url", "kind", "transcriptMarkdown", "topicId"]);
+      const kind = input.kind;
+      if (kind !== undefined && kind !== "article" && kind !== "discussion" && kind !== "media") throw new Error("Invalid kind");
+      const topicId = input.topicId === undefined ? undefined : text(input, "topicId", 200);
+      if (topicId && !await store.getTopic(topicId)) throw new Error("Topic not found");
+      const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http);
+      const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
+      if (topicId) await store.updateTopic(topicId, { materialId: material.id });
+      return { material, warnings: bundle.warnings };
+    } }] : []),
     { name: "pith_get_context", description: "Read the learner profile, compass and optional topic.", inputSchema: schema({ topicId: field }, []), async execute(input) {
       keys(input, ["topicId"]);
       if (!engine) throw new Error("Attention engine unavailable");

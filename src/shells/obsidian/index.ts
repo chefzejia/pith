@@ -1,6 +1,7 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type GuideAgentService, type HostPort, type PluginsConfigFile, type SelectionAnchor, type StageReaderService, type StorageEntry, type WorkspaceStoragePort } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type GuideAgentService, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
+import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
 
 interface ObsidianLeaf {
@@ -65,7 +66,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
       return [...result.folders.map(entry => ({ path: relative(entry), type: "folder" as const })), ...result.files.map(entry => ({ path: relative(entry), type: "file" as const }))] satisfies StorageEntry[];
     },
   };
-  return { id: "obsidian", storage, ...(processPort ? { process: processPort } : {}) };
+  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => typeof process !== "undefined" ? process.env[key] ?? null : null }, ...(processPort ? { process: processPort } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -85,6 +86,8 @@ export class PithObsidianController {
   private model = "";
   private effort = "";
   private appliedGuideConfig = "";
+  private speechConfig: Record<string, string> = {};
+  private appliedSpeechConfig = "";
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
   private readonly views = new Set<PithObsidianView>();
@@ -109,12 +112,13 @@ export class PithObsidianController {
     if (await this.host.storage.exists("_cache/web-settings.json")) {
       const data: unknown = JSON.parse(await this.host.storage.readText("_cache/web-settings.json"));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
-      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; model?: unknown; effort?: unknown };
+      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; model?: unknown; effort?: unknown; speech?: unknown };
       if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.persona = value.persona;
       this.agentId = (value.agentId ?? "") as ObsidianAgentConfig["agentId"];
       this.model = (value.model ?? "") as string;
       this.effort = (value.effort ?? "") as string;
+      if (value.speech !== undefined) { if (!value.speech || typeof value.speech !== "object" || Array.isArray(value.speech) || Object.values(value.speech).some(item => typeof item !== "string")) throw new Error("Invalid speech settings"); this.speechConfig = value.speech as Record<string, string>; }
       this.config = { preset: value.preset, plugins: value.plugins as NonNullable<PluginsConfigFile["plugins"]> };
     }
     await this.refresh();
@@ -124,14 +128,17 @@ export class PithObsidianController {
     try { [this.topics, this.materials] = await Promise.all([this.store.listTopics(), this.store.listMaterials()]); }
     finally {
       const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona };
-      const config: PluginsConfigFile = { ...this.config, plugins: { ...this.config.plugins, "guide-acp": { ...this.config.plugins?.["guide-acp"], config: guideConfig } } };
+      const config: PluginsConfigFile = { ...this.config, plugins: { ...this.config.plugins, "speech-service": { ...this.config.plugins?.["speech-service"], config: this.speechConfig }, "guide-acp": { ...this.config.plugins?.["guide-acp"], config: guideConfig } } };
       const signature = JSON.stringify(guideConfig);
       if (this.appliedGuideConfig && this.appliedGuideConfig !== signature) this.runtime.reconcile({ ...config, plugins: { ...config.plugins, "guide-acp": { enabled: false } } });
+      const speechSignature = JSON.stringify(this.speechConfig);
+      if (this.appliedSpeechConfig && this.appliedSpeechConfig !== speechSignature) this.runtime.reconcile(Object.fromEntries(this.runtime.statuses().map(plugin => [plugin.id, plugin.id !== "speech-service" && plugin.state === "active"])));
       this.runtime.reconcile(config);
       this.appliedGuideConfig = signature;
+      this.appliedSpeechConfig = speechSignature;
     }
   }
-  private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"] }): Promise<void> {
+  private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string> }): Promise<void> {
     await MutationQueue.forStorage(this.host.storage).run(async () => {
       await this.host.storage.mkdir("_cache");
       const path = "_cache/web-settings.json";
@@ -142,6 +149,26 @@ export class PithObsidianController {
   }
   async openCompass() { await this.refresh(); return this.engine.compass(); }
   async openTopic(id: string) { return this.store.getTopic(id); }
+  async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId && !await this.store.getTopic(topicId)) throw new Error("Topic not found"); const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
+  async setSpeechConfig(config: Record<string, string>): Promise<void> {
+    if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
+    this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig });
+  }
+  async renderMaterialFile(materialId: string, name: string) {
+    const material = await this.store.getMaterial(materialId); const file = material && material.files.find(entry => entry.name === name);
+    if (!material || !file) throw new Error("材料文件不存在");
+    const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
+    if (material.kind === "media" || /\.(vtt|srt)$/i.test(name)) {
+      const timeline = this.runtime.getService<StageTimelineService>("stage.timeline"); if (!timeline) throw new Error("时间轴不可用");
+      const transcript = /\.(vtt|srt)$/i.test(name) ? bytes : await (async () => { const entry = material.files.find(item => /\.(vtt|srt)$/i.test(item.name)); return entry ? this.host.storage.readBinary(`materials/${material.id}/files/${entry.name}`) : new Uint8Array(); })();
+      const cues = timeline.parseTranscript(new TextDecoder().decode(transcript));
+      const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+      const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time>${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
+      return { title: material.title, html, sections: [] };
+    }
+    const reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
+    return reader.renderFile(file, bytes);
+  }
   async captureHighlight(topicId: string, body: string, anchor?: SelectionAnchor) { return this.engine.captureSelection({ topicId, kind: "highlight", body, anchor }); }
   async setPersona(persona: "sanctuary" | "studio"): Promise<void> { this.persona = persona; await this.refresh(); await this.save({ persona }); }
   async detectAgents(force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable"); return guide.detectAgents(force); }
@@ -195,18 +222,14 @@ class PithWorkspaceView extends obsidian.ItemView {
     if (!topic || !topic.materialId) throw new Error("课题没有关联材料");
     const material = await this.controller.store.getMaterial(topic.materialId);
     if (!material || !material.files.length) throw new Error("材料没有可读取的文件");
-    const reader = this.controller.runtime.getService<StageReaderService>("stage.reader");
-    if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
     const render = async (name: string): Promise<void> => {
-      const file = material.files.find(entry => entry.name === name);
-      if (!file || !reader.renderFile) throw new Error("材料文件不存在");
-      const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
-      const document = await reader.renderFile(file, bytes);
+      const document = await this.controller.renderMaterialFile(material.id, name);
       if (this.view) this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections });
     };
     if (this.view) this.controller.releaseView(this.view);
     this.view = this.controller.createView(this.contentEl, {
       openFile: render,
+      synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音"); return tts.synthesizeSpeech(text, signal); },
       openDojo: () => { new obsidian.Notice("此视图尚未提供跟读工坊"); },
       selection: (action, text) => {
         if (action === "ask") { new obsidian.Notice("此视图尚未提供向导对话"); return; }

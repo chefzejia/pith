@@ -1,4 +1,6 @@
-import { registerPlugin, type ProseBlock, type SpeechSentenceSegment, type SpeechAsrService, type SpeechTtsService } from "../../core/index.ts";
+import { registerPlugin, type CuratedAsrProviderId, type CuratedTtsProviderId, type HostPort, type ProseBlock, type SpeechSentenceSegment, type SpeechAsrService, type SpeechTtsService } from "../../core/index.ts";
+import { createNeuralSpeech, CURATED_ASR_PRESETS, CURATED_TTS_PRESETS } from "./neuralSpeech.ts";
+export { createNeuralSpeech, CURATED_ASR_PRESETS, CURATED_TTS_PRESETS, PrefetchSpeechQueue } from "./neuralSpeech.ts";
 
 export function splitSentences(text: string): { text: string; offset: number }[] {
   const segmenter = new Intl.Segmenter(undefined, { granularity: "sentence" });
@@ -74,6 +76,11 @@ registerPlugin({
   description: "Chapter-level continuous read-aloud (TTS) and loopback Whisper transcription (ASR)",
   parts: [{ slot: "toolbar", key: "read-aloud" }],
   settings: {
+    ttsProvider: { type: "string", title: "TTS provider", default: "kokoro-local", enum: ["kokoro-local", "openai-tts", "azure-neural"] },
+    ttsEndpoint: { type: "string", title: "TTS endpoint", default: "" },
+    ttsVoice: { type: "string", title: "TTS voice", default: "" },
+    azureRegion: { type: "string", title: "Azure region", default: "" },
+    asrProvider: { type: "string", title: "ASR provider", default: "whisper-local", enum: ["whisper-local", "sensevoice-local", "openai-whisper"] },
     rate: {
       type: "number",
       title: "Playback speed",
@@ -91,8 +98,11 @@ registerPlugin({
     const rate = ctx.config["rate"];
     const url = ctx.config["asrLoopbackUrl"];
     if (typeof rate !== "number" || typeof url !== "string" || !isLoopbackSafe(url)) throw new Error("Unsafe speech configuration");
-    const tts: SpeechTtsService & { createReadAloudSession: typeof createReadAloudSession } = { rate, splitSentences, filterProseOnly, createReadAloudSession };
-    const asr: SpeechAsrService = { url, isLoopbackSafe };
+    const ttsProvider = ctx.config["ttsProvider"] as CuratedTtsProviderId;
+    const asrProvider = ctx.config["asrProvider"] as CuratedAsrProviderId;
+    const neural = createNeuralSpeech(ctx.service<HostPort>("host"), { rate, asrLoopbackUrl: url, ttsProvider, asrProvider, ttsEndpoint: String(ctx.config["ttsEndpoint"]), ttsVoice: String(ctx.config["ttsVoice"]), azureRegion: String(ctx.config["azureRegion"]) }, isLoopbackSafe);
+    const tts: SpeechTtsService & { createReadAloudSession: typeof createReadAloudSession } = { rate, splitSentences, filterProseOnly, createReadAloudSession, providerId: ttsProvider, endpoint: neural.ttsEndpoint, voice: neural.voice, listPresets: () => CURATED_TTS_PRESETS, checkHealth: neural.checkTtsHealth, synthesizeSpeech: neural.synthesizeSpeech };
+    const asr: SpeechAsrService = { url: neural.asrEndpoint, providerId: asrProvider, isLoopbackSafe, listPresets: () => CURATED_ASR_PRESETS, checkHealth: neural.checkAsrHealth, transcribeAudio: neural.transcribeAudio };
     ctx.provide("speech.tts", tts);
     ctx.provide("speech.asr", asr);
   },

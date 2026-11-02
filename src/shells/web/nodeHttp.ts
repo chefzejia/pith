@@ -1,8 +1,69 @@
+import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
+import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 
-export class NodeHttpPort implements HttpPort {
+export class NodeHttpPort implements HttpPort, PublicHttpPort {
+  async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
+    if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) {
+      throw new Error("Invalid public request");
+    }
+    const url = new URL(spec.url);
+    const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+    if (
+      !addresses.length ||
+      addresses.some(({ address, family }) =>
+        family === 4
+          ? !isPublicHttpUrl(`http://${address}`)
+          : !/^(?:2[0-9a-f]{3}|3[0-9a-f]{3}):/i.test(address) || /^(?:2001|2002|3fff):/i.test(address),
+      )
+    ) {
+      throw new Error("DNS resolved to a non-public address");
+    }
+    const selected = addresses[0]!;
+    return new Promise((resolve, reject) => {
+      const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+        url,
+        {
+          method: "GET",
+          headers: spec.headers,
+          signal: spec.signal,
+          family: selected.family,
+          lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
+        },
+        (response) => {
+          const status = response.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            response.resume();
+            reject(new Error(`Public HTTP request rejected: ${status}`));
+            return;
+          }
+          const chunks: Uint8Array[] = [];
+          let size = 0;
+          response.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > maxBytes) response.destroy(new Error("Public response exceeds limit"));
+            else chunks.push(chunk);
+          });
+          response.on("error", reject);
+          response.on("aborted", () => reject(new Error("Public response aborted")));
+          response.on("end", () => {
+            const bytes = new Uint8Array(Buffer.concat(chunks));
+            const headers: Record<string, string> = {};
+            for (const [key, value] of Object.entries(response.headers)) {
+              if (typeof value === "string") headers[key.toLowerCase()] = value;
+              else if (Array.isArray(value)) headers[key.toLowerCase()] = value.join(", ");
+            }
+            resolve({ status, headers, bytes, text: () => new TextDecoder().decode(bytes) });
+          });
+        },
+      );
+      request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
+      request.on("error", reject);
+      request.end();
+    });
+  }
   async request(spec: HttpRequestSpec): Promise<HttpResponseData> {
     if (spec.signal?.aborted) throw new Error("HTTP request aborted");
     const url = new URL(spec.url);

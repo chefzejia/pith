@@ -63,6 +63,17 @@ export function sliceLoopRange(cues: readonly TranscriptCue[], startSec: number,
   return cues.filter(cue => cue.endSec > startSec && cue.startSec < endSec);
 }
 
+const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+export function renderTimelineView(input: Parameters<NonNullable<StageTimelineService["renderTimelineView"]>>[0]): string {
+  const kind = input.mediaKind ?? "audio";
+  const loop = input.loopRange;
+  if (loop) sliceLoopRange(input.cues, loop.startSec, loop.endSec);
+  const media = input.mediaFile ? `<${kind} controls src="${escapeHtml(input.mediaFile)}"></${kind}>` : "";
+  const status = loop ? `A ${formatTimestamp(loop.startSec)} - B ${formatTimestamp(loop.endSec)}` : "A-B 循环未设置";
+  const cues = input.cues.map(cue => `<div class="pith-cue${cue.id === input.activeCueId ? " pith-cue-active" : ""}" data-cue-id="${escapeHtml(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time>${formatTimestamp(cue.startSec)}</time> ${escapeHtml(cue.text)}</div>`).join("");
+  return `<section class="pith-timeline-stage" data-media-kind="${kind}"><h2>${escapeHtml(input.title)}</h2>${media}<div class="pith-loop-status" role="status">${status}</div><div class="pith-timeline-cues">${cues}</div></section>`;
+}
+
 registerPlugin({
   id: "stage-timeline",
   api: "^1",
@@ -77,7 +88,7 @@ registerPlugin({
   apply(ctx) {
     const service: StageTimelineService = {
       formats: ["audio", "video"],
-      parseTranscript, formatTimestamp, findCueAt, sliceLoopRange,
+      parseTranscript, formatTimestamp, findCueAt, sliceLoopRange, renderTimelineView,
     };
     ctx.provide("stage.timeline", service);
   },

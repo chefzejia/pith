@@ -16,6 +16,8 @@ import {
 import { LocalAcpGuideProvider, buildReadOnlyAgentEnv, createGuidePermissionGate, normalizeToolkits, parseToolkitDirective, runOneShotAcpPrompt } from "./acpSession.ts";
 import { createGuideWorkspaceTools } from "./tools.ts";
 import { BUILTIN_LOCAL_AGENTS, CachedAgentDetector, discoverLocalAgents } from "./discovery.ts";
+import { ingestExternalUrl } from "./externalIngest.ts";
+export { ingestExternalUrl, isPublicHttpUrl } from "./externalIngest.ts";
 
 export {
   BUILTIN_LOCAL_AGENTS,
@@ -125,8 +127,9 @@ registerPlugin({
       buildScenePrompt,
       listWorkspaceTools: () => {
         if (!store || !engine) throw new Error("Workspace services unavailable");
-        return createGuideWorkspaceTools(store, engine, host?.storage);
+        return createGuideWorkspaceTools(store, engine, host?.storage, host?.http);
       },
+      ingestExternalUrl: input => ingestExternalUrl(input, host?.http),
       configureTopicToolkits: async (topicId, toolkits) => {
         if (!store || typeof store.updateTopic !== "function") throw new Error("Workspace store unavailable");
         return store.updateTopic(topicId, { toolkits: normalizeToolkits(toolkits) });
@@ -141,6 +144,7 @@ registerPlugin({
         store,
         engine,
         storage: host.storage,
+        http: host.http,
         getAgentConfig: () => ({
           agentId,
           ...(model ? { model } : {}),

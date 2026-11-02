@@ -1,6 +1,10 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, type SelectionAnchor, type WorkspaceStoragePort } from "../../core/index.ts";
+import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type SelectionAnchor, type WorkspaceStoragePort } from "../../core/index.ts";
 import { normalizeToolkits } from "../../plugins/guide-acp/acpSession.ts";
 import { createGuideWorkspaceTools } from "../../plugins/guide-acp/tools.ts";
+import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 
 export interface DshTool {
   readonly name: string;
@@ -8,7 +12,35 @@ export interface DshTool {
   readonly inputSchema: Readonly<Record<string, unknown>>;
   execute(input: Readonly<Record<string, unknown>>): Promise<unknown>;
 }
-export interface DshBundleOptions { readonly storage: WorkspaceStoragePort }
+export interface DshBundleOptions { readonly storage: WorkspaceStoragePort; readonly http?: HttpPort }
+
+export class DshPublicHttpPort implements PublicHttpPort {
+  async request(spec: HttpRequestSpec): Promise<HttpResponseData> { return this.requestPublic(spec, 4 * 1024 * 1024); }
+  async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
+    if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) throw new Error("Invalid public request");
+    const url = new URL(spec.url);
+    const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+    if (!addresses.length || addresses.some(({ address, family }) => family === 4 ? !isPublicHttpUrl(`http://${address}`) : !/^(?:2[0-9a-f]{3}|3[0-9a-f]{3}):/i.test(address) || /^(?:2001|2002|3fff):/i.test(address))) throw new Error("DNS resolved to a non-public address");
+    const selected = addresses[0]!;
+    return new Promise((resolve, reject) => {
+      const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method: "GET", headers: spec.headers, signal: spec.signal, family: selected.family, lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family) }, response => {
+        const status = response.statusCode ?? 0;
+        if (status < 200 || status >= 300) { response.resume(); reject(new Error(`Public HTTP request rejected: ${status}`)); return; }
+        const chunks: Uint8Array[] = []; let size = 0;
+        response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > maxBytes) response.destroy(new Error("Public response exceeds limit")); else chunks.push(chunk); });
+        response.on("error", reject);
+        response.on("aborted", () => reject(new Error("Public response aborted")));
+        response.on("end", () => {
+          const bytes = new Uint8Array(Buffer.concat(chunks)); const headers: Record<string, string> = {};
+          for (const [key, value] of Object.entries(response.headers)) if (typeof value === "string") headers[key] = value; else if (Array.isArray(value)) headers[key] = value.join(", ");
+          resolve({ status, headers, bytes, text: () => new TextDecoder().decode(bytes) });
+        });
+      });
+      request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
+      request.on("error", reject); request.end();
+    });
+  }
+}
 
 function string(input: Readonly<Record<string, unknown>>, key: string): string {
   const value = input[key];
@@ -43,6 +75,6 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
     { name: "pith_write_lesson", description: "Write a generated Markdown lesson", inputSchema: schema({ materialId: field, fileName: field, markdown: field }, ["materialId", "fileName", "markdown"]), execute: async input => store.writeGeneratedFile(string(input, "materialId"), string(input, "fileName"), string(input, "markdown")) },
     { name: "pith_update_profile", description: "Update the learner profile", inputSchema: schema({ markdown: field }, ["markdown"]), execute: async input => { await store.writeProfile(string(input, "markdown")); return store.readProfile(); } },
   ];
-  tools.push(...createGuideWorkspaceTools(store, engine, options.storage).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_settle_topic"));
+  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
   return { tools };
 }
