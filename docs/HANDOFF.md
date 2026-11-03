@@ -1,7 +1,10 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: pending
+Status: verified
+Verified-Commit: 9505d96
 Updated: 2026-11-03
+
+验收：类型检查、179 项测试、Obsidian 构建和真实客户端验收脚本通过。独立 Tester 在 `.dev-vault` 真机核验图片与 SVG 封面、分页图注、向导图标、语音设置与 SecretStorage，以及真实多级 EPUB 目录；桌面操作由 CDP 驱动，语音健康检查使用受控服务，未验证真实语音播放。
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **双环四重身份协同契约（详见 [ROLES.md](ROLES.md)）**：
