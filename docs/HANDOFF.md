@@ -1,7 +1,9 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: pending
+Status: blocked
 Updated: 2026-11-03
+
+阻塞：Wave 9 的真实 Obsidian 桌面验收尚未运行。当前已有默认用户配置及 `.tmp/obsidian-user-data` 的 Obsidian 实例运行，来源和占用状态未确认；测试启动对真实 Vault 的隔离尚未证明。不得接管现有实例或将模拟验收视作真机通过。Worker 的实现和测试保留在工作区，尚未提交；独立 Tester 的第三轮定向复验通过，但原生右栏、桌面翻页与选区仍待验收。
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **双环四重身份协同契约（详见 [ROLES.md](ROLES.md)）**：
