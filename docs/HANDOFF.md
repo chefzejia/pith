@@ -1,7 +1,6 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: verified
-Verified-Commit: 468a9d277310594e6ecdfea7c60745638e1a1665
+Status: pending
 Updated: 2026-11-03
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
@@ -15,31 +14,31 @@ Updated: 2026-11-03
    - `src/core/`：`PluginRuntime`、`DefaultWorkspaceStore`（Markdown 事实源 + `MutationQueue` 串行写锁）、`DefaultAttentionEngine`（去 Session 化罗盘与 `_cache/effects.json` 合并队列）及 `HostPort` 能力接缝。
    - `src/plugins/`：`stage-reader`、`stage-timeline`、`dojo-shadowing`、`dojo-feynman`、`speech-service`、`guide-acp` 六大内置插件互不耦合，由内核与 Agent 按需编排。
    - `src/shells/`：`shells/obsidian`、`shells/web`、`shells/dsh` 遵循 [003-interaction.md](003-interaction.md) 空间契约。
-2. **音频与语音协议解耦（Contract-First · Brain 已裁决并冻结核心契约）**：
+2. **音频与语音协议解耦（Contract-First）**：
    - **静态衍生音频资产**：材料目录 `materials/<id>/files/` 下的标准音频文件（`.mp3/.m4a/.wav/.ogg`）与时间轴字幕（`.vtt/.srt`）由 `.pith-media-deck` 直接停靠加载并同步高亮，与外部生成工具零耦合。
-   - **实时 TTS / ASR 协议适配器与三态健康报告**：
-     - `src/core/seams.ts` 已定义 `SpeechHealthStatus = "verified" | "unverified" | "failed"` 与 `SpeechHealthReport`，在保持 `ok: boolean` 兼容的同时，以 `status` 显式区分已验证（`verified`）、未验证（`unverified`）与失败（`failed`）；
-     - 本地回环 `/transcribe` 响应解析兼容无 `Content-Type` 或 `text/plain` 的 JSON 与纯文本响应，并严格拒绝 HTML 错误页。
+   - **实时 TTS / ASR 协议适配器与三态健康报告**：`src/core/seams.ts` 定义 `SpeechHealthStatus = "verified" | "unverified" | "failed"` 与 `SpeechHealthReport`；本地回环 `/transcribe` 兼容无 `Content-Type` 或 `text/plain` 的 JSON 与纯文本响应并拒绝 HTML。
 
 ---
 
-## 二、 当前待办任务包（Wave 8 收口：通用语音协议与三态健康报告独立验收）
+## 二、 当前待办任务包（Wave 8 真机 E2E 终验：真实桌面 Obsidian `.dev-vault` + Web 真机闭环）
 
-### 上游 Brain 裁决说明（针对上一轮 `Status: blocked` 事项）
-1. **Core 契约已升级**：`src/core/seams.ts` 已新增 `SpeechHealthStatus = "verified" | "unverified" | "failed"` 与 `SpeechHealthReport`，并在 `src/plugins/speech-service/neuralSpeech.ts` 中落地；
-2. **无 `Content-Type` 旧服务纯文本响应已修复**：`neuralSpeech.ts` 的 `legacyLocal` 分支已兼容 `responseType === ""` 的非 HTML 纯文本响应；
-3. **Obsidian 端到端真机验收（`npm run verify:obsidian`）已打通**：`scripts/build-obsidian.mjs` 构建后自动同步至 `.dev-vault/.obsidian/plugins/pith/`，并通过 `scripts/verify-obsidian-e2e.ts` 拉起真实 `/Applications/Obsidian.app`（`--user-data-dir=.tmp/obsidian-user-data` + 动态 CDP 端口）打开 `.dev-vault` 完成真机 E2E 验证，无需假 DOM 替身。
+### 背景与目标
+上一轮（`dbe4f6f`）因当时尚未提供隔离 `--user-data-dir` 的真机启动脚手架，Tester 跳过了真实桌面 Obsidian 验收。现 Brain 已合入 `scripts/verify-obsidian-e2e.ts`（`npm run verify:obsidian`）并在 `scripts/build-obsidian.mjs` 中自动将构建产物同步至 `.dev-vault/.obsidian/plugins/pith/`。本轮要求对 Wave 8 全部改动执行**真正的桌面 Obsidian（`.dev-vault`）与 Web 端到端真机验收**（严禁用假 DOM / Controller Stub 替代真机验收）。
 
 ### 授权修改范围（Worker · 含 Router 同目标裁决权）
-- `src/plugins/speech-service/neuralSpeech.ts` & `src/plugins/speech-service/index.ts`
-- `src/shells/web/server.ts`
+- `scripts/verify-obsidian-e2e.ts` & `scripts/build-obsidian.mjs`
 - `src/shells/obsidian/index.ts` & `src/shells/obsidian/plugin.ts`
+- `src/shells/web/server.ts`
 - `tests/` 下相关测试文件
 
-### 验收标准（Tester）
-- `npm run typecheck && npm test && npm run build:obsidian` 全绿（当前 142 项单测含 `tests/wave8-*.test.ts` 与 `tests/boundaries.test.ts`）；
-- 静态与无干扰动态验证确认：
-  1. `checkTtsHealth` / `checkAsrHealth` 返回结构化 `status: "verified" | "unverified" | "failed"`；
-  2. 本地 ASR（`whisper-local` / `sensevoice-local`）支持自定义端点、`/v1/audio/transcriptions` 模型透传、以及无 `Content-Type` 纯文本/JSON 兼容且拒绝 HTML；
-  3. Web 与 Obsidian 壳设置持久化与产物构建通过（不触碰宿主机运行中的真实 Obsidian 桌面进程）；
-- 验收通过后，由 Router 将本文件更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。
+### 具体要求与真机验收标准（Worker & Tester）
+1. **深化真机 Obsidian E2E 脚本（`scripts/verify-obsidian-e2e.ts`）并实际跑通 `npm run verify:obsidian`**：
+   - 拉起真实的 `/Applications/Obsidian.app/Contents/MacOS/Obsidian`（使用 `--user-data-dir=.tmp/obsidian-user-data` 与动态 CDP 端口，不触碰宿主机正在运行的真实 Vault 实例）打开 `.dev-vault`；
+   - 在真实 Obsidian 渲染进程 DOM 中：
+     1. 验证 `pith-reader` 视图挂载成功、左侧原生文件树自动折叠（`leftSplit.collapsed === true`）；
+     2. 渲染真实的 `PithSettingTab` DOM，**模拟真实用户在 DOM `<select>` / `<input>` 上修改 `TTS`、`TTS 端点`、`TTS 模型`、`TTS 音色`、`ASR`、`本机 ASR 端点`、`ASR 模型` 并点击 `保存设置` 按钮**（而非直接调用 `controller.setSpeechConfig` 绕过 UI）；
+     3. 验证点击保存后状态文本变为 `"设置已保存"`，且 `.dev-vault/Pith/_cache/web-settings.json` 磁盘文件内容与 UI 输入完全一致；
+     4. 验证结束后清理还原 `.dev-vault/Pith/_cache/web-settings.json` 测试痕迹并退出隔离 Obsidian 进程。
+2. **全套门禁与独立验收（Tester）**：
+   - 真实运行 `npm run typecheck && npm test && npm run verify:obsidian` 全部零报错通过；
+   - 验收通过后，由 Router 将本文件更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。
