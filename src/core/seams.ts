@@ -184,6 +184,15 @@ export interface SpeechSentenceSegment {
   readonly locator?: IntrinsicLocator;
 }
 
+export type SpeechHealthStatus = "verified" | "unverified" | "failed";
+
+export interface SpeechHealthReport<TId extends string = string> {
+  readonly ok: boolean;
+  readonly status?: SpeechHealthStatus;
+  readonly providerId?: TId;
+  readonly note: string;
+}
+
 export interface SpeechTtsService {
   readonly providerId?: CuratedTtsProviderId;
   readonly endpoint?: string;
@@ -193,7 +202,7 @@ export interface SpeechTtsService {
   splitSentences(text: string): readonly SpeechSentenceSegment[];
   filterProseOnly?(blocks: readonly ProseBlock[]): readonly SpeechSentenceSegment[];
   listPresets?(): readonly SpeechEnginePreset<CuratedTtsProviderId>[];
-  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly providerId: CuratedTtsProviderId; readonly note: string }>;
+  checkHealth?(signal?: AbortSignal): Promise<SpeechHealthReport<CuratedTtsProviderId> & { readonly providerId: CuratedTtsProviderId }>;
   synthesizeSpeech?(text: string, signal?: AbortSignal): Promise<SpeechSynthesisAudio>;
 }
 
@@ -210,7 +219,7 @@ export interface SpeechAsrService {
   readonly model?: string;
   isLoopbackSafe(url: string): boolean;
   listPresets?(): readonly SpeechEnginePreset<CuratedAsrProviderId>[];
-  checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly providerId?: CuratedAsrProviderId; readonly note: string }>;
+  checkHealth?(signal?: AbortSignal): Promise<SpeechHealthReport<CuratedAsrProviderId>>;
   transcribeAudio?(audioBytes: Uint8Array, mimeType?: string, signal?: AbortSignal): Promise<AsrTranscriptionResult>;
 }
 

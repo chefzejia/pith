@@ -1,4 +1,4 @@
-import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, SpeechEnginePreset, SpeechSynthesisAudio } from "../../core/index.ts";
+import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, SpeechEnginePreset, SpeechHealthStatus, SpeechSynthesisAudio } from "../../core/index.ts";
 
 export const CURATED_TTS_PRESETS: readonly SpeechEnginePreset<CuratedTtsProviderId>[] = [
   { id: "kokoro-local", label: "本机 OpenAI 兼容语音服务 (Local HTTP)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultModel: "tts-1", defaultVoice: "alloy", installHint: "在本机启动任意兼容 OpenAI /v1/audio/speech 协议的本地 TTS 服务（如 Kokoro / MLX-Audio，默认监听 127.0.0.1:8880）" },
@@ -6,8 +6,8 @@ export const CURATED_TTS_PRESETS: readonly SpeechEnginePreset<CuratedTtsProvider
   { id: "azure-neural", label: "Azure Neural TTS (微软神经网络音色)", kind: "cloud", defaultEndpoint: "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1", defaultVoice: "zh-CN-XiaoxiaoNeural", installHint: "需配置 AZURE_SPEECH_KEY 与区域" },
 ];
 export const CURATED_ASR_PRESETS: readonly SpeechEnginePreset<CuratedAsrProviderId>[] = [
-  { id: "whisper-local", label: "本机回环 ASR 服务 (Local Loopback)", kind: "local", defaultEndpoint: "http://localhost:8765", defaultModel: "whisper-1", installHint: "在本机启动兼容 /transcribe 或 /v1/audio/transcriptions 的回环 ASR 服务（默认 8765 端口）" },
-  { id: "sensevoice-local", label: "本机极速多语种 ASR (Local 8766)", kind: "local", defaultEndpoint: "http://127.0.0.1:8766", defaultModel: "sensevoice", installHint: "在本机启动 HTTP ASR 服务监听 8766 端口" },
+  { id: "whisper-local", label: "本机回环 ASR 服务 (Local Loopback)", kind: "local", defaultEndpoint: "http://localhost:8765", defaultModel: "whisper-1", installHint: "配置本机原始音频转写服务，或填写兼容 /v1/audio/transcriptions 的完整端点" },
+  { id: "sensevoice-local", label: "本机极速多语种 ASR (Local 8766)", kind: "local", defaultEndpoint: "http://127.0.0.1:8766", defaultModel: "sensevoice", installHint: "配置本机原始音频转写服务，或填写兼容 /v1/audio/transcriptions 的完整端点" },
   { id: "openai-whisper", label: "OpenAI Audio Transcriptions (云端或兼容网关)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/transcriptions", defaultModel: "whisper-1", installHint: "需配置 OPENAI_API_KEY" },
 ];
 
@@ -25,10 +25,14 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   if (!ttsPreset || !asrPreset) throw new Error("Invalid speech provider");
   const tts = ttsPreset; const asr = asrPreset;
   const ttsEndpoint = config.ttsEndpoint || (tts.id === "azure-neural" ? tts.defaultEndpoint.replace("{region}", config.azureRegion) : tts.defaultEndpoint);
-  const asrEndpoint = asr.id === "whisper-local" ? config.asrLoopbackUrl : asr.defaultEndpoint;
+  const asrEndpoint = asr.kind === "local" ? config.asrLoopbackUrl || asr.defaultEndpoint : asr.defaultEndpoint;
+  const openAiLocalAsr = asr.kind === "local" && /\/v1\/audio\/transcriptions\/?$/.test(asrEndpoint);
   const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.id === "kokoro-local" ? "kokoro" : tts.defaultModel || "gpt-4o-mini-tts");
   const asrModel = (config.asrModel && config.asrModel.trim()) || asr.defaultModel || "whisper-1";
   const voice = config.ttsVoice || tts.defaultVoice!;
+  function validateAsrConfig(): void {
+    if (asr.kind === "local" && !openAiLocalAsr && config.asrModel && config.asrModel.trim()) throw new Error("本机原始音频协议不支持指定模型，请使用 /v1/audio/transcriptions 兼容端点");
+  }
   async function prepare(preset: SpeechEnginePreset, endpoint: string): Promise<string> {
     if (!host || !host.http) throw new Error(`HTTP unavailable. ${preset.installHint}`);
     if (preset.kind === "local") {
@@ -68,20 +72,27 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
     if (!bytes.byteLength) throw new Error(`Empty audio. ${asr.installHint}`);
     if (!/^audio\/[a-z0-9.+-]+$/i.test(mimeType)) throw new Error(`Invalid audio MIME type. ${asr.installHint}`);
     const key = await prepare(asr, asrEndpoint);
+    validateAsrConfig();
     let body: Uint8Array = bytes; let contentType = mimeType;
-    if (asr.kind === "cloud") {
+    if (asr.kind === "cloud" || openAiLocalAsr) {
       const boundary = `pith-${crypto.randomUUID()}`;
       const encode = new TextEncoder();
-      const prefix = encode.encode(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${asrModel}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.webm"\r\nContent-Type: ${mimeType}\r\n\r\n`);
+      const extension = ({ "audio/mpeg": "mp3", "audio/mp4": "mp4", "audio/x-m4a": "m4a", "audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg", "audio/flac": "flac", "audio/webm": "webm" } as Record<string, string>)[mimeType.toLowerCase()] || "webm";
+      const prefix = encode.encode(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${asrModel}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${extension}"\r\nContent-Type: ${mimeType}\r\n\r\n`);
       const suffix = encode.encode(`\r\n--${boundary}--\r\n`);
       body = new Uint8Array(prefix.length + bytes.length + suffix.length); body.set(prefix); body.set(bytes, prefix.length); body.set(suffix, prefix.length + bytes.length);
       contentType = `multipart/form-data; boundary=${boundary}`;
     }
-    const response = await request(asr, { url: asr.kind === "local" ? `${asrEndpoint.replace(/\/$/, "")}/transcribe` : asrEndpoint, method: "POST", headers: { "Content-Type": contentType, ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body, signal });
-    const raw = response.text().trim(); let result: unknown = raw;
-    if (header(response.headers, "content-type").includes("json") || raw.startsWith("{")) { try { result = JSON.parse(raw); } catch { throw new Error(`Invalid transcription response. ${asr.installHint}`); } }
-    const record = result && typeof result === "object" ? result as Record<string, unknown> : null;
-    const text = typeof result === "string" ? result : record && typeof record.text === "string" ? record.text : "";
+    const response = await request(asr, { url: asr.kind === "local" && !openAiLocalAsr ? `${asrEndpoint.replace(/\/$/, "")}/transcribe` : asrEndpoint, method: "POST", headers: { "Content-Type": contentType, ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body, signal });
+    const raw = response.text().trim(); const responseType = header(response.headers, "content-type").split(";")[0]!.trim().toLowerCase();
+    const legacyLocal = asr.kind === "local" && !openAiLocalAsr;
+    let record: Record<string, unknown> | null = null; let text = "";
+    if (responseType === "application/json" || (legacyLocal && (responseType === "" || responseType === "text/plain") && raw.startsWith("{"))) {
+      let parsed: unknown; try { parsed = JSON.parse(raw); } catch { throw new Error(`Invalid transcription response. ${asr.installHint}`); }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid transcription response. ${asr.installHint}`);
+      record = parsed as Record<string, unknown>; text = typeof record.text === "string" ? record.text : "";
+    } else if ((responseType === "text/plain" || responseType === "") && legacyLocal && !/^<(?:!|\?|\/?[a-z][a-z0-9:-]*(?:\s|\/?>))/i.test(raw)) text = raw;
+    else throw new Error(`Invalid transcription response content type. ${asr.installHint}`);
     if (!text.trim()) throw new Error(`Empty transcription. ${asr.installHint}`);
     return { text: text.trim(), providerId: config.asrProvider, ...(record && typeof record.language === "string" ? { language: record.language } : {}), ...(record && typeof record.duration === "number" ? { durationSec: record.duration } : {}) };
   }
@@ -92,12 +103,22 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
         const url = preset.id === "kokoro-local" ? new URL("/health", endpoint).href : `${endpoint.replace(/\/$/, "")}/health`;
         await request(preset, { url, signal });
       }
-      return { ok: true, providerId: preset.id, note: preset.kind === "cloud" ? "API key configured; connection not tested" : "Connected" };
-    } catch (error) { return { ok: false, providerId: preset.id, note: error instanceof Error ? error.message : String(error) }; }
+      const status: SpeechHealthStatus = preset.kind === "cloud" ? "unverified" : "verified";
+      return { ok: true, status, providerId: preset.id, note: preset.kind === "cloud" ? "API key configured; connection not tested" : "Connected" };
+    } catch (error) { return { ok: false, status: "failed" as const, providerId: preset.id, note: error instanceof Error ? error.message : String(error) }; }
+  }
+  async function checkAsrHealth(signal?: AbortSignal) {
+    try {
+      if (signal) signal.throwIfAborted();
+      validateAsrConfig();
+      if (openAiLocalAsr) { await prepare(asr, asrEndpoint); return { ok: false, status: "unverified" as const, providerId: config.asrProvider, note: "配置有效；转写服务连接和模型尚未验证" }; }
+      const result = await health(asr, asrEndpoint, signal);
+      return { ...result, status: result.ok && asr.kind === "local" ? ("unverified" as const) : result.status, providerId: config.asrProvider, note: result.ok && asr.kind === "local" ? "健康检查通过；转写能力未验证" : result.note };
+    } catch (error) { return { ok: false, status: "failed" as const, providerId: config.asrProvider, note: error instanceof Error ? error.message : String(error) }; }
   }
   return { ttsEndpoint, asrEndpoint, ttsModel, asrModel, voice, synthesizeSpeech, transcribeAudio,
     checkTtsHealth: (signal?: AbortSignal) => health(tts, ttsEndpoint, signal).then(result => ({ ...result, providerId: config.ttsProvider })),
-    checkAsrHealth: (signal?: AbortSignal) => health(asr, asrEndpoint, signal).then(result => ({ ...result, providerId: config.asrProvider })) };
+    checkAsrHealth };
 }
 
 export class PrefetchSpeechQueue {
