@@ -1,78 +1,52 @@
-# Pith · 跨设备连续几何自适应算法、顶栏弹性工具槽与实心播客甲板交接单（HANDOFF · Wave 7）
+# Pith · 项目状态总交接单（HANDOFF · 供新 Brain 会话无缝接手）
 
-> **仓库路径**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **必读最新契约**：[`AGENTS.md`](../AGENTS.md) · [`docs/003-interaction.md`](003-interaction.md) · [`src/core/seams.ts`](../src/core/seams.ts)
-> **硬性红线回顾**：
-> - 严禁触碰用户真实 Vault（`ganfan-media` / `Downloads`），Obsidian 真机测试唯一固定使用 `/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault`；
-> - 严禁调用废弃的 `Qwen3-TTS` 或系统自带 `say`/`SiriTTS`/`speechSynthesis`。
-
----
-
-## 🎯 Wave 7 三大核心架构目标（对齐 [`docs/003-interaction.md`](003-interaction.md) & [`src/core/seams.ts`](../src/core/seams.ts)）
-
-### 1. 跨设备连续几何自适应算法（`resolveResponsiveLayout` in `src/plugins/stage-reader/pagination.ts` & `index.ts`）
-实现并挂载 [`src/core/seams.ts`](../src/core/seams.ts) 中定义的 `StageReaderService.resolveResponsiveLayout(input): ResponsiveLayoutDecision`，用一套纯几何方程同时解决 **直板手机、折叠屏（展开接近正方形 `R ~ 0.9`）、iPad 分屏、Obsidian 窄窗格与桌面宽屏** 的动态自适应：
-
-1. **输入参数**：
-   `{ width: W, height: H, fontSizePx = 17, guideOpen = false, guideWidthPx = 320, preferredColumns = "auto", coarsePointer = false }`
-2. **形态分类（`formFactor`）与长宽比 $R = W / \max(1, H)$**：
-   - 若 $R < 0.85$ 或 $W < 600$：`formFactor = "portrait-phone"`；
-   - 否则若 $H < 480$：`formFactor = "landscape-phone"`；
-   - 否则若 $R < 1.18$ 且 $W < 960$：`formFactor = "foldable-square"`（折叠屏展开态 / 方屏）；
-   - 否则：`formFactor = "tablet-desktop"`。
-3. **法则 A：工作区「左右分栏 vs 底部/侧边抽屉」判定（`canSplitGuide` & `sheetMode`）**：
-   - 充要条件：`canSplitGuide = (W >= 420 + guideWidthPx) && (R >= 0.85) && (H >= 480)`（即 $W \ge 740, R \ge 0.85, H \ge 480$）；
-   - 当 `canSplitGuide === true` 时，`sheetMode = "split-right"`（允许左书右师并排分栏，折叠屏展开态 $780 \times 860$ 天然命中此模式！）；
-   - 当 `canSplitGuide === false` 时：**彻底禁止左右并排分栏**！若 $R < 0.85$ 或 $W < 600$ 则 `sheetMode = "bottom-sheet"`（手机竖屏从底部弹出半屏/全屏卡片），否则 `sheetMode = "overlay-drawer"`（窄横屏/小窗以右侧浮层滑出，不挤压正文）。
-4. **法则 B：书本正文「单栏 vs 双页并排（Two-Page Spread）」黄金比例判定（`canDoubleColumn` & `effectiveColumns`）**：
-   - 计算主阅读舞台净宽：`stageWidthPx = (guideOpen && canSplitGuide) ? Math.max(1, W - guideWidthPx) : W`；
-   - 计算舞台长宽比：$R_{\text{stage}} = \text{stageWidthPx} / \max(1, H)$；
-   - **双栏充要条件**：`canDoubleColumn = (stageWidthPx >= 936) && (R_stage >= 1.15) && (H >= 520)`；
-     - *物理意义*：① 两栏每栏至少 420px（24 个汉字）+ 边距；② 舞台必须明显宽于高（$R_{\text{stage}} \ge 1.15$，拒绝在正方形折叠屏上切成难看的细长面条双栏）；③ 高度至少 520px（拒绝在手机横屏上切成火柴盒矮栏）。
-     - *侧栏开合实时联动*：当用户在笔记本窗口（如 $1150 \times 800$）打开右侧 320px 向导栏时，`stageWidthPx` 从 $1150$ 降为 $830 < 936$，`canDoubleColumn` 立即变为 `false`，`effectiveColumns` **自动从 2 降级回 1（单页舒适排版）**；关闭向导栏后自动恢复为 2！
-   - `effectiveColumns`: 若 `!canDoubleColumn` 或 `preferredColumns === "single"` 则为 `1`，否则若 `preferredColumns === "double"` 或 `preferredColumns === "auto"` 则为 `2`。
-5. **法则 C：触控热区（`hitTargetPx`）**：
-   - 当 `coarsePointer === true` 或 `formFactor === "portrait-phone"` 或 `formFactor === "landscape-phone"` 时，`hitTargetPx = 44`，否则 `34`。
+> **最后更新**：2026-11-03（Wave 1 ~ Wave 7 全部合拢封存）
+> **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
+> **多 Agent 协同模式**：
+> - **宏观架构与决策（Brain）**：在 `/Users/zejiawu/Projects/Project-Atlas/labs/pith` 下启动 DSH 会话，负责产品/架构讨论、冻结 `src/core/` 接口、更新本 `docs/HANDOFF.md` 并提交 Git；
+> - **执行与真机 CUA 验收（Worker & Tester）**：在 ChatGPT App (Codex Desktop) 的 `pith` 常驻总控线程中开启了原生定期 Heartbeat 自动监听本文件的 Git 提交，自动派生并监督 Worker 与 CUA Tester 完成编码与 `.dev-vault` 真机验收。
 
 ---
 
-### 2. 顶栏「单一弹性工具胶囊槽（`[✦ 工具名 · N ▾]`）」设计（`shells/obsidian` & `shells/web`）
-解决“未来 Agent 动态注入多个实训工具时怎么扩展才不挤爆 44px 顶栏”的问题：
-1. **永远只占 1 个弹性胶囊槽位**：
-   - 当 `topic.toolkits.length === 0` 时：只显示极轻量的次级 `+` 按钮（`#open-dojo.pith-dojo-add`）；
-   - 当 `topic.toolkits.length === 1` 时（如 `["feynman"]`）：显示单枚鼠尾草绿微光胶囊 `✦ 费曼复述`；
-   - 当 `topic.toolkits.length >= 2` 时（如 `["shadowing", "feynman"]`）：**绝不在顶栏排成多个按钮**，而是聚合显示为单枚胶囊 `✦ 影子跟读 · 2 ▾`（显示当前激活工具名 + 已挂载总数角标 `· N ▾`，点击打开面板并在面板顶部自由切换或挂载更多工具）。
+## 一、 当前已落地的完整基线状态（126 / 126 测试全绿）
+
+Pith 已从零完成 **Wave 1 至 Wave 7** 的架构构建、母本资产迁移与空间交互重构，所有代码已独立自包含（`package.json` 自带 `typescript` / `esbuild` 开发工具链，运行时零第三方 npm 依赖）：
+
+1. **第一层：绝对内核（`src/core/` · 100% 稳定）**
+   - `pluginrt/`：同步注册、同名服务栈（Service Stacking 无缝回退）、四层 `compose()` 传递保活（`InUse`）、逆序 `onDispose` 与 `ViewKernel` 错误隔离边界；
+   - `store/`：纯 Markdown 事实源 `DefaultWorkspaceStore`（`ME.md`、`topics/`、`materials/`）+ `MutationQueue` 并发串行锁；
+   - `engine/`：去 Session 化 `DefaultAttentionEngine` + `_cache/effects.json` 按 `(kind, key)` 自动合并去重队列；
+   - `host.ts` & `seams.ts`：窄接口 `HostPort`（含 `storage`, `http`, `secrets`, `process`）与全部能力接缝定义。
+
+2. **第二层：六大内置插件（`src/plugins/` · 互不耦合）**
+   - `stage-reader`：支持 Markdown（含 GFM 表格与围栏/Callout 交互式教学块 `teachingBlocks`）、完整 EPUB（含内嵌图片 Base64 重写、SVG 消毒、章节样式范围限定与目录定位）、CBZ 漫画自然序解析、单图、轻量 PDF 文本与页码提取、上下文锚点重定位（`matchTextAnchor`）、霞鹜文楷 `LXGW WenKai` 字库注入（`fontData.ts`），以及跨设备连续几何自适应算法 `resolveResponsiveLayout`；
+   - `stage-timeline`：SRT / WebVTT / 带时间戳文稿解析、A-B 循环切片（`sliceLoopRange`）与时间轴视图；
+   - `dojo-shadowing`：外语 4 阶渐进跟读脚手架与 Unicode 词级 LCS 漏词诊断；
+   - `dojo-feynman`：深度阅读 4 阶费曼复述与混合语言核心概念覆盖诊断；
+   - `speech-service`：只读正文过滤（`filterProseOnly` 跳过代码块/表格/图片）、严选高品质神经网络 TTS/ASR 预设（`kokoro-local` / `openai-tts` / `azure-neural` & `whisper-local` / `sensevoice-local` / `openai-whisper`）、下一句并发预取队列 `PrefetchSpeechQueue`，**全仓静态守卫永久封杀系统低劣语音 `speechSynthesis` 且严格 Fail-Closed**；
+   - `guide-acp`：零 Magpie 依赖自动扫描本机 `dsh --profile acp`、`claude-agent-acp`、`codex-acp`（30s TTL 缓存），通过 stdio JSON-RPC 建立只读沙箱会话（`DSH_PERMISSION_MODE=read-only` + `sandbox-exec`），内置 7 个受控工作区工具（含强制检验笔记与总结摘要的**毕业门控 `pith_settle_topic`** 与防 SSRF 外部网页摄取 `pith_ingest_external`）。
+
+3. **第三层：三大原生宿主壳（`src/shells/`）与 Wave 6~7 空间设计落地**
+   - `shells/obsidian`（一键构建 `dist/obsidian/{main.js, manifest.json, styles.css}`）：
+     - 默认将数据收纳于 Vault 顶层 **`Pith/`** 目录（绝不污染根目录），具备符号链接逃逸拦截与 `wx` 原子排他创建保护；
+     - 打开 Pith 自动折叠 Obsidian 原生左侧文件树（`leftSplit.collapse()`）；
+     - 44px 极简顶栏 + **单一弹性工具胶囊槽**（`toolkitSlot.ts`：0 工具显示 `+`，1 工具显示 `✦ 费曼复述`，多工具聚合为 `✦ 影子跟读 · 2 ▾`）+ **`[Aa]` 精致排版弹出气泡**；
+     - 进入阅读页默认收起右侧向导栏让位主视觉，按课题记忆用户开关偏好；
+     - **实心停靠播客甲板（`.pith-media-deck` + `mediaAssets.ts`）**：检测到材料含音频资产（`.mp3/.m4a/.wav` 等）或开启伴读时在底部实心停靠（零遮挡正文），支持进度拖动、`±15s`、倍速、与字幕时间点点击联动；
+     - 实时响应 `resolveResponsiveLayout`：支持手机竖屏 `bottom-sheet`、窄横屏 `overlay-drawer`、折叠屏展开“左书右师” `split-right`、以及开关侧栏时单/双栏自动平滑升降级。
+   - `shells/web`：与 Obsidian 壳 100% 视觉和交互同步，支持 `/fonts/lxgw-wenkai.woff2` 与 `/api/materials/:id/raw` 字节范围（Range）音频流服务。
+   - `shells/dsh`：暴露完整 DSH 工具包绑定。
 
 ---
 
-### 3. 衍生音频资产检测与「底部实心停靠播客甲板（`.pith-media-deck`）」+ 移动端 Bottom Sheet 适配
-支持“PC 端离线将文章/播客渲染为音频文件放入材料目录 $\rightarrow$ 跨端同步到手机/Obsidian $\rightarrow$ 打开材料检测到音频自动浮现播客控制条”的完整闭环：
-1. **自动检测材料中的音频资产（Audio Asset Auto-Detection）**：
-   - 在 `shells/web` 与 `shells/obsidian` 打开课题材料时，检查 `material.files` 是否包含音频文件（`.mp3`, `.m4a`, `.wav`, `.ogg`, `.aac`, `.flac` 或 `mimeType.startsWith("audio/")`），并在 Web 壳提供 `GET /api/materials/:id/raw?name=<file>` 二进制流读取路由（支持 `audio/*` Content-Type）；
-   - 当材料包含现成音频文件（例如 PC 端离线合成同步过来的播客音频）**或**用户点击顶栏 `[🎧]` 开启 TTS 伴读时，自动激活底部实心停靠的 **`.pith-media-deck`（播客控制甲板）**！
-2. **实心停靠播客甲板（`.pith-media-deck` · 100% 零正文遮挡）**：
-   - 采用 Flexbox 底部实心停靠布局（位于 `.pith-stage` / `.reader-wrap` 底部，挤压上方滚动区高度，**绝不用 `position: absolute` 半透明盖在正文字上**！纯文本且未播放时 `hidden` 占 0px）；
-   - 内含完整播客级控件：`[▶/⏸ 播放暂停]`、时间与进度条（`<input type="range" class="pith-media-seek">` 或章节进度）、`[↺ 15s]`、`[15s ↻]`、倍速切换（`0.75x / 1.0x / 1.25x / 1.5x / 2.0x`）、以及 `[✕ 收起]`；
-   - 当存在配套字幕（`.vtt/.srt`）或正文段落时，播放进度与 `.pith-cue` / `.pith-speech-active` 实时联动，点击字幕行可直接跳转音频时间点（`audio.currentTime = cue.startSec`）！
-3. **响应式容器联动（`ResizeObserver` -> `resolveResponsiveLayout`）**：
-   - 在 `PithObsidianView` 与 Web 壳中，通过 `ResizeObserver` 监听容器宽高 $(W, H)$ 与右侧向导开关状态，实时调用 `resolveResponsiveLayout`：
-     - 将 `data-form-factor="portrait-phone|landscape-phone|foldable-square|tablet-desktop"` 与 `data-sheet-mode="split-right|bottom-sheet|overlay-drawer"` 写入根容器；
-     - 当 `sheetMode === "bottom-sheet"`（手机竖屏）时，向导栏（`.pith-guide` / `.side`）、实训面板（`.pith-dojo-panel` / `.training-panel`）与 `[Aa]` 气泡自动切换为底部圆角上滑抽屉样式（`position: fixed/absolute; left: 0; right: 0; bottom: 0; max-height: 75vh; border-radius: 16px 16px 0 0`），彻底消灭手机竖屏下的左右窄分栏！
-     - 当 `canDoubleColumn === false`（如手机竖屏、折叠屏方屏、或展开右侧向导后剩余舞台宽度不足 936px）时，若用户原本处于 `double` 双栏模式，自动降级为单栏排版并在 `[Aa]` 菜单中将“双页分页”按钮设为 `disabled`（待窗口变宽或收起向导后自动恢复双栏）。
+## 二、 下一阶段待探索与推进方向（供新 Brain 与用户决策）
 
----
+新会话接手后，可围绕以下高价值方向与用户讨论并派发后续任务包：
 
-## 📦 测试与验收要求（`tests/wave7-responsive-and-media-deck.test.ts`）
-
-1. **几何算法完备性单测**：
-   - 精确验证 `resolveResponsiveLayout` 在 5 种典型几何形态下的输出：
-     - 手机竖屏（`390x844`）：`formFactor: "portrait-phone"`, `canSplitGuide: false`, `sheetMode: "bottom-sheet"`, `canDoubleColumn: false`, `effectiveColumns: 1`, `hitTargetPx: 44`；
-     - 手机横屏（`844x390`）：`formFactor: "landscape-phone"`, `canSplitGuide: false`, `sheetMode: "overlay-drawer"`, `canDoubleColumn: false`（因 $H < 520$）；
-     - 折叠屏展开方屏（`780x860`）：`formFactor: "foldable-square"`, `canSplitGuide: true`（解锁“左书右师”分栏！）, `sheetMode: "split-right"`, `canDoubleColumn: false`（因 $R = 0.91 < 1.15$，拒绝切成面条双栏）；
-     - 笔记本中等宽屏（`1150x800`）：`guideOpen: false` 时 `canDoubleColumn: true, effectiveColumns: 2`；当切换为 `guideOpen: true` 时，剩余舞台宽 `830 < 936`，自动触发 `canDoubleColumn: false, effectiveColumns: 1`！
-     - 桌面超宽屏（`1440x900`）：即使 `guideOpen: true`（剩余舞台宽 `1120 >= 936` 且 $R_{\text{stage}} = 1.24 \ge 1.15$），依然保持 `canDoubleColumn: true, effectiveColumns: 2`！
-2. **顶栏单一弹性工具槽与实心播客甲板单测**：
-   - 验证挂载 0 个、1 个（`✦ 费曼复述`）、2 个工具（`✦ 影子跟读 · 2 ▾`）时的单一胶囊聚合表现；
-   - 验证材料含 `.mp3/.wav` 音频文件时，`.pith-media-deck` 实心停靠播客条自动显现并支持 `±15s` 快进快退与倍速控制。
-3. **构建与真机同步**：
-   - 运行 `npm run typecheck`、`npm test`、`npm run build:obsidian` 确保全仓测试 100% 全绿，并将最新构建同步至 `.dev-vault/.obsidian/plugins/pith/`。
+1. **PC 端离线播客/伴读音频生成管线（对接本机 `ganfan-audio` 的 `IndexTTS-2.5`）**：
+   - 目前前端的 `.pith-media-deck`（检测到材料目录下有音频文件即自动弹出实心播客控制条）已经就绪；
+   - 下一步可打通「PC 端一键/由向导 Agent 触发离线合成」：调用本机 `/Users/zejiawu/Projects/Project-Atlas/ganfan-audio/bin/tts-clone`（`IndexTTS-2.5`，单次运行完即退出释放内存，**严禁调用废弃的 `Qwen3-TTS`**）或轻量 `Kokoro-82M`，将当前文章或向导生成的双人/单人讲义离线渲染为 `.mp3/.wav` + `.vtt` 字幕写入 `Pith/materials/<id>/files/`，实现 **「Mac 离线高保真合成 $\rightarrow$ Obsidian 跨端同步 $\rightarrow$ 手机端零算力打开即出播客条边听边看」**。
+2. **真机深度打磨与复杂电子书/PDF 阅读细节补强**：
+   - 在固定测试库 `/Users/zejiawu/Projects/Project-Atlas/labs/pith/.dev-vault` 中用真实复杂版式 `.epub` / `.pdf` 持续体验，对照母本 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/material/render/`（如宽表查看器、阅读进度自动写回 `material.md` 的防抖会话、PDF.js 按需页面位图渲染等）按需做精细增强。
+3. **日常 Dogfooding 部署或独立桌面/移动容器封装**：
+   - 待 `.dev-vault` 验收满意后，在用户明确授权下编写受控发布脚本安装至真实使用环境，或评估 Tauri / Capacitor 独立壳封装。

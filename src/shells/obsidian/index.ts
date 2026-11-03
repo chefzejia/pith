@@ -6,6 +6,7 @@ import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
+import { audioContentType } from "../mediaAssets.ts";
 
 interface ObsidianLeaf {
   setViewState(state: { type: string; active: boolean }): Promise<void>;
@@ -208,11 +209,12 @@ export class PithObsidianController {
     if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
     this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig });
   }
+  async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !audioContentType(entry)) throw new Error("音频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }
   async renderMaterialFile(materialId: string, name: string) {
     const material = await this.store.getMaterial(materialId); const file = material && material.files.find(entry => entry.name === name);
     if (!material || !file) throw new Error("材料文件不存在");
     const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
-    if (material.kind === "media" || /\.(vtt|srt)$/i.test(name)) {
+    if (/\.(vtt|srt)$/i.test(name) || audioContentType(file) || file.mimeType.startsWith("video/")) {
       const timeline = this.runtime.getService<StageTimelineService>("stage.timeline"); if (!timeline) throw new Error("时间轴不可用");
       const transcript = /\.(vtt|srt)$/i.test(name) ? bytes : await (async () => { const entry = material.files.find(item => /\.(vtt|srt)$/i.test(item.name)); return entry ? this.host.storage.readBinary(`materials/${material.id}/files/${entry.name}`) : new Uint8Array(); })();
       const cues = timeline.parseTranscript(new TextDecoder().decode(transcript));
@@ -307,6 +309,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); },
       home: () => this.onOpen(),
       openFile: render,
+      loadAudio: name => this.controller.readAudioAsset(material.id, name),
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音"); return tts.synthesizeSpeech(text, signal); },
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },

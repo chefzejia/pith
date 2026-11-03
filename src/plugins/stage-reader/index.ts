@@ -1,12 +1,12 @@
 import { registerPlugin, type Material, type MaterialFileEntry, type ProseBlock, type ReaderSectionHeading, type RenderedDocumentView, type StageReaderService } from "../../core/index.ts";
 import { renderEpub } from "./epub.ts";
 import { renderCbz, renderImage, renderPdf } from "./fixedPage.ts";
-import { computePagination } from "./pagination.ts";
+import { computePagination, resolveResponsiveLayout } from "./pagination.ts";
 import { extractTeachingBlocks, teachingBlockRanges } from "./teachingBlocks.ts";
 import { matchTextAnchor } from "./textAnchor.ts";
 import type { TeachingBlockSpec } from "../../core/index.ts";
 
-export { computePagination, extractTeachingBlocks, matchTextAnchor };
+export { computePagination, resolveResponsiveLayout, extractTeachingBlocks, matchTextAnchor };
 export { installReaderFont, READER_SANS_STACK, READER_SERIF_STACK } from "./fontData.ts";
 
 export function readerInUse(materials: readonly Material[]): number {
@@ -138,7 +138,7 @@ registerPlugin({
     columns: { type: "string", title: "Column mode", default: "auto", enum: ["auto", "single", "double"] },
   },
   apply(ctx) {
-    const service: StageReaderService = { formats: ["epub", "pdf", "markdown", "cbz", "image"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, extractTeachingBlocks, matchTextAnchor, computePagination, renderFile };
+    const service: StageReaderService = { formats: ["epub", "pdf", "markdown", "cbz", "image"], sections: markdownSections, render: renderMarkdown, extractProseBlocks, extractTeachingBlocks, matchTextAnchor, computePagination, resolveResponsiveLayout, renderFile };
     ctx.provide("stage.reader", service);
   },
 });

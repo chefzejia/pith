@@ -8,6 +8,8 @@ import { PithObsidianController, PithWorkspaceView, createObsidianHostPort } fro
 import { PithObsidianView, obsidianStyles, speechChapterRoot } from "../src/shells/obsidian/plugin.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
+import { resolveResponsiveLayout } from "../src/plugins/stage-reader/pagination.ts";
+import { toolkitSlot } from "../src/shells/toolkitSlot.ts";
 
 test("web serves the real WOFF2 with an explicit font policy and reader styling", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-font-"));
@@ -101,7 +103,7 @@ test("Obsidian speech queues only the visible or selected EPUB chapter", async (
     return { chapter, blocks };
   };
   const first = makeChapter(-800, ["A sentence."]), second = makeChapter(0, ["B first.", "B second."]);
-  const article = { querySelectorAll: () => [first.chapter, second.chapter], contains: (value: unknown) => value === first.chapter || value === second.chapter, querySelectorAllMarks: () => [] };
+  const article = { querySelectorAll: (selector: string) => selector === ".pith-epub-chapter" ? [first.chapter, second.chapter] : [], contains: (value: unknown) => value === first.chapter || value === second.chapter, querySelectorAllMarks: () => [] };
   const reader = { getBoundingClientRect: () => rect(0, 800) };
   const run = async (selection: boolean): Promise<string[]> => {
     const spoken: string[] = []; let finished!: () => void;
@@ -115,6 +117,7 @@ test("Obsidian speech queues only the visible or selected EPUB chapter", async (
       selectionRange: { startContainer: { nodeType: 3, parentElement: element }, startOffset: 0 },
       doc: { createRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => "" }), createTreeWalker: () => ({ nextNode: () => null }), createElement: () => audio },
       dock: { classList: { add() {} }, querySelector: () => null },
+      assetControls: { hidden: true }, mediaDeck: { hidden: true, querySelector: () => null },
       actions: { synthesizeSpeech: async (text: string) => { spoken.push(text); return { bytes: new Uint8Array([1]), mimeType: "audio/wav" }; } },
       clearSpeechMark() {}, stopSpeech() { if (view.speaking) finished(); },
     });
@@ -128,7 +131,7 @@ test("Obsidian speech queues only the visible or selected EPUB chapter", async (
 
 test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
   const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  const script = source.split("<script>")[1]!.split("</script>")[0]!.replace("refresh().then(home).catch(notify);", "");
+  const script = source.split("<script>")[1]!.split("</script>")[0]!.replace("${resolveResponsiveLayout.toString()}", resolveResponsiveLayout.toString()).replace("${toolkitSlot.toString()}", toolkitSlot.toString()).replace("refresh().then(home).catch(notify);", "");
   const handlers: Record<string, ((event: unknown) => unknown)[]> = {};
   const elements = new Map<string, Record<string, unknown>>();
   const element = (selector: string): Record<string, unknown> => {
@@ -305,14 +308,14 @@ test("Obsidian guide refresh synchronizes mounted toolkits and ignores older res
   const old = new Promise(resolve => { resolveOld = resolve; });
   let requests = 0;
   const snapshot = (toolkits: string[]) => ({ notes: [], conversation: [], actions: [], toolkits });
-  Object.assign(view, { disposed: false, guideGeneration: 0, mountedToolkits: [], dojoId: "", dock: { querySelector: () => button }, actions: { guideData: () => ++requests === 1 ? old : Promise.resolve(snapshot(["feynman"])) }, renderGuide() {}, markExisting() {} });
+  Object.assign(view, { disposed: false, guideGeneration: 0, mountedToolkits: [], dojos: [], dojoId: "", dock: { querySelector: () => button }, actions: { guideData: () => ++requests === 1 ? old : Promise.resolve(snapshot(["feynman"])) }, renderGuide() {}, markExisting() {} });
   const refresh = view.refreshGuide as () => Promise<void>;
   const first = refresh.call(view);
   await refresh.call(view);
-  assert.equal(button.textContent, "费曼复述");
+  assert.equal(button.textContent, "✦ 费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
   resolveOld(snapshot([])); await first;
-  assert.equal(button.textContent, "费曼复述");
+  assert.equal(button.textContent, "✦ 费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
 });
 

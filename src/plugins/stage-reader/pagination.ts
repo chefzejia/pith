@@ -1,6 +1,19 @@
-import type { PaginationMetrics } from "../../core/index.ts";
+import type { PaginationMetrics, ResponsiveLayoutDecision, StageReaderService } from "../../core/index.ts";
 
 type ColumnMode = "auto" | "single" | "double";
+
+export function resolveResponsiveLayout(input: Parameters<NonNullable<StageReaderService["resolveResponsiveLayout"]>>[0]): ResponsiveLayoutDecision {
+  const { width, height, guideOpen = false, guideWidthPx = 320, preferredColumns = "auto", coarsePointer = false } = input;
+  const aspectRatio = width / Math.max(1, height);
+  const formFactor = aspectRatio < .85 || width < 600 ? "portrait-phone" : height < 480 ? "landscape-phone" : aspectRatio < 1.18 && width < 960 ? "foldable-square" : "tablet-desktop";
+  const canSplitGuide = width >= 420 + guideWidthPx && aspectRatio >= .85 && height >= 480;
+  const sheetMode = canSplitGuide ? "split-right" : aspectRatio < .85 || width < 600 ? "bottom-sheet" : "overlay-drawer";
+  const stageWidthPx = guideOpen && canSplitGuide ? Math.max(1, width - guideWidthPx) : width;
+  const canDoubleColumn = stageWidthPx >= 936 && stageWidthPx / Math.max(1, height) >= 1.15 && height >= 520;
+  const effectiveColumns = canDoubleColumn && preferredColumns !== "single" ? 2 : 1;
+  const hitTargetPx = coarsePointer || formFactor === "portrait-phone" || formFactor === "landscape-phone" ? 44 : 34;
+  return { formFactor, aspectRatio, canSplitGuide, sheetMode, stageWidthPx, canDoubleColumn, effectiveColumns, hitTargetPx };
+}
 
 export function computePagination(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode: ColumnMode = "auto"): PaginationMetrics {
   const columns = mode === "double" || (mode === "auto" && viewportWidth >= 900) ? 2 : 1;
