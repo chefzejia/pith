@@ -1,60 +1,67 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: verified
-Verified-Commit: 3d34df1
+Status: pending
 Updated: 2026-11-03
-
-验收：类型检查、173 项测试、Obsidian 构建和 `.dev-vault` 真实客户端验收脚本通过。独立 Tester 在真实客户端核验分页、原生右侧向导、选区操作和语音不可用提示；滚轮、按键和选区采用渲染器事件，语音服务采用受控替身，未验证真实语音播放。
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **双环四重身份协同契约（详见 [ROLES.md](ROLES.md)）**：
 > - **思考环（Brain）**：冻结 `src/core/` 与 `docs/003-interaction.md` 契约后将本文件设为 `Status: pending` 并 `git commit`；
 > - **执行环（无人值守 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒，在同一轮次内循环 `wait_agent` 调度常驻 Worker 与独立 Tester 完成实现与 `.dev-vault` 真机验收，通过后更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。
 
-## 一、 当前架构与协议基线
-
-1. **三层同心圆架构（`src/core` · `src/plugins` · `src/shells`）**：146 项单测与架构门禁全绿。
-2. **交互契约更新（详见 [003-interaction.md](003-interaction.md)）**：基于用户真机体验反馈，已冻结以下四项核心交互纠偏。
-
 ---
 
-## 二、 当前待办任务包（Wave 9：阅读翻页模式回归、Obsidian 原生右侧边栏挂载、砍掉“从此句朗读”与听读前置守卫）
+## 当前待办任务包（Wave 10：补齐 Garden 四项核心体验细节——分页图片防截断、向导专属图标、语音一键直达配置与 SecretStorage、多级树状可折叠目录）
 
-### 背景与目标（来自用户真机体验的 4 项明确问题）
-1. **阅读翻页模式错误**：当前把整本 EPUB 渲染成可上下滚轮滚动的长条，且默认是 `"scroll"`。按设计规范，**书本阅读场景（EPUB）不应当有上下滚轮滚动模式，只有「单屏翻页」这一个范式，仅区分「单栏（Single Column）」和「双栏（Two-Column）」两种模式**，鼠标滚轮和方向键统一触发翻页（上一屏/下一屏）；只有普通长文（Markdown `article`）才使用滚轮纵向连续滚动。
-2. **向导（Agent 助手）未挂载到 Obsidian 原生侧边栏**：当前 `shells/obsidian` 在主阅读视口内部画了一个 `.pith-guide` 右栏，与 Obsidian 自身的原生右侧边栏叠在一起形成“双侧边栏叠罗汉”。如果宿主（如 Obsidian）具备原生侧边栏能力，向导（对话 + 笔记）**必须注册为独立的 Obsidian `ItemView`（`pith-guide`）并挂载到 Obsidian 原生右侧边栏（`workspace.getRightLeaf(false)` / `workspace.rightSplit`）**，主阅读视口只保留纯粹的阅读舞台（参考母本 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/main.ts` 的 `GARDENER_VIEW_TYPE` 实现）。
-3. **砍掉“从此句朗读”功能**：当前单击正文任意位置（未选中文本）都会弹出孤零零的 `▶ 从此句朗读` 气泡，体验极差。**彻底移除 `▶ 从此句朗读` 功能与单击弹出逻辑**！框选悬浮条仅在用户真正框选了非空正文文本时弹出，按钮收敛为 `[ 高亮 | 记笔记 | 问向导 | 复制 ]`。
-4. **“听读本章”前置正文与语音可用性判断**：当前点击 `🎧` 直接发请求报 `Speech request failed: connect ECONNREFUSED 127.0.0.1:8880`，且未判断当前章节是否有有效正文。需做好前置守卫：① 检查当前章节是否包含有效可读正文段落（`[data-prose="true"]` 过滤后有实质句子）；② 检查 TTS 服务可用性（`checkHealth`）或是否存在衍生音频文件，未配置/不可达时友好提示“请先在设置中连接可用的语音服务”或置灰，严禁直接裸弹 `ECONNREFUSED` 原始网络异常。
+### 背景与根因定位（对标母本 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden`）
+用户在 `.dev-vault` 真机体验后指出 4 个丢失的细节，经源码比对定位根因如下：
+1. **分页模式下图片无法自适应、在当页底部被截断**：
+   - 根因：`ganfan-garden/styles.css:1264-1269` 与 `pagination.ts:63-67` 明确对分栏容器内的 `img, svg, math, figure` 设置了 `break-inside: avoid; max-width: 100%; max-height: var(--pith-page-media-height, var(--pith-page-height)) !important; object-fit: contain;`，并在每次 `applyPaginationStyles` 时扣除上下 margin 计算 `--pith-page-media-height`。而当前 `src/shells/obsidian/plugin.ts` 与 `src/plugins/stage-reader/pagination.ts` 漏掉了这套规则，导致高图/插图在多列分页中溢出或被跨列截断！
+2. **开启向导助手的图标与 Obsidian 侧边栏缩放图标撞车**：
+   - 根因：`plugin.ts:191` 中 `.pith-guide-toggle` 画的是 `<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>`（即布局侧栏框图标 `◨`），与右上角紧挨着的 Obsidian 原生右侧边栏折叠图标长得一模一样！应替换为清晰的**对话气泡/向导专属图标**（如双对话气泡 `messages-square` / 带星芒的对话图标，与 `PithGuideView.getIcon()` 一致），视觉上一眼区分“召唤 AI 向导”与“Obsidian 窗口侧边栏缩放”。
+3. **点击朗读没有声音，且界面找不到语音配置入口 / 云端 Key 无法在界面配置**：
+   - 根因有两处：① 用户在阅读器内点击 `🎧` 未连接语音时，仅弹出一句纯文字 `.pith-toast-tip` 2 秒就消失，界面上没有任何入口跳转到语音设置（在 Obsidian 中应提供可点击的 `[打开语音设置]` 动作直接调用 `app.setting.open()` + `app.setting.openTabById("pith")`，且提示停留更充裕如 4.5s）；② 在 `src/shells/obsidian/index.ts` 的 `PithSettingTab` 中，只读取了 `process.env[key]`，没有像 `ganfan-garden/src/settings.ts:301-307` 那样接入 Obsidian `app.secretStorage`（及插件本地安全兜底）让用户在设置面板直接填写 `OPENAI_API_KEY` / `AZURE_SPEECH_KEY` 并提供 `[检测语音连接]` 按钮！
+4. **目录（TOC）是平铺的，丢失了多级章节折叠（`▸ / ▾`）与当前章自动展开**：
+   - 根因：`ganfan-garden/src/views/MaterialMap.ts:61-107` 实现了完整的树状可折叠目录（带 `▸ / ▾` 展开/收起按钮、`aria-expanded`、子级 `<ul>` 显隐、以及打开目录时自动定位并展开当前所在章节的祖先节点 `aria-current="location"`）。而当前 `plugin.ts:224` 与 `web/server.ts:379` 只是用 `sections.map(...)` 平铺了一堆 `button` 加 `paddingLeft`！
 
 ### 授权修改范围（Worker · 含 Router 同目标裁决权）
-- `src/shells/obsidian/index.ts` & `src/shells/obsidian/plugin.ts`
+- `src/plugins/stage-reader/pagination.ts` & `src/plugins/stage-reader/epub.ts` & `src/plugins/stage-reader/index.ts`
+- `src/shells/obsidian/plugin.ts` & `src/shells/obsidian/index.ts`
 - `src/shells/web/server.ts`
-- `src/plugins/stage-reader/`（如需调整分页/布局辅助函数）
 - `scripts/verify-obsidian-e2e.ts`
-- `tests/` 下相关单测与集成测试文件
+- `tests/` 下相关测试文件
+- *注：`src/core/seams.ts` 中 `ReaderSectionHeading.children` 已由 Brain 提前冻结完毕。*
 
 ### 具体实现要求
-1. **单屏翻页（单栏 / 双栏）vs 长文滚动**：
-   - 当阅读材料为书本（`epub` / `pdf` / `cbz`）时，阅读舞台固定处于**单屏翻页模式（`.pith-paged`）**，`[Aa]` 气泡中的版式选项仅提供 **「单栏」** 与 **「双栏」**（移除书本模式下的“流式滚动”选项）：
-     - 「单栏」调用 `applyPaginationStyles(reader, article, "single")`（`columns = 1`，单屏按页高分栏，横向按屏翻页）；
-     - 「双栏」调用 `applyPaginationStyles(reader, article, "double")`（当窗口几何满足 `canDoubleColumn` 时 `columns = 2`，否则自动降级为 `1`）；
-     - 鼠标滚轮（`WheelPageGate`）与方向键（`ArrowLeft/Right/Up/Down`, `PageUp/Down`）在书本模式下统一触发 `turnPage(-1 | 1)` 横向翻一屏，底部或顶栏清晰展示当前页码/总页数（如 `1 / N`）及翻页按钮 `<` `>`。
-   - 仅当打开普通 Markdown 长文（`format === "markdown"`）时，才允许纵向连续滚轮滚动（此时不拦截原生纵向滚轮）。
-2. **Obsidian 原生右侧边栏挂载（`PithGuideView`）**：
-   - 在 `src/shells/obsidian/index.ts` 中注册独立的向导视图 `PITH_GUIDE_VIEW_TYPE = "pith-guide"`；
-   - 在 Obsidian 宿主下，主视口 `pith-reader` 内部不再渲染并排的 `.pith-guide` 分栏；点击顶栏向导切换按钮、或框选点击“问向导 / 记笔记”时，通过 `workspace.getRightLeaf(false)` 获取/挂载右侧边栏 `pith-guide` Leaf，并通过 `workspace.rightSplit?.expand()` / `collapse()` 控制展开与收起，实现与 Obsidian 原生右侧边栏无缝融合。
-3. **砍掉“从此句朗读”**：
-   - 在 `src/shells/obsidian/plugin.ts` 与 `src/shells/web/server.ts` 中彻底删除 `data-selection="speak"` / `data-action="speak"`（`▶ 从此句朗读`）按钮，以及单击正文（`selection.isCollapsed`）时通过 `caretRangeFromPoint` 弹出悬浮条的代码；
-   - 框选悬浮条仅在 `mouseup` 存在非空文本选区（`!selection.isCollapsed && selection.toString().trim().length > 0`）时显示，提供 `高亮`、`记笔记`、`问向导`、`复制` 四个操作。
-4. **“听读本章”正文判断与友好错误提示**：
-   - 判断当前可见页面/章节是否存在有效正文句子（排除纯图片、封面或空块）；若无有效正文，点击 `🎧` 时提示 `"当前页面没有可朗读的正文段落"`；
-   - 启动 TTS 伴读前先通过 `speech.tts.checkHealth()` 检查（或捕获连接失败），若本地/云端 TTS 服务未启动或不可达，提示干净的中文指引 `"未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"`，绝不向用户裸露 `Speech request failed: connect ECONNREFUSED 127.0.0.1:8880` 英文底层报错。
+
+1. **分页图片/媒体自适应防截断（对标 `ganfan-garden`）**：
+   - 在 `src/plugins/stage-reader/pagination.ts` 的 `applyPaginationStyles` 中，遍历 `body.querySelectorAll<HTMLElement>("img, svg, math, figure")` 计算并写入 `--pith-page-media-height`（扣除元素上下外边距后的 `contentHeightPx`），同时监听未加载完的 `<img>` `load` 事件重算分页页数；
+   - 在 `src/shells/obsidian/plugin.ts`（`obsidianStyles`）与 `src/shells/web/server.ts` 的分页样式（`.pith-reader.pith-paged .pith-article` / `.reader.paged #article`）中强制加入：
+     - `img, svg, math, figure { break-inside: avoid; page-break-inside: avoid; max-width: 100%; max-height: var(--pith-page-media-height, var(--pith-page-height)) !important; width: auto; height: auto; object-fit: contain; }`
+     - 确保无论单栏还是双栏，任何插图或封面 SVG 都完整自适应在单页高度与栏宽内，绝不跨列截断或溢出视口。
+
+2. **更换开启向导助手的专属图标（告别侧栏框撞车）**：
+   - 将 `src/shells/obsidian/plugin.ts`（及 `src/shells/web/server.ts` 保持一致）顶栏的 `.pith-guide-toggle` SVG 替换为清晰的 **AI 向导对话气泡图标**（例如 Lucide `messages-square` 或对话气泡内嵌四芒星 SVG，绝不使用矩形分栏线 `rect + M15 4v16`），并在激活态（`aria-pressed="true"`）给予明确的主题强调色（`color: var(--pith-sage)` + 微底色反馈）。
+
+3. **语音配置直达入口 + Obsidian 设置页完整语音配置与连接测试（对标 `ganfan-garden/src/settings.ts`）**：
+   - **阅读页一键直达语音设置**：
+     - 在 `ObsidianViewActions` 中新增可选 `openSettings?(): void`（在 `PithObsidianPlugin` 中通过 `(this.app as any).setting?.open()` 及 `openTabById?.("pith")` 打开插件设置面板）；
+     - 当用户点击 `🎧` 因未配置或连接不上 TTS 服务失败时，提示条（`.pith-toast-tip`）不仅显示清晰中文原因，还附带一个可点击的 **`[⚙ 配置语音]`** 按钮（点击直达 Obsidian 的 Pith 设置页或 Web 壳的设置抽屉），且带操作按钮时停留时间延长至 5 秒。
+   - **升级 `PithSettingTab`（`src/shells/obsidian/index.ts`）**：
+     - 对齐 `ganfan-garden/src/settings.ts` 的清晰分组排版（卡片/小标题样式而非挤在一行裸 `<label>`），分区展示 **「工作区与向导 Agent」** 与 **「语音伴读 (TTS) 与跟读识别 (ASR)」**；
+     - 支持在 Obsidian 设置页中填写并保存 `OPENAI_API_KEY` 与 `AZURE_SPEECH_KEY`（优先写入 Obsidian `app.secretStorage?.setSecret(...)`，并在 `createObsidianHostPort` 的 `secrets.getSecret` 中优先从 `app.secretStorage` 读取，再回退环境变量 `process.env`，严禁明文写入 Vault 同步文件）；
+     - 在 Obsidian 设置页新增 **`[检测语音服务]`** 按钮（调用 `speech.tts.checkHealth()` / `speech.asr.checkHealth()` 实时反馈连接状态与具体指引）。
+
+4. **多级树状可折叠目录（TOC Tree · 对标 `ganfan-garden/src/views/MaterialMap.ts`）**：
+   - 根据 `sections` 的 `level` 层级（或 `epub.ts` 解析出的嵌套关系）构建真正的嵌套树结构（`<ul>` / `<li>`）：
+     - 凡包含子章节的父节点，左侧渲染可点击的折叠开关按钮 `▸` / `▾`（`aria-expanded="false|true"`，点击仅切换子级 `<ul>.hidden` 而不关闭抽屉），叶子节点保留对齐占位；
+     - 点击章节标题本体时跳转至对应页/锚点（在分页模式下精准计算目标元素水平偏移切换到对应页码屏！）并收起目录抽屉；
+     - 打开目录抽屉时，自动根据当前阅读视口位置高亮当前所在章节（`aria-current="location"`），并自动展开其所有祖先章节节点、默认收起其他无关深层分支，避免长书几百条小节平铺刷屏。
 
 ### 验收标准（Tester）
 - `npm run typecheck && npm test && npm run build:obsidian && npm run verify:obsidian` 全部零报错通过；
-- `.dev-vault` 真实桌面 Obsidian 客户端（可直接通过 `http://127.0.0.1:9229` CDP 或 `npm run verify:obsidian` 验证并热重载插件）实测确认：
-  1. 书本阅读下只有单屏翻页（单栏 / 双栏），无纵向滚动条，滚轮与方向键均按屏翻页；
-  2. Obsidian 下向导面板挂载在 Obsidian 原生右侧边栏（Right Split）而非主视口内部；
-  3. 单击正文不再弹出“从此句朗读”，框选文本仅显示高亮/记笔记/问向导/复制；
-  4. 未启动 TTS 服务时点击 `🎧` 给出干净的中文提示，不再弹 `ECONNREFUSED`；
+- `.dev-vault` 真实桌面 Obsidian 客户端实测核验以上 4 点：
+  1. 分页模式下含大图/封面的页面 `max-height` 严格受限于页高且 `break-inside: avoid` 零截断；
+  2. 顶栏向导按钮为对话气泡专属图标，与 Obsidian 侧边栏折叠图标明显区分；
+  3. 点击 `🎧` 未连接语音时出现 `[⚙ 配置语音]` 按钮可一键打开 Pith 设置页，且设置页具备完整的 TTS/ASR 密钥存储与健康检测；
+  4. 目录抽屉具备 `▸ / ▾` 多级树状折叠、当前章节高亮与分页精准跳转；
 - 验收通过后，由 Router 将本文件更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。

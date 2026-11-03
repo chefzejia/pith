@@ -49,6 +49,7 @@ export interface ReaderSectionHeading {
   readonly level: number;
   readonly line: number;
   readonly locator: IntrinsicLocator;
+  readonly children?: readonly ReaderSectionHeading[];
 }
 
 export interface ProseBlock {
