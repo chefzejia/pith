@@ -103,6 +103,25 @@ export interface PaginationMetrics {
   readonly totalScreens: number;
 }
 
+export type DeviceFormFactor = "portrait-phone" | "landscape-phone" | "foldable-square" | "tablet-desktop";
+
+export interface ResponsiveLayoutDecision {
+  readonly formFactor: DeviceFormFactor;
+  readonly aspectRatio: number;
+  /** Whether Guide & Dojo may dock as a side-by-side right split pane (`W >= 740 && R >= 0.85 && H >= 480`). */
+  readonly canSplitGuide: boolean;
+  /** How Guide & Dojo panels should mount when opened (`split-right` vs `bottom-sheet` vs `overlay-drawer`). */
+  readonly sheetMode: "split-right" | "bottom-sheet" | "overlay-drawer";
+  /** Stage width remaining after accounting for a docked right guide when `guideOpen && canSplitGuide`. */
+  readonly stageWidthPx: number;
+  /** Whether the reading stage geometry satisfies the Two-Page Spread rule (`W_stage >= 936 && R_stage >= 1.15 && H_stage >= 520`). */
+  readonly canDoubleColumn: boolean;
+  /** Effective columns (1 or 2) after combining user preference with physical geometry constraints. */
+  readonly effectiveColumns: 1 | 2;
+  /** Minimum interactive target size in px (44px on coarse pointer / phone, 34px on fine desktop). */
+  readonly hitTargetPx: 34 | 44;
+}
+
 export interface StageReaderService {
   readonly formats: readonly ("markdown" | "epub" | "pdf" | "cbz" | "image")[];
   sections(markdown: string): ReaderSectionHeading[];
@@ -111,6 +130,15 @@ export interface StageReaderService {
   extractTeachingBlocks?(markdown: string): readonly TeachingBlockSpec[];
   matchTextAnchor?(fullText: string, anchor: { readonly locator: IntrinsicLocator; readonly quote?: string; readonly prefix?: string; readonly suffix?: string }): TextQuoteMatch | null;
   computePagination?(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode?: "auto" | "single" | "double"): PaginationMetrics;
+  resolveResponsiveLayout?(input: {
+    readonly width: number;
+    readonly height: number;
+    readonly fontSizePx?: number;
+    readonly guideOpen?: boolean;
+    readonly guideWidthPx?: number;
+    readonly preferredColumns?: "auto" | "single" | "double";
+    readonly coarsePointer?: boolean;
+  }): ResponsiveLayoutDecision;
   renderFile?(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView>;
 }
 
