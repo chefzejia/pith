@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,9 +12,13 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 
 const exec = promisify(execFile);
 
-test("Obsidian production bundle loads and manages its controller", async () => {
-  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: process.cwd() });
-  const output = resolve("dist/obsidian");
+test("Obsidian production bundle loads and manages its controller", async t => {
+  const buildRoot = await mkdtemp(join(tmpdir(), "pith-bundle-test-"));
+  t.after(() => rm(buildRoot, { recursive: true, force: true }));
+  for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(buildRoot, path), { recursive: true });
+  await symlink(resolve("node_modules"), join(buildRoot, "node_modules"), "dir");
+  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot });
+  const output = join(buildRoot, "dist/obsidian");
   const [main, manifest, styles] = await Promise.all(["main.js", "manifest.json", "styles.css"].map(name => readFile(join(output, name), "utf8")));
   assert.ok(main && manifest && styles);
   assert.deepEqual(JSON.parse(manifest), JSON.parse(await readFile("manifest.json", "utf8")));
@@ -34,20 +38,23 @@ test("Obsidian production bundle loads and manages its controller", async () => 
     mkdir: (path: string) => storage.mkdir(path),
     list: async (path: string) => { const entries = await storage.list(path); return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) }; },
   };
-  let detached = "", state = "", revealed = false, collapsed = 0, saved: unknown = null;
+  const detached: string[] = [], registered: string[] = [], factories = new Map<string, (leaf: unknown) => unknown>();
+  let state = "", revealed = false, collapsed = 0, saved: unknown = null;
   const leaf = { setViewState: async (value: { type: string }) => { state = value.type; } };
-  const workspace = { leftSplit: { collapse: () => { collapsed++; } }, getLeavesOfType: () => [], getLeaf: () => leaf, revealLeaf: async () => { revealed = true; }, detachLeavesOfType: (type: string) => { detached = type; } };
+  let rightExpanded = false;
+  const rightLeaf: { view?: unknown; detach(): void; setViewState(value: { type: string }): Promise<void> } = { detach() { this.view = undefined; rightExpanded = false; }, async setViewState(value) { this.view = factories.get(value.type)!(this); } };
+  const workspace = { leftSplit: { collapse: () => { collapsed++; } }, rightSplit: { expand: () => { rightExpanded = true; }, collapse: () => { rightExpanded = false; } }, getRightLeaf: () => rightLeaf, getLeavesOfType: (type: string) => type === "pith-guide" && rightLeaf.view ? [rightLeaf] : [], getLeaf: () => leaf, revealLeaf: async () => { revealed = true; }, detachLeavesOfType: (type: string) => { detached.push(type); } };
   class Plugin {
     app = { vault: { adapter }, workspace };
     factory: ((leaf: unknown) => unknown) | null = null;
     command: (() => void) | null = null;
-    registerView(_type: string, factory: (leaf: unknown) => unknown) { this.factory = factory; }
+    registerView(type: string, factory: (leaf: unknown) => unknown) { registered.push(type); factories.set(type, factory); this.factory = factory; }
     addRibbonIcon() {}
     addCommand(value: { callback: () => void }) { this.command = value.callback; }
     async loadData() { return saved; }
     async saveData(value: unknown) { saved = value; }
   }
-  class ItemView { contentEl = {}; }
+  class ItemView { contentEl = { children: [] as unknown[], replaceChildren(...children: unknown[]) { this.children = children; } }; }
   class Notice { constructor(message: string) { throw new Error(message); } }
   class FileSystemAdapter {}
   Object.setPrototypeOf(adapter, FileSystemAdapter.prototype);
@@ -60,6 +67,20 @@ test("Obsidian production bundle loads and manages its controller", async () => 
   const plugin = new Entry();
   try {
     await plugin.onload();
+    assert.deepEqual(registered, ["pith-reader", "pith-guide"]);
+    const guide = factories.get("pith-guide")!(leaf) as { getViewType(): string; mount(element: unknown): void; contentEl: { children: unknown[] } };
+    const guideElement = {};
+    guide.mount(guideElement);
+    assert.equal(guide.getViewType(), "pith-guide");
+    assert.deepEqual(guide.contentEl.children, [guideElement]);
+    const reader = factories.get("pith-reader")!(leaf) as { view: unknown; showNativeGuide(visible: boolean, view: unknown): Promise<void> };
+    const readerView = { guideElement: () => guideElement, focusQuotedGuide() {} };
+    reader.view = readerView;
+    await reader.showNativeGuide(true, readerView);
+    assert.equal(rightExpanded, true);
+    assert.deepEqual((rightLeaf.view as { contentEl: { children: unknown[] } }).contentEl.children, [guideElement]);
+    await reader.showNativeGuide(false, readerView);
+    assert.equal(rightExpanded, false);
     assert.ok(plugin.factory);
     assert.ok(plugin.command);
     assert.equal(plugin.controller!.host.process.constructor.name, "NodeAgentProcessPort");
@@ -79,7 +100,7 @@ test("Obsidian production bundle loads and manages its controller", async () => 
     assert.deepEqual(saved, { workspacePath: "custom/nested" });
     const controller = plugin.controller!;
     plugin.onunload();
-    assert.equal(detached, "pith-reader");
+    assert.deepEqual(detached, ["pith-reader", "pith-guide"]);
     assert.equal(plugin.controller, null);
     assert.ok(controller.runtime.statuses().every(status => status.state !== "active"));
     const reloaded = new Entry();

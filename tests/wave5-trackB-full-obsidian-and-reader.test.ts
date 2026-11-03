@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Script } from "node:vm";
 import test from "node:test";
@@ -47,9 +47,13 @@ test("Obsidian controller persists quoted conversation and practice from both re
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("Obsidian build and web reader script expose production controls", async () => {
-  await exec(process.execPath, ["scripts/build-obsidian.mjs"]);
-  const [main, manifest, styles, web] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css", "src/shells/web/server.ts"].map(path => readFile(path, "utf8")));
+test("Obsidian build and web reader script expose production controls", async t => {
+  const buildRoot = await mkdtemp(join(tmpdir(), "pith-reader-build-"));
+  t.after(() => rm(buildRoot, { recursive: true, force: true }));
+  for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(buildRoot, path), { recursive: true });
+  await symlink(resolve("node_modules"), join(buildRoot, "node_modules"), "dir");
+  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot });
+  const [main, manifest, styles, web] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css", "src/shells/web/server.ts"].map(path => readFile(join(buildRoot, path), "utf8")));
   assert.ok(main && styles); assert.equal(JSON.parse(manifest!).id, "pith");
   assert.doesNotMatch(main!, /此视图尚未提供/);
   assert.match(styles!, /\.pith-dojo-panel/);

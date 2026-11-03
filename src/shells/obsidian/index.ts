@@ -9,10 +9,14 @@ import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type Obsidi
 import { audioContentType } from "../mediaAssets.ts";
 
 interface ObsidianLeaf {
+  view?: ObsidianItemViewBase;
+  detach(): void;
   setViewState(state: { type: string; active: boolean }): Promise<void>;
 }
 interface ObsidianWorkspace {
   leftSplit?: { collapse(): void };
+  rightSplit?: { collapse(): void; expand(): void };
+  getRightLeaf?(split: boolean): ObsidianLeaf | null;
   getLeavesOfType(type: string): ObsidianLeaf[];
   getLeaf(type?: "tab" | boolean): ObsidianLeaf;
   revealLeaf(leaf: ObsidianLeaf): Promise<void>;
@@ -248,11 +252,23 @@ export class PithObsidianController {
 }
 
 const PITH_VIEW_TYPE = "pith-reader";
+export const PITH_GUIDE_VIEW_TYPE = "pith-guide";
+
+export class PithGuideView extends obsidian.ItemView {
+  getViewType(): string { return PITH_GUIDE_VIEW_TYPE; }
+  getDisplayText(): string { return "Pith 向导"; }
+  getIcon(): string { return "messages-square"; }
+  mount(element: HTMLElement): void { this.contentEl.replaceChildren(element); }
+}
 
 export class PithWorkspaceView extends obsidian.ItemView {
   private view: PithObsidianView | null = null;
   private generation = 0;
   private homeRequest = 0;
+  private guideRequest = 0;
+  private guideDesiredVisible = false;
+  private guideOpening: Promise<ObsidianLeaf> | null = null;
+  private guideOpeningLeaf: ObsidianLeaf | null = null;
   private readonly controller: PithObsidianController;
   private readonly workspace: ObsidianWorkspace | undefined;
   private readonly guideByTopic: Map<string, boolean>;
@@ -271,7 +287,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const root = this.contentEl, doc = root.ownerDocument;
     const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     root.classList.add("pith-view");
-    root.innerHTML = `<style>${obsidianStyles}</style><header class="pith-view-header"><strong>Pith</strong></header><div class="pith-home-scroll"><main class="pith-home"><h1>注意力罗盘</h1><div class="pith-home-actions"><button data-home-new>新建课题</button><button data-home-import>导入材料</button><input type="file" accept=".epub,.pdf,.md,.markdown" multiple hidden></div><form class="pith-home-form" hidden><label>课题名称<input name="title" required></label><label>探索目标<input name="target"></label><label>下一步行动<input name="nextAction"></label><button>创建课题</button></form><div class="pith-home-status" role="status"></div><section class="pith-focus">${compass.focusRecommendation ? `<div><span class="pith-topic-status">下一步 · 15 分钟</span><br><strong>${escape(compass.focusRecommendation.nextAction)}</strong><br>${escape(compass.focusRecommendation.title)}</div><button data-topic="${escape(compass.focusRecommendation.topicId)}">继续探索</button>` : "选择一个课题，开始今天的探索。"}</section>${[["探索中", compass.exploring], ["已沉淀", compass.settled]].map(([label, topics]) => `<section><div class="pith-home-heading"><h2>${label}</h2><span>${(topics as typeof compass.exploring).length}</span></div><div class="pith-topic-grid">${(topics as typeof compass.exploring).map(topic => `<button class="pith-topic-card" data-topic="${escape(topic.id)}"><span class="pith-topic-status ${topic.status === "settled" ? "settled" : ""}">${label}</span><strong>${escape(topic.title)}</strong><span>${escape(topic.nextAction || topic.target || "尚未设置下一步")}</span></button>`).join("")}</div></section>`).join("")}</main></div>`;
+    root.innerHTML = `<style>${obsidianStyles}</style><header class="pith-view-header"><strong>Pith</strong></header><div class="pith-home-scroll"><main class="pith-home"><h1>注意力罗盘</h1><div class="pith-home-actions"><button data-home-new>新建课题</button><button data-home-import>导入材料</button><input type="file" accept=".epub,.pdf,.cbz,.md,.markdown" multiple hidden></div><form class="pith-home-form" hidden><label>课题名称<input name="title" required></label><label>探索目标<input name="target"></label><label>下一步行动<input name="nextAction"></label><button>创建课题</button></form><div class="pith-home-status" role="status"></div><section class="pith-focus">${compass.focusRecommendation ? `<div><span class="pith-topic-status">下一步 · 15 分钟</span><br><strong>${escape(compass.focusRecommendation.nextAction)}</strong><br>${escape(compass.focusRecommendation.title)}</div><button data-topic="${escape(compass.focusRecommendation.topicId)}">继续探索</button>` : "选择一个课题，开始今天的探索。"}</section>${[["探索中", compass.exploring], ["已沉淀", compass.settled]].map(([label, topics]) => `<section><div class="pith-home-heading"><h2>${label}</h2><span>${(topics as typeof compass.exploring).length}</span></div><div class="pith-topic-grid">${(topics as typeof compass.exploring).map(topic => `<button class="pith-topic-card" data-topic="${escape(topic.id)}"><span class="pith-topic-status ${topic.status === "settled" ? "settled" : ""}">${label}</span><strong>${escape(topic.title)}</strong><span>${escape(topic.nextAction || topic.target || "尚未设置下一步")}</span></button>`).join("")}</div></section>`).join("")}</main></div>`;
     const input = root.querySelector<HTMLInputElement>('input[type="file"]');
     const form = root.querySelector<HTMLFormElement>("form");
     const status = root.querySelector<HTMLElement>(".pith-home-status");
@@ -281,12 +297,32 @@ export class PithWorkspaceView extends obsidian.ItemView {
     root.querySelector<HTMLButtonElement>("[data-home-import]")!.onclick = () => { importTopic = undefined; input.click(); };
     for (const button of root.querySelectorAll<HTMLButtonElement>("[data-topic]")) button.onclick = () => { const id = button.dataset.topic; if (!id) return; void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); };
     form.onsubmit = event => { event.preventDefault(); void (async () => { const data = new FormData(form); const title = String(data.get("title") || "").trim(); if (!title) throw new Error("请输入课题名称"); await this.controller.store.createTopic({ title, target: String(data.get("target") || ""), nextAction: String(data.get("nextAction") || "") }); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); };
-    input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|md|markdown)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF 和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = files[0]!; const kind = files.some(file => /\.(epub|pdf)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title: first.name, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title: first.name.replace(/\.[^.]+$/, ""), materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
+    input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|cbz|md|markdown)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF、CBZ 和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = files[0]!; const kind = files.some(file => /\.(epub|pdf|cbz)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title: first.name, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title: first.name.replace(/\.[^.]+$/, ""), materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
   }
 
   async onClose(): Promise<void> { this.generation++; if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
 
   private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
+  private async showNativeGuide(visible: boolean, view: PithObsidianView): Promise<void> {
+    const workspace = this.workspace;
+    if (!workspace || !workspace.rightSplit || !workspace.getRightLeaf) throw new Error("宿主右侧边栏不可用");
+    const request = ++this.guideRequest;
+    this.guideDesiredVisible = visible;
+    if (!visible) { for (const leaf of workspace.getLeavesOfType(PITH_GUIDE_VIEW_TYPE)) if (leaf !== this.guideOpeningLeaf) leaf.detach(); return; }
+    let leaf = this.guideOpening ? undefined : workspace.getLeavesOfType(PITH_GUIDE_VIEW_TYPE)[0];
+    let created = false;
+    if (!leaf) {
+      if (!this.guideOpening) { const right = workspace.getRightLeaf(false); if (!right) throw new Error("无法打开右侧边栏"); created = true; this.guideOpeningLeaf = right; this.guideOpening = right.setViewState({ type: PITH_GUIDE_VIEW_TYPE, active: true }).then(() => right); }
+      const opening = this.guideOpening;
+      try { leaf = await opening; } catch (error) { if (created && !this.guideDesiredVisible && this.guideOpeningLeaf && this.guideOpeningLeaf.view instanceof PithGuideView) this.guideOpeningLeaf.detach(); throw error; } finally { if (this.guideOpening === opening) { this.guideOpening = null; this.guideOpeningLeaf = null; } }
+    }
+    if (this.view !== view || request !== this.guideRequest) { if (created && (request === this.guideRequest || !this.guideDesiredVisible) && leaf.view instanceof PithGuideView) leaf.detach(); return; }
+    if (!(leaf.view instanceof PithGuideView)) throw new Error("向导视图未就绪");
+    leaf.view.mount(view.guideElement());
+    workspace.rightSplit.expand();
+    await workspace.revealLeaf(leaf);
+    if (this.view === view && request === this.guideRequest) view.focusQuotedGuide();
+  }
   private async openTopic(id: string): Promise<void> {
     const generation = ++this.generation;
     const topic = await this.controller.openTopic(id);
@@ -301,16 +337,16 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const render = async (name: string): Promise<void> => {
       const request = ++renderGeneration;
       const document = await this.controller.renderMaterialFile(material.id, name);
-      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections }); }
+      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections, ...("format" in document ? { format: document.format } : {}) }); }
     };
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
-      guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); },
+      guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView).catch(error => this.report(error)); },
       home: () => this.onOpen(),
       openFile: render,
       loadAudio: name => this.controller.readAudioAsset(material.id, name),
-      synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接语音引擎，请在设置中配置本地或云端 TTS 服务"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { let message = error instanceof Error ? error.message : String(error); if (tts.listPresets) for (const preset of tts.listPresets()) message = message.replaceAll(preset.installHint, "请检查语音服务配置"); throw new Error(message, { cause: error }); } },
+      synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
       guideData: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
@@ -319,7 +355,9 @@ export class PithWorkspaceView extends obsidian.ItemView {
       mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const updated = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`) ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
-    this.view.setGuideVisible(this.guideByTopic.get(topic.id) ?? false);
+    const guideVisible = this.guideByTopic.get(topic.id) ?? false;
+    this.view.setGuideVisible(guideVisible);
+    if (this.workspace) await this.showNativeGuide(guideVisible, this.view);
     this.view.setToolkits(topic.toolkits);
     await render(material.files[0]!.name);
     if (generation === this.generation && this.view) await this.view.refreshGuide();
@@ -388,6 +426,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     try {
       await controller.initialize();
       this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host, this.app.workspace));
+      this.registerView(PITH_GUIDE_VIEW_TYPE, leaf => new PithGuideView(leaf));
       if (this.addSettingTab && obsidian.PluginSettingTab) this.addSettingTab(new PithSettingTab(this.app, this, controller));
       const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };
       this.addRibbonIcon("book-open", "打开 Pith", open);
@@ -401,6 +440,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
 
   onunload(): void {
     this.app.workspace.detachLeavesOfType(PITH_VIEW_TYPE);
+    this.app.workspace.detachLeavesOfType(PITH_GUIDE_VIEW_TYPE);
     if (this.controller) { this.controller.dispose(); this.controller = null; }
   }
 

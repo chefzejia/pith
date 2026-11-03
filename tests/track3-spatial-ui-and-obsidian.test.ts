@@ -45,7 +45,8 @@ test("web response exposes the spatial controls without legacy chrome", async ()
     const response = await fetch(`http://127.0.0.1:${address.port}/`);
     assert.equal(response.status, 200);
     const html = await response.text();
-    for (const token of ["var(--background-primary)", "var(--background-secondary)", "var(--background-modifier-border)", "var(--text-normal)", "var(--font-interface)", "pith-left-drawer", "pith-bottom-dock", "pith-speech-active", "pith-toast-tip", "从此句朗读"]) assert.ok(html.includes(token), token);
+    for (const token of ["var(--background-primary)", "var(--background-secondary)", "var(--background-modifier-border)", "var(--text-normal)", "var(--font-interface)", "pith-left-drawer", "pith-bottom-dock", "pith-speech-active", "pith-toast-tip", 'data-action="copy"']) assert.ok(html.includes(token), token);
+    assert.doesNotMatch(html, /从此句朗读|caretRangeFromPoint|data-action="speak"/);
     assert.match(html, /id="toggle-side" title="切换向导栏" aria-label="切换向导栏"/);
     assert.doesNotMatch(html, /#f3ede1|<div class="toc">|<nav class="files">|alert\s*\(/i);
     const script = /<script>([\s\S]*?)<\/script>/.exec(html); assert.ok(script);

@@ -94,7 +94,7 @@ test("chapter selection follows the viewport or selection and leaves ordinary do
   assert.equal(speechChapterRoot(article as unknown as HTMLElement, reader as HTMLElement, null, false), null);
 });
 
-test("Obsidian speech queues only the visible or selected EPUB chapter", async () => {
+test("Obsidian speech queues only the visible EPUB chapter", async () => {
   const rect = (left: number, right: number) => ({ left, right, top: 0, bottom: 700 });
   const makeChapter = (left: number, texts: string[]) => {
     const chapter = { getClientRects: () => [rect(left, left + 800)], querySelectorAll: () => [] as object[] };
@@ -126,7 +126,6 @@ test("Obsidian speech queues only the visible or selected EPUB chapter", async (
     return spoken;
   };
   assert.deepEqual(await run(false), ["B first.", "B second."]);
-  assert.deepEqual(await run(true), ["B second."]);
 });
 
 test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
@@ -249,7 +248,6 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
     return Array.from(runInContext("calls", context) as string[]);
   };
   assert.deepEqual(await speak(false), ["B first.", "B second."]);
-  assert.deepEqual(await speak(true), ["B second."]);
 });
 
 test("Obsidian tool chooser and cue require explicit or existing toolkit", async () => {

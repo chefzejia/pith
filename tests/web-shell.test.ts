@@ -23,6 +23,10 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     const topic = state.compass.exploring[0]; assert.equal(topic.id, "topic-001-architecture-foundations");
     const lesson = await get(`/api/materials/${topic.materialId}/file?name=00-course-outline.md`);
     assert.match(lesson.text, /Magpie/);
+    assert.equal(lesson.format, "markdown");
+    const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length 15 >>\nstream\nBT (page) Tj ET\nendstream\nendobj\n%%EOF");
+    const book = await post("/api/materials", { title: "book", kind: "book", files: [{ name: "book.pdf", mimeType: "application/pdf", data: pdf.toString("base64") }] });
+    assert.equal((await get(`/api/materials/${book.id}/file?name=book.pdf`)).format, "pdf");
     const before = await readFile(join(workspace, "materials", topic.materialId, "files", "00-course-outline.md"));
     await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "选中文本", anchor: { file: "00-course-outline.md", locator: "text:offset:1", quote: "选中文本" } });
     await post("/api/notes", { topicId: topic.id, kind: "note", body: "我的笔记" });
