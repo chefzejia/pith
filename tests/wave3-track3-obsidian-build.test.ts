@@ -25,6 +25,7 @@ test("Obsidian production bundle loads and manages its controller", async () => 
   const dir = await mkdtemp(join(tmpdir(), "pith-obsidian-build-"));
   const storage = new NodeWorkspaceStorage(dir);
   const adapter = {
+    getFullPath: (path: string) => join(dir, path),
     exists: (path: string) => storage.exists(path),
     read: (path: string) => storage.readText(path),
     readBinary: async (path: string) => new Uint8Array(await storage.readBinary(path)).buffer,
@@ -33,9 +34,9 @@ test("Obsidian production bundle loads and manages its controller", async () => 
     mkdir: (path: string) => storage.mkdir(path),
     list: async (path: string) => { const entries = await storage.list(path); return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) }; },
   };
-  let detached = "", state = "", revealed = false;
+  let detached = "", state = "", revealed = false, collapsed = 0, saved: unknown = null;
   const leaf = { setViewState: async (value: { type: string }) => { state = value.type; } };
-  const workspace = { getLeavesOfType: () => [], getLeaf: () => leaf, revealLeaf: async () => { revealed = true; }, detachLeavesOfType: (type: string) => { detached = type; } };
+  const workspace = { leftSplit: { collapse: () => { collapsed++; } }, getLeavesOfType: () => [], getLeaf: () => leaf, revealLeaf: async () => { revealed = true; }, detachLeavesOfType: (type: string) => { detached = type; } };
   class Plugin {
     app = { vault: { adapter }, workspace };
     factory: ((leaf: unknown) => unknown) | null = null;
@@ -43,15 +44,19 @@ test("Obsidian production bundle loads and manages its controller", async () => 
     registerView(_type: string, factory: (leaf: unknown) => unknown) { this.factory = factory; }
     addRibbonIcon() {}
     addCommand(value: { callback: () => void }) { this.command = value.callback; }
+    async loadData() { return saved; }
+    async saveData(value: unknown) { saved = value; }
   }
   class ItemView { contentEl = {}; }
   class Notice { constructor(message: string) { throw new Error(message); } }
-  const host = { Plugin, ItemView, Notice };
+  class FileSystemAdapter {}
+  Object.setPrototypeOf(adapter, FileSystemAdapter.prototype);
+  const host = { Plugin, ItemView, Notice, FileSystemAdapter };
   const nativeRequire = createRequire(join(output, "main.js"));
   const module = { exports: {} as unknown };
   const load = runInThisContext(`(function(require, module, exports) { ${main}\n})`) as (require: NodeRequire, module: { exports: unknown }, exports: unknown) => void;
   load(((name: string) => name === "obsidian" ? host : nativeRequire(name)) as NodeRequire, module, module.exports);
-  const Entry = module.exports as new () => Plugin & { onload(): Promise<void>; onunload(): void; openView(): Promise<void>; controller: { host: { process: { constructor: { name: string } } }; runtime: { statuses(): { state: string }[] } } | null };
+  const Entry = module.exports as new () => Plugin & { onload(): Promise<void>; onunload(): void; openView(): Promise<void>; setWorkspacePath(path: string): Promise<boolean>; controller: { host: { process: { constructor: { name: string } } }; runtime: { statuses(): { state: string }[] } } | null };
   const plugin = new Entry();
   try {
     await plugin.onload();
@@ -62,11 +67,26 @@ test("Obsidian production bundle loads and manages its controller", async () => 
     await plugin.openView();
     assert.equal(state, "pith-reader");
     assert.equal(revealed, true);
+    assert.equal(collapsed, 1);
+    assert.equal(await storage.exists("Pith/ME.md"), true);
+    assert.equal(await storage.exists("ME.md"), false);
+    await assert.rejects(plugin.setWorkspacePath("../escape"), /Invalid workspace root/);
+    assert.equal(saved, null);
+    await storage.writeText("not-a-directory", "existing file");
+    await assert.rejects(plugin.setWorkspacePath("not-a-directory/nested"));
+    assert.equal(saved, null);
+    assert.equal(await plugin.setWorkspacePath("custom/nested"), true);
+    assert.deepEqual(saved, { workspacePath: "custom/nested" });
     const controller = plugin.controller!;
     plugin.onunload();
     assert.equal(detached, "pith-reader");
     assert.equal(plugin.controller, null);
     assert.ok(controller.runtime.statuses().every(status => status.state !== "active"));
+    const reloaded = new Entry();
+    await reloaded.onload();
+    assert.equal(await storage.exists("custom/nested/ME.md"), true);
+    assert.equal(await storage.exists("Pith/ME.md"), true);
+    reloaded.onunload();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

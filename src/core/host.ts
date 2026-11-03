@@ -31,6 +31,8 @@ export interface HttpRequestSpec {
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string | Uint8Array;
   readonly signal?: AbortSignal;
+  /** Total request deadline in milliseconds, from 1 to 600000. Without it, host idle timeouts apply. */
+  readonly timeoutMs?: number;
 }
 
 export interface HttpResponseData {

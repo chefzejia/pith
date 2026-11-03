@@ -1,16 +1,21 @@
-import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
+import dns from "node:dns";
+import http from "node:http";
+import https from "node:https";
 import type { HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
+import { withHttpDeadline } from "../httpDeadline.ts";
 
 export class NodeHttpPort implements HttpPort, PublicHttpPort {
   async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
+    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal));
+  }
+  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined): Promise<HttpResponseData> {
     if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) {
       throw new Error("Invalid public request");
     }
     const url = new URL(spec.url);
-    const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+    const addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true });
+    if (signal) signal.throwIfAborted();
     if (
       !addresses.length ||
       addresses.some(({ address, family }) =>
@@ -23,19 +28,21 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
     }
     const selected = addresses[0]!;
     return new Promise((resolve, reject) => {
-      const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+      const request = (url.protocol === "https:" ? https.request : http.request)(
         url,
         {
           method: "GET",
           headers: spec.headers,
-          signal: spec.signal,
+          signal,
+          agent: false,
           family: selected.family,
           lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
         },
         (response) => {
           const status = response.statusCode ?? 0;
           if (status < 200 || status >= 300) {
-            response.resume();
+            request.destroy();
+            response.destroy();
             reject(new Error(`Public HTTP request rejected: ${status}`));
             return;
           }
@@ -59,7 +66,7 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
           });
         },
       );
-      request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
+      if (spec.timeoutMs === undefined) request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
       request.on("error", reject);
       request.end();
     });
@@ -70,15 +77,15 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new Error(`Unsupported HTTP protocol: ${url.protocol}`);
     }
-    const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const transport = url.protocol === "https:" ? https.request : http.request;
 
-    return new Promise<HttpResponseData>((resolve, reject) => {
+    return withHttpDeadline(spec, signal => new Promise<HttpResponseData>((resolve, reject) => {
       const req = transport(
         url,
         {
           method: spec.method ?? "GET",
           headers: spec.headers ? { ...spec.headers } : {},
-          signal: spec.signal,
+          signal,
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -109,12 +116,12 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
           });
         },
       );
-      req.setTimeout(30_000, () => req.destroy(new Error("HTTP request timed out")));
+      if (spec.timeoutMs === undefined) req.setTimeout(30_000, () => req.destroy(new Error("HTTP request timed out")));
       req.on("error", reject);
       if (spec.body !== undefined) {
         req.write(typeof spec.body === "string" ? spec.body : Buffer.from(spec.body));
       }
       req.end();
-    });
+    }));
   }
 }

@@ -65,19 +65,21 @@ test("four-stage scaffolding, Unicode LCS, and contextual guide actions", () => 
 
 test("Web, Obsidian adapter and DSH tools share a temporary workspace", async () => {
   const root = await mkdtemp(join(tmpdir(), "pith-three-shells-"));
-  const workspace = join(root, "workspace");
+  const workspace = join(root, "Pith");
   await cp(join(process.cwd(), "workspace"), workspace, { recursive: true });
   const storage = new NodeWorkspaceStorage(workspace);
+  const vaultStorage = new NodeWorkspaceStorage(root);
   const vault: ObsidianVaultAdapter = {
-    exists: path => storage.exists(path), read: path => storage.readText(path),
-    readBinary: async path => new Uint8Array(await storage.readBinary(path)).buffer,
-    write: (path, data) => storage.writeText(path, data), writeBinary: (path, data) => storage.writeBinary(path, new Uint8Array(data)),
-    mkdir: path => storage.mkdir(path), list: async path => {
-      const entries = await storage.list(path);
+    getFullPath: path => join(root, path),
+    exists: path => vaultStorage.exists(path), read: path => vaultStorage.readText(path),
+    readBinary: async path => new Uint8Array(await vaultStorage.readBinary(path)).buffer,
+    write: (path, data) => vaultStorage.writeText(path, data), writeBinary: (path, data) => vaultStorage.writeBinary(path, new Uint8Array(data)),
+    mkdir: path => vaultStorage.mkdir(path), list: async path => {
+      const entries = await vaultStorage.list(path);
       return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) };
     },
   };
-  const controller = new PithObsidianController(createObsidianHostPort(vault));
+  const controller = new PithObsidianController(createObsidianHostPort(vault, "Pith", undefined, vault));
   await controller.initialize();
   const server = await createPithWebServer({ workspaceDir: workspace });
   try {

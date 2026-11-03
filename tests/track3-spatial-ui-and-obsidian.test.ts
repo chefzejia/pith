@@ -21,8 +21,20 @@ test("Obsidian styles follow host tokens and support complete guide collapse", (
   for (const token of ["background-primary", "background-secondary", "background-modifier-border", "text-normal", "text-muted", "text-accent", "font-interface"]) assert.ok(obsidianStyles.includes(`var(--${token})`), token);
   assert.match(obsidianStyles, /\.pith-layout\.pith-guide-closed\{grid-template-columns:minmax\(0,1fr\)\}/);
   assert.match(obsidianStyles, /\.pith-left-drawer\{position:absolute;left:0/);
-  assert.match(obsidianStyles, /\.pith-bottom-dock\{[^}]*opacity:\.15/);
+  assert.doesNotMatch(obsidianStyles, /\.pith-bottom-dock\{[^}]*opacity:\.15/);
+  assert.match(obsidianStyles, /\.pith-view-header\{height:44px/);
   assert.doesNotMatch(obsidianStyles, /#f3ede1/i);
+});
+
+test("Obsidian reader explicitly enables selection only on article content", () => {
+  const articleRules = [...obsidianStyles.matchAll(/(?:^|\n)\.pith-article\{([^}]*)\}/g)].map(match => match[1]!);
+  assert.ok(articleRules.some(rule => /(?:^|;)user-select:text(?:;|$)/.test(rule)));
+  assert.ok(articleRules.some(rule => /(?:^|;)-webkit-user-select:text(?:;|$)/.test(rule)));
+  const viewRules = [...obsidianStyles.matchAll(/(?:^|\n)\.pith-view\{([^}]*)\}/g)].map(match => match[1]!);
+  const selectable = /(?:^|;)(?:-webkit-)?user-select:text(?:;|$)/;
+  assert.match("user-select:text", selectable);
+  assert.ok(viewRules.length);
+  for (const rule of viewRules) assert.doesNotMatch(rule, selectable);
 });
 
 test("web response exposes the spatial controls without legacy chrome", async () => {

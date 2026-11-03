@@ -5,10 +5,15 @@
   "description": "Pith: Agents automate your output. Pith grows your core.",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --typeRoots ./node_modules/@types",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build:obsidian": "node scripts/build-obsidian.mjs",
     "web": "node --experimental-strip-types src/shells/web/cli.ts"
   },
-  "license": "GPL-3.0-only"
+  "license": "GPL-3.0-only",
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "esbuild": "0.25.5",
+    "typescript": "5.8.3"
+  }
 }

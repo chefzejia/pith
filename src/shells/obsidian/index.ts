@@ -1,4 +1,6 @@
 import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
+import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
@@ -9,6 +11,7 @@ interface ObsidianLeaf {
   setViewState(state: { type: string; active: boolean }): Promise<void>;
 }
 interface ObsidianWorkspace {
+  leftSplit?: { collapse(): void };
   getLeavesOfType(type: string): ObsidianLeaf[];
   getLeaf(type: "tab"): ObsidianLeaf;
   revealLeaf(leaf: ObsidianLeaf): Promise<void>;
@@ -20,6 +23,8 @@ interface ObsidianPluginBase {
   addRibbonIcon(icon: string, title: string, callback: () => void): HTMLElement;
   addCommand(command: { id: string; name: string; callback: () => void }): void;
   addSettingTab?(tab: ObsidianSettingTabBase): void;
+  loadData?(): Promise<unknown>;
+  saveData?(data: unknown): Promise<void>;
 }
 interface ObsidianItemViewBase { contentEl: HTMLElement }
 interface ObsidianSettingTabBase { containerEl: HTMLElement }
@@ -28,6 +33,7 @@ type ObsidianApi = {
   ItemView: new (leaf: ObsidianLeaf) => ObsidianItemViewBase;
   Notice: new (message: string) => unknown;
   PluginSettingTab?: new (app: ObsidianPluginBase["app"], plugin: ObsidianPluginBase) => ObsidianSettingTabBase;
+  FileSystemAdapter?: new (...args: never[]) => ObsidianVaultAdapter;
 };
 // Obsidian supplies this module at runtime; plain Node imports keep the controller usable.
 const obsidian: ObsidianApi = typeof require === "function" ? require("obsidian") as ObsidianApi : {
@@ -37,6 +43,7 @@ const obsidian: ObsidianApi = typeof require === "function" ? require("obsidian"
 };
 
 export interface ObsidianVaultAdapter {
+  getFullPath?(path: string): string;
   exists(path: string): Promise<boolean>;
   read(path: string): Promise<string>;
   readBinary(path: string): Promise<ArrayBuffer>;
@@ -46,26 +53,65 @@ export interface ObsidianVaultAdapter {
   list(path: string): Promise<{ files: string[]; folders: string[] }>;
 }
 
-export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "", processPort?: AgentProcessPort): HostPort {
-  const root = workspacePath.replace(/\/$/, "");
+async function assertNoVaultSymlinks(vault: ObsidianVaultAdapter, path: string): Promise<void> {
+  if (!vault.getFullPath) return;
+  let current = "";
+  for (const part of path.split("/")) {
+    current = current ? `${current}/${part}` : part;
+    try { if ((await lstat(vault.getFullPath(current))).isSymbolicLink()) throw new Error("Symbolic links are not allowed in workspace paths"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  }
+}
+
+export function validateWorkspacePath(value: string): string {
+  if (!value || value !== value.trim() || value.includes("\\") || value.includes(":") || value.startsWith("/") || value.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid workspace root");
+  return value;
+}
+
+export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "Pith", processPort?: AgentProcessPort, fileSystem?: ObsidianVaultAdapter): HostPort {
+  if (!fileSystem && obsidian.FileSystemAdapter && vault instanceof obsidian.FileSystemAdapter) fileSystem = vault;
+  if (fileSystem && fileSystem !== vault) throw new Error("Filesystem adapter must match the vault adapter");
+  const root = validateWorkspacePath(workspacePath);
   const path = (value: string): string => {
     if (!value || value.startsWith("/") || value.includes("\\") || value.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid workspace path");
-    return root ? `${root}/${value}` : value;
+    return `${root}/${value}`;
   };
-  if (root && (root.startsWith("/") || root.includes("\\") || root.split("/").some(part => !part || part === "." || part === ".."))) throw new Error("Invalid workspace root");
+  const checked = async (value: string): Promise<string> => { const target = path(value); await assertNoVaultSymlinks(vault, target); return target; };
+  const create = async (value: string, data: string | Uint8Array): Promise<void> => {
+    const target = await checked(value);
+    if (!fileSystem || !fileSystem.getFullPath) throw new Error("Atomic exclusive creation requires a filesystem-backed Obsidian adapter");
+    const rootReal = await realpath(fileSystem.getFullPath(root));
+    const fullTarget = fileSystem.getFullPath(target);
+    const parentReal = await realpath(dirname(fullTarget));
+    if (parentReal !== rootReal && !parentReal.startsWith(`${rootReal}${sep}`)) {
+      throw new Error("Symbolic links are not allowed in workspace paths");
+    }
+    await writeFile(fullTarget, data, { flag: "wx" });
+    try {
+      const checkParent = await realpath(dirname(fullTarget));
+      if (checkParent !== rootReal && !checkParent.startsWith(`${rootReal}${sep}`)) {
+        await unlink(fullTarget).catch(() => {});
+        throw new Error("Symbolic links are not allowed in workspace paths");
+      }
+    } catch (error) {
+      await unlink(fullTarget).catch(() => {});
+      throw error;
+    }
+  };
+  const ensureRoot = async (): Promise<void> => { let current = ""; for (const part of root.split("/")) { current = current ? `${current}/${part}` : part; await assertNoVaultSymlinks(vault, current); if (!await vault.exists(current)) await vault.mkdir(current); } };
   const storage: WorkspaceStoragePort = {
     mutationIdentity: vault,
-    exists: value => vault.exists(path(value)),
-    readText: value => vault.read(path(value)),
-    readBinary: async value => new Uint8Array(await vault.readBinary(path(value))),
-    writeText: (value, data) => vault.write(path(value), data),
-    createText: async (value, data) => { const target = path(value); if (await vault.exists(target)) throw new Error("File exists"); await vault.write(target, data); },
-    writeBinary: (value, data) => vault.writeBinary(path(value), new Uint8Array(data).buffer),
-    createBinary: async (value, data) => { const target = path(value); if (await vault.exists(target)) throw new Error("File exists"); await vault.writeBinary(target, new Uint8Array(data).buffer); },
-    processText: async (value, update) => { const target = path(value); const result = update(await vault.read(target)); await vault.write(target, result); return result; },
-    mkdir: async value => { const target = path(value); if (!await vault.exists(target)) await vault.mkdir(target); },
+    exists: async value => vault.exists(await checked(value)),
+    readText: async value => vault.read(await checked(value)),
+    readBinary: async value => new Uint8Array(await vault.readBinary(await checked(value))),
+    writeText: async (value, data) => vault.write(await checked(value), data),
+    createText: (value, data) => create(value, data),
+    writeBinary: async (value, data) => vault.writeBinary(await checked(value), new Uint8Array(data).buffer),
+    createBinary: (value, data) => create(value, data),
+    processText: async (value, update) => { const target = await checked(value); const result = update(await vault.read(target)); await vault.write(target, result); return result; },
+    mkdir: async value => { const target = await checked(value); await ensureRoot(); if (!await vault.exists(target)) await vault.mkdir(target); },
     list: async value => {
-      const result = await vault.list(path(value));
+      const result = await vault.list(await checked(value));
       const relative = (entry: string): string => root && entry.startsWith(`${root}/`) ? entry.slice(root.length + 1) : entry;
       return [...result.folders.map(entry => ({ path: relative(entry), type: "folder" as const })), ...result.files.map(entry => ({ path: relative(entry), type: "file" as const }))] satisfies StorageEntry[];
     },
@@ -83,6 +129,7 @@ export class PithObsidianController {
   readonly store: DefaultWorkspaceStore;
   readonly engine: DefaultAttentionEngine;
   readonly runtime: PluginRuntime;
+  readonly guideVisibility = new Map<string, boolean>();
   private readonly host: HostPort;
   private config: PluginsConfigFile = { preset: "all" };
   private persona: "sanctuary" | "studio" = "sanctuary";
@@ -205,12 +252,15 @@ export class PithWorkspaceView extends obsidian.ItemView {
   private generation = 0;
   private homeRequest = 0;
   private readonly controller: PithObsidianController;
-  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort) { super(leaf); this.controller = controller; }
+  private readonly workspace: ObsidianWorkspace | undefined;
+  private readonly guideByTopic: Map<string, boolean>;
+  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort, workspace?: ObsidianWorkspace) { super(leaf); this.controller = controller; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; }
   getViewType(): string { return PITH_VIEW_TYPE; }
   getDisplayText(): string { return "Pith"; }
   getIcon(): string { return "book-open"; }
 
   async onOpen(): Promise<void> {
+    if (this.workspace && this.workspace.leftSplit) this.workspace.leftSplit.collapse();
     const previousGeneration = this.generation, request = ++this.homeRequest;
     const compass = await this.controller.openCompass();
     if (previousGeneration !== this.generation || request !== this.homeRequest) return;
@@ -254,6 +304,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
+      guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); },
       home: () => this.onOpen(),
       openFile: render,
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接高品质语音引擎，请在设置中配置 Kokoro 或云端语音"); return tts.synthesizeSpeech(text, signal); },
@@ -265,6 +316,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const updated = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`) ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
+    this.view.setGuideVisible(this.guideByTopic.get(topic.id) ?? false);
     this.view.setToolkits(topic.toolkits);
     await render(material.files[0]!.name);
     if (generation === this.generation && this.view) await this.view.refreshGuide();
@@ -274,31 +326,55 @@ export class PithWorkspaceView extends obsidian.ItemView {
 const SettingTabBase = obsidian.PluginSettingTab || class { containerEl!: HTMLElement; constructor(_app: ObsidianPluginBase["app"], _plugin: ObsidianPluginBase) {} };
 export class PithSettingTab extends SettingTabBase {
   private readonly controller: PithObsidianController;
-  constructor(app: ObsidianPluginBase["app"], plugin: ObsidianPluginBase, controller: PithObsidianController) { super(app, plugin); this.controller = controller; }
+  private readonly plugin: PithObsidianPlugin;
+  constructor(app: ObsidianPluginBase["app"], plugin: PithObsidianPlugin, controller: PithObsidianController) { super(app, plugin); this.plugin = plugin; this.controller = controller; }
   display(): void {
     const root = this.containerEl; root.replaceChildren();
     const doc = root.ownerDocument;
     const addSelect = (label: string, choices: readonly (readonly [string, string])[], value: string): HTMLSelectElement => { const row = doc.createElement("label"); row.textContent = label; const select = doc.createElement("select"); for (const [id, title] of choices) { const option = doc.createElement("option"); option.value = id; option.textContent = title; select.append(option); } select.value = value; row.append(select); root.append(row); return select; };
     const config = this.controller.getAgentConfig(), speech = this.controller.getSpeechConfig();
+    const pathLabel = doc.createElement("label"); pathLabel.textContent = "Pith 数据目录（相对于 Vault）"; const pathInput = doc.createElement("input"); pathInput.value = this.plugin.getWorkspacePath(); pathLabel.append(pathInput); root.append(pathLabel);
     const agent = addSelect("本机 Agent", [["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId);
     const persona = addSelect("术语风格", [["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona);
     const tts = addSelect("TTS", [["kokoro-local", "Kokoro 本机"], ["openai-tts", "OpenAI TTS"], ["azure-neural", "Azure Neural"]], speech.ttsProvider || "kokoro-local");
     const asr = addSelect("ASR", [["whisper-local", "Whisper 本机"], ["sensevoice-local", "SenseVoice 本机"], ["openai-whisper", "OpenAI Whisper"]], speech.asrProvider || "whisper-local");
     const status = doc.createElement("p"); status.setAttribute("role", "status"); const scan = doc.createElement("button"); scan.textContent = "扫描并配置本机 Agent"; scan.onclick = () => { scan.disabled = true; void this.controller.detectAgents(true).then(async agents => { const available = agents.find(item => item.available && ["dsh", "claude", "codex"].includes(item.id)); if (!available) { status.textContent = "未发现可用 Agent"; return; } agent.value = available.id; await this.controller.setAgentConfig({ ...config, agentId: available.id as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); status.textContent = `已配置 ${available.label}`; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); };
-    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, asrProvider: asr.value }); status.textContent = "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, save, status);
+    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { validateWorkspacePath(pathInput.value); await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, asrProvider: asr.value }); const changed = await this.plugin.setWorkspacePath(pathInput.value); status.textContent = changed ? "目录已保存，重载插件后生效；原目录未更改" : "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, save, status);
   }
 }
 
 export default class PithObsidianPlugin extends obsidian.Plugin {
   private controller: PithObsidianController | null = null;
+  private workspacePath = "Pith";
+  private pluginData: Record<string, unknown> = {};
+
+  getWorkspacePath(): string { return this.workspacePath; }
+  async setWorkspacePath(value: string): Promise<boolean> {
+    const path = validateWorkspacePath(value);
+    if (path === this.workspacePath) return false;
+    if (!this.saveData) throw new Error("无法保存工作区路径");
+    let current = "";
+    for (const part of path.split("/")) { current = current ? `${current}/${part}` : part; await assertNoVaultSymlinks(this.app.vault.adapter, current); if (await this.app.vault.adapter.exists(current)) await this.app.vault.adapter.list(current); }
+    const next = { ...this.pluginData, workspacePath: path };
+    await this.saveData(next);
+    this.pluginData = next;
+    this.workspacePath = path;
+    return true;
+  }
 
   async onload(): Promise<void> {
-    const host = createObsidianHostPort(this.app.vault.adapter, "", new NodeAgentProcessPort());
+    const saved = this.loadData ? await this.loadData() : null;
+    if (saved !== null && (typeof saved !== "object" || Array.isArray(saved))) throw new Error("Invalid plugin settings");
+    this.pluginData = saved ? { ...saved as Record<string, unknown> } : {};
+    const configured = saved && "workspacePath" in saved ? (saved as { workspacePath: unknown }).workspacePath : "Pith";
+    if (typeof configured !== "string") throw new Error("Invalid workspace root");
+    this.workspacePath = validateWorkspacePath(configured);
+    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort());
     const controller = new PithObsidianController(host);
     this.controller = controller;
     try {
       await controller.initialize();
-      this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host));
+      this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host, this.app.workspace));
       if (this.addSettingTab && obsidian.PluginSettingTab) this.addSettingTab(new PithSettingTab(this.app, this, controller));
       const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };
       this.addRibbonIcon("book-open", "打开 Pith", open);
@@ -317,6 +393,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
 
   private async openView(): Promise<void> {
     const workspace = this.app.workspace;
+    if (workspace.leftSplit) workspace.leftSplit.collapse();
     const existing = workspace.getLeavesOfType(PITH_VIEW_TYPE)[0];
     const leaf = existing ?? workspace.getLeaf("tab");
     if (!existing) await leaf.setViewState({ type: PITH_VIEW_TYPE, active: true });

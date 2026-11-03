@@ -17,6 +17,7 @@ test("Obsidian controller persists quoted conversation and practice from both re
   const dir = await mkdtemp(join(tmpdir(), "pith-track-b-"));
   const storage = new NodeWorkspaceStorage(dir);
   const adapter = {
+    getFullPath: (path: string) => join(dir, path),
     exists: (path: string) => storage.exists(path), read: (path: string) => storage.readText(path),
     readBinary: async (path: string) => new Uint8Array(await storage.readBinary(path)).buffer,
     write: (path: string, value: string) => storage.writeText(path, value),
@@ -24,7 +25,7 @@ test("Obsidian controller persists quoted conversation and practice from both re
     mkdir: (path: string) => storage.mkdir(path),
     list: async (path: string) => { const entries = await storage.list(path); return { files: entries.filter(item => item.type === "file").map(item => item.path), folders: entries.filter(item => item.type === "folder").map(item => item.path) }; },
   };
-  const controller = new PithObsidianController(createObsidianHostPort(adapter));
+  const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", undefined, adapter));
   try {
     await controller.initialize();
     const topic = await controller.store.createTopic({ title: "阅读", target: "理解" });

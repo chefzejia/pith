@@ -37,6 +37,7 @@ test("Obsidian empty topic accepts an import and rejects replacement", async () 
   const dir = await mkdtemp(join(tmpdir(), "pith-obsidian-import-"));
   const storage = new NodeWorkspaceStorage(dir);
   const adapter = {
+    getFullPath: (path: string) => join(dir, path),
     exists: (path: string) => storage.exists(path), read: (path: string) => storage.readText(path),
     readBinary: async (path: string) => new Uint8Array(await storage.readBinary(path)).buffer,
     write: (path: string, value: string) => storage.writeText(path, value),
@@ -44,7 +45,7 @@ test("Obsidian empty topic accepts an import and rejects replacement", async () 
     mkdir: (path: string) => storage.mkdir(path),
     list: async (path: string) => { const entries = await storage.list(path); return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) }; },
   };
-  const controller = new PithObsidianController(createObsidianHostPort(adapter));
+  const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", undefined, adapter));
   try {
     await controller.initialize();
     const topic = await controller.store.createTopic({ title: "阅读", nextAction: "阅读一节" });
@@ -285,10 +286,10 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
     openTopic: async (id: "a" | "b") => topics[id],
     store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: () => lookup, updateTopic: async () => { updates++; return topics.a; } },
     runtime: { getService: () => undefined },
-    createView: (_root: unknown, action: { mountDojo?: (id: string) => Promise<void> }) => { actions.push(action); const writes: string[] = []; toolkitWrites.push(writes); return { setToolkits: (ids: readonly string[]) => { writes.push(...ids); }, render() {}, refreshGuide: async () => {} }; },
+    createView: (_root: unknown, action: { mountDojo?: (id: string) => Promise<void> }) => { actions.push(action); const writes: string[] = []; toolkitWrites.push(writes); return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push(...ids); }, render() {}, refreshGuide: async () => {} }; },
     releaseView() {}, renderMaterialFile: async () => ({ html: "", sections: [] }),
   };
-  Object.assign(workspace, { generation: 0, view: null, controller, contentEl: {} });
+  Object.assign(workspace, { generation: 0, view: null, controller, contentEl: {}, guideByTopic: new Map() });
   await workspace.openTopic("a");
   const pendingMount = actions[0]!.mountDojo!("feynman");
   await workspace.openTopic("b");
@@ -326,10 +327,10 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
     openTopic: async () => ({ ...current, toolkits: [] }),
     store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: async () => current, updateTopic: async () => { updates++; return current; } },
     runtime: { getService: () => undefined }, engine: { getConversation: async () => [] },
-    createView: (_root: unknown, value: typeof actions) => { actions = value; return { setToolkits: (ids: readonly string[]) => { writes.push([...ids]); }, render() {}, refreshGuide: async () => {} }; },
+    createView: (_root: unknown, value: typeof actions) => { actions = value; return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push([...ids]); }, render() {}, refreshGuide: async () => {} }; },
     releaseView() {}, renderMaterialFile: async () => ({ html: "", sections: [] }),
   };
-  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: {}, controller });
+  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: {}, controller, guideByTopic: new Map() });
   await workspace.openTopic("a");
   assert.deepEqual((await actions.guideData()).toolkits, ["feynman"]);
   await actions.mountDojo("feynman");
