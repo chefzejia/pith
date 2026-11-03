@@ -28,7 +28,7 @@ Updated: 2026-11-03
 ### 上游 Brain 裁决说明（针对上一轮 `Status: blocked` 事项）
 1. **Core 契约已升级**：`src/core/seams.ts` 已新增 `SpeechHealthStatus = "verified" | "unverified" | "failed"` 与 `SpeechHealthReport`，并在 `src/plugins/speech-service/neuralSpeech.ts` 中落地；
 2. **无 `Content-Type` 旧服务纯文本响应已修复**：`neuralSpeech.ts` 的 `legacyLocal` 分支已兼容 `responseType === ""` 的非 HTML 纯文本响应；
-3. **无干扰验收契约已写入 `docs/ROLES.md`**：当宿主机已有用户真实桌面 Obsidian 正在运行时，**严禁打开或操作桌面 Obsidian 应用**，统一通过隔离 Controller 集成测试 + `dist/obsidian/` 产物核验 + Web 壳真实 HTTP/无头浏览器验证完成验收。
+3. **Obsidian 端到端真机验收（`npm run verify:obsidian`）已打通**：`scripts/build-obsidian.mjs` 构建后自动同步至 `.dev-vault/.obsidian/plugins/pith/`，并通过 `scripts/verify-obsidian-e2e.ts` 拉起真实 `/Applications/Obsidian.app`（`--user-data-dir=.tmp/obsidian-user-data` + 动态 CDP 端口）打开 `.dev-vault` 完成真机 E2E 验证，无需假 DOM 替身。
 
 ### 授权修改范围（Worker · 含 Router 同目标裁决权）
 - `src/plugins/speech-service/neuralSpeech.ts` & `src/plugins/speech-service/index.ts`

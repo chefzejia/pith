@@ -23,3 +23,11 @@ if (!source) throw new Error("Failed to compile Obsidian styles");
 const { obsidianStyles } = await import(`data:text/javascript;base64,${Buffer.from(source.contents).toString("base64")}`);
 await writeFile(resolve(output, "styles.css"), obsidianStyles);
 await copyFile(resolve(root, "manifest.json"), resolve(output, "manifest.json"));
+
+const devVaultPluginDir = resolve(root, ".dev-vault/.obsidian/plugins/pith");
+await mkdir(devVaultPluginDir, { recursive: true });
+await Promise.all([
+  copyFile(resolve(output, "main.js"), resolve(devVaultPluginDir, "main.js")),
+  copyFile(resolve(output, "styles.css"), resolve(devVaultPluginDir, "styles.css")),
+  copyFile(resolve(output, "manifest.json"), resolve(devVaultPluginDir, "manifest.json")),
+]);

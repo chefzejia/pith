@@ -14,7 +14,7 @@ interface ObsidianLeaf {
 interface ObsidianWorkspace {
   leftSplit?: { collapse(): void };
   getLeavesOfType(type: string): ObsidianLeaf[];
-  getLeaf(type: "tab"): ObsidianLeaf;
+  getLeaf(type?: "tab" | boolean): ObsidianLeaf;
   revealLeaf(leaf: ObsidianLeaf): Promise<void>;
   detachLeavesOfType(type: string): void;
 }
@@ -408,7 +408,13 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     const workspace = this.app.workspace;
     if (workspace.leftSplit) workspace.leftSplit.collapse();
     const existing = workspace.getLeavesOfType(PITH_VIEW_TYPE)[0];
-    const leaf = existing ?? workspace.getLeaf("tab");
+    const leaf = existing ?? (() => {
+      try {
+        return workspace.getLeaf("tab");
+      } catch {
+        return workspace.getLeaf(false);
+      }
+    })();
     if (!existing) await leaf.setViewState({ type: PITH_VIEW_TYPE, active: true });
     await workspace.revealLeaf(leaf);
   }

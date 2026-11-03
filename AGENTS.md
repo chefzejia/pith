@@ -18,7 +18,8 @@ Pith 是一个宿主无关的**个人注意力与深度内化系统（Personal A
 ```bash
 npm run typecheck          # TypeScript 全仓零报错检查
 npm test                   # 运行全部单测与架构边界守卫（tests/boundaries.test.ts）
-npm run build:obsidian     # 打包生成 dist/obsidian/{main.js,manifest.json,styles.css}
+npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault/.obsidian/plugins/pith/
+npm run verify:obsidian    # 拉起真实 /Applications/Obsidian.app (.dev-vault) 执行 CDP 端到端真机验收
 npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1:4173)
 ```
 
