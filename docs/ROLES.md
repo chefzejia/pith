@@ -15,4 +15,4 @@
    - **路径 A（同目标关联文件自动补齐）**：当独立 `Tester` 发现任务包目标已明确要求某功能、但修改白名单漏列了同切面的非核心支撑文件（如 `src/plugins/<id>/`）时，`Router` 有权直接授权 `Worker` 补齐修改并重跑 `Tester`，一鼓作气跑完 `Status: verified`；
    - **路径 B（核心契约冲突退回）**：若遇到真正的 `src/core/` 冻结接口冲突、安全红线阻断或连续 3 轮修复未通过 `Tester` 验收，`Router` 必须将精确阻塞证据写入 `docs/HANDOFF.md`（顶部改为 `Status: blocked`）并执行 `git commit` 退回给上游 `Brain`。
 2. **写操作严格串行（共享工作树 Write = 1）**：同一工作树同一时刻只允许 1 个活跃 `Worker` 写代码；仅在独立 Git Worktree、写文件集 100% 物理正交且共享 Schema 已冻结时，才允许并行派发（上限 2~3 个）。
-3. **端到端真机验收（Real Obsidian & Web E2E）**：严禁用假 DOM/Stub 替代真机验收。Obsidian 壳修改必须执行 `npm run verify:obsidian`（通过 `--user-data-dir=.tmp/obsidian-user-data` 与动态 CDP 端口拉起真实 `/Applications/Obsidian.app` 打开 `.dev-vault` 完成端到端真机验证，与宿主机正在运行的真实 Vault 进程物理隔离、互不抢占）。
+3. **端到端真机验收（Real Obsidian & Web E2E）**：Obsidian 壳修改直接执行 `npm run verify:obsidian`（通过 `--user-data-dir=.tmp/obsidian-user-data` 拉起 `/Applications/Obsidian.app` 打开 `.dev-vault`）。`.dev-vault` 与 `.tmp` 是受 `.gitignore` 忽略的测试沙盒，直接读写覆盖即可，**严禁为了“证明沙盒隔离”而去编写进程扫描、快照备份、`sandbox-exec` 或硬链接防御代码**。
