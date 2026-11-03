@@ -1,7 +1,9 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: pending
+Status: blocked
 Updated: 2026-11-03
+
+阻塞：桌面 Obsidian 正运行，独立无焦点隔离及根 `.dev-vault` 的备份恢复尚未证明，实际桌面 E2E 未运行。构建输出链接组合能覆盖现有文件，现有空插件目录可能被接管；三轮独立复核未通过。
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **双环四重身份协同契约（详见 [ROLES.md](ROLES.md)）**：
