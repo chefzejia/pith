@@ -158,7 +158,7 @@ export interface StageTimelineService {
   }): string;
 }
 
-export type CuratedTtsProviderId = "kokoro-local" | "openai-tts" | "azure-neural";
+export type CuratedTtsProviderId = "openai-compatible-local" | "openai-tts" | "azure-neural" | "kokoro-local";
 export type CuratedAsrProviderId = "whisper-local" | "sensevoice-local" | "openai-whisper";
 
 export interface SpeechEnginePreset<TId extends string = string> {
@@ -166,6 +166,7 @@ export interface SpeechEnginePreset<TId extends string = string> {
   readonly label: string;
   readonly kind: "local" | "cloud";
   readonly defaultEndpoint: string;
+  readonly defaultModel?: string;
   readonly defaultVoice?: string;
   readonly installHint: string;
 }
@@ -186,6 +187,7 @@ export interface SpeechSentenceSegment {
 export interface SpeechTtsService {
   readonly providerId?: CuratedTtsProviderId;
   readonly endpoint?: string;
+  readonly model?: string;
   readonly voice?: string;
   readonly rate: number;
   splitSentences(text: string): readonly SpeechSentenceSegment[];
@@ -205,6 +207,7 @@ export interface AsrTranscriptionResult {
 export interface SpeechAsrService {
   readonly providerId?: CuratedAsrProviderId;
   readonly url: string;
+  readonly model?: string;
   isLoopbackSafe(url: string): boolean;
   listPresets?(): readonly SpeechEnginePreset<CuratedAsrProviderId>[];
   checkHealth?(signal?: AbortSignal): Promise<{ readonly ok: boolean; readonly providerId?: CuratedAsrProviderId; readonly note: string }>;

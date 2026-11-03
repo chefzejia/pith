@@ -37,6 +37,11 @@ test("curated TTS requests, missing prerequisites, and no fallback", async () =>
   await assert.rejects(empty.synthesizeSpeech("hello"), /Kokoro/);
   await assert.rejects(createNeuralSpeech(host, { ...config, ttsEndpoint: "http://192.168.1.1/" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe local/);
   await assert.rejects(createNeuralSpeech(host, { ...config, ttsProvider: "openai-tts", ttsEndpoint: "https://evil.example/v1/audio/speech" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe cloud/);
+  const customLocal = createNeuralSpeech(host, { ...config, ttsProvider: "openai-compatible-local", ttsModel: "custom-tts-v1", ttsVoice: "custom-voice" }, isLoopbackSafe);
+  assert.equal((await customLocal.synthesizeSpeech("Custom model")).providerId, "openai-compatible-local");
+  const customBody = JSON.parse(String(calls.at(-1)!.body));
+  assert.equal(customBody.model, "custom-tts-v1");
+  assert.equal(customBody.voice, "custom-voice");
 });
 
 test("ASR local safety, health and cloud multipart", async () => {

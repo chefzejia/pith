@@ -1,30 +1,33 @@
 import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, SpeechEnginePreset, SpeechSynthesisAudio } from "../../core/index.ts";
 
 export const CURATED_TTS_PRESETS: readonly SpeechEnginePreset<CuratedTtsProviderId>[] = [
-  { id: "kokoro-local", label: "Kokoro-82M (本机开源引擎)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultVoice: "af_heart", installHint: "在终端运行 Kokoro OpenAI 兼容服务（如 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest 或 mlx-audio）" },
-  { id: "openai-tts", label: "OpenAI gpt-4o-mini-tts (云端)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/speech", defaultVoice: "alloy", installHint: "需配置 OPENAI_API_KEY" },
+  { id: "kokoro-local", label: "本机 OpenAI 兼容语音服务 (Local HTTP)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultModel: "tts-1", defaultVoice: "alloy", installHint: "在本机启动任意兼容 OpenAI /v1/audio/speech 协议的本地 TTS 服务（如 Kokoro / MLX-Audio，默认监听 127.0.0.1:8880）" },
+  { id: "openai-tts", label: "OpenAI Audio Speech (云端或兼容网关)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/speech", defaultModel: "gpt-4o-mini-tts", defaultVoice: "alloy", installHint: "需配置 OPENAI_API_KEY" },
   { id: "azure-neural", label: "Azure Neural TTS (微软神经网络音色)", kind: "cloud", defaultEndpoint: "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1", defaultVoice: "zh-CN-XiaoxiaoNeural", installHint: "需配置 AZURE_SPEECH_KEY 与区域" },
 ];
 export const CURATED_ASR_PRESETS: readonly SpeechEnginePreset<CuratedAsrProviderId>[] = [
-  { id: "whisper-local", label: "MLX / Faster Whisper (本机回环)", kind: "local", defaultEndpoint: "http://localhost:8765", installHint: "在本机启动 Whisper 回环服务监听 8765 端口" },
-  { id: "sensevoice-local", label: "SenseVoice-Small (本机极速多语种)", kind: "local", defaultEndpoint: "http://127.0.0.1:8766", installHint: "在本机启动 SenseVoice HTTP 服务监听 8766 端口" },
-  { id: "openai-whisper", label: "Whisper-large-v3-turbo (云端 API)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/transcriptions", installHint: "需配置 OPENAI_API_KEY" },
+  { id: "whisper-local", label: "本机回环 ASR 服务 (Local Loopback)", kind: "local", defaultEndpoint: "http://localhost:8765", defaultModel: "whisper-1", installHint: "在本机启动兼容 /transcribe 或 /v1/audio/transcriptions 的回环 ASR 服务（默认 8765 端口）" },
+  { id: "sensevoice-local", label: "本机极速多语种 ASR (Local 8766)", kind: "local", defaultEndpoint: "http://127.0.0.1:8766", defaultModel: "sensevoice", installHint: "在本机启动 HTTP ASR 服务监听 8766 端口" },
+  { id: "openai-whisper", label: "OpenAI Audio Transcriptions (云端或兼容网关)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/transcriptions", defaultModel: "whisper-1", installHint: "需配置 OPENAI_API_KEY" },
 ];
 
 export interface NeuralSpeechConfig {
-  readonly ttsProvider: CuratedTtsProviderId; readonly ttsEndpoint: string; readonly ttsVoice: string;
-  readonly azureRegion: string; readonly asrProvider: CuratedAsrProviderId; readonly asrLoopbackUrl: string; readonly rate: number;
+  readonly ttsProvider: CuratedTtsProviderId; readonly ttsEndpoint: string; readonly ttsModel?: string; readonly ttsVoice: string;
+  readonly azureRegion: string; readonly asrProvider: CuratedAsrProviderId; readonly asrLoopbackUrl: string; readonly asrModel?: string; readonly rate: number;
 }
 const xml = (text: string): string => text.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[ch]!);
 const header = (headers: Readonly<Record<string, string>>, name: string): string => Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1] ?? "";
 
 export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpeechConfig, isLoopbackSafe: (url: string) => boolean) {
-  const ttsPreset = CURATED_TTS_PRESETS.find(p => p.id === config.ttsProvider);
+  const normalizedTtsId = config.ttsProvider === "openai-compatible-local" ? "kokoro-local" : config.ttsProvider;
+  const ttsPreset = CURATED_TTS_PRESETS.find(p => p.id === normalizedTtsId);
   const asrPreset = CURATED_ASR_PRESETS.find(p => p.id === config.asrProvider);
   if (!ttsPreset || !asrPreset) throw new Error("Invalid speech provider");
   const tts = ttsPreset; const asr = asrPreset;
   const ttsEndpoint = config.ttsEndpoint || (tts.id === "azure-neural" ? tts.defaultEndpoint.replace("{region}", config.azureRegion) : tts.defaultEndpoint);
   const asrEndpoint = asr.id === "whisper-local" ? config.asrLoopbackUrl : asr.defaultEndpoint;
+  const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.id === "kokoro-local" ? "kokoro" : tts.defaultModel || "gpt-4o-mini-tts");
+  const asrModel = (config.asrModel && config.asrModel.trim()) || asr.defaultModel || "whisper-1";
   const voice = config.ttsVoice || tts.defaultVoice!;
   async function prepare(preset: SpeechEnginePreset, endpoint: string): Promise<string> {
     if (!host || !host.http) throw new Error(`HTTP unavailable. ${preset.installHint}`);
@@ -57,7 +60,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
     const response = await request(tts, { url: ttsEndpoint, method: "POST", signal, headers: azure
       ? { "Content-Type": "application/ssml+xml", "Ocp-Apim-Subscription-Key": key, "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3" }
       : { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
-      body: azure ? `<speak version="1.0" xml:lang="${language![1]}"><voice name="${xml(voice)}"><prosody rate="${Math.round((config.rate - 1) * 100)}%">${xml(text)}</prosody></voice></speak>` : JSON.stringify({ model: tts.id === "kokoro-local" ? "kokoro" : "gpt-4o-mini-tts", input: text, voice, response_format: "mp3", speed: config.rate }) });
+      body: azure ? `<speak version="1.0" xml:lang="${language![1]}"><voice name="${xml(voice)}"><prosody rate="${Math.round((config.rate - 1) * 100)}%">${xml(text)}</prosody></voice></speak>` : JSON.stringify({ model: ttsModel, input: text, voice, response_format: "mp3", speed: config.rate }) });
     if (!response.bytes.byteLength) throw new Error(`Empty audio response. ${tts.installHint}`);
     return { bytes: response.bytes, mimeType: header(response.headers, "content-type").split(";")[0] || "audio/mpeg", providerId: config.ttsProvider };
   }
@@ -69,7 +72,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
     if (asr.kind === "cloud") {
       const boundary = `pith-${crypto.randomUUID()}`;
       const encode = new TextEncoder();
-      const prefix = encode.encode(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.webm"\r\nContent-Type: ${mimeType}\r\n\r\n`);
+      const prefix = encode.encode(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${asrModel}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.webm"\r\nContent-Type: ${mimeType}\r\n\r\n`);
       const suffix = encode.encode(`\r\n--${boundary}--\r\n`);
       body = new Uint8Array(prefix.length + bytes.length + suffix.length); body.set(prefix); body.set(bytes, prefix.length); body.set(suffix, prefix.length + bytes.length);
       contentType = `multipart/form-data; boundary=${boundary}`;
@@ -92,7 +95,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
       return { ok: true, providerId: preset.id, note: preset.kind === "cloud" ? "API key configured; connection not tested" : "Connected" };
     } catch (error) { return { ok: false, providerId: preset.id, note: error instanceof Error ? error.message : String(error) }; }
   }
-  return { ttsEndpoint, asrEndpoint, voice, synthesizeSpeech, transcribeAudio,
+  return { ttsEndpoint, asrEndpoint, ttsModel, asrModel, voice, synthesizeSpeech, transcribeAudio,
     checkTtsHealth: (signal?: AbortSignal) => health(tts, ttsEndpoint, signal).then(result => ({ ...result, providerId: config.ttsProvider })),
     checkAsrHealth: (signal?: AbortSignal) => health(asr, asrEndpoint, signal).then(result => ({ ...result, providerId: config.asrProvider })) };
 }

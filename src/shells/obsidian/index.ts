@@ -206,7 +206,7 @@ export class PithObsidianController {
   async openTopic(id: string) { return this.store.getTopic(id); }
   async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId) { const topic = await this.store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); if (topic.materialId) throw new Error("课题已有材料，无法替换"); } const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
   async setSpeechConfig(config: Record<string, string>): Promise<void> {
-    if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
+    if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsModel", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl", "asrModel"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
     this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig });
   }
   async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !audioContentType(entry)) throw new Error("音频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }

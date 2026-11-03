@@ -130,6 +130,28 @@ test("Metaphor-free Core: src/core/** contains no legacy Garden/Seed/Bloom symbo
   assert.deepEqual(hits, []);
 });
 
+test("Zero OS-TTS & External Repo Coupling: src/** forbids browser speechSynthesis/SpeechRecognition and hardcoded external repo paths", () => {
+  const files = walkTsFiles(SRC);
+  const forbiddenApi = /\b(?:speechSynthesis|SpeechSynthesisUtterance|webkitSpeechRecognition|SpeechRecognition)\b/;
+  const forbiddenRepo = /\b(?:ganfan-audio|Qwen3-TTS|IndexTTS)\b/;
+  const hits: string[] = [];
+
+  for (const file of files) {
+    const rel = relative(ROOT, file).replace(/\\/g, "/");
+    const content = readFileSync(file, "utf8");
+    const apiMatch = content.match(forbiddenApi);
+    if (apiMatch) {
+      hits.push(`${rel} contains forbidden OS speech API "${apiMatch[0]}"`);
+    }
+    const repoMatch = content.match(forbiddenRepo);
+    if (repoMatch) {
+      hits.push(`${rel} contains hardcoded external repo/model coupling "${repoMatch[0]}"`);
+    }
+  }
+
+  assert.deepEqual(hits, []);
+});
+
 test("Ordered docs in docs/ resolve local links and never depend forward", () => {
   const docsDir = join(ROOT, "docs");
   const docFiles = readdirSync(docsDir)
