@@ -32,7 +32,7 @@ test("pagination geometry and forced modes", () => {
 test("pagination styles measure overflow after layout", () => {
   const properties = new Map<string, string>();
   const style = () => ({ setProperty: (name: string, value: string) => properties.set(name, value), removeProperty: (name: string) => properties.delete(name) });
-  const body = { style: style() } as unknown as HTMLElement;
+  const body = { style: style(), ownerDocument: { defaultView: null }, querySelectorAll: () => [] } as unknown as HTMLElement;
   const viewport = { clientWidth: 1000, clientHeight: 600, scrollWidth: 2001, style: style() } as unknown as HTMLElement;
   const metrics = applyPaginationStyles(viewport, body);
   assert.equal(metrics.totalScreens, 2);

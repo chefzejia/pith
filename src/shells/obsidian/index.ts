@@ -1,4 +1,4 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { builtinRegistry } from "../../plugins/all.ts";
@@ -23,13 +23,20 @@ interface ObsidianWorkspace {
   detachLeavesOfType(type: string): void;
 }
 interface ObsidianPluginBase {
-  app: { vault: { adapter: ObsidianVaultAdapter }; workspace: ObsidianWorkspace };
+  app: { vault: { adapter: ObsidianVaultAdapter }; workspace: ObsidianWorkspace; secretStorage?: ObsidianSecretStorage; setting?: { open(): void; openTabById(id: string): void } };
   registerView(type: string, factory: (leaf: ObsidianLeaf) => ObsidianItemViewBase): void;
   addRibbonIcon(icon: string, title: string, callback: () => void): HTMLElement;
   addCommand(command: { id: string; name: string; callback: () => void }): void;
   addSettingTab?(tab: ObsidianSettingTabBase): void;
   loadData?(): Promise<unknown>;
   saveData?(data: unknown): Promise<void>;
+}
+export interface ObsidianSecretStorage { getSecret(id: string): string | null; setSecret(id: string, value: string): void; isEncryptionAvailable?(): boolean }
+const secretIds: Record<string, string> = { OPENAI_API_KEY: "pith-openai-api-key", AZURE_SPEECH_KEY: "pith-azure-speech-key" };
+export function saveObsidianSecret(storage: ObsidianSecretStorage | undefined, key: string, value: string): void {
+  const id = secretIds[key];
+  if (!id || typeof process === "undefined" || !["darwin", "win32"].includes(process.platform) || !storage || typeof storage.setSecret !== "function" || typeof storage.isEncryptionAvailable !== "function" || !storage.isEncryptionAvailable()) throw new Error("安全密钥存储不可用，未保存密钥");
+  storage.setSecret(id, value);
 }
 interface ObsidianItemViewBase { contentEl: HTMLElement }
 interface ObsidianSettingTabBase { containerEl: HTMLElement }
@@ -73,7 +80,7 @@ export function validateWorkspacePath(value: string): string {
   return value;
 }
 
-export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "Pith", processPort?: AgentProcessPort, fileSystem?: ObsidianVaultAdapter): HostPort {
+export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "Pith", processPort?: AgentProcessPort, fileSystem?: ObsidianVaultAdapter, secrets?: ObsidianSecretStorage): HostPort {
   if (!fileSystem && obsidian.FileSystemAdapter && vault instanceof obsidian.FileSystemAdapter) fileSystem = vault;
   if (fileSystem && fileSystem !== vault) throw new Error("Filesystem adapter must match the vault adapter");
   const root = validateWorkspacePath(workspacePath);
@@ -121,7 +128,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
       return [...result.folders.map(entry => ({ path: relative(entry), type: "folder" as const })), ...result.files.map(entry => ({ path: relative(entry), type: "file" as const }))] satisfies StorageEntry[];
     },
   };
-  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => typeof process !== "undefined" ? process.env[key] ?? null : null }, ...(processPort ? { process: processPort } : {}) };
+  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => { const id = secretIds[key]; const saved = id && secrets && typeof secrets.getSecret === "function" ? secrets.getSecret(id) : null; return saved || (typeof process !== "undefined" ? process.env[key] ?? null : null); } }, ...(processPort ? { process: processPort } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -272,7 +279,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
   private readonly controller: PithObsidianController;
   private readonly workspace: ObsidianWorkspace | undefined;
   private readonly guideByTopic: Map<string, boolean>;
-  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort, workspace?: ObsidianWorkspace) { super(leaf); this.controller = controller; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; }
+  private readonly openSettings: (() => void) | undefined;
+  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort, workspace?: ObsidianWorkspace, openSettings?: () => void) { super(leaf); this.controller = controller; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; this.openSettings = openSettings; }
   getViewType(): string { return PITH_VIEW_TYPE; }
   getDisplayText(): string { return "Pith"; }
   getIcon(): string { return "book-open"; }
@@ -344,6 +352,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     originatingView = this.controller.createView(this.contentEl, {
       guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView).catch(error => this.report(error)); },
       home: () => this.onOpen(),
+      openSettings: () => { if (!this.openSettings) throw new Error("设置面板不可用"); this.openSettings(); },
       openFile: render,
       loadAudio: name => this.controller.readAudioAsset(material.id, name),
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
@@ -372,12 +381,16 @@ export class PithSettingTab extends SettingTabBase {
   display(): void {
     const root = this.containerEl; root.replaceChildren();
     const doc = root.ownerDocument;
-    const addSelect = (label: string, choices: readonly (readonly [string, string])[], value: string): HTMLSelectElement => { const row = doc.createElement("label"); row.textContent = label; const select = doc.createElement("select"); for (const [id, title] of choices) { const option = doc.createElement("option"); option.value = id; option.textContent = title; select.append(option); } select.value = value; row.append(select); root.append(row); return select; };
-    const addInput = (label: string, value: string): HTMLInputElement => { const row = doc.createElement("label"); row.textContent = label; const input = doc.createElement("input"); input.value = value; row.append(input); root.append(row); return input; };
+    const styles = doc.createElement("style"); styles.textContent = ".pith-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--background-modifier-border)}.pith-setting-row input,.pith-setting-row select{width:min(55%,320px)}"; root.append(styles);
+    const addSelect = (label: string, choices: readonly (readonly [string, string])[], value: string): HTMLSelectElement => { const row = doc.createElement("label"); row.className = "pith-setting-row"; row.textContent = label; const select = doc.createElement("select"); for (const [id, title] of choices) { const option = doc.createElement("option"); option.value = id; option.textContent = title; select.append(option); } select.value = value; row.append(select); root.append(row); return select; };
+    const addInput = (label: string, value: string): HTMLInputElement => { const row = doc.createElement("label"); row.className = "pith-setting-row"; row.textContent = label; const input = doc.createElement("input"); input.value = value; row.append(input); root.append(row); return input; };
+    const heading = (text: string) => { const node = doc.createElement("h3"); node.textContent = text; root.append(node); };
+    heading("工作区与向导 Agent");
     const config = this.controller.getAgentConfig(), speech = this.controller.getSpeechConfig();
-    const pathLabel = doc.createElement("label"); pathLabel.textContent = "Pith 数据目录（相对于 Vault）"; const pathInput = doc.createElement("input"); pathInput.value = this.plugin.getWorkspacePath(); pathLabel.append(pathInput); root.append(pathLabel);
+    const pathInput = addInput("Pith 数据目录（相对于 Vault）", this.plugin.getWorkspacePath());
     const agent = addSelect("本机 Agent", [["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId);
     const persona = addSelect("术语风格", [["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona);
+    heading("语音伴读 (TTS) 与跟读识别 (ASR)");
     const tts = addSelect("TTS", [["kokoro-local", "本机 OpenAI 兼容 TTS"], ["openai-compatible-local", "本机 OpenAI 兼容 TTS（通用）"], ["openai-tts", "OpenAI TTS"], ["azure-neural", "Azure Neural"]], speech.ttsProvider || "kokoro-local");
     const ttsEndpoint = addInput("TTS 端点", speech.ttsEndpoint || "");
     const ttsModel = addInput("TTS 模型", speech.ttsModel || "");
@@ -386,11 +399,14 @@ export class PithSettingTab extends SettingTabBase {
     const asr = addSelect("ASR", [["whisper-local", "本机 ASR（8765）"], ["sensevoice-local", "本机 ASR（8766）"], ["openai-whisper", "OpenAI ASR"]], speech.asrProvider || "whisper-local");
     const asrEndpoint = addInput("本机 ASR 端点", speech.asrLoopbackUrl || (asr.value === "sensevoice-local" ? "http://127.0.0.1:8766" : "http://localhost:8765"));
     const asrModel = addInput("ASR 模型", speech.asrModel || "");
+    const openaiKey = addInput("OpenAI API Key", ""), azureKey = addInput("Azure Speech Key", "");
+    openaiKey.type = azureKey.type = "password"; openaiKey.autocomplete = azureKey.autocomplete = "new-password";
     const asrWarning = doc.createElement("p"); asrWarning.setAttribute("role", "status");
     const updateAsrWarning = () => { asrWarning.textContent = asr.value === "openai-whisper" ? "" : "指定本机模型时，请填写兼容 /v1/audio/transcriptions 的完整端点；原始音频服务请留空模型。"; };
     asr.addEventListener("change", () => { if (["", "http://localhost:8765", "http://127.0.0.1:8766"].includes(asrEndpoint.value) && asr.value !== "openai-whisper") asrEndpoint.value = asr.value === "sensevoice-local" ? "http://127.0.0.1:8766" : "http://localhost:8765"; updateAsrWarning(); }); updateAsrWarning(); root.append(asrWarning);
     const status = doc.createElement("p"); status.setAttribute("role", "status"); const scan = doc.createElement("button"); scan.textContent = "扫描并配置本机 Agent"; scan.onclick = () => { scan.disabled = true; void this.controller.detectAgents(true).then(async agents => { const available = agents.find(item => item.available && ["dsh", "claude", "codex"].includes(item.id)); if (!available) { status.textContent = "未发现可用 Agent"; return; } agent.value = available.id; await this.controller.setAgentConfig({ ...config, agentId: available.id as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); status.textContent = `已配置 ${available.label}`; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); };
-    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { validateWorkspacePath(pathInput.value); await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, ttsEndpoint: ttsEndpoint.value, ttsModel: ttsModel.value, ttsVoice: ttsVoice.value, azureRegion: azureRegion.value, asrProvider: asr.value, asrLoopbackUrl: asrEndpoint.value, asrModel: asrModel.value }); const changed = await this.plugin.setWorkspacePath(pathInput.value); status.textContent = changed ? "目录已保存，重载插件后生效；原目录未更改" : "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, save, status);
+    const health = doc.createElement("button"); health.textContent = "检测语音服务"; health.title = "检测已保存的语音设置"; health.onclick = () => { health.disabled = true; void (async () => { const ttsService = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asrService = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `已保存设置：TTS ${await check(ttsService)}；ASR ${await check(asrService)}`; })().catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
+    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { validateWorkspacePath(pathInput.value); if (openaiKey.value) { saveObsidianSecret(this.plugin.app.secretStorage, "OPENAI_API_KEY", openaiKey.value); openaiKey.value = ""; } if (azureKey.value) { saveObsidianSecret(this.plugin.app.secretStorage, "AZURE_SPEECH_KEY", azureKey.value); azureKey.value = ""; } await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, ttsEndpoint: ttsEndpoint.value, ttsModel: ttsModel.value, ttsVoice: ttsVoice.value, azureRegion: azureRegion.value, asrProvider: asr.value, asrLoopbackUrl: asrEndpoint.value, asrModel: asrModel.value }); const changed = await this.plugin.setWorkspacePath(pathInput.value); status.textContent = changed ? "目录已保存，重载插件后生效；原目录未更改" : "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, health, save, status);
   }
 }
 
@@ -420,12 +436,12 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     const configured = saved && "workspacePath" in saved ? (saved as { workspacePath: unknown }).workspacePath : "Pith";
     if (typeof configured !== "string") throw new Error("Invalid workspace root");
     this.workspacePath = validateWorkspacePath(configured);
-    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort());
+    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort(), undefined, this.app.secretStorage);
     const controller = new PithObsidianController(host);
     this.controller = controller;
     try {
       await controller.initialize();
-      this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host, this.app.workspace));
+      this.registerView(PITH_VIEW_TYPE, leaf => new PithWorkspaceView(leaf, controller, host, this.app.workspace, () => { const setting = this.app.setting; if (!setting) throw new Error("设置面板不可用"); setting.open(); setting.openTabById("pith"); }));
       this.registerView(PITH_GUIDE_VIEW_TYPE, leaf => new PithGuideView(leaf));
       if (this.addSettingTab && obsidian.PluginSettingTab) this.addSettingTab(new PithSettingTab(this.app, this, controller));
       const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };

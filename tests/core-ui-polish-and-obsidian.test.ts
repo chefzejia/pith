@@ -8,7 +8,7 @@ import { PithObsidianController, PithWorkspaceView, createObsidianHostPort } fro
 import { PithObsidianView, obsidianStyles, speechChapterRoot } from "../src/shells/obsidian/plugin.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
-import { resolveResponsiveLayout } from "../src/plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, computePagination, renderTocTree, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
 import { toolkitSlot } from "../src/shells/toolkitSlot.ts";
 
 test("web serves the real WOFF2 with an explicit font policy and reader styling", async () => {
@@ -130,9 +130,12 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
 
 test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
   const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  const script = source.split("<script>")[1]!.split("</script>")[0]!.replace("${resolveResponsiveLayout.toString()}", resolveResponsiveLayout.toString()).replace("${toolkitSlot.toString()}", toolkitSlot.toString()).replace("refresh().then(home).catch(notify);", "");
+  let script = source.split("<script>")[1]!.split("</script>")[0]!;
+  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
+  script = script.replace("refresh().then(home).catch(notify);", "");
   const handlers: Record<string, ((event: unknown) => unknown)[]> = {};
   const elements = new Map<string, Record<string, unknown>>();
+  const created: Record<string, unknown>[] = [];
   const element = (selector: string): Record<string, unknown> => {
     if (!elements.has(selector)) elements.set(selector, { style: {}, dataset: {}, hidden: false, innerHTML: "", value: "", disabled: false, classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, focus() {}, prepend() {}, before() {}, insertAdjacentHTML() {}, append() {}, querySelectorAll: () => [] });
     return elements.get(selector)!;
@@ -140,9 +143,10 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
   const document = {
     querySelector: (selector: string) => elements.has(selector) ? elements.get(selector) : ["#training", "#article", ".reader"].includes(selector) ? null : element(selector),
     querySelectorAll: () => [],
-    createElement: () => ({ ...element("template"), dataset: {}, classList: { toggle() {} } }),
+    createElement: () => { const node = { ...element("template"), dataset: {}, classList: { toggle() {} } }; created.push(node); return node; },
     addEventListener: (name: string, fn: (event: unknown) => unknown) => { (handlers[name] ||= []).push(fn); },
   };
+  element("#navigation").ownerDocument = document;
   const context = createContext({ document, window: { addEventListener() {} }, console, Intl, AbortController, URL, setTimeout, clearTimeout, FormData, calls: [] as unknown[] });
   runInContext(script, context);
   runInContext(`state={compass:{exploring:[{id:'a',toolkits:[],notes:[]},{id:'b',toolkits:[],notes:[]}],settled:[]},materials:[],plugins:[],dojos:['shadowing','feynman']};topic=state.compass.exploring[0];file='a.md';pending={file:'a.md',quote:'A'};selection=pending;selectionRange={};refresh=async()=>{};api=async(path,data)=>{calls.push({path,data});return []}`, context);
@@ -192,7 +196,7 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
   await handler(click({ dataset: { file: "b.md" } }));
   assert.equal(runInContext("pending", context), null);
   assert.equal(runInContext("selectionRange", context), null);
-  assert.match(String(element("#navigation").innerHTML), /Deep heading/);
+  assert.ok(created.some(node => node.textContent === "Deep heading"));
   runInContext("pending={file:'b.md',quote:'B'};selection=pending;selectionRange={}", context);
   await handler(click({ id: "home", dataset: {} }));
   assert.equal(runInContext("pending", context), null);

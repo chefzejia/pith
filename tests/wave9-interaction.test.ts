@@ -188,7 +188,7 @@ test("Obsidian import accepts CBZ and sends it as a book", async () => {
 test("single and double book modes both paginate, with narrow double falling back", () => {
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
   const styles = () => ({ setProperty() {}, removeProperty() {} });
-  const body = { style: styles() as Record<string, unknown> };
+  const body = { style: styles() as Record<string, unknown>, ownerDocument: { defaultView: null }, querySelectorAll: () => [] };
   const classes = new Map<string, boolean>();
   const reader = { clientWidth: 1000, clientHeight: 700, scrollWidth: 2200, scrollLeft: 0, style: styles(), classList: { toggle: (key: string, value: boolean) => classes.set(key, value) } };
   const modes = { hidden: true }, pages = { hidden: true }, double = { disabled: false }, count = { textContent: "" };
