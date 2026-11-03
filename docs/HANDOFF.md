@@ -1,10 +1,14 @@
 # Pith · 项目状态总交接单（HANDOFF · 供新 Brain 会话无缝接手）
 
+Status: verified
+Verified-Commit: 692bd67cccdf86ed0f6d97eb029bbdca57d9d388
+Updated: 2026-11-03
+
 > **最后更新**：2026-11-03（Wave 1 ~ Wave 7 全部合拢封存）
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **多 Agent 协同模式**：
-> - **宏观架构与决策（Brain）**：在 `/Users/zejiawu/Projects/Project-Atlas/labs/pith` 下启动 DSH 会话，负责产品/架构讨论、冻结 `src/core/` 接口、更新本 `docs/HANDOFF.md` 并提交 Git；
-> - **执行与真机 CUA 验收（Worker & Tester）**：在 ChatGPT App (Codex Desktop) 的 `pith` 常驻总控线程中开启了原生定期 Heartbeat 自动监听本文件的 Git 提交，自动派生并监督 Worker 与 CUA Tester 完成编码与 `.dev-vault` 真机验收。
+> - **宏观架构与决策（Brain）**：在 `/Users/zejiawu/Projects/Project-Atlas/labs/pith` 下启动主会话，负责产品/架构讨论、冻结 `src/core/` 接口、将本 `docs/HANDOFF.md` 顶部设为 `Status: pending` 并执行 `git commit`；
+> - **事件驱动执行与真机 CUA 验收（Worker & Tester）**：仓库 `.git/hooks/post-commit` 自动拦截 `docs/HANDOFF.md` 的 `Status: pending` 提交，通过 `codex queue` + `open -g "codex://threads/wake/01a19c25-ec2b-78b3-8cae-314ac4432690"` 秒级唤醒常驻总控线程，在同一轮次内串联常驻 Worker 与独立 Tester 完成编码与 `.dev-vault` 真机验收，通过后更新为 `Status: verified` 并提交收口。
 
 ---
 
