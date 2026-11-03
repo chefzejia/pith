@@ -6,6 +6,22 @@ import { createNeuralSpeech, isLoopbackSafe } from "../src/plugins/speech-servic
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 
 for (const provider of ["whisper-local", "sensevoice-local"] as const) {
+  for (const contentType of [null, "text/plain; charset=utf-8"] as const) {
+    test(`${provider} accepts brace-prefixed literal transcription with ${contentType ?? "no Content-Type"}`, async () => {
+      const body = "{hello} is a literal transcription";
+      const server = createServer((req, res) => {
+        req.resume();
+        if (contentType !== null) res.setHeader("Content-Type", contentType);
+        res.end(body);
+      });
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address(); assert.ok(address && typeof address !== "string");
+      const host: HostPort = { id: "memory", storage: {} as HostPort["storage"], http: new NodeHttpPort() };
+      const speech = createNeuralSpeech(host, { ttsProvider: "kokoro-local", ttsEndpoint: "", ttsVoice: "", azureRegion: "", asrProvider: provider, asrLoopbackUrl: `http://127.0.0.1:${address.port}`, rate: 1 }, isLoopbackSafe);
+      try { assert.equal((await speech.transcribeAudio(new Uint8Array([1]))).text, body); }
+      finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+    });
+  }
   test(`${provider} parses JSON mislabeled as text/plain`, async () => {
     const body = '{"text":"recognized"}';
     const host: HostPort = { id: "memory", storage: {} as HostPort["storage"], http: { request: async () => ({ status: 200, headers: { "content-type": "text/plain" }, bytes: new TextEncoder().encode(body), text: () => body }) } };
@@ -29,14 +45,22 @@ for (const provider of ["whisper-local", "sensevoice-local"] as const) {
         const result = await legacy.transcribeAudio(audio);
         assert.deepEqual(result, { text: "recognized", language: "zh", durationSec: 2, providerId: provider });
       }
-      type = "text/plain"; body = "plain transcript"; assert.equal((await legacy.transcribeAudio(audio)).text, body);
-      for (const contentType of [null, "text/plain", "text/html"]) {
-        type = contentType; body = "<!DOCTYPE html><html><body>gateway error</body></html>";
-        await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
+      for (const contentType of [null, "text/plain"]) {
+        type = contentType;
+        for (const literal of ["plain transcript", "{hello}", "{hello} is a literal transcription", "{quoted} \"words\""]) {
+          body = literal; assert.equal((await legacy.transcribeAudio(audio)).text, literal);
+        }
+        body = '{"text":'; await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
+        body = '{"error":"failed"}'; await assert.rejects(legacy.transcribeAudio(audio), /Empty transcription/);
       }
-      type = "text/plain"; body = '{"text":'; await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
-      type = null; body = "untyped plain text"; assert.equal((await legacy.transcribeAudio(audio)).text, "untyped plain text");
-      type = "text/plain"; body = '{"error":"failed"}'; await assert.rejects(legacy.transcribeAudio(audio), /Empty transcription/);
+      for (const contentType of [null, "text/plain", "text/html"]) {
+        type = contentType;
+        for (const html of ["<!DOCTYPE html><html><body>gateway error</body></html>", "<html>gateway error</html>", "<script>alert(1)</script>"]) {
+          body = html; await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
+        }
+      }
+      type = "application/json"; body = "{hello} is a literal transcription"; await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
+      type = "application/json"; body = '<html>gateway error</html>'; await assert.rejects(legacy.transcribeAudio(audio), /Invalid transcription response/);
       type = null; body = '{"text":"recognized"}'; await assert.rejects(compatible.transcribeAudio(audio), /Invalid transcription response/);
     } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
   });

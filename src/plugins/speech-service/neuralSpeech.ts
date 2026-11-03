@@ -87,12 +87,21 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
     const raw = response.text().trim(); const responseType = header(response.headers, "content-type").split(";")[0]!.trim().toLowerCase();
     const legacyLocal = asr.kind === "local" && !openAiLocalAsr;
     let record: Record<string, unknown> | null = null; let text = "";
-    if (responseType === "application/json" || (legacyLocal && (responseType === "" || responseType === "text/plain") && raw.startsWith("{"))) {
-      let parsed: unknown; try { parsed = JSON.parse(raw); } catch { throw new Error(`Invalid transcription response. ${asr.installHint}`); }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid transcription response. ${asr.installHint}`);
-      record = parsed as Record<string, unknown>; text = typeof record.text === "string" ? record.text : "";
-    } else if ((responseType === "text/plain" || responseType === "") && legacyLocal && !/^<(?:!|\?|\/?[a-z][a-z0-9:-]*(?:\s|\/?>))/i.test(raw)) text = raw;
-    else throw new Error(`Invalid transcription response content type. ${asr.installHint}`);
+    const legacyText = legacyLocal && (responseType === "" || responseType === "text/plain");
+    if (responseType !== "application/json" && !legacyText) throw new Error(`Invalid transcription response content type. ${asr.installHint}`);
+    if (legacyText && /^<(?:!|\?|\/?[a-z][a-z0-9:-]*(?:\s|\/?>))/i.test(raw)) throw new Error(`Invalid transcription response content type. ${asr.installHint}`);
+    if (responseType === "application/json" || (legacyText && raw.startsWith("{"))) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(raw); }
+      catch {
+        if (!legacyText || /^\{\s*"(?:[^"\\]|\\.)*"\s*:/.test(raw)) throw new Error(`Invalid transcription response. ${asr.installHint}`);
+        text = raw;
+      }
+      if (parsed !== undefined) {
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid transcription response. ${asr.installHint}`);
+        record = parsed as Record<string, unknown>; text = typeof record.text === "string" ? record.text : "";
+      }
+    } else text = raw;
     if (!text.trim()) throw new Error(`Empty transcription. ${asr.installHint}`);
     return { text: text.trim(), providerId: config.asrProvider, ...(record && typeof record.language === "string" ? { language: record.language } : {}), ...(record && typeof record.duration === "number" ? { durationSec: record.duration } : {}) };
   }
