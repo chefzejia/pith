@@ -1,7 +1,12 @@
 # Pith · 跨会话交接单（HANDOFF）
 
-Status: pending
+Status: blocked
 Updated: 2026-11-03
+
+阻塞事项：
+- `SpeechAsrService` 的 boolean `ok` 无法结构化区分未验证与失败，需上游裁定 core 契约。
+- 无 Content-Type 的旧服务纯文本响应兼容性第三轮仍未通过。
+- Obsidian 独立真机因无法确认与用户真实 Vault 的实例隔离，尚未验收。
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
 > **协同触发说明**：Brain 冻结 `src/core/` 契约后将本文件设为 `Status: pending` 并提交 Git，自动唤醒常驻 Worker 与独立 Tester 完成实现与 `.dev-vault` 真机验收，验收通过后更新为 `Status: verified`。
