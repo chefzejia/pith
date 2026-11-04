@@ -26,6 +26,7 @@ npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1
 ## 按需路由
 
 - [当前交接](docs/HANDOFF.md)：跨会话继续工作或查看当前任务进展时读取。
+- [经验教训](docs/LESSONS.md)：排查已知失败模式、打补丁反模式与待晋升守卫规则时读取。
 - [协作角色](docs/ROLES.md)：启用 Brain / Router / Worker / Tester 双环四重身份协作时读取。
 - [000 产品哲学](docs/000-philosophy.md)：注意力守恒定律、慢输入与具身内化原则。
 - [001 领域模型](docs/001-domain.md)：四大持久领域实体（`Profile` · `Topic` · `Material` · `Note`）与去隐喻化词表。

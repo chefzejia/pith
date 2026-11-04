@@ -17,5 +17,8 @@
 2. **单文件滑动任务栈与睡前排空（防并发覆盖与漏触发）**：
    - **Brain 追加与撤单**：当后台仍有 `pending` 任务在跑时，Brain 新建任务必须在 `docs/HANDOFF.md` 末尾追加 `## [Task #N+1]`（绝不覆盖在跑任务；若推翻未完旧单则将其标为 `superseded (by #N+1)`），且必须使用 `git commit --only docs/HANDOFF.md` 提交；文件内仅保留未结案区块及最近 1~2 个已结案区块。
    - **Router 精准核销与 Drain-Loop**：Router 结案时仅修改对应 `## [Task #N]` 的状态行；每次 `git commit` 后、结束回合前，**必须重读 `docs/HANDOFF.md` 检查是否仍有 `- **Status**: pending` 区块**——若有，立即在当前轮次继续执行下一单，直至全文件 `pending` 清零才休眠。
-3. **写操作严格串行（共享工作树 Write = 1）**：同一工作树同一时刻只允许 1 个活跃 `Worker` 写代码；仅在独立 Git Worktree、写文件集 100% 物理正交且共享 Schema 已冻结时，才允许并行派发（上限 2~3 个）。
+3. **并行调度与首轮穷尽审查纪律（Parallel Dispatch & Exhaustive First-Pass Review）**：
+   - **写任务并行条件**：同一共享工作树（Working Tree）内同一时刻只允许 1 个活跃 `Worker` 写代码；当任务包含两个**写文件集 100% 物理正交**的独立子模块且 `src/core/` 契约已提前冻结时，`Router` 可在 `.tmp/worktrees/` 下建立独立 Git Worktree 并行派发 2~3 个 `Worker`，待各自单测通过后合并进入统一验收。
+   - **Tester 首轮穷尽与只读并行扇出**：`Tester` 在第一轮审查时必须**一次性穷尽该任务切面的全部静态边界、安全隔离与动态真机缺陷**（`Router` 可同时并行唤醒静态契约审查与真机 E2E 验证），严禁“挤牙膏式”每轮只报 1 个同类边界问题把 3 轮额度耗光。
+   - **禁止表层补丁（详见 [LESSONS.md](LESSONS.md)）**：严禁使用同名函数重赋值套娃（`const xBase = x; x = ...`）、`stopImmediatePropagation` 掩盖旧代码、或 `readFile("src/...") + vm.runInContext` 抠源码字符串凑单测。
 4. **端到端真机验收（Real Obsidian & Web E2E）**：Obsidian 壳修改直接执行 `npm run verify:obsidian`（通过 `--user-data-dir=.tmp/obsidian-user-data` 拉起 `/Applications/Obsidian.app` 打开 `.dev-vault`）。`.dev-vault` 与 `.tmp` 是受 `.gitignore` 忽略的测试沙盒，直接读写覆盖即可，**严禁为了“证明沙盒隔离”而去编写进程扫描、快照备份、`sandbox-exec` 或硬链接防御代码**。
