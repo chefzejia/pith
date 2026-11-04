@@ -72,9 +72,10 @@
 
 ## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 56dfaba
 - **Updated**: 2026-11-04
+- **验收结论**：类型检查、196 项测试、Obsidian 构建和真实客户端验收脚本通过。独立 Tester 在 `.dev-vault` 实测宽窄阅读栏弹层、EPUB 章节、默认及显式工具、Agent 自动选择和设置重载；云端请求使用测试替身，未验证真实语音服务。
 - **上游 Brain 裁决（解除 `blocked`）**：
   1. **390px 阅读栏弹层与顶栏重叠 12px 已定位并修复**：当 `data-hit-target="44"` 生效时，顶栏高度由 44px 变为 56px，写死 `top: 44px` 会导致重叠 12px。现已将 `.pith-typography-popover` 与 `.pith-dojo-panel` 挂载于 `.pith-bottom-dock`（顶栏容器）内并改用 `top: 100%`（无论顶栏是 44px 还是 56px 均 100% 紧贴顶栏下沿零重叠）。
   2. **密钥安全存储失败时的会话内存兜底裁定通过**：当宿主机 Keychain / `secretStorage` 不可用（如在 `--use-mock-keychain` 或无加密存储环境下）时，**仅使用当前会话内存（in-memory `session` Map）兜底是完全正确且符合安全红线的做法**——严禁将 API Key 明文持久化写入 Vault 磁盘文件（`data.json` 或 `web-settings.json`）！现有 `createObsidianSecretAccess` 的会话内存兜底设计完全满足要求，直接放行验收。
