@@ -67,3 +67,61 @@
   3. 点击 `🎧` 未连接语音时出现 `[⚙ 配置语音]` 按钮可一键打开 Pith 设置页，且设置页具备完整的 TTS/ASR 密钥存储与健康检测；
   4. 目录抽屉具备 `▸ / ▾` 多级树状折叠、当前章节高亮与分页精准跳转；
 - 验收通过后，由 Router 将本文件更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。
+
+---
+
+## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
+
+- **Status**: pending
+- **Updated**: 2026-11-04
+
+### 背景与用户真机诊断（必须 100% 解决的 4 大心智违和问题）
+用户在查看 `.dev-vault` 真机截图后指出以下 4 个严重违反用户心智的设计缺陷：
+
+1. **图标语义错误**：
+   - Pith 的主图标（Obsidian Ribbon 图标与 `PithWorkspaceView.getIcon()`）应该改回原先 Garden 的植物图标 **`sprout`**（而非 `book-open`）；
+   - 顶栏的实训工具入口不应该是一个莫名其妙的 `+` 号，而应该是代表**训练/工具**的图标（如扳手/工具图标 + 工具名）；
+   - 顶栏开启向导助手的图标应该是一个**问号图标（`?` / `help-circle`）**（`PithGuideView.getIcon()` 也同步改为 `"help-circle"`），代表“有疑问找向导”。
+
+2. **顶栏一级工具（两阶段筛选）vs 内容正下方二级区域的严格边界**：
+   - **一级工具（全部在顶栏右侧，与「听读」同层级）**：
+     - **第一阶段（无需 AI · 按内容格式默认筛选第一批工具）**：当打开书本/文章（`epub` / `pdf` / `cbz` / `markdown`）且 `topic.toolkits` 尚未由 AI 显式设置为空以外的值时，默认筛选展示适合阅读内化的 **`feynman`（费曼复述）**；当打开音视频/字幕（`media` / `.vtt` / `.srt`）时，默认筛选展示 **`shadowing`（影子跟读）**。
+     - **第二阶段（AI 介入后二次筛选）**：当向导 Agent 介入修改了 `topic.toolkits` 后，按 `topic.toolkits` 展示注入/卸载后的工具。因此「费曼复述」、「影子跟读」与「听读」是平级的一级工具！
+   - **内容正下方区域（Bottom Area）的唯一准入规则**：
+     - **内容正下方区域唯独只有音频播放控制条（`.pith-media-deck`）才能进入！** 其他任何浮层或面板严禁出现在内容正下方。
+
+3. **排版设置 `[Aa]` 竟然出现在屏幕最下方/左下角（严重空间割裂）+ 封面粘连“版权信息”**：
+   - **根因 1（`[Aa]` 跑到底部）**：`plugin.ts:45` 的 `bottom-sheet` CSS 规则（当容器宽度 `< 740px` 或比例 `< 0.85` 时触发）把 `.pith-typography-popover` 和 `.pith-dojo-panel` 强行设成了 `bottom: 0; left: 0; right: 0` 从屏幕底部弹出！用户点击右上角的 `[Aa]` 或实训工具，眼睛看着右上角，菜单却在屏幕最底下出现，极其割裂！
+   - **修复 1**：**彻底移除将 `.pith-typography-popover` 和 `.pith-dojo-panel` 放到屏幕底部的样式！** 点击右上角 `[Aa]` 或顶栏工具时，弹出卡片**永远紧贴顶栏右上方（`top: 44px; right: 8px`）近源向下展开**！
+   - **根因 2（封面页下方粘着“版权信息”标题）**：截图 1 中封面大图下方露出了第二章“版权信息”四个字。必须在分页模式下为每个 `.pith-epub-chapter + .pith-epub-chapter` 强制设置 `break-before: column;`（每章独立起新列/新页），确保封面页干干净净只有封面！
+
+4. **插件设置页（`PithSettingTab`）过度暴露底层概念、违反“唯一标准”且交互反人类**：
+   - 用户痛点：*“我是看不懂这个设置的，为什么 Pith 不能帮我做好？我只需要使用就好了。自定义端点应该作为可选项披露。为什么要区分 OpenAI 和 Azure，我们前面不是说只用唯一标准吗？扫描并配置本机 Agent 按钮放在最下面也很反人类。”*
+   - 而且上次 E2E 脚本还在 `.dev-vault/Pith/_cache/web-settings.json` 里残留了 `e2e-tts-model` / `e2e-voice` 等脏数据！
+   - **彻底重做设置页（`src/shells/obsidian/index.ts` & `src/shells/web/server.ts`）**：
+     1. **向导 Agent 自动扫描与即选即存（对标 `ganfan-garden/src/settings.ts`）**：
+        - 打开设置页时**自动触发后台扫描本机 Agent（`dsh / claude / codex`）**；若当前未配置且扫描到本机有可用 Agent（优先 `dsh`），**自动帮用户选中并保存**！
+        - 在「本机 Agent」下拉框同行右侧放一个轻量的 `[重新检测]` 按钮，下拉框或术语风格改变时**立即自动保存（Auto-save on change）**，彻底砍掉最底下反人类的 `[扫描并配置本机 Agent]` 和 `[保存设置]` 按钮！
+     2. **语音服务：统一为「唯一 OpenAI 兼容标准协议」+ 高级端点默认折叠（`<details>`）**：
+        - **UI 层彻底移除 Azure 区分（移除 `Azure Neural`、`Azure 区域`、`Azure Speech Key` 及杂乱的 `8765/8766` 端口枚举）**！
+        - 语音设置默认只展示极简直观的两项：
+          - **语音服务模式**：下拉框仅分 `本机语音服务（免配置自动连接）` 与 `云端语音服务（OpenAI 标准协议）`（切换即自动保存）；选择云端时才显示 `API Key` 密码框与 `[检测连接]` 按钮；
+          - **`▸ 高级自定义端点与模型（可选）`**：使用原生 `<details><summary>高级自定义端点与模型（可选）</summary>...</details>` 默认折叠收起！只有用户主动展开时，才显示自定义的 `TTS 端点 URL`、`TTS 模型`、`音色`、`ASR 端点 URL`、`ASR 模型`。
+        - 清理 `.dev-vault/Pith/_cache/web-settings.json` 中残留的 `e2e-*` 测试脏数据，且确保 `verify-obsidian-e2e.ts` 跑完后自动恢复默认干净配置！
+
+### 授权修改范围（Worker · 含 Router 同目标裁决权）
+- `src/shells/obsidian/plugin.ts` & `src/shells/obsidian/index.ts`
+- `src/shells/web/server.ts`
+- `src/shells/toolkitSlot.ts`
+- `src/plugins/stage-reader/`
+- `scripts/verify-obsidian-e2e.ts`
+- `tests/` 下相关测试文件
+
+### 验收标准（Tester）
+- `npm run typecheck && npm test && npm run build:obsidian && npm run verify:obsidian` 全部零报错通过；
+- `.dev-vault` 真实桌面 Obsidian 客户端核验：
+  1. Ribbon 与主视图图标为 `sprout`，实训工具带工具图标，向导按钮为问号 `?`（`help-circle`）；
+  2. 书本/文章默认在顶栏右侧展示一级工具 `[🛠 费曼复述]`（媒体展示 `[🗣 影子跟读]`），与 `[🎧]`、`[Aa]`、`[?]` 同级；内容正下方除播放条 `.pith-media-deck` 外无任何其他面板；
+  3. 无论窗口宽窄，点击 `[Aa]` 或实训工具均在顶栏右上方（`top: 44px; right`）近源弹出，绝不跑到底部；EPUB 章节间强制分页（`.pith-epub-chapter + .pith-epub-chapter { break-before: column }`），封面页底部不再出现“版权信息”标题；
+  4. 打开设置页自动扫描并配置可用本机 Agent、修改即自动保存；语音设置不再暴露 Azure 分支，自定义端点/模型收纳在默认折叠的 `<details>` 中，且 `.dev-vault` 无 `e2e-*` 残留脏数据；
+- 验收通过后，由 Router 仅将本 `[Task #11]` 区块更新为 `- **Status**: verified`（附 `Verified-Commit`）并 `git commit` 收口。
