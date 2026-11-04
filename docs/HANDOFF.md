@@ -75,7 +75,10 @@
 - **Status**: pending
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
-- **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项）**：
+- **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项 + macOS 钥匙串弹窗根治）**：
+  0. **根治 macOS `找不到用于储存“obsidian”的钥匙串` 系统弹窗（最高优先级）**：
+     - 每次通过命令行 `spawn("/Applications/Obsidian.app/Contents/MacOS/Obsidian", ...)` 启动隔离实例（如在 `scripts/verify-obsidian-e2e.ts` 中）时，**必须传入 Chromium/Electron 参数 `--use-mock-keychain` 和 `--password-store=basic`**！否则在非 GUI Session / Codex 沙箱下启动 Chromium `safeStorage` 会频繁触发 macOS SecurityAgent 弹出系统级“找不到钥匙串”模态框打断用户！
+     - 同时，在 `src/shells/obsidian/index.ts` 中，当调用 `app.secretStorage` 之前或失败时提供本地插件数据兜底（避免在无需云端语音的默认本机模式下无故触发 `secretStorage` 访问）。
   1. **实训工具两阶段筛选与 `toolkits` 语义冻结**：
      - 当 `topic.toolkits` 为空数组 `[]` 时，UI 渲染层（`toolkitSlot` / 视图层，无需修改已有 `topic.md` 磁盘存储，也无需改变旧 API 对 `topic.toolkits` 存储数组的返回）在顶栏计算有效工具列表时，若 `topic.toolkits.length === 0`，在阅读视图顶栏按当前打开的内容格式提供默认一级工具（书本/文章 `epub | pdf | cbz | markdown` 默认为 `["feynman"]`；音视频/字幕 `media | .vtt | .srt` 默认为 `["shadowing"]`）；
      - 若向导 Agent 显式配置了非空的 `topic.toolkits`（如 `["shadowing"]` 或 `["feynman", "shadowing"]`），则按该数组展示；
