@@ -21,10 +21,11 @@ async function close(server: Server): Promise<void> {
 
 test("curated speech providers use host timeout policy without a local inference extension", async () => {
   const calls: HttpRequestSpec[] = [];
-  const host: HostPort = { id: "memory", storage: {} as HostPort["storage"], secrets: { getSecret: () => "test-key" }, http: { async request(spec) {
+  const http = { async request(spec: HttpRequestSpec) {
     calls.push(spec);
     return { status: 200, headers: { "content-type": "audio/mpeg" }, bytes: new TextEncoder().encode("audio"), text: () => "audio" };
-  } } };
+  }, async requestPublicSpeech(spec: HttpRequestSpec) { return this.request(spec); } };
+  const host: HostPort = { id: "memory", storage: {} as HostPort["storage"], secrets: { getSecret: () => "test-key" }, http };
   for (const provider of ["kokoro-local", "openai-tts", "azure-neural"] as const) {
     const speech = createNeuralSpeech(host, { ttsProvider: provider, ttsEndpoint: "", ttsVoice: "", azureRegion: "eastus", asrProvider: "whisper-local", asrLoopbackUrl: "http://localhost:8765", rate: 1 }, isLoopbackSafe);
     const result = await speech.synthesizeSpeech("Test sentence.");

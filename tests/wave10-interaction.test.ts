@@ -46,32 +46,33 @@ test("secrets fail closed without confirmed encrypted storage", () => {
 
 test("settings save secrets only through encrypted storage and report saved health states", { skip: !["darwin", "win32"].includes(process.platform) }, async () => {
   class Element {
-    children: Element[] = []; textContent = ""; value = ""; disabled = false; onclick: (() => void) | null = null;
+    children: Element[] = []; parentElement: Element | null = null; textContent = ""; value = ""; disabled = false; hidden = false; onclick: (() => void) | null = null; onchange: (() => void) | null = null;
     ownerDocument = { createElement: () => new Element() };
-    append(...children: Element[]) { this.children.push(...children); }
+    append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
     replaceChildren() { this.children = []; }
-    setAttribute() {} addEventListener() {}
+    setAttribute() {} addEventListener(type: string, fn: () => void) { if (type === "change") this.onchange = fn; }
   }
   const values = new Map<string, string>(), writes: unknown[] = [];
   const storage = { getSecret: (id: string) => values.get(id) ?? null, setSecret: (id: string, value: string) => { values.set(id, value); }, isEncryptionAvailable: () => true };
-  const plugin = { app: { secretStorage: storage }, getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
+  const plugin = { app: { secretStorage: storage }, saveSpeechSecret: (value: string) => { saveObsidianSecret(storage, "OPENAI_API_KEY", value); return "encrypted"; }, getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
   const controller = {
     getAgentConfig: () => ({ agentId: "", persona: "sanctuary" }), getSpeechConfig: () => ({}),
+    detectAgents: async () => [],
     setAgentConfig: async (config: unknown) => { writes.push(config); }, setSpeechConfig: async (config: unknown) => { writes.push(config); },
     runtime: { getService: (id: string) => ({ checkHealth: async () => id === "speech.tts" ? { status: "verified", note: "ready" } : { status: "unverified", note: "not checked" } }) },
   };
   const tab = new PithSettingTab({} as never, plugin as never, controller as never), root = new Element();
   tab.containerEl = root as never; tab.display();
   const field = (label: string) => root.children.find(node => node.textContent === label)!.children[0]!;
-  field("OpenAI API Key").value = "test-only-key";
-  root.children.find(node => node.textContent === "保存设置")!.onclick!();
+  field("API Key").value = "test-only-key";
+  field("API Key").onchange!();
   const status = root.children.at(-1)!;
   for (let i = 0; i < 20 && !status.textContent; i++) await new Promise(resolve => setImmediate(resolve));
-  assert.equal(status.textContent, "设置已保存"); assert.equal(field("OpenAI API Key").value, "");
+  assert.equal(status.textContent, "密钥已保存"); assert.equal(field("API Key").value, "");
   assert.ok(!JSON.stringify(writes).includes("test-only-key"));
   const host = createObsidianHostPort({} as never, "Pith", undefined, undefined, storage);
   assert.equal(await host.secrets!.getSecret("OPENAI_API_KEY"), "test-only-key");
-  status.textContent = ""; root.children.find(node => node.textContent === "检测语音服务")!.onclick!();
+  status.textContent = ""; root.children.find(node => node.textContent === "检测连接")!.onclick!();
   for (let i = 0; i < 20 && !status.textContent; i++) await new Promise(resolve => setImmediate(resolve));
   assert.match(status.textContent, /TTS 已验证：ready；ASR 未验证：not checked/);
 });

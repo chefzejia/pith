@@ -19,7 +19,8 @@ const storage = {} as HostPort["storage"];
 
 test("curated TTS requests, missing prerequisites, and no fallback", async () => {
   const calls: HttpRequestSpec[] = [];
-  const host: HostPort = { id: "memory", storage, http: { async request(spec) { calls.push(spec); return response("audio"); } }, secrets: { getSecret: async () => "secret" } };
+  const http = { async request(spec: HttpRequestSpec) { calls.push(spec); return response("audio"); }, async requestPublicSpeech(spec: HttpRequestSpec) { return this.request(spec); } };
+  const host: HostPort = { id: "memory", storage, http, secrets: { getSecret: async () => "secret" } };
   assert.deepEqual(CURATED_TTS_PRESETS.map(p => p.id), ["kokoro-local", "openai-tts", "azure-neural"]);
   for (const [provider, region] of [["kokoro-local", ""], ["openai-tts", ""], ["azure-neural", "eastus"]] as const) {
     const client = createNeuralSpeech(host, { ...config, ttsProvider: provider, azureRegion: region }, isLoopbackSafe);
@@ -36,7 +37,7 @@ test("curated TTS requests, missing prerequisites, and no fallback", async () =>
   const empty = createNeuralSpeech({ ...host, http: { request: async () => response("") } }, config, isLoopbackSafe);
   await assert.rejects(empty.synthesizeSpeech("hello"), /Kokoro/);
   await assert.rejects(createNeuralSpeech(host, { ...config, ttsEndpoint: "http://192.168.1.1/" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe local/);
-  await assert.rejects(createNeuralSpeech(host, { ...config, ttsProvider: "openai-tts", ttsEndpoint: "https://evil.example/v1/audio/speech" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe cloud/);
+  await assert.rejects(createNeuralSpeech(host, { ...config, ttsProvider: "openai-tts", ttsEndpoint: "http://evil.example/v1/audio/speech" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe cloud/);
   const customLocal = createNeuralSpeech(host, { ...config, ttsProvider: "openai-compatible-local", ttsModel: "custom-tts-v1", ttsVoice: "custom-voice" }, isLoopbackSafe);
   assert.equal((await customLocal.synthesizeSpeech("Custom model")).providerId, "openai-compatible-local");
   const customBody = JSON.parse(String(calls.at(-1)!.body));
@@ -46,10 +47,11 @@ test("curated TTS requests, missing prerequisites, and no fallback", async () =>
 
 test("ASR local safety, health and cloud multipart", async () => {
   const calls: HttpRequestSpec[] = [];
-  const host: HostPort = { id: "memory", storage, secrets: { getSecret: () => "key" }, http: { async request(spec) { calls.push(spec); return response('{"text":"hello", "language":"en", "duration":2}', "application/json"); } } };
+  const http = { async request(spec: HttpRequestSpec) { calls.push(spec); return response('{"text":"hello", "language":"en", "duration":2}', "application/json"); }, async requestPublicSpeech(spec: HttpRequestSpec) { return this.request(spec); } };
+  const host: HostPort = { id: "memory", storage, secrets: { getSecret: () => "key" }, http };
   assert.equal(CURATED_ASR_PRESETS.length, 3);
   for (const provider of ["whisper-local", "sensevoice-local", "openai-whisper"] as const) {
-    const client = createNeuralSpeech(host, { ...config, asrProvider: provider }, isLoopbackSafe);
+    const client = createNeuralSpeech(host, { ...config, asrProvider: provider, asrLoopbackUrl: provider === "openai-whisper" ? "" : config.asrLoopbackUrl }, isLoopbackSafe);
     assert.equal((await client.checkAsrHealth()).ok, true);
     const result = await client.transcribeAudio(encoder.encode("bytes"), "audio/webm");
     assert.equal(result.text, "hello"); assert.equal(result.providerId, provider);

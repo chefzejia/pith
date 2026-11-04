@@ -99,7 +99,7 @@ registerPlugin({
   apply(ctx) {
     const rate = ctx.config["rate"];
     const url = ctx.config["asrLoopbackUrl"];
-    if (typeof rate !== "number" || typeof url !== "string" || (url !== "" && !isLoopbackSafe(url))) throw new Error("Unsafe speech configuration");
+    if (typeof rate !== "number" || typeof url !== "string" || (url !== "" && ctx.config["asrProvider"] !== "openai-whisper" && !isLoopbackSafe(url))) throw new Error("Unsafe speech configuration");
     const ttsProvider = ctx.config["ttsProvider"] as CuratedTtsProviderId;
     const asrProvider = ctx.config["asrProvider"] as CuratedAsrProviderId;
     const neural = createNeuralSpeech(ctx.service<HostPort>("host"), { rate, asrLoopbackUrl: url, ttsProvider, asrProvider, ttsEndpoint: String(ctx.config["ttsEndpoint"] ?? ""), ttsModel: String(ctx.config["ttsModel"] ?? ""), ttsVoice: String(ctx.config["ttsVoice"] ?? ""), azureRegion: String(ctx.config["azureRegion"] ?? ""), asrModel: String(ctx.config["asrModel"] ?? "") }, isLoopbackSafe);

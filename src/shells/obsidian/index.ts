@@ -7,6 +7,8 @@ import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
 import { audioContentType } from "../mediaAssets.ts";
+import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speechSettings.ts";
+import { topicUsesToolkit } from "../toolkitSlot.ts";
 
 interface ObsidianLeaf {
   view?: ObsidianItemViewBase;
@@ -38,6 +40,22 @@ export function saveObsidianSecret(storage: ObsidianSecretStorage | undefined, k
   if (!id || typeof process === "undefined" || !["darwin", "win32"].includes(process.platform) || !storage || typeof storage.setSecret !== "function" || typeof storage.isEncryptionAvailable !== "function" || !storage.isEncryptionAvailable()) throw new Error("安全密钥存储不可用，未保存密钥");
   storage.setSecret(id, value);
 }
+export function createObsidianSecretAccess(getStorage: () => ObsidianSecretStorage | undefined) {
+  const session = new Map<string, string>();
+  return {
+    getSecret(key: string): string | null {
+      const current = session.get(key); if (current) return current;
+      try { const id = secretIds[key], storage = id ? getStorage() : undefined; const saved = storage && id ? storage.getSecret(id) : null; if (saved) return saved; } catch { /* environment remains available when secret storage fails */ }
+      return typeof process !== "undefined" ? process.env[key] ?? null : null;
+    },
+    setSecret(key: string, value: string): "encrypted" | "session" {
+      if (!secretIds[key]) throw new Error("未知密钥");
+      try { saveObsidianSecret(getStorage(), key, value); session.delete(key); return "encrypted"; }
+      catch { session.set(key, value); return "session"; }
+    },
+  };
+}
+type ObsidianSecretAccess = ReturnType<typeof createObsidianSecretAccess>;
 interface ObsidianItemViewBase { contentEl: HTMLElement }
 interface ObsidianSettingTabBase { containerEl: HTMLElement }
 type ObsidianApi = {
@@ -80,7 +98,7 @@ export function validateWorkspacePath(value: string): string {
   return value;
 }
 
-export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "Pith", processPort?: AgentProcessPort, fileSystem?: ObsidianVaultAdapter, secrets?: ObsidianSecretStorage): HostPort {
+export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePath = "Pith", processPort?: AgentProcessPort, fileSystem?: ObsidianVaultAdapter, secrets?: ObsidianSecretStorage, secretAccess?: ObsidianSecretAccess): HostPort {
   if (!fileSystem && obsidian.FileSystemAdapter && vault instanceof obsidian.FileSystemAdapter) fileSystem = vault;
   if (fileSystem && fileSystem !== vault) throw new Error("Filesystem adapter must match the vault adapter");
   const root = validateWorkspacePath(workspacePath);
@@ -128,7 +146,8 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
       return [...result.folders.map(entry => ({ path: relative(entry), type: "folder" as const })), ...result.files.map(entry => ({ path: relative(entry), type: "file" as const }))] satisfies StorageEntry[];
     },
   };
-  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => { const id = secretIds[key]; const saved = id && secrets && typeof secrets.getSecret === "function" ? secrets.getSecret(id) : null; return saved || (typeof process !== "undefined" ? process.env[key] ?? null : null); } }, ...(processPort ? { process: processPort } : {}) };
+  const access = secretAccess ?? createObsidianSecretAccess(() => secrets);
+  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -150,6 +169,7 @@ export class PithObsidianController {
   private effort = "";
   private appliedGuideConfig = "";
   private speechConfig: Record<string, string> = {};
+  private speechProfiles: SpeechProfiles = {};
   private appliedSpeechConfig = "";
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
@@ -167,7 +187,7 @@ export class PithObsidianController {
         if (manifest.id === "stage-reader") return this.materials.filter(item => item.kind === "book" || item.kind === "article").length;
         if (manifest.id === "stage-timeline") return this.materials.filter(item => item.kind === "media").length;
         const id = manifest.id === "dojo-feynman" ? "feynman" : "shadowing";
-        return this.topics.filter(topic => topic.toolkits.includes(id) || topic.toolkits.includes(`dojo-${id}`)).length;
+        return this.topics.filter(topic => topicUsesToolkit(topic, this.materials!, id)).length;
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
@@ -178,13 +198,15 @@ export class PithObsidianController {
     if (await this.host.storage.exists("_cache/web-settings.json")) {
       const data: unknown = JSON.parse(await this.host.storage.readText("_cache/web-settings.json"));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
-      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; model?: unknown; effort?: unknown; speech?: unknown };
+      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown };
       if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.persona = value.persona;
       this.agentId = (value.agentId ?? "") as ObsidianAgentConfig["agentId"];
       this.model = (value.model ?? "") as string;
       this.effort = (value.effort ?? "") as string;
-      if (value.speech !== undefined) { if (!value.speech || typeof value.speech !== "object" || Array.isArray(value.speech) || Object.values(value.speech).some(item => typeof item !== "string")) throw new Error("Invalid speech settings"); this.speechConfig = value.speech as Record<string, string>; }
+      if (value.speechSettingsVersion !== undefined && value.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
+      if (value.speech !== undefined) { if (!value.speech || typeof value.speech !== "object" || Array.isArray(value.speech) || Object.values(value.speech).some(item => typeof item !== "string")) throw new Error("Invalid speech settings"); this.speechConfig = migrateLegacySpeech(value.speech as Record<string, string>, value.speechSettingsVersion, value.speechProfiles); }
+      if (value.speechProfiles !== undefined) { if (!validSpeechProfiles(value.speechProfiles)) throw new Error("Invalid speech profiles"); this.speechProfiles = value.speechProfiles; }
       this.config = { preset: value.preset, plugins: value.plugins as NonNullable<PluginsConfigFile["plugins"]> };
     }
     await this.refresh();
@@ -204,7 +226,7 @@ export class PithObsidianController {
       this.appliedSpeechConfig = speechSignature;
     }
   }
-  private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string> }): Promise<void> {
+  private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }): Promise<void> {
     await MutationQueue.forStorage(this.host.storage).run(async () => {
       await this.host.storage.mkdir("_cache");
       const path = "_cache/web-settings.json";
@@ -218,7 +240,12 @@ export class PithObsidianController {
   async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId) { const topic = await this.store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); if (topic.materialId) throw new Error("课题已有材料，无法替换"); } const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
   async setSpeechConfig(config: Record<string, string>): Promise<void> {
     if (Object.entries(config).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsModel", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl", "asrModel"].includes(key) || typeof value !== "string")) throw new Error("Invalid speech settings");
-    this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig });
+    this.speechConfig = { ...config }; await this.refresh(); await this.save({ speech: this.speechConfig, speechSettingsVersion: 1 });
+  }
+  async setSpeechMode(mode: SpeechMode): Promise<void> {
+    const next = switchSpeechMode(this.speechConfig, this.speechProfiles, mode);
+    this.speechConfig = next.speech; this.speechProfiles = next.profiles;
+    await this.refresh(); await this.save({ speech: this.speechConfig, speechProfiles: this.speechProfiles, speechSettingsVersion: 1 });
   }
   async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !audioContentType(entry)) throw new Error("音频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }
   async renderMaterialFile(materialId: string, name: string) {
@@ -264,7 +291,7 @@ export const PITH_GUIDE_VIEW_TYPE = "pith-guide";
 export class PithGuideView extends obsidian.ItemView {
   getViewType(): string { return PITH_GUIDE_VIEW_TYPE; }
   getDisplayText(): string { return "Pith 向导"; }
-  getIcon(): string { return "messages-square"; }
+  getIcon(): string { return "help-circle"; }
   mount(element: HTMLElement): void { this.contentEl.replaceChildren(element); }
 }
 
@@ -283,7 +310,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
   constructor(leaf: ObsidianLeaf, controller: PithObsidianController, _host: HostPort, workspace?: ObsidianWorkspace, openSettings?: () => void) { super(leaf); this.controller = controller; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; this.openSettings = openSettings; }
   getViewType(): string { return PITH_VIEW_TYPE; }
   getDisplayText(): string { return "Pith"; }
-  getIcon(): string { return "book-open"; }
+  getIcon(): string { return "sprout"; }
 
   async onOpen(): Promise<void> {
     if (this.workspace && this.workspace.leftSplit) this.workspace.leftSplit.collapse();
@@ -361,7 +388,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       guideData: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
       sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
-      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const updated = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`) ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits, id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
+      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const updated = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`) ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits.filter(item => item !== "none"), id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;
@@ -379,38 +406,45 @@ export class PithSettingTab extends SettingTabBase {
   private readonly plugin: PithObsidianPlugin;
   constructor(app: ObsidianPluginBase["app"], plugin: PithObsidianPlugin, controller: PithObsidianController) { super(app, plugin); this.plugin = plugin; this.controller = controller; }
   display(): void {
-    const root = this.containerEl; root.replaceChildren();
-    const doc = root.ownerDocument;
-    const styles = doc.createElement("style"); styles.textContent = ".pith-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--background-modifier-border)}.pith-setting-row input,.pith-setting-row select{width:min(55%,320px)}"; root.append(styles);
-    const addSelect = (label: string, choices: readonly (readonly [string, string])[], value: string): HTMLSelectElement => { const row = doc.createElement("label"); row.className = "pith-setting-row"; row.textContent = label; const select = doc.createElement("select"); for (const [id, title] of choices) { const option = doc.createElement("option"); option.value = id; option.textContent = title; select.append(option); } select.value = value; row.append(select); root.append(row); return select; };
-    const addInput = (label: string, value: string): HTMLInputElement => { const row = doc.createElement("label"); row.className = "pith-setting-row"; row.textContent = label; const input = doc.createElement("input"); input.value = value; row.append(input); root.append(row); return input; };
+    const root = this.containerEl; root.replaceChildren(); const doc = root.ownerDocument;
+    const styles = doc.createElement("style"); styles.textContent = ".pith-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--background-modifier-border)}.pith-setting-row input,.pith-setting-row select{max-width:55%}"; root.append(styles);
     const heading = (text: string) => { const node = doc.createElement("h3"); node.textContent = text; root.append(node); };
+    const row = (parent: HTMLElement, label: string, control: HTMLElement) => { const node = doc.createElement("label"); node.className = "pith-setting-row"; node.textContent = label; node.append(control); parent.append(node); return node; };
+    const select = (options: readonly (readonly [string, string])[], value: string) => { const node = doc.createElement("select"); for (const [id, label] of options) { const option = doc.createElement("option"); option.value = id; option.textContent = label; node.append(option); } node.value = value; return node; };
+    const input = (parent: HTMLElement, label: string, value: string) => { const node = doc.createElement("input"); node.value = value; row(parent, label, node); return node; };
+    const status = doc.createElement("p"); status.setAttribute("role", "status");
+    let pending = Promise.resolve(); const enqueue = (operation: () => Promise<void>) => { pending = pending.then(operation).catch(error => { status.textContent = String(error); }); return pending; };
     heading("工作区与向导 Agent");
-    const config = this.controller.getAgentConfig(), speech = this.controller.getSpeechConfig();
-    const pathInput = addInput("Pith 数据目录（相对于 Vault）", this.plugin.getWorkspacePath());
-    const agent = addSelect("本机 Agent", [["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId);
-    const persona = addSelect("术语风格", [["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona);
-    heading("语音伴读 (TTS) 与跟读识别 (ASR)");
-    const tts = addSelect("TTS", [["kokoro-local", "本机 OpenAI 兼容 TTS"], ["openai-compatible-local", "本机 OpenAI 兼容 TTS（通用）"], ["openai-tts", "OpenAI TTS"], ["azure-neural", "Azure Neural"]], speech.ttsProvider || "kokoro-local");
-    const ttsEndpoint = addInput("TTS 端点", speech.ttsEndpoint || "");
-    const ttsModel = addInput("TTS 模型", speech.ttsModel || "");
-    const ttsVoice = addInput("TTS 音色", speech.ttsVoice || "");
-    const azureRegion = addInput("Azure 区域", speech.azureRegion || "");
-    const asr = addSelect("ASR", [["whisper-local", "本机 ASR（8765）"], ["sensevoice-local", "本机 ASR（8766）"], ["openai-whisper", "OpenAI ASR"]], speech.asrProvider || "whisper-local");
-    const asrEndpoint = addInput("本机 ASR 端点", speech.asrLoopbackUrl || (asr.value === "sensevoice-local" ? "http://127.0.0.1:8766" : "http://localhost:8765"));
-    const asrModel = addInput("ASR 模型", speech.asrModel || "");
-    const openaiKey = addInput("OpenAI API Key", ""), azureKey = addInput("Azure Speech Key", "");
-    openaiKey.type = azureKey.type = "password"; openaiKey.autocomplete = azureKey.autocomplete = "new-password";
-    const asrWarning = doc.createElement("p"); asrWarning.setAttribute("role", "status");
-    const updateAsrWarning = () => { asrWarning.textContent = asr.value === "openai-whisper" ? "" : "指定本机模型时，请填写兼容 /v1/audio/transcriptions 的完整端点；原始音频服务请留空模型。"; };
-    asr.addEventListener("change", () => { if (["", "http://localhost:8765", "http://127.0.0.1:8766"].includes(asrEndpoint.value) && asr.value !== "openai-whisper") asrEndpoint.value = asr.value === "sensevoice-local" ? "http://127.0.0.1:8766" : "http://localhost:8765"; updateAsrWarning(); }); updateAsrWarning(); root.append(asrWarning);
-    const status = doc.createElement("p"); status.setAttribute("role", "status"); const scan = doc.createElement("button"); scan.textContent = "扫描并配置本机 Agent"; scan.onclick = () => { scan.disabled = true; void this.controller.detectAgents(true).then(async agents => { const available = agents.find(item => item.available && ["dsh", "claude", "codex"].includes(item.id)); if (!available) { status.textContent = "未发现可用 Agent"; return; } agent.value = available.id; await this.controller.setAgentConfig({ ...config, agentId: available.id as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); status.textContent = `已配置 ${available.label}`; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); };
-    const health = doc.createElement("button"); health.textContent = "检测语音服务"; health.title = "检测已保存的语音设置"; health.onclick = () => { health.disabled = true; void (async () => { const ttsService = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asrService = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `已保存设置：TTS ${await check(ttsService)}；ASR ${await check(asrService)}`; })().catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
-    const save = doc.createElement("button"); save.textContent = "保存设置"; save.onclick = () => { void (async () => { validateWorkspacePath(pathInput.value); if (openaiKey.value) { saveObsidianSecret(this.plugin.app.secretStorage, "OPENAI_API_KEY", openaiKey.value); openaiKey.value = ""; } if (azureKey.value) { saveObsidianSecret(this.plugin.app.secretStorage, "AZURE_SPEECH_KEY", azureKey.value); azureKey.value = ""; } await this.controller.setAgentConfig({ ...config, agentId: agent.value as ObsidianAgentConfig["agentId"], persona: persona.value as ObsidianAgentConfig["persona"] }); await this.controller.setSpeechConfig({ ...speech, ttsProvider: tts.value, ttsEndpoint: ttsEndpoint.value, ttsModel: ttsModel.value, ttsVoice: ttsVoice.value, azureRegion: azureRegion.value, asrProvider: asr.value, asrLoopbackUrl: asrEndpoint.value, asrModel: asrModel.value }); const changed = await this.plugin.setWorkspacePath(pathInput.value); status.textContent = changed ? "目录已保存，重载插件后生效；原目录未更改" : "设置已保存"; })().catch(error => { status.textContent = String(error); }); }; root.append(scan, health, save, status);
+    const path = input(root, "Pith 数据目录（相对于 Vault）", this.plugin.getWorkspacePath());
+    path.addEventListener("change", () => { const value = path.value; void enqueue(async () => { validateWorkspacePath(value); const changed = await this.plugin.setWorkspacePath(value); status.textContent = changed ? "目录已保存，重载插件后生效" : "设置已保存"; }); });
+    const config = this.controller.getAgentConfig();
+    const agent = select([["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId); const agentRow = row(root, "本机 Agent", agent);
+    const scan = doc.createElement("button"); scan.textContent = "重新检测"; scan.type = "button"; agentRow.append(scan);
+    const persona = select([["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona); row(root, "术语风格", persona);
+    let agentChanged = false; const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
+    agent.addEventListener("change", () => { agentChanged = true; saveAgent(); }); persona.addEventListener("change", saveAgent);
+    const detect = () => { scan.disabled = true; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (!agentChanged && !agent.value && available) { agent.value = available.id; saveAgent(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); }; scan.onclick = detect;
+    heading("语音服务"); const speech = this.controller.getSpeechConfig();
+    const currentMode = speechMode(speech);
+    const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);
+    if (currentMode === "legacy") { const legacy = mode.querySelector<HTMLOptionElement>('option[value="legacy"]'); if (legacy) legacy.disabled = true; status.textContent = "现有语音配置保持不变；选择模式可切换标准协议"; }
+    const key = input(root, "API Key", ""); key.type = "password"; key.autocomplete = "new-password"; const keyRow = key.parentElement!;
+    const health = doc.createElement("button"); health.textContent = "检测连接"; health.type = "button"; root.append(health);
+    const details = doc.createElement("details"), summary = doc.createElement("summary"); summary.textContent = "高级自定义端点与模型（可选）"; details.append(summary); root.append(details);
+    const fields = [["ttsEndpoint", "TTS 端点 URL"], ["ttsModel", "TTS 模型"], ["ttsVoice", "音色"], ["asrLoopbackUrl", "ASR 端点 URL"], ["asrModel", "ASR 模型"]] as const;
+    const controls = new Map<string, HTMLInputElement>();
+    for (const [name, label] of fields) { const control = input(details, label, speech[name] || ""); controls.set(name, control); control.addEventListener("change", () => { const value = control.value; void enqueue(async () => { await this.controller.setSpeechConfig({ ...this.controller.getSpeechConfig(), [name]: value }); status.textContent = "设置已保存"; }); }); }
+    const visibility = () => { keyRow.hidden = mode.value !== "cloud"; health.hidden = mode.value !== "cloud"; }; visibility();
+    mode.addEventListener("change", () => { visibility(); const selected = mode.value as SpeechMode; void enqueue(async () => { await this.controller.setSpeechMode(selected); if (mode.value === selected) { const current = this.controller.getSpeechConfig(); for (const [name, control] of controls) control.value = current[name] || ""; } status.textContent = "设置已保存"; }); });
+    key.addEventListener("change", () => { try { if (key.value) { const result = this.plugin.saveSpeechSecret(key.value); key.value = ""; status.textContent = result === "encrypted" ? "密钥已保存" : "密钥仅保存在本次运行的内存中，重启后需重新配置"; } } catch (error) { status.textContent = String(error); } });
+    health.onclick = () => { health.disabled = true; void pending.then(async () => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `TTS ${await check(tts)}；ASR ${await check(asr)}`; }).catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
+    root.append(status); detect();
   }
 }
 
 export default class PithObsidianPlugin extends obsidian.Plugin {
+  private readonly secretAccess = createObsidianSecretAccess(() => this.app.secretStorage);
+  saveSpeechSecret(value: string): "encrypted" | "session" { return this.secretAccess.setSecret("OPENAI_API_KEY", value); }
   private controller: PithObsidianController | null = null;
   private workspacePath = "Pith";
   private pluginData: Record<string, unknown> = {};
@@ -436,7 +470,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     const configured = saved && "workspacePath" in saved ? (saved as { workspacePath: unknown }).workspacePath : "Pith";
     if (typeof configured !== "string") throw new Error("Invalid workspace root");
     this.workspacePath = validateWorkspacePath(configured);
-    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort(), undefined, this.app.secretStorage);
+    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort(), undefined, undefined, this.secretAccess);
     const controller = new PithObsidianController(host);
     this.controller = controller;
     try {
@@ -445,7 +479,7 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
       this.registerView(PITH_GUIDE_VIEW_TYPE, leaf => new PithGuideView(leaf));
       if (this.addSettingTab && obsidian.PluginSettingTab) this.addSettingTab(new PithSettingTab(this.app, this, controller));
       const open = (): void => { void this.openView().catch(error => new obsidian.Notice(error instanceof Error ? error.message : String(error))); };
-      this.addRibbonIcon("book-open", "打开 Pith", open);
+      this.addRibbonIcon("sprout", "打开 Pith", open);
       this.addCommand({ id: "open-pith", name: "打开 Pith", callback: open });
     } catch (error) {
       controller.dispose();

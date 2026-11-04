@@ -28,6 +28,8 @@ test("web speech settings survive restart and reach local TTS and ASR and cloud 
   const endpoint = `http://127.0.0.1:${engineAddress.port}`;
   const cloudRequests: HttpRequestSpec[] = [];
   const original = NodeHttpPort.prototype.request;
+  const originalPublicSpeech = NodeHttpPort.prototype.requestPublicSpeech;
+  NodeHttpPort.prototype.requestPublicSpeech = async function (spec) { cloudRequests.push(spec); return response('{"text":"cloud"}', "application/json"); };
   NodeHttpPort.prototype.request = async function (spec) {
     if (spec.url === "https://api.openai.com/v1/audio/transcriptions") { cloudRequests.push(spec); return response('{"text":"cloud"}', "application/json"); }
     return original.call(this, spec);
@@ -54,23 +56,27 @@ test("web speech settings survive restart and reach local TTS and ASR and cloud 
     assert.equal(JSON.parse(requests.at(-1)!.body).model, "custom-tts"); assert.equal(JSON.parse(requests.at(-1)!.body).voice, "custom-voice");
     assert.equal((await post("/api/speech/transcribe", { audio: Buffer.from("recording").toString("base64") })).status, 200);
     assert.equal(requests.at(-1)!.url, "/asr/v1/audio/transcriptions"); assert.match(requests.at(-1)!.body, /name="model"\r\n\r\ncustom-asr\r\n/);
-    assert.equal((await post("/api/settings", { speech: { ...speech, asrProvider: "openai-whisper" }, secrets: { OPENAI_API_KEY: "test-key" } })).status, 200);
+    assert.equal((await post("/api/settings", { speech: { ...speech, asrProvider: "openai-whisper", asrLoopbackUrl: "https://speech.example.com/v1/audio/transcriptions" }, secrets: { OPENAI_API_KEY: "test-key" } })).status, 200);
     assert.equal((await post("/api/speech/transcribe", { audio: Buffer.from("recording").toString("base64") })).status, 200);
+    assert.equal(cloudRequests[0]!.url, "https://speech.example.com/v1/audio/transcriptions");
+    assert.equal(cloudRequests[0]!.headers!.Authorization, "Bearer test-key");
     assert.match(new TextDecoder().decode(cloudRequests[0]!.body as Uint8Array), /name="model"\r\n\r\ncustom-asr\r\n/);
     assert.equal((await post("/api/settings", { speech: { ...speech, ttsEndpoint: "http://127.0.0.1:1/tts" } })).status, 200);
     const failure = await post("/api/speech/synthesize", { text: "offline" }); assert.equal(failure.status, 503);
     const error = (await failure.json()).error as string; assert.match(error, /设置/); assert.doesNotMatch(error, /Kokoro|MLX-Audio/);
     const health = await (await fetch(base + "/api/speech/presets")).json(); assert.equal(health.ttsHealth.ok, false); assert.doesNotMatch(health.ttsHealth.note, /Kokoro|MLX-Audio/);
-  } finally { if (app) await close(app); await close(engine); NodeHttpPort.prototype.request = original; await rm(dir, { recursive: true, force: true }); }
+  } finally { if (app) await close(app); await close(engine); NodeHttpPort.prototype.request = original; NodeHttpPort.prototype.requestPublicSpeech = originalPublicSpeech; await rm(dir, { recursive: true, force: true }); }
 });
 
 test("Obsidian speech configuration persists and reaches the speech services", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-wave8-obsidian-"));
   const storage = new NodeWorkspaceStorage(dir);
   const calls: HttpRequestSpec[] = [];
-  const host = { id: "obsidian" as const, storage, secrets: { getSecret: () => "test-key" }, http: { request: async (spec: HttpRequestSpec) => { calls.push(spec); return spec.url.includes("transcriptions") ? response('{"text":"recognized"}', "application/json") : response("audio", "audio/mpeg"); } } };
+  const transports: string[] = [];
+  const request = async (spec: HttpRequestSpec) => { calls.push(spec); return spec.url.includes("transcriptions") ? response('{"text":"recognized"}', "application/json") : response("audio", "audio/mpeg"); };
+  const host = { id: "obsidian" as const, storage, secrets: { getSecret: () => "test-key" }, http: { request: async (spec: HttpRequestSpec) => { transports.push("local"); return request(spec); }, requestPublicSpeech: async (spec: HttpRequestSpec) => { transports.push("public"); return request(spec); } } };
   let controller = new PithObsidianController(host);
-  const speech = { ttsProvider: "openai-compatible-local", ttsEndpoint: "http://127.0.0.1:9999/tts", ttsModel: "custom-tts", ttsVoice: "custom-voice", asrProvider: "openai-whisper", asrLoopbackUrl: "http://localhost:9876", asrModel: "custom-asr", azureRegion: "eastus" };
+  const speech = { ttsProvider: "openai-compatible-local", ttsEndpoint: "http://127.0.0.1:9999/tts", ttsModel: "custom-tts", ttsVoice: "custom-voice", asrProvider: "openai-whisper", asrLoopbackUrl: "https://speech.example.com/v1/audio/transcriptions", asrModel: "custom-asr", azureRegion: "eastus" };
   try {
     await controller.initialize(); await controller.setSpeechConfig(speech); controller.dispose();
     controller = new PithObsidianController(host); await controller.initialize();
@@ -81,15 +87,17 @@ test("Obsidian speech configuration persists and reaches the speech services", a
     await tts.synthesizeSpeech!("hello");
     assert.equal(calls[0]!.url, speech.ttsEndpoint); assert.equal(JSON.parse(String(calls[0]!.body)).model, "custom-tts"); assert.equal(JSON.parse(String(calls[0]!.body)).voice, "custom-voice");
     await asr.transcribeAudio!(new TextEncoder().encode("audio"));
+    assert.equal(calls[1]!.url, speech.asrLoopbackUrl);
+    assert.deepEqual(transports, ["local", "public"]);
     assert.match(new TextDecoder().decode(calls[1]!.body as Uint8Array), /name="model"\r\n\r\ncustom-asr\r\n/);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test("Obsidian settings tab edits and saves all speech fields", async () => {
   class Element {
-    children: Element[] = []; textContent = ""; value = ""; disabled = false; onclick: (() => void) | null = null; onchange: (() => void) | null = null;
+    children: Element[] = []; parentElement: Element | null = null; textContent = ""; value = ""; disabled = false; hidden = false; onclick: (() => void) | null = null; onchange: (() => void) | null = null;
     ownerDocument = { createElement: (_tag: string) => new Element() };
-    append(...children: Element[]) { this.children.push(...children); }
+    append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
     replaceChildren() { this.children = []; }
     setAttribute(_name: string, _value: string) {}
     addEventListener(_type: string, listener: () => void) { this.onchange = listener; }
@@ -101,16 +109,14 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
     const plugin = { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
     const tab = new PithSettingTab({} as never, plugin as never, controller);
     const root = new Element(); tab.containerEl = root as unknown as HTMLElement; tab.display();
-    const row = (label: string) => { const found = root.children.find(element => element.textContent === label); assert.ok(found && found.children[0], label); return found.children[0]; };
-    row("TTS").value = "openai-compatible-local"; row("TTS 端点").value = "http://localhost:9999/tts"; row("TTS 模型").value = "model-t"; row("TTS 音色").value = "voice-t";
-    row("ASR").value = "sensevoice-local"; row("本机 ASR 端点").value = "http://localhost:9998"; row("ASR 模型").value = "model-a";
-    row("ASR").onchange!(); assert.ok(root.children.some(element => element.textContent.includes("/v1/audio/transcriptions")));
-    const save = root.children.find(element => element.textContent === "保存设置"); assert.ok(save && save.onclick); save.onclick();
+    const all = (element: Element): Element[] => [element, ...element.children.flatMap(all)];
+    const row = (label: string) => { const found = all(root).find(element => element.textContent === label); assert.ok(found && found.children[0], label); return found.children[0]; };
+    const fields = { "TTS 端点 URL": "http://localhost:9999/tts", "TTS 模型": "model-t", "音色": "voice-t", "ASR 端点 URL": "http://localhost:9998", "ASR 模型": "model-a" };
+    for (const [label, value] of Object.entries(fields)) { const field = row(label); field.value = value; field.onchange!(); }
     const status = root.children.at(-1)!;
-    for (let i = 0; i < 1000 && !status.textContent; i++) await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(status.textContent, "设置已保存");
-    assert.deepEqual(controller.getSpeechConfig(), { ttsProvider: "openai-compatible-local", ttsEndpoint: "http://localhost:9999/tts", ttsModel: "model-t", ttsVoice: "voice-t", azureRegion: "", asrProvider: "sensevoice-local", asrLoopbackUrl: "http://localhost:9998", asrModel: "model-a" });
-    row("Pith 数据目录（相对于 Vault）").value = "../invalid"; status.textContent = ""; save.onclick();
+    for (let i = 0; i < 1000 && controller.getSpeechConfig().asrModel !== "model-a"; i++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(controller.getSpeechConfig(), { ttsEndpoint: "http://localhost:9999/tts", ttsModel: "model-t", ttsVoice: "voice-t", asrLoopbackUrl: "http://localhost:9998", asrModel: "model-a" });
+    const path = row("Pith 数据目录（相对于 Vault）"); path.value = "../invalid"; status.textContent = ""; path.onchange!();
     for (let i = 0; i < 1000 && !status.textContent; i++) await new Promise<void>(resolve => setImmediate(resolve));
     assert.match(status.textContent, /Invalid workspace root/);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }

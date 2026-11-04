@@ -7,7 +7,7 @@ import { PluginRuntime, type AttentionEngine, type GuideProvider, type HostPort,
 import { builtinRegistry } from "../../plugins/all.ts";
 import { readerInUse } from "../../plugins/stage-reader/index.ts";
 import { timelineInUse } from "../../plugins/stage-timeline/index.ts";
-import { shadowingInUse } from "../../plugins/dojo-shadowing/index.ts";
+import { topicUsesToolkit } from "../toolkitSlot.ts";
 
 export interface WorkspaceSnapshot { topics: readonly Topic[]; materials: readonly Material[]; known: boolean }
 
@@ -17,8 +17,8 @@ export function bootStandaloneShell(host: HostPort, config: PluginsConfigFile = 
     const snapshot = options.snapshot;
     const count = manifest.id === "stage-reader" ? () => readerInUse(snapshot.materials)
       : manifest.id === "stage-timeline" ? () => timelineInUse(snapshot.materials)
-      : manifest.id === "dojo-shadowing" ? () => shadowingInUse(snapshot.topics)
-      : manifest.id === "dojo-feynman" ? () => snapshot.topics.filter(topic => topic.toolkits.includes("feynman") || topic.toolkits.includes("dojo-feynman")).length : undefined;
+      : manifest.id === "dojo-shadowing" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "shadowing")).length
+      : manifest.id === "dojo-feynman" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "feynman")).length : undefined;
     return count ? { ...manifest, inUse: () => { if (!snapshot.known) throw new Error("Workspace snapshot unavailable"); return count(); } } : manifest;
   });
   const runtime = new PluginRuntime(manifests, {

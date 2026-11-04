@@ -9,7 +9,8 @@ import { PithObsidianView, obsidianStyles, speechChapterRoot } from "../src/shel
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { applyPaginationStyles, computePagination, renderTocTree, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
-import { toolkitSlot } from "../src/shells/toolkitSlot.ts";
+import { effectiveToolkits, toolkitSlot } from "../src/shells/toolkitSlot.ts";
+import { speechMode } from "../src/shells/speechSettings.ts";
 
 test("web serves the real WOFF2 with an explicit font policy and reader styling", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-font-"));
@@ -71,7 +72,7 @@ test("web dock selects a mounted toolkit and keeps the optional add control", as
     const run = (mounted: string[]) => {
       const button = { textContent: "", title: "", classList: { toggle(_name: string, _value: boolean) {} }, setAttribute(_name: string, _value: string) {} };
       const read = { textContent: "" };
-      const context = { renderTraining: () => {}, state: { dojos: ["shadowing", "feynman"] }, topic: { toolkits: mounted }, toolkit: "shadowing", speechActive: false, $: (selector: string) => selector === "#open-dojo" ? button : read };
+      const context = { renderTraining: () => {}, state: { dojos: ["shadowing", "feynman"] }, topic: { toolkits: mounted }, toolkit: "shadowing", file: "", readerFormat: "", effectiveToolkits, speechActive: false, $: (selector: string) => selector === "#open-dojo" ? button : read };
       runInNewContext(`${source[0]}\nrenderTraining();`, context);
       return { button, read, toolkit: context.toolkit };
     };
@@ -131,7 +132,7 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
 test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
   const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
   let script = source.split("<script>")[1]!.split("</script>")[0]!;
-  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
+  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
   script = script.replace("refresh().then(home).catch(notify);", "");
   const handlers: Record<string, ((event: unknown) => unknown)[]> = {};
   const elements = new Map<string, Record<string, unknown>>();
@@ -141,6 +142,7 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
     return elements.get(selector)!;
   };
   const document = {
+    body: { querySelector: () => null },
     querySelector: (selector: string) => elements.has(selector) ? elements.get(selector) : ["#training", "#article", ".reader"].includes(selector) ? null : element(selector),
     querySelectorAll: () => [],
     createElement: () => { const node = { ...element("template"), dataset: {}, classList: { toggle() {} } }; created.push(node); return node; },
@@ -314,10 +316,10 @@ test("Obsidian guide refresh synchronizes mounted toolkits and ignores older res
   const refresh = view.refreshGuide as () => Promise<void>;
   const first = refresh.call(view);
   await refresh.call(view);
-  assert.equal(button.textContent, "✦ 费曼复述");
+  assert.equal(button.textContent, "🛠 费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
   resolveOld(snapshot([])); await first;
-  assert.equal(button.textContent, "✦ 费曼复述");
+  assert.equal(button.textContent, "🛠 费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
 });
 

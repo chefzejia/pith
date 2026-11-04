@@ -1,4 +1,4 @@
-import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, SpeechEnginePreset, SpeechHealthStatus, SpeechSynthesisAudio } from "../../core/index.ts";
+import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, HttpRequestSpec, SpeechEnginePreset, SpeechHealthStatus, SpeechSynthesisAudio } from "../../core/index.ts";
 
 export const CURATED_TTS_PRESETS: readonly SpeechEnginePreset<CuratedTtsProviderId>[] = [
   { id: "kokoro-local", label: "本机 OpenAI 兼容语音服务 (Local HTTP)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultModel: "tts-1", defaultVoice: "alloy", installHint: "在本机启动任意兼容 OpenAI /v1/audio/speech 协议的本地 TTS 服务（如 Kokoro / MLX-Audio，默认监听 127.0.0.1:8880）" },
@@ -25,7 +25,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   if (!ttsPreset || !asrPreset) throw new Error("Invalid speech provider");
   const tts = ttsPreset; const asr = asrPreset;
   const ttsEndpoint = config.ttsEndpoint || (tts.id === "azure-neural" ? tts.defaultEndpoint.replace("{region}", config.azureRegion) : tts.defaultEndpoint);
-  const asrEndpoint = asr.kind === "local" ? config.asrLoopbackUrl || asr.defaultEndpoint : asr.defaultEndpoint;
+  const asrEndpoint = config.asrLoopbackUrl || asr.defaultEndpoint;
   const openAiLocalAsr = asr.kind === "local" && /\/v1\/audio\/transcriptions\/?$/.test(asrEndpoint);
   const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.id === "kokoro-local" ? "kokoro" : tts.defaultModel || "gpt-4o-mini-tts");
   const asrModel = (config.asrModel && config.asrModel.trim()) || asr.defaultModel || "whisper-1";
@@ -39,15 +39,21 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
       if (!isLoopbackSafe(endpoint)) throw new Error(`Unsafe local endpoint. ${preset.installHint}`);
       return "";
     }
-    const expected = preset.id === "azure-neural" ? /^https:\/\/[a-z0-9-]+\.tts\.speech\.microsoft\.com\/cognitiveservices\/v1$/ : /^https:\/\/api\.openai\.com\/v1\/audio\/(?:speech|transcriptions)$/;
-    if (!expected.test(endpoint)) throw new Error(`Unsafe cloud endpoint. ${preset.installHint}`);
+    let url: URL;
+    try { url = new URL(endpoint); } catch { throw new Error(`Unsafe cloud endpoint. ${preset.installHint}`); }
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    const authority = /^https:\/\/([^/?#]*)/i.exec(endpoint);
+    const ipv6 = hostname.startsWith("[") && hostname.endsWith("]");
+    if (!authority || authority[1]!.includes("@") || /[?#]/.test(endpoint) || url.protocol !== "https:" || url.username || url.password || (!ipv6 && (!hostname.includes(".") || hostname === "localhost" || /\.(?:localhost|local|internal|test|invalid|example)$/.test(hostname)))) throw new Error(`Unsafe cloud endpoint. ${preset.installHint}`);
+    if (!("requestPublicSpeech" in host.http) || typeof host.http.requestPublicSpeech !== "function") throw new Error("Safe public speech transport unavailable");
     const secret = host.secrets ? await host.secrets.getSecret(preset.id === "azure-neural" ? "AZURE_SPEECH_KEY" : "OPENAI_API_KEY") : null;
     if (!secret || !secret.trim()) throw new Error(`Missing API key. ${preset.installHint}`);
     return secret;
   }
   async function request(preset: SpeechEnginePreset, spec: Parameters<NonNullable<HostPort["http"]>["request"]>[0]) {
     try {
-      const response = await host!.http!.request(spec);
+      const http = host!.http!;
+      const response = preset.kind === "cloud" ? await (http as typeof http & { requestPublicSpeech(request: HttpRequestSpec): ReturnType<typeof http.request> }).requestPublicSpeech(spec) : await http.request(spec);
       if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
       return response;
     } catch (error) {

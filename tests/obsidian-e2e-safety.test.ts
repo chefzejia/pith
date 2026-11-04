@@ -97,7 +97,35 @@ test("ownership checks follow only the child process tree", () => {
 test("verify checks existing processes before build synchronization", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8"));
   const command = pkg.scripts["verify:obsidian"] as string;
-  assert.ok(command.indexOf("--preflight") >= 0 && command.indexOf("--preflight") < command.indexOf("build:obsidian"));
+  assert.match(command, /verify-obsidian\.mjs/);
+  const source = await readFile("scripts/verify-obsidian.mjs", "utf8");
+  assert.ok(source.indexOf('"--preflight"') < source.indexOf('"scripts/build-obsidian.mjs"'));
+  assert.ok(source.indexOf("await snapshot.restore()") < source.indexOf("process.stdout.write(report.stdout)"));
+});
+
+test("isolated Obsidian launch disables the system keychain", async () => {
+  const source = await readFile("scripts/verify-obsidian-e2e.ts", "utf8");
+  assert.match(source, /spawn\(obsidianBin,\s*\[[^\]]*"--use-mock-keychain"[^\]]*"--password-store=basic"/);
+});
+
+for (const conflict of [false, true]) test(`verification wrapper ${conflict ? "preserves unexpected plugin changes" : "restores build outputs before reporting success"}`, async () => {
+  const root = await mkdtemp(join(tmpdir(), "pith-verify-wrapper-"));
+  try {
+    await mkdir(join(root, "scripts")); await mkdir(join(root, ".dev-vault/.obsidian/plugins/pith"), { recursive: true }); await mkdir(join(root, "dist/obsidian"), { recursive: true });
+    await cp(resolve("scripts/verify-obsidian.mjs"), join(root, "scripts/verify-obsidian.mjs"));
+    await cp(resolve("scripts/obsidian-safety.mjs"), join(root, "scripts/obsidian-safety.mjs"));
+    const files = ["main.js", "styles.css", "manifest.json"];
+    for (const name of files) { await writeFile(join(root, "dist/obsidian", name), `old-dist-${name}`); await writeFile(join(root, ".dev-vault/.obsidian/plugins/pith", name), `old-plugin-${name}`); }
+    await writeFile(join(root, "scripts/build-obsidian.mjs"), `import { writeFile } from 'node:fs/promises'; for (const name of ${JSON.stringify(files)}) { await writeFile('dist/obsidian/'+name,'new-'+name); await writeFile('.dev-vault/.obsidian/plugins/pith/'+name,'new-'+name); }`);
+    await writeFile(join(root, "scripts/verify-obsidian-e2e.ts"), `import { writeFile } from 'node:fs/promises'; if (!process.argv.includes('--preflight')) { ${conflict ? "await writeFile('.dev-vault/.obsidian/plugins/pith/main.js','unexpected');" : ""} console.log('INNER SUCCESS'); }`);
+    if (conflict) {
+      await assert.rejects(promisify(execFile)(process.execPath, ["scripts/verify-obsidian.mjs"], { cwd: root }), (error: unknown) => { const failure = error as { stdout?: string; stderr?: string }; assert.doesNotMatch(failure.stdout ?? "", /INNER SUCCESS/); assert.match(failure.stderr ?? "", /Restore conflict/); return true; });
+      assert.equal(await readFile(join(root, ".dev-vault/.obsidian/plugins/pith/main.js"), "utf8"), "unexpected");
+    } else {
+      const result = await promisify(execFile)(process.execPath, ["scripts/verify-obsidian.mjs"], { cwd: root }); assert.match(result.stdout, /INNER SUCCESS/);
+      for (const name of files) { assert.equal(await readFile(join(root, "dist/obsidian", name), "utf8"), `old-dist-${name}`); assert.equal(await readFile(join(root, ".dev-vault/.obsidian/plugins/pith", name), "utf8"), `old-plugin-${name}`); }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("termination waits for our child exit and times out when it remains alive", async () => {

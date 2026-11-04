@@ -1,28 +1,43 @@
 import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
+import { BlockList, isIP } from "node:net";
 import type { HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 import { withHttpDeadline } from "../httpDeadline.ts";
 
+const globalV6 = new BlockList();
+globalV6.addSubnet("2000::", 3, "ipv6");
+const reservedV6 = new BlockList();
+for (const [address, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20]] as const) reservedV6.addSubnet(address, prefix, "ipv6");
+function publicAddress(address: string, family: number): boolean {
+  if (family === 4 && isIP(address) === 4) return isPublicHttpUrl(`http://${address}`);
+  return family === 6 && isIP(address) === 6 && globalV6.check(address, "ipv6") && !reservedV6.check(address, "ipv6");
+}
+
 export class NodeHttpPort implements HttpPort, PublicHttpPort {
   async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
+    if (spec.method !== undefined && spec.method !== "GET") throw new Error("Invalid public request");
     return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal));
   }
+  async requestPublicSpeech(spec: HttpRequestSpec): Promise<HttpResponseData> {
+    const url = new URL(spec.url);
+    const authority = /^https:\/\/([^/?#]*)/i.exec(spec.url);
+    if (!authority || authority[1]!.includes("@") || /[?#]/.test(spec.url) || url.protocol !== "https:" || url.username || url.password || spec.method !== "POST") throw new Error("Invalid public speech request");
+    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, 64 * 1024 * 1024, signal));
+  }
   private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined): Promise<HttpResponseData> {
-    if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) {
+    const url = new URL(spec.url);
+    const hostname = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
+    const literalFamily = isIP(hostname);
+    if (!(literalFamily === 6 ? publicAddress(hostname, 6) : isPublicHttpUrl(spec.url))) {
       throw new Error("Invalid public request");
     }
-    const url = new URL(spec.url);
-    const addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true });
+    const addresses = literalFamily ? [{ address: hostname, family: literalFamily }] : await dns.promises.lookup(hostname, { all: true, verbatim: true });
     if (signal) signal.throwIfAborted();
     if (
       !addresses.length ||
-      addresses.some(({ address, family }) =>
-        family === 4
-          ? !isPublicHttpUrl(`http://${address}`)
-          : !/^(?:2[0-9a-f]{3}|3[0-9a-f]{3}):/i.test(address) || /^(?:2001|2002|3fff):/i.test(address),
-      )
+      addresses.some(({ address, family }) => !publicAddress(address, family))
     ) {
       throw new Error("DNS resolved to a non-public address");
     }
@@ -31,7 +46,7 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
       const request = (url.protocol === "https:" ? https.request : http.request)(
         url,
         {
-          method: "GET",
+          method: spec.method ?? "GET",
           headers: spec.headers,
           signal,
           agent: false,
@@ -68,6 +83,7 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
       );
       if (spec.timeoutMs === undefined) request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
       request.on("error", reject);
+      if (spec.body !== undefined) request.write(typeof spec.body === "string" ? spec.body : Buffer.from(spec.body));
       request.end();
     });
   }

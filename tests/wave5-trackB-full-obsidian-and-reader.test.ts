@@ -9,7 +9,8 @@ import test from "node:test";
 import type { DojoToolkitDescriptor } from "../src/core/index.ts";
 import { applyPaginationStyles, computePagination, renderTocTree, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
 import { PithObsidianController, createObsidianHostPort } from "../src/shells/obsidian/index.ts";
-import { toolkitSlot } from "../src/shells/toolkitSlot.ts";
+import { effectiveToolkits, toolkitSlot } from "../src/shells/toolkitSlot.ts";
+import { speechMode } from "../src/shells/speechSettings.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 
@@ -58,7 +59,7 @@ test("Obsidian build and web reader script expose production controls", async t 
   assert.doesNotMatch(main!, /此视图尚未提供/);
   assert.match(styles!, /\.pith-dojo-panel/);
   let script = web!.split("<script>")[1]!.split("</script>")[0]!;
-  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
+  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
   assert.doesNotThrow(() => new Script(script));
   for (const token of ["page-mode", "columnWidth", "dojo-toolkit", "toolkit,saveNote", "n.anchor.prefix"]) assert.ok(script.includes(token), token);
 });
