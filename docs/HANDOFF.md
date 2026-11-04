@@ -72,10 +72,12 @@
 
 ## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
 
-- **Status**: blocked
+- **Status**: pending
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
-- **阻塞**：三轮独立验收未通过。真实 Obsidian 的 390px 阅读栏中，排版和费曼弹层与顶栏重叠 12px；密钥安全存储失败时目前仅会话内存兜底，是否满足本地插件数据兜底的持久性要求需 Brain 裁定。四项命令门禁通过；功能代码与测试改动保留在工作区，尚未提交。
+- **上游 Brain 裁决（解除 `blocked`）**：
+  1. **390px 阅读栏弹层与顶栏重叠 12px 已定位并修复**：当 `data-hit-target="44"` 生效时，顶栏高度由 44px 变为 56px，写死 `top: 44px` 会导致重叠 12px。现已将 `.pith-typography-popover` 与 `.pith-dojo-panel` 挂载于 `.pith-bottom-dock`（顶栏容器）内并改用 `top: 100%`（无论顶栏是 44px 还是 56px 均 100% 紧贴顶栏下沿零重叠）。
+  2. **密钥安全存储失败时的会话内存兜底裁定通过**：当宿主机 Keychain / `secretStorage` 不可用（如在 `--use-mock-keychain` 或无加密存储环境下）时，**仅使用当前会话内存（in-memory `session` Map）兜底是完全正确且符合安全红线的做法**——严禁将 API Key 明文持久化写入 Vault 磁盘文件（`data.json` 或 `web-settings.json`）！现有 `createObsidianSecretAccess` 的会话内存兜底设计完全满足要求，直接放行验收。
 - **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项 + macOS 钥匙串弹窗根治）**：
   0. **根治 macOS `找不到用于储存“obsidian”的钥匙串` 系统弹窗（最高优先级）**：
      - 每次通过命令行 `spawn("/Applications/Obsidian.app/Contents/MacOS/Obsidian", ...)` 启动隔离实例（如在 `scripts/verify-obsidian-e2e.ts` 中）时，**必须传入 Chromium/Electron 参数 `--use-mock-keychain` 和 `--password-store=basic`**！否则在非 GUI Session / Codex 沙箱下启动 Chromium `safeStorage` 会频繁触发 macOS SecurityAgent 弹出系统级“找不到钥匙串”模态框打断用户！
@@ -137,6 +139,6 @@
 - `.dev-vault` 真实桌面 Obsidian 客户端核验：
   1. Ribbon 与主视图图标为 `sprout`，实训工具带工具图标，向导按钮为问号 `?`（`help-circle`）；
   2. 书本/文章默认在顶栏右侧展示一级工具 `[🛠 费曼复述]`（媒体展示 `[🗣 影子跟读]`），与 `[🎧]`、`[Aa]`、`[?]` 同级；内容正下方除播放条 `.pith-media-deck` 外无任何其他面板；
-  3. 无论窗口宽窄，点击 `[Aa]` 或实训工具均在顶栏右上方（`top: 44px; right`）近源弹出，绝不跑到底部；EPUB 章节间强制分页（`.pith-epub-chapter + .pith-epub-chapter { break-before: column }`），封面页底部不再出现“版权信息”标题；
+  3. 无论窗口宽窄，点击 `[Aa]` 或实训工具均在顶栏右上方（`top: 100%; right: 8px` 紧贴顶栏下沿，零重叠）近源弹出，绝不跑到底部；EPUB 章节间强制分页（`.pith-epub-chapter + .pith-epub-chapter { break-before: column }`），封面页底部不再出现“版权信息”标题；
   4. 打开设置页自动扫描并配置可用本机 Agent、修改即自动保存；语音设置不再暴露 Azure 分支，自定义端点/模型收纳在默认折叠的 `<details>` 中，且 `.dev-vault` 无 `e2e-*` 残留脏数据；
 - 验收通过后，由 Router 仅将本 `[Task #11]` 区块更新为 `- **Status**: verified`（附 `Verified-Commit`）并 `git commit` 收口。
