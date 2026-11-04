@@ -179,9 +179,10 @@
 
 ## [Task #14] 宿主壳接入 `dojo-interline`（行间双语伴读）一级工具、滑动窗口静默预热与朗读过滤
 
-- **Status**: pending
-- **Verified-Commit**: none
-- **Updated**: 2026-11-04
+- **Status**: verified
+- **Verified-Commit**: df97236
+- **Updated**: 2026-11-05
+- **验收**：Worker 完成 typecheck、222 项测试和 Obsidian 构建；Tester 在 Web 与 `.dev-vault` Obsidian 实际验证三种模式、分栏、邻章预热与缓存回放，以及受控 TTS 请求不包含译文。Guide、翻译及 TTS 使用替身，不证明真实模型理解、翻译或音质；未验证重启后的持久缓存。
 
 ### 背景与目标
 独立 Worker 已完成 `src/plugins/dojo-interline/`（`index.ts`、`coordinator.ts`、`tests/dojo-interline.test.ts`）并在 `src/plugins/all.ts` 注册了 `dojo.interline` 服务。本任务将 `dojo-interline`（行间双语 · Read originals with subtitles）完整接入宿主壳与向导发现体系，让用户在阅读英文/外文材料且向导注入 `interline` 工具后，能够直接在阅读舞台开启行间双语字幕、静默预热邻域章节并保持原文 TTS 朗读纯净。
