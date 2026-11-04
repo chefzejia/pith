@@ -174,3 +174,35 @@
 - **Tester 模拟真实用户验收（直接操作 `.dev-vault` 玩具沙盒与 Web 界面，严禁只跑脚本看 `ok: true`）**：
   - 像真实人类用户一样在 `.dev-vault` 的 Obsidian 窗口与 Web 壳中实际点击、切换 `单栏 / 双栏 / 三栏`、在超宽屏下选择 `单栏`、调整字号与拖拽缩放窗口、打开设置面板切换离线模式并重开，**每一步截屏用视觉（`view_image`）肉眼审视画面排版、分栏对齐、位置保持与文案体验**。
 
+---
+
+## [Task #14] 宿主壳接入 `dojo-interline`（行间双语伴读）一级工具、滑动窗口静默预热与朗读过滤
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-04
+
+### 背景与目标
+独立 Worker 已完成 `src/plugins/dojo-interline/`（`index.ts`、`coordinator.ts`、`tests/dojo-interline.test.ts`）并在 `src/plugins/all.ts` 注册了 `dojo.interline` 服务。本任务将 `dojo-interline`（行间双语 · Read originals with subtitles）完整接入宿主壳与向导发现体系，让用户在阅读英文/外文材料且向导注入 `interline` 工具后，能够直接在阅读舞台开启行间双语字幕、静默预热邻域章节并保持原文 TTS 朗读纯净。
+
+### 核心实现要求
+1. **向导发现、`inUse` 保活与工具槽标签接入**：
+   - 在 `src/shells/web/index.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/server.ts`、`src/shells/dsh/index.ts` 与 `src/shells/toolkitSlot.ts` 中将 `"interline"` 纳入可用 Dojo 发现列表（与 `"shadowing"`, `"feynman"` 并列）及 `inUse` 保活统计，工具标签显示为 `"行间双语"`。
+2. **阅读舞台「行间双语」内嵌渲染与模式切换（`original` | `bilingual` | `subtitle-primary`）**：
+   - 当课题已挂载 `interline` 工具且用户点击顶栏 `[🛠 行间双语]` 时，提供简洁的近源模式切换（`原文` | `行间双语` | `译文主显`），调用 `InterlineService.renderInterlineHtml` 与 `InterlinePreparationCoordinator`（通过向导 Provider 或翻译回调按 `activeUnit -> neighborhood` 优先顺序生成并缓存 `_cache/interline/` 双语块）；
+   - 为 `.pith-interline-subtitle` 编写温润克制的书卷双语排版样式：
+     - `data-interline-mode="bilingual"`：原文保持清晰可读，行间译文以块级（`display: block`）柔和衬于段落下方；
+     - `data-interline-mode="subtitle-primary"`：译文作为主视觉字号，原文以安静的小字号弱化呈现供随时核对。
+3. **TTS 朗读严格排除行间译文（`data-prose="false"` 子树过滤）**：
+   - 在 `src/shells/obsidian/plugin.ts` 与 `src/shells/web/server.ts` 提取 `[data-prose="true"]` 段落文本送入 TTS 分句器时，**必须排除内部带有 `[data-prose="false"]`（如 `.pith-interline-subtitle`）的子节点文本**，确保开启行间双语后点击 `🎧 听读本章` 仍然只朗读纯粹的原著外文，绝不把嵌入的中文译文混进去重读！
+
+### 授权修改范围
+- `src/plugins/dojo-interline/` & `src/plugins/all.ts` & `src/plugins/guide-acp/`
+- `src/shells/**`
+- `docs/003-interaction.md`
+- `tests/**`
+
+### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准
+- **Worker 工程自检门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（含 `tests/dojo-interline.test.ts` 与 `tests/boundaries.test.ts`）；
+- **Tester 模拟真实用户验收**：在英文材料课题中注入 `interline`，按真实用户路径切换 `原文 / 行间双语 / 译文主显`、翻页观察邻域缓存回放、开启伴读核验仅读英文原文，并截屏用 `view_image` 审视行间双语排版呼吸感与多栏分页对齐。
+

@@ -1,0 +1,93 @@
+import { registerPlugin, type InterlineDisplayMode, type InterlineService, type IntrinsicLocator, type Topic } from "../../core/index.ts";
+
+export function computeSourceHash(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text.normalize("NFC").replace(/\s+/gu, " ").trim())) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+export function planNeighborhoodOrder(activeUnit: number, totalUnits: number, radius = 1): readonly number[] {
+  if (!Number.isInteger(totalUnits) || totalUnits < 0 || !Number.isInteger(activeUnit) || !Number.isInteger(radius) || radius < 0) throw new RangeError("Invalid neighborhood parameters");
+  if (totalUnits === 0) return [];
+  if (activeUnit < 0 || activeUnit >= totalUnits) throw new RangeError("Active unit is out of range");
+  const order = [activeUnit];
+  for (let offset = 1; offset <= Math.min(radius, totalUnits); offset++) {
+    if (activeUnit + offset < totalUnits) order.push(activeUnit + offset);
+    if (activeUnit - offset >= 0) order.push(activeUnit - offset);
+  }
+  for (let i = activeUnit + radius + 1; i < totalUnits; i++) order.push(i);
+  for (let i = 0; i < activeUnit - radius; i++) order.push(i);
+  return order;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function decodeAttribute(value: string): string {
+  return value.replace(/&(?:#(\d+)|#x([\da-f]+)|amp|quot|apos|lt|gt);/gi, (entity, decimal: string | undefined, hex: string | undefined) => {
+    if (decimal || hex) {
+      const code = Number.parseInt(decimal || hex!, decimal ? 10 : 16);
+      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "\ufffd";
+    }
+    return ({ "&amp;": "&", "&quot;": '"', "&apos;": "'", "&lt;": "<", "&gt;": ">" } as Record<string, string>)[entity.toLowerCase()]!;
+  });
+}
+
+const voidTags = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
+
+export function renderInterlineHtml(chapterHtml: string, translations: ReadonlyMap<IntrinsicLocator, string>, mode: InterlineDisplayMode): string {
+  if (mode === "original" || translations.size === 0) return chapterHtml;
+  const stack: Array<{ tag: string; subtitle: string }> = [];
+  const token = /<!--[\s\S]*?-->|<![^>]*>|<\?[\s\S]*?\?>|<\/?[a-zA-Z][\w:-]*(?:\s+(?:[^\s"'<>`=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?))*\s*\/?\s*>/g;
+  let output = ""; let position = 0; let rawTag = "";
+  for (const match of chapterHtml.matchAll(token)) {
+    const value = match[0]; const start = match.index;
+    if (rawTag && !new RegExp(`^<\\/\\s*${rawTag}\\s*>$`, "i").test(value)) continue;
+    output += chapterHtml.slice(position, start); position = start + value.length;
+    const parsed = /^<(\/)?([a-zA-Z][\w:-]*)/.exec(value);
+    if (!parsed) { output += value; continue; }
+    const tag = parsed[2]!.toLowerCase();
+    if (parsed[1]) {
+      if (rawTag === tag) rawTag = "";
+      const top = stack[stack.length - 1];
+      if (top && top.tag === tag) { output += top.subtitle; stack.pop(); }
+      output += value; continue;
+    }
+    const attributes = new Map<string, string>();
+    const attrs = value.slice(parsed[0].length, value.length - 1);
+    for (const attr of attrs.matchAll(/([^\s"'<>`=\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+      const name = attr[1]!.toLowerCase();
+      if (!attributes.has(name)) attributes.set(name, decodeAttribute(attr[2] ?? attr[3] ?? attr[4] ?? ""));
+    }
+    const locator = attributes.get("data-locator");
+    const translation = locator !== undefined && attributes.get("data-prose") === "true" ? translations.get(locator) : undefined;
+    const subtitle = translation && translation.trim() && !voidTags.has(tag) && !/\/\s*>$/.test(value)
+      ? `<span class="pith-interline-subtitle" data-interline-mode="${mode}" data-prose="false">${escapeHtml(translation)}</span>` : "";
+    output += subtitle ? value.replace(/\s+data-interline-mode\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "").replace(/>$/, ` data-interline-mode="${mode}">`) : value;
+    if (!voidTags.has(tag) && !/\/\s*>$/.test(value)) stack.push({ tag, subtitle });
+    if (tag === "script" || tag === "style") rawTag = tag;
+  }
+  return output + chapterHtml.slice(position);
+}
+
+export function interlineInUse(topics: readonly Topic[]): number {
+  return topics.filter(topic => topic.toolkits.includes("interline") || topic.toolkits.includes("dojo-interline")).length;
+}
+
+export const interlineToolkit: InterlineService = {
+  id: "interline", label: "行间双语", category: "language", stages: [],
+  transformCue: text => text,
+  diagnose: () => { throw new Error("Interline does not provide recall diagnosis"); },
+  quickActions: [], defaultTargetLanguage: "zh-Hans", computeSourceHash, planNeighborhoodOrder, renderInterlineHtml,
+};
+
+registerPlugin({
+  id: "dojo-interline", api: "^1", requires: ["stage.reader"], provides: ["dojo.interline"], essential: false,
+  name: "Interline bilingual reading", description: "Aligned translations for original-language reading",
+  oneInUse: "1 topic using interline", manyInUse: "{n} topics using interline",
+  parts: [{ slot: "dojo", key: "interline" }],
+  apply(ctx) { ctx.provide("dojo.interline", interlineToolkit); },
+});
