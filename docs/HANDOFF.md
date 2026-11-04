@@ -72,9 +72,10 @@
 
 ## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
 
-- **Status**: pending
+- **Status**: blocked
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
+- **阻塞**：三轮独立验收未通过。真实 Obsidian 的 390px 阅读栏中，排版和费曼弹层与顶栏重叠 12px；密钥安全存储失败时目前仅会话内存兜底，是否满足本地插件数据兜底的持久性要求需 Brain 裁定。四项命令门禁通过；功能代码与测试改动保留在工作区，尚未提交。
 - **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项 + macOS 钥匙串弹窗根治）**：
   0. **根治 macOS `找不到用于储存“obsidian”的钥匙串` 系统弹窗（最高优先级）**：
      - 每次通过命令行 `spawn("/Applications/Obsidian.app/Contents/MacOS/Obsidian", ...)` 启动隔离实例（如在 `scripts/verify-obsidian-e2e.ts` 中）时，**必须传入 Chromium/Electron 参数 `--use-mock-keychain` 和 `--password-store=basic`**！否则在非 GUI Session / Codex 沙箱下启动 Chromium `safeStorage` 会频繁触发 macOS SecurityAgent 弹出系统级“找不到钥匙串”模态框打断用户！
