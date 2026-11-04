@@ -85,8 +85,10 @@
 
 ## [Task #12] 修复 EPUB 书内链接与实训工具默认挂载
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: e07677c
 - **Updated**: 2026-11-04
+- **验收结论**：类型检查、200 项测试及隔离 Obsidian 构建通过；独立 Tester 在 Web 与 `.dev-vault` 真实 Obsidian 实测书内导航、伪造标记与工具选择。Guide 注入和卸载通过受控替身验证，未验证真实模型理解意图。
 - **上游 Brain 根因修复（解除 `blocked`）**：
   - 针对第三轮“原书正文伪造 `.pith-epub-chapter` 类干扰章节索引”：已在 `src/plugins/stage-reader/epub.ts` 序列化属性与 `<body>` 类名时剥离所有以 `pith-` 开头的宿主保留类名前缀，并为真章节 `<section>` 写入 `data-epub-chapter="${chapter}"`；同时在 `src/plugins/stage-reader/pagination.ts` 的 `resolveEpubTarget` 中优先按 `article.children` 直接子章节元素定位。请直接复验并完成收口。
   - 同时请阅读新增的 [LESSONS.md](LESSONS.md) 与更新后的 [ROLES.md](ROLES.md)。
