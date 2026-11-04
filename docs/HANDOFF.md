@@ -118,9 +118,10 @@
 
 ## [Task #13] 架构清创：铲除函数重赋值套娃、抠源码字符串假测试、沙盒快照反模式，并统一 1/2/3 栏用户偏好分页与 PluginRuntime 热重配
 
-- **Status**: pending
+- **Status**: blocked
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
+- **阻塞原因**：连续三轮真实界面验收发现缺陷。前两轮的设置布局和 Obsidian 翻页卡住已修复；第三轮 Web 单栏、大字号下将窗口从 1600×900 缩至 1100×700 时，跨页无空格中文段落的可见位置从标记 025–048 回退至 013–024，原标记 033 不再可见。复现材料为 `.tmp/task13-visual/long-chinese.epub`，对照截图为 `.tmp/task13-visual/screenshots/round3-long-page2-large.png` 与 `round3-long-resized.png`。实现修改保留在工作区，尚未提交；真实 Obsidian 的该长段落场景及原生边框拖拽缩放尚未验收。
 - **执行环职责切分与专用沙盒直接读写指令（必读，详见 [ROLES.md](ROLES.md) & [AGENTS.md](../AGENTS.md)）**：
   1. **工程代码自检归 Worker**：编译、类型检查、单元测试、架构守卫单测与对应产物构建由 Worker 在交卷前跑通；
   2. **按交付形态模拟真实用户归 Tester**：Tester 不写单测脚本、不拿脚本 `ok: true` 充数，而是根据本任务涉及的目标宿主形态（如 Web 壳、Obsidian 壳或 DSH 工具包壳）完全模拟真实用户操作与审视产物；
