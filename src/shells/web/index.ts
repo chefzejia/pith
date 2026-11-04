@@ -19,7 +19,8 @@ export function bootStandaloneShell(host: HostPort, config: PluginsConfigFile = 
       : manifest.id === "stage-timeline" ? () => timelineInUse(snapshot.materials)
       : manifest.id === "dojo-shadowing" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "shadowing")).length
       : manifest.id === "dojo-feynman" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "feynman")).length : undefined;
-    return count ? { ...manifest, inUse: () => { if (!snapshot.known) throw new Error("Workspace snapshot unavailable"); return count(); } } : manifest;
+    const interline = manifest.id === "dojo-interline" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "interline")).length : count;
+    return interline ? { ...manifest, inUse: () => { if (!snapshot.known) throw new Error("Workspace snapshot unavailable"); return interline(); } } : manifest;
   });
   const runtime = new PluginRuntime(manifests, {
     host,

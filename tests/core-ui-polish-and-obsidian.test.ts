@@ -80,7 +80,7 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
   const rect = (left: number, right: number) => ({ left, right, top: 0, bottom: 700 });
   const makeChapter = (left: number, texts: string[]) => {
     const chapter = { getClientRects: () => [rect(left, left + 800)], querySelectorAll: () => [] as object[] };
-    const blocks = texts.map(text => ({ textContent: text, getAttribute: () => "true", closest: (selector: string) => selector === ".pith-epub-chapter" ? chapter : null, querySelector: () => null }));
+    const blocks = texts.map(text => ({ textContent: text, ownerDocument: { createTreeWalker: () => { let done = false; return { nextNode: () => { if (done) return null; done = true; return { data: text, length: text.length, parentElement: null }; } }; } }, getAttribute: () => "true", closest: (selector: string) => selector === ".pith-epub-chapter" ? chapter : null, querySelector: () => null }));
     chapter.querySelectorAll = () => blocks;
     return { chapter, blocks };
   };
@@ -97,7 +97,7 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
     Object.assign(view, {
       article, reader, pageMode: "double", generation: 0, dojoActive: false, speaking: false,
       selectionRange: { startContainer: { nodeType: 3, parentElement: element }, startOffset: 0 },
-      doc: { createRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => "" }), createTreeWalker: () => ({ nextNode: () => null }), createElement: () => audio },
+      doc: { createRange: () => ({ selectNodeContents() {}, setStart() {}, setEnd() {}, surroundContents() {}, toString: () => "" }), createTreeWalker: () => ({ nextNode: () => null }), createElement: (tag: string) => tag === "audio" ? audio : { dataset: {} } },
       dock: { classList: { add() {} }, querySelector: () => null },
       assetControls: { hidden: true }, mediaDeck: { hidden: true, querySelector: () => null },
       actions: { synthesizeSpeech: async (text: string) => { spoken.push(text); return { bytes: new Uint8Array([1]), mimeType: "audio/wav" }; } },
@@ -189,6 +189,7 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
   let updates = 0;
   const controller = {
     openTopic: async () => ({ ...current, toolkits: [] }),
+    openCompass: async () => ({}),
     store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: async () => current, updateTopic: async () => { updates++; return current; } },
     runtime: { getService: () => undefined }, engine: { getConversation: async () => [] },
     createView: (_root: unknown, value: typeof actions) => { actions = value; return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push([...ids]); }, render() {}, refreshGuide: async () => {} }; },

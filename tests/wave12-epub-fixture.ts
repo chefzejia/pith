@@ -16,6 +16,10 @@ export function linkedEpub(hostIds = false): Uint8Array {
     files["O/one.xhtml"] = files["O/one.xhtml"]!.replace("<h1>One</h1>", `<h1>One</h1>${links}${targets}`);
     files["O/sub/two.xhtml"] = files["O/sub/two.xhtml"]!.replace("<h1>Two</h1>", '<h1>Two</h1><p id="training">Second training target</p><a href="../one.xhtml#training">Host target back</a>');
   }
+  return storedEpub(files);
+}
+
+export function storedEpub(files: Record<string, string>): Uint8Array {
   const locals: Buffer[] = [], central: Buffer[] = []; let offset = 0;
   for (const [name, text] of Object.entries(files)) {
     const n = Buffer.from(name), data = Buffer.from(text), local = Buffer.alloc(30), record = Buffer.alloc(46);

@@ -10,6 +10,7 @@ export interface InterlineCoordinatorOptions {
   readonly storage?: WorkspaceStoragePort;
   readonly displayMode?: InterlineDisplayMode;
   readonly radius?: number;
+  readonly neighborhoodOnly?: boolean;
   readonly onUnit?: (unit: InterlinePreparedUnit) => void;
   readonly onSnapshot?: (snapshot: InterlineWarmupSnapshot) => void;
 }
@@ -106,13 +107,14 @@ export class InterlinePreparationCoordinator {
   private async run(): Promise<void> {
     while (true) {
       if (this.loading.size) { await Promise.all(this.loading.values()); continue; }
-      const index = planNeighborhoodOrder(this.active, this.units.length, this.options.radius).find(i => !this.results.has(i));
+      const nextUnit = (): number | undefined => planNeighborhoodOrder(this.active, this.units.length, this.options.radius).find(i => !this.results.has(i) && (!this.options.neighborhoodOnly || Math.abs(i - this.active) <= (this.options.radius ?? 1)));
+      const index = nextUnit();
       if (index === undefined) return;
       try {
         await this.loadCache(index);
         if (this.results.has(index)) continue;
         // A cache read may finish after the active unit changes.
-        const next = planNeighborhoodOrder(this.active, this.units.length, this.options.radius).find(i => !this.results.has(i));
+        const next = nextUnit();
         if (next !== index) continue;
         await this.prepare(index);
       } catch (error) { this.fail(index, error); }

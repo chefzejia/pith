@@ -61,7 +61,7 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
   const tools: DshTool[] = [
     { name: "pith_compass", description: "Read the attention compass", inputSchema: schema({}, []), execute: async () => engine.compass() },
     { name: "pith_read_topic", description: "Read a topic and its notes", inputSchema: schema({ topicId: field }, ["topicId"]), execute: async input => store.getTopic(string(input, "topicId")) },
-    { name: "pith_configure_toolkits", description: "Configure the toolkits mounted on a topic", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), execute: async input => {
+    { name: "pith_configure_toolkits", description: "Configure topic toolkits: shadowing, feynman, or interline (bilingual reading)", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), execute: async input => {
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
       return store.updateTopic(string(input, "topicId"), { toolkits: normalizeToolkits(input.toolkits) });
     } },
