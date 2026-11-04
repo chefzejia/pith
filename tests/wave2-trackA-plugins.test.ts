@@ -53,6 +53,14 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       assert.deepEqual((await store.getTopic(topic.id))!.toolkits, []);
       await tool.execute({ topicId: topic.id, toolkits: ["shadowing", "shadowing"] });
       assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["shadowing"]);
+      assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, ["shadowing"]);
+      await guide.configureTopicToolkits!(topic.id, []);
+      assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, []);
+      await tool.execute({ topicId: topic.id, toolkits: ["none"] });
+      const topicPath = join(dir, "topics", topic.id, "topic.md");
+      const original = readFileSync(topicPath);
+      assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, ["none"]);
+      assert.deepEqual(readFileSync(topicPath), original);
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["INVALID"] }), /Invalid toolkit/);
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: "shadowing" }), /Invalid toolkits/);
     } finally { runtime.stop(); }

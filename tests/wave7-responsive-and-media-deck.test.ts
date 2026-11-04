@@ -59,12 +59,12 @@ test("reader service exposes the same responsive decision to host shells", () =>
 });
 
 test("Obsidian uses one toolkit button and cue clicks seek without mounting a toolkit", async () => {
-  const button = { textContent: "", title: "", classList: { toggle() {} }, setAttribute() {} };
+  const button = { textContent: "", title: "", hidden: false, classList: { toggle() {} }, setAttribute() {} };
   const audio = { currentTime: 0 };
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
-  Object.assign(view, { dojos: [], dojoId: "", mountedToolkits: [], dock: { querySelector: () => button }, assetAudio: audio, article: { contains: () => true } });
+  Object.assign(view, { dojos: [], dojoId: "", mountedToolkits: [], dojo: { hidden: true }, dock: { querySelector: () => button, classList: { toggle() {} } }, assetAudio: audio, article: { contains: () => true } });
   const set = view.setToolkits as (ids: string[]) => void;
-  set.call(view, []); assert.equal(button.textContent, "🛠");
+  set.call(view, []); assert.equal(button.hidden, true);
   set.call(view, ["feynman"]); assert.equal(button.textContent, "🛠 费曼复述");
   set.call(view, ["shadowing", "feynman"]); assert.equal(button.textContent, "🛠 费曼复述 · 2 ▾");
   set.call(view, []);

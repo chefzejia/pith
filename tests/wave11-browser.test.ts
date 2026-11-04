@@ -35,6 +35,9 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");
     await page.locator("#close-drawer").click();
     await page.locator(`[data-open="${topic.id}"]`).first().click();
+    assert.equal(await page.locator("#open-dojo").isHidden(), true);
+    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
+    await page.locator("#home").click(); await page.locator(`[data-open="${topic.id}"]`).first().click();
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 800 });
       assert.match(await page.locator("#open-dojo").textContent(), /费曼复述/);

@@ -8,14 +8,13 @@ import { effectiveToolkits, topicUsesToolkit } from "../src/shells/toolkitSlot.t
 import { createNeuralSpeech, type NeuralSpeechConfig } from "../src/plugins/speech-service/neuralSpeech.ts";
 import type { HostPort, HttpRequestSpec } from "../src/core/index.ts";
 
-test("default toolkits distinguish empty and explicit none", () => {
-  assert.deepEqual(effectiveToolkits([], "chapter.epub"), ["feynman"]);
-  assert.deepEqual(effectiveToolkits([], "caption.vtt"), ["shadowing"]);
+test("empty and legacy none never mount or authorize toolkits", () => {
+  for (const format of ["chapter.epub", "book.pdf", "comic.cbz", "article.md", "caption.vtt", "caption.srt", "movie.mp4", "media"]) assert.deepEqual(effectiveToolkits([], format), []);
   assert.deepEqual(effectiveToolkits(["none"], "chapter.epub"), []);
   assert.deepEqual(effectiveToolkits(["dojo-shadowing"], "chapter.epub"), ["shadowing"]);
   const materials = [{ id: "book", kind: "book", files: [{ name: "chapter.epub" }] }, { id: "audio", kind: "media", files: [{ name: "caption.vtt" }] }];
-  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "book" }, materials, "feynman"), true);
-  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "audio" }, materials, "shadowing"), true);
+  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "book" }, materials, "feynman"), false);
+  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "audio" }, materials, "shadowing"), false);
   assert.equal(topicUsesToolkit({ toolkits: ["none"], materialId: "book" }, materials, "feynman"), false);
 });
 

@@ -153,6 +153,8 @@ function rawContent(node: XmlNode): string {
 }
 function content(node: XmlNode): string { return rawContent(node).replace(/\s+/g, " ").trim(); }
 
+function safeFragmentId(id: string): boolean { return !!id && !/[\u0000-\u0020\u007f]/.test(id); }
+
 function safeSvgValue(key: string, value: string): boolean {
   if (/[\\<>\u0000-\u001f\u007f]|\/\*|\*\/|(?:javascript|data)\s*:|(?:var|env|attr|expression|image(?:-set)?)\s*\(/i.test(value)) return false;
   if (/url\s*\(/i.test(value)) return /^(fill|stroke|clip-path|mask|filter)$/.test(key) && /^url\(\s*#[\w.-]+\s*\)$/i.test(value.trim());
@@ -164,7 +166,7 @@ function safeSvgStyle(style: string, ids: ReadonlyMap<string, string>): string {
     const colon = declaration.indexOf(":");
     if (colon < 0) return [];
     const key = declaration.slice(0, colon).trim().toLowerCase(), value = declaration.slice(colon + 1).trim();
-    if (!/^(fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|opacity|stop-color|stop-opacity|clip-path|mask)$/.test(key) || !value || !/^[\w\s#.,%()+\-]*$/.test(value) || !safeSvgValue(key, value) || /(?:expression|var|attr|image)\s*\(/i.test(value)) return [];
+    if (!/^(fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|opacity|stop-color|stop-opacity|clip-path|mask)$/.test(key) || !value || (!/^url\(/i.test(value) && !/^[\w\s#.,%()+\-]*$/.test(value)) || /(?:expression|var|attr|image)\s*\(/i.test(value)) return [];
     const mapped = svgValue(key, value, ids);
     return mapped === null ? [] : [`${key}: ${mapped}`];
   }).join("; ");
@@ -173,11 +175,21 @@ function safeSvgStyle(style: string, ids: ReadonlyMap<string, string>): string {
 const svgTags = new Set(["svg", "g", "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "pattern", "use", "image", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "title", "desc"]);
 const svgNames: Record<string, string> = { lineargradient: "linearGradient", radialgradient: "radialGradient", clippath: "clipPath", viewbox: "viewBox", preserveaspectratio: "preserveAspectRatio", gradientunits: "gradientUnits", gradienttransform: "gradientTransform", spreadmethod: "spreadMethod", patternunits: "patternUnits", patterncontentunits: "patternContentUnits", patterntransform: "patternTransform", clippathunits: "clipPathUnits", maskunits: "maskUnits", maskcontentunits: "maskContentUnits" };
 function svgValue(key: string, value: string, ids: ReadonlyMap<string, string>): string | null {
+  const match = /^url\(\s*#([^\s\\"'()#]+)\s*\)$/i.exec(value.trim());
+  if (match) {
+    if (!/^(fill|stroke|clip-path|mask|filter)$/.test(key)) return null;
+    const target = svgReference(match[1]!, ids);
+    return target ? `url(#${target})` : null;
+  }
   if (!safeSvgValue(key, value)) return null;
-  const match = /^url\(\s*#([\w.-]+)\s*\)$/i.exec(value.trim());
-  if (!match) return value;
-  const target = ids.get(match[1]!);
-  return target ? `url(#${target})` : null;
+  return value;
+}
+
+function svgReference(fragment: string, ids: ReadonlyMap<string, string>): string | null {
+  try {
+    const target = ids.get(decodeURIComponent(fragment));
+    return target ? encodeURIComponent(target).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`) : null;
+  } catch { return null; }
 }
 
 async function renderSvg(root: XmlNode, resource: (href: string) => Promise<string | null>, writer: HtmlWriter, prefix = "", rootAttributes = ""): Promise<void> {
@@ -185,7 +197,7 @@ async function renderSvg(root: XmlNode, resource: (href: string) => Promise<stri
   const collectIds = (node: XmlNode): void => {
     if (!svgTags.has(local(node.name))) return;
     const id = node.attrs["id"];
-    if (id && /^[\w.-]+$/.test(id)) ids.set(id, `${prefix}${id}`);
+    if (id && safeFragmentId(id)) ids.set(id, `${prefix}${id}`);
     for (const child of node.children) if (typeof child !== "string") collectIds(child);
   };
   collectIds(root);
@@ -203,18 +215,21 @@ async function renderSvg(root: XmlNode, resource: (href: string) => Promise<stri
       if ((key === "href" || key === "xlink:href") && tag === "image") {
         const url = await resource(value);
         if (url) attribute(key, url);
-      } else if ((key === "href" || key === "xlink:href") && ["use", "lineargradient", "radialgradient", "pattern"].includes(tag) && /^#[\w.-]+$/.test(value)) {
-        const target = ids.get(value.slice(1));
+      } else if ((key === "href" || key === "xlink:href") && ["use", "lineargradient", "radialgradient", "pattern"].includes(tag) && /^#[^\s\\"'()#]+$/.test(value)) {
+        const target = svgReference(value.slice(1), ids);
         if (target) attribute(key, `#${target}`);
       }
       else if (key === "style") {
         const style = safeSvgStyle(value, ids);
         if (style) attribute("style", style);
       }
-      else if (/^(xmlns|xmlns:xlink|id|viewbox|preserveaspectratio|width|height|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|fx|fy|fr|d|points|fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|transform|opacity|offset|stop-color|stop-opacity|gradientunits|gradienttransform|spreadmethod|patternunits|patterncontentunits|patterntransform|clippathunits|clip-path|mask|maskunits|maskcontentunits)$/.test(key) && safeSvgValue(key, value)) {
+      else if (/^(xmlns|xmlns:xlink|id|viewbox|preserveaspectratio|width|height|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|fx|fy|fr|d|points|fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-dasharray|transform|opacity|offset|stop-color|stop-opacity|gradientunits|gradienttransform|spreadmethod|patternunits|patterncontentunits|patterntransform|clippathunits|clip-path|mask|maskunits|maskcontentunits)$/.test(key)) {
         if ((key === "xmlns" && value !== "http://www.w3.org/2000/svg") || (key === "xmlns:xlink" && value !== "http://www.w3.org/1999/xlink")) continue;
         const mapped = key === "id" ? ids.get(value) ?? null : svgValue(key, value, ids);
-        if (mapped !== null) attribute(svgNames[key] ?? key, mapped);
+        if (mapped !== null) {
+          attribute(svgNames[key] ?? key, mapped);
+          if (key === "id" && prefix) attribute("data-epub-fragment", value);
+        }
       }
     }
     if (node === root) writer.append(rootAttributes);
@@ -250,6 +265,17 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     return entry.path;
   });
   if (!spine.length) throw new Error("EPUB spine is empty");
+  const linkTarget = (base: string, href: string): { chapter: number; fragment: string } | null => {
+    try {
+      if (!href || /[?\u0000-\u0020\u007f]/.test(href) || href.indexOf("#") !== href.lastIndexOf("#")) return null;
+      const hash = href.indexOf("#"), file = hash < 0 ? href : href.slice(0, hash);
+      const fragment = hash < 0 ? "" : decodeURIComponent(href.slice(hash + 1));
+      if (/[\u0000-\u001f\u007f]/.test(fragment)) return null;
+      const target = file ? resolve(dir(base), file) : base;
+      const chapter = spine.indexOf(target);
+      return chapter < 0 ? null : { chapter, fragment };
+    } catch { return null; }
+  };
   const blocks: ProseBlock[] = [], sections: ReaderSectionHeading[] = [];
   const html = new HtmlWriter("EPUB output budget exceeded");
   const locations = new Map<string, string>();
@@ -316,14 +342,26 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
         } else if (key === "style") {
           const style = sanitizeDeclarations(value);
           if (style) attribute("style", style);
-        } else if (key === "href" && tag === "a" && /^#[\w.:-]+$/.test(value)) attribute("href", value);
-        else if (/^(id|class|title|alt|lang|dir|width|height|colspan|rowspan|viewbox|preserveaspectratio|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|d|points|fill|stroke|stroke-width|transform|xmlns|xmlns:xlink)$/.test(key) && safeSvgValue(key, value)) {
+        } else if (key === "href" && tag === "a") {
+          const target = linkTarget(path, value);
+          attribute("data-epub-target", target ? JSON.stringify(target) : "");
+          attribute("role", "link"); attribute("tabindex", "0");
+        }
+        else if (key === "id") {
+          if (safeFragmentId(value)) attribute("id", value);
+        }
+        else if (key === "class") {
+          const safeClass = value.split(/\s+/).filter(token => token && !/^pith-/i.test(token)).join(" ");
+          if (safeClass && safeSvgValue("class", safeClass)) attribute("class", safeClass);
+        }
+        else if (/^(title|alt|lang|dir|width|height|colspan|rowspan|viewbox|preserveaspectratio|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|d|points|fill|stroke|stroke-width|transform|xmlns|xmlns:xlink)$/.test(key) && safeSvgValue(key, value)) {
           const outputName = key === "viewbox" ? "viewBox" : key === "preserveaspectratio" ? "preserveAspectRatio" : key;
           attribute(outputName, value);
         }
       }
     };
     const markIds = (element: XmlNode): void => {
+      if (dropped.has(local(element.name))) return;
       if (element.attrs["id"]) locations.set(`${path}#${element.attrs["id"]}`, locator());
       for (const child of element.children) if (typeof child !== "string") markIds(child);
     };
@@ -332,7 +370,14 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
       const tag = local(node.name);
       if (dropped.has(tag)) return;
       if (node.attrs["id"] && !locations.has(`${path}#${node.attrs["id"]}`)) locations.set(`${path}#${node.attrs["id"]}`, locator());
-      if (!allowed.has(tag)) { for (const child of node.children) await serialize(child, plain); return; }
+      if (!allowed.has(tag)) {
+        const id = node.attrs["id"];
+        const marker = !!id && safeFragmentId(id), wrap = marker && inlineOnly(node);
+        if (marker) { html.append("<span"); attribute("id", id); html.append(wrap ? ">" : "></span>"); }
+        for (const child of node.children) await serialize(child, plain);
+        if (wrap) html.append("</span>");
+        return;
+      }
       if (plain && tag === "svg") { await renderSvg(node, resource, html, `pith-svg-${chapter}-${svgSequence++}-`); return; }
       const writeElement = async (extra: string): Promise<void> => {
         html.append(`<${tag}`); await attributes(node, tag); html.append(`${extra}>`);
@@ -380,12 +425,14 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
       await flush();
       if (tag !== "body") html.append(`</${tag}>`);
     };
-    const bodyClass = body.attrs["class"] ? ` ${body.attrs["class"]}` : "";
+    const rawBodyClass = body.attrs["class"] ? body.attrs["class"].split(/\s+/).filter(token => token && !/^pith-/i.test(token)).join(" ") : "";
+    const bodyClass = rawBodyClass ? ` ${rawBodyClass}` : "";
     const bodyStyle = body.attrs["style"] ? sanitizeDeclarations(body.attrs["style"]) : "";
     html.append(`<section class="pith-epub-chapter pith-epub-chapter-${chapter}`);
     html.escaped(bodyClass); html.append('"');
+    if (body.attrs["id"] && safeFragmentId(body.attrs["id"])) attribute("id", body.attrs["id"]);
     if (bodyStyle) attribute("style", bodyStyle);
-    html.append(` data-locator="text:section:${chapter};block:0">`);
+    html.append(` data-epub-chapter="${chapter}" data-locator="text:section:${chapter};block:0">`);
     const writeStyle = (css: string): void => {
       const style = sanitizeStylesheet(css, chapter, Math.max(0, html.remaining - 15));
       if (style) { html.append("<style>"); html.append(style); html.append("</style>"); }
@@ -409,9 +456,8 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     const walk = (node: XmlNode, level: number): void => {
       const tag = local(node.name);
       if (tag === "a" && node.attrs["href"]) {
-        const href = node.attrs["href"], path = resolve(dir(nav.path), href), chapter = spine.indexOf(path);
-        const fragment = href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : "";
-        if (chapter >= 0) sections.push({ title: content(node), level: Math.max(1, level), line: chapter, locator: locations.get(fragment ? `${path}#${fragment}` : path) ?? `text:section:${chapter};block:0` });
+        const target = linkTarget(nav.path, node.attrs["href"]);
+        sections.push({ title: content(node), level: Math.max(1, level), line: target ? target.chapter : 0, locator: target ? `epub:${JSON.stringify(target)}` : "epub:missing" });
       }
       for (const child of node.children) if (typeof child !== "string") walk(child, level + (local(child.name) === "ol" ? 1 : 0));
     };
@@ -422,8 +468,8 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
       if (local(node.name) === "navpoint") {
         const src = descendants(node, "content")[0]?.attrs["src"], label = descendants(node, "navlabel")[0];
         if (src && label) {
-          const path = resolve(dir(ncx.path), src), chapter = spine.indexOf(path), fragment = src.includes("#") ? decodeURIComponent(src.slice(src.indexOf("#") + 1)) : "";
-          if (chapter >= 0) sections.push({ title: content(label), level, line: chapter, locator: locations.get(fragment ? `${path}#${fragment}` : path) ?? `text:section:${chapter};block:0` });
+          const target = linkTarget(ncx.path, src);
+          sections.push({ title: content(label), level, line: target ? target.chapter : 0, locator: target ? `epub:${JSON.stringify(target)}` : "epub:missing" });
         }
       }
       for (const child of node.children) if (typeof child !== "string") walk(child, level + (local(child.name) === "navpoint" ? 1 : 0));

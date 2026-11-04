@@ -70,7 +70,7 @@ test("Web mode changes persist independently and route requests after restart", 
   } finally { await close(); NodeHttpPort.prototype.request = original; NodeHttpPort.prototype.requestPublicSpeech = originalPublic; await rm(dir, { recursive: true, force: true }); }
 });
 
-test("default reading toolkit remains available in essentials mode", async () => {
+test("essentials mode only activates and authorizes explicitly mounted tools", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-default-dojo-"));
   await mkdir(join(dir, "obsidian")); await mkdir(join(dir, "web"));
   const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(join(dir, "obsidian")) });
@@ -79,6 +79,8 @@ test("default reading toolkit remains available in essentials mode", async () =>
     await controller.initialize(); await controller.setPlugins({ preset: "essentials" });
     const topic = await controller.store.createTopic({ title: "reading" });
     await controller.importMaterial({ title: "reading", kind: "article", files: [{ name: "article.md", bytes: new TextEncoder().encode("A useful concept") }] }, topic.id);
+    assert.equal(controller.runtime.getService("dojo.feynman"), undefined);
+    await controller.store.updateTopic(topic.id, { toolkits: ["feynman"] }); await controller.setPlugins({ preset: "essentials" });
     assert.ok(controller.runtime.getService("dojo.feynman"));
     server = await createPithWebServer({ workspaceDir: join(dir, "web") }); const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
@@ -86,6 +88,8 @@ test("default reading toolkit remains available in essentials mode", async () =>
     assert.equal((await post("/api/plugins", { preset: "essentials" })).status, 200);
     const created = await post("/api/topics", { title: "reading" }); assert.equal(created.status, 201); const webTopic = await created.json();
     assert.equal((await post("/api/materials", { topicId: webTopic.id, title: "reading", kind: "article", files: [{ name: "article.md", data: Buffer.from("A useful concept").toString("base64") }] })).status, 201);
+    assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
+    assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["feynman"] })).status, 200);
     assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 200);
     assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["none"] })).status, 200);
     assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);

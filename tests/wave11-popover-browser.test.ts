@@ -18,11 +18,12 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
       await page.setContent(`<style>html,body{margin:0;height:100%}#root{height:100%;width:${width}px}${padded ? ".pith-view-header{height:auto!important;padding-block:6px!important}" : ""}</style><div id="root"></div>`);
       await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
       await page.evaluate((format: "markdown" | "epub") => {
-        const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; openDojo(dojos: object[]): void } } }).PithView;
+        const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; setToolkits(ids: string[]): void; openDojo(dojos: object[]): void } } }).PithView;
         let view: InstanceType<typeof pith.PithObsidianView>;
         const dojos = [{ id: "feynman", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
         view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openDojo() { view.openDojo(dojos); } });
         view.render({ title: "测试文章", html: "<p>正文</p>", currentFile: format === "epub" ? "book.epub" : "article.md", format, files: [], sections: [] });
+        view.setToolkits(["feynman"]);
       }, format);
       await page.waitForFunction(() => document.querySelector(".pith-view")!.getAttribute("data-hit-target") !== null);
       if (padded) assert.ok((await page.locator(".pith-view-header").boundingBox())!.height >= 56);

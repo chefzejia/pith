@@ -79,7 +79,7 @@ for (const compressed of [false, true]) test(`EPUB ${compressed ? "deflate" : "s
   const nav = `<html><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#start">Chapter</a><ol><li><a href="chapter.xhtml">Subchapter</a></li></ol></li></ol></nav></body></html>`;
   const view = await renderFile(file, zip({ "META-INF/container.xml": container, "OEBPS/book.opf": opf, "OEBPS/chapter.xhtml": chapter, "OEBPS/nav.xhtml": nav }, compressed));
   assert.equal(view.title, "Test & Book");
-  assert.deepEqual(view.sections.map(s => [s.title, s.level, s.locator]), [["Chapter", 1, "text:section:0;block:0"], ["Subchapter", 2, "text:section:0;block:0"]]);
+  assert.deepEqual(view.sections.map(s => [s.title, s.level, s.locator]), [["Chapter", 1, 'epub:{"chapter":0,"fragment":"start"}'], ["Subchapter", 2, 'epub:{"chapter":0,"fragment":""}']]);
   assert.deepEqual(filterProseOnly(view.blocks!).map(s => s.text), ["Chapter One", "First sentence.", "Second sentence.", "Quoted text."]);
   assert.ok(!view.html.includes("<script>"));
   assert.match(view.html, /data-prose="false"/);

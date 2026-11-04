@@ -69,6 +69,33 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
   return result;
 }
 
+export function navigateReaderTarget(reader: HTMLElement, target: HTMLElement, paged: boolean): void {
+  if (paged) {
+    const position = reader.scrollLeft + target.getBoundingClientRect().left - reader.getBoundingClientRect().left;
+    reader.scrollTo({ left: Math.floor(Math.max(0, position) / Math.max(1, reader.clientWidth)) * reader.clientWidth, behavior: "instant" });
+  } else target.scrollIntoView({ block: "start" });
+}
+
+export function resolveEpubTarget(article: HTMLElement, value: string): HTMLElement | null {
+  try {
+    const target = JSON.parse(value) as { chapter?: unknown; fragment?: unknown };
+    if (!target || !Number.isInteger(target.chapter) || (target.chapter as number) < 0 || typeof target.fragment !== "string") return null;
+    const chapter = Array.from(article.children).find(node => node.tagName === "SECTION" && node.classList.contains("pith-epub-chapter") && node.getAttribute("data-epub-chapter") === String(target.chapter)) as HTMLElement | undefined;
+    if (!chapter) return null;
+    if (!target.fragment) return chapter;
+    if (chapter.id === target.fragment) return chapter;
+    return Array.from(chapter.querySelectorAll<HTMLElement>("[id]")).find(node => {
+      const original = node.getAttribute("data-epub-fragment");
+      return original === null ? node.id === target.fragment : original === target.fragment;
+    }) ?? null;
+  } catch { return null; }
+}
+
+export function resolveReaderLocator(article: HTMLElement, locator: string): HTMLElement | null {
+  if (locator.startsWith("epub:")) return resolveEpubTarget(article, locator.slice(5));
+  return Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === locator) ?? null;
+}
+
 export function renderTocTree(container: HTMLElement, sections: readonly ReaderSectionHeading[], navigate: (locator: string) => void): void {
   const doc = container.ownerDocument;
   const root = doc.createElement("ul"), stack: { level: number; list: HTMLUListElement; item: HTMLLIElement | null }[] = [{ level: -Infinity, list: root, item: null }];
@@ -96,12 +123,11 @@ export function renderTocTree(container: HTMLElement, sections: readonly ReaderS
 
 export function updateTocLocation(container: HTMLElement, article: HTMLElement, reader: HTMLElement, paged: boolean): void {
   const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("[data-toc-locator]"));
-  const targets = Array.from(article.querySelectorAll<HTMLElement>("[data-locator]"));
   const viewport = reader.getBoundingClientRect();
   let current: HTMLButtonElement | undefined;
   for (const button of buttons) {
     button.removeAttribute("aria-current");
-    const target = targets.find(node => node.dataset.locator === button.dataset.tocLocator);
+    const target = resolveReaderLocator(article, button.dataset.tocLocator ?? "");
     if (!target) continue;
     const rect = target.getBoundingClientRect();
     if (paged ? rect.left < viewport.left || (rect.left < viewport.right && rect.top < viewport.bottom) : rect.top < viewport.bottom) current = button;

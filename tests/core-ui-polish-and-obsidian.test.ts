@@ -8,7 +8,7 @@ import { PithObsidianController, PithWorkspaceView, createObsidianHostPort } fro
 import { PithObsidianView, obsidianStyles, speechChapterRoot } from "../src/shells/obsidian/plugin.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
-import { applyPaginationStyles, computePagination, renderTocTree, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, computePagination, navigateReaderTarget, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
 import { effectiveToolkits, toolkitSlot } from "../src/shells/toolkitSlot.ts";
 import { speechMode } from "../src/shells/speechSettings.ts";
 
@@ -132,19 +132,19 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
 test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
   const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
   let script = source.split("<script>")[1]!.split("</script>")[0]!;
-  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
+  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, navigateReaderTarget, resolveEpubTarget, resolveReaderLocator, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
   script = script.replace("refresh().then(home).catch(notify);", "");
   const handlers: Record<string, ((event: unknown) => unknown)[]> = {};
   const elements = new Map<string, Record<string, unknown>>();
   const created: Record<string, unknown>[] = [];
   const element = (selector: string): Record<string, unknown> => {
-    if (!elements.has(selector)) elements.set(selector, { style: {}, dataset: {}, hidden: false, innerHTML: "", value: "", disabled: false, classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, focus() {}, prepend() {}, before() {}, insertAdjacentHTML() {}, append() {}, querySelectorAll: () => [] });
+    if (!elements.has(selector)) elements.set(selector, { style: {}, dataset: {}, hidden: false, innerHTML: "", value: "", disabled: false, classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, focus() {}, prepend() {}, before() {}, insertAdjacentHTML() {}, append() {}, querySelector: () => null, querySelectorAll: () => [] });
     return elements.get(selector)!;
   };
   const document = {
     body: { querySelector: () => null },
     querySelector: (selector: string) => elements.has(selector) ? elements.get(selector) : ["#training", "#article", ".reader"].includes(selector) ? null : element(selector),
-    querySelectorAll: () => [],
+    querySelectorAll: (selector: string) => selector === '[data-speech-active="true"]' ? [] : elements.has(selector) ? [elements.get(selector)] : ["#training", "#article", ".reader"].includes(selector) ? [] : [element(selector)],
     createElement: () => { const node = { ...element("template"), dataset: {}, classList: { toggle() {} } }; created.push(node); return node; },
     addEventListener: (name: string, fn: (event: unknown) => unknown) => { (handlers[name] ||= []).push(fn); },
   };
@@ -155,6 +155,7 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
   const handler = handlers.click!.find(fn => String(fn).includes("t.dataset.open")); assert.ok(handler);
   const click = (button: Record<string, unknown>) => ({ target: { closest: (selector: string) => selector === "button" ? button : null } });
   await handler(click({ dataset: { open: "b" } }));
+  assert.equal(runInContext("topic.id", context), "b", String(element("#toast").textContent));
   assert.equal(runInContext("pending", context), null);
   assert.equal(runInContext("selectionRange", context), null);
   element("#message").value = "B message";
@@ -219,12 +220,17 @@ test("web navigation clears quoted state and cue clicks never mount shadowing", 
   const trainingHandler = handlers.click!.find(fn => String(fn).includes("t.dataset.chooseDojo")); assert.ok(trainingHandler);
   runInContext("topic={id:'b',toolkits:[]};trainingOpen=false;trainingChoosing=false;calls.length=0;renderTraining=()=>{};api=async(path,data)=>{calls.push({path,data})};openTopic=async(id)=>{calls.push({opened:id})}", context);
   await trainingHandler(click({ id: "open-dojo", dataset: {} }));
-  assert.equal(runInContext("trainingChoosing", context), true);
+  assert.equal(runInContext("trainingChoosing", context), false);
   assert.equal(runInContext("calls.length", context), 0);
   await trainingHandler(click({ dataset: { chooseDojo: "feynman" }, disabled: false }));
-  const choice = runInContext("calls[0]", context) as { path: string; data: { toolkits: string[] } };
-  assert.equal(choice.path, "/api/topics/b/toolkits");
-  assert.deepEqual(Array.from(choice.data.toolkits), ["feynman"]);
+  assert.equal(runInContext("calls.length", context), 0);
+  runInContext("topic.toolkits=['feynman','shadowing']", context);
+  await trainingHandler(click({ id: "open-dojo", dataset: {} }));
+  assert.equal(runInContext("trainingChoosing", context), true);
+  await trainingHandler(click({ dataset: { chooseDojo: "feynman" }, disabled: false }));
+  assert.equal(runInContext("toolkit", context), "feynman");
+  assert.equal(runInContext("trainingOpen", context), true);
+  assert.equal(runInContext("calls.length", context), 0);
 
   const makeChapter = (left: number, texts: string[]) => {
     const chapter = { getClientRects: () => [{ left, right: left + 800, top: 0, bottom: 700 }], querySelectorAll: () => [] as object[] };
@@ -261,17 +267,20 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const view = Object.create(PithObsidianView.prototype) as FakeView;
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
-  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true }, setDojoActive() {}, renderDojo() {}, refreshGuide: async () => {} });
+  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
   const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openDojo"]>[0];
   view.openDojo(descriptors);
   assert.equal(mounted.length, 0);
+  assert.equal(added.length, 0);
+  view.mountedToolkits = ["shadowing", "feynman"];
+  view.openDojo(descriptors);
   assert.deepEqual(added.map(item => item.dataset.dojoChoose), ["shadowing", "feynman"]);
   const choice = { dataset: { dojoChoose: "feynman" }, disabled: false };
   await view.click({ target: { closest: (selector: string) => selector === "button" ? choice : null } });
-  assert.deepEqual(mounted, ["feynman"]);
+  assert.deepEqual(mounted, []); assert.equal(view.dojoId, "feynman");
   view.mountedToolkits = ["feynman"];
   await view.click({ target: { closest: (selector: string) => selector === ".pith-cue" ? {} : null } });
-  assert.deepEqual(mounted, ["feynman"]);
+  assert.deepEqual(mounted, []);
 });
 
 test("Obsidian home failure retains reader and stale toolkit mount cannot update another view", async () => {

@@ -39,9 +39,17 @@ async function renderFixture(body: string, extra: Record<string, string | Uint8A
   }));
 }
 
+test("HTML and SVG IDs retain escaped fragment identity without preserving attributes", async () => {
+  const view = await renderFixture(`<p id="data:章节%">Text</p><abbr id="javascript:quote&quot;onclick=bad" onclick="evil()">Label</abbr><svg><rect id="data:图%" width="10" height="10"/></svg>`);
+  assert.match(view.html, /<p id="data:章节%"/);
+  assert.match(view.html, /<span id="javascript:quote&quot;onclick=bad">Label<\/span>/);
+  assert.match(view.html, /id="pith-svg-0-0-data:图%" data-epub-fragment="data:图%"/);
+  assert.doesNotMatch(view.html, / onclick=|evil\(\)/);
+});
+
 test("inline SVG preserves safe local definitions and references while rejecting active or external content", async () => {
   const view = await renderFixture(`<svg xmlns:xlink="http://www.w3.org/1999/xlink"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient><path id="p" d="M0 0 L2 2"/></defs><use href="#p"/><use xlink:href="#p"/><use href="https://invalid.example/x.svg#p"/><rect fill="url(#g)" style="stroke:url(#g)"/><rect fill="u\\72l(https://invalid.example/a)"/><image href="https://invalid.example/a.png"/><script>evil()</script></svg>`);
-  assert.match(view.html, /<defs><linearGradient id="[^"]+"><stop offset="0" stop-color="red"/);
+  assert.match(view.html, /<defs><linearGradient id="pith-svg-0-0-g" data-epub-fragment="g"><stop offset="0" stop-color="red"/);
   const gradient = /linearGradient id="([^"]+)"/.exec(view.html);
   const path = /<path id="([^"]+)"/.exec(view.html);
   assert.ok(gradient && path);
@@ -178,13 +186,13 @@ test("external SVG keeps safe gradients, local references and embedded ZIP image
   assert.doesNotMatch(svg, /invalid\.example|<script|evil\(\)/);
 });
 
-test("TOC fragments within non-prose point to the containing block", async () => {
+test("TOC fragments within non-prose retain their precise targets", async () => {
   const view = await renderFixture(`<p>Before.</p><table><tr><td id="cell">Table</td></tr></table><pre><code id="code">Code</code></pre><p>After.</p>`, {}, `<li><a href="ch.xhtml#cell">Cell</a></li><li><a href="ch.xhtml#code">Code</a></li>`);
   const table = view.blocks!.find(block => block.text === "Table")!;
   const code = view.blocks!.find(block => block.text === "Code")!;
   assert.equal(table.isProse, false);
   assert.equal(code.isProse, false);
-  assert.deepEqual(view.sections.map(section => section.locator), [table.locator, code.locator]);
+  assert.deepEqual(view.sections.map(section => section.locator), ['epub:{"chapter":0,"fragment":"cell"}', 'epub:{"chapter":0,"fragment":"code"}']);
 });
 
 test("EPUB prose retains DOM text whitespace and speech offsets across inline markup", async () => {
@@ -224,8 +232,7 @@ test("EPUB preserves chapters, images, safe formatting, navigation and non-overl
   const view = await renderFile({ name: "book.epub", mimeType: "application/epub+zip", bytes: 0, sha256: "" }, zip(files));
   assert.equal(view.totalUnits, 2);
   assert.deepEqual(view.sections.map(s => [s.title, s.level, s.line]), [["Start", 1, 0], ["End", 2, 1]]);
-  assert.ok(view.html.includes(`data-locator="${view.sections[0]!.locator}"`));
-  assert.ok(view.html.includes(`data-locator="${view.sections[1]!.locator}"`));
+  assert.deepEqual(view.sections.map(section => section.locator), ['epub:{"chapter":0,"fragment":"intro"}', 'epub:{"chapter":1,"fragment":"end"}']);
   assert.equal((view.html.match(/class="pith-epub-chapter /g) ?? []).length, 2);
   assert.match(view.html, /<blockquote>/);
   assert.match(view.html, /<ul><li>/);
