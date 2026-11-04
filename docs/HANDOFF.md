@@ -1,19 +1,18 @@
-# Pith · 跨会话交接单（HANDOFF）
-
-Status: verified
-Verified-Commit: 9505d96
-Updated: 2026-11-03
-
-验收：类型检查、179 项测试、Obsidian 构建和真实客户端验收脚本通过。独立 Tester 在 `.dev-vault` 真机核验图片与 SVG 封面、分页图注、向导图标、语音设置与 SecretStorage，以及真实多级 EPUB 目录；桌面操作由 CDP 驱动，语音健康检查使用受控服务，未验证真实语音播放。
+# Pith · 跨会话交接单（HANDOFF Queue）
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **双环四重身份协同契约（详见 [ROLES.md](ROLES.md)）**：
-> - **思考环（Brain）**：冻结 `src/core/` 与 `docs/003-interaction.md` 契约后将本文件设为 `Status: pending` 并 `git commit`；
-> - **执行环（无人值守 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒，在同一轮次内循环 `wait_agent` 调度常驻 Worker 与独立 Tester 完成实现与 `.dev-vault` 真机验收，通过后更新为 `Status: verified`（附 `Verified-Commit`）并 `git commit` 收口。
+> **单文件滑动任务栈协同契约（详见 [ROLES.md](ROLES.md)）**：
+> - **思考环（Brain）**：冻结 `src/core/` 与 `docs/003-interaction.md` 契约后，以独立编号区块 `## [Task #N] <标题>`（区块内标记 `- **Status**: pending`）写入本文件，并执行隔离提交 `git commit --only docs/HANDOFF.md`（若上一轮 `#N-1` 仍在执行，直接在末尾追加 `## [Task #N]` 绝不覆盖 `#N-1`；若推翻未完旧单，将其改为 `- **Status**: superseded (by #N)` 并追加新单；文件内仅保留未结案区块 + 最近 1~2 个已结案锚点）；
+> - **执行环（无人值守 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒，在同一轮次内循环 `wait_agent` 按序调度常驻 Worker 与独立 Tester 完成实现与 `.dev-vault` 真机验收：每完成一单先重读确认未被标为 `superseded`，再仅将该 `[Task #N]` 区块更新为 `- **Status**: verified`（附 `Verified-Commit`）并 `git commit`；**提交后结束回合前必须再次检查本文件是否仍有新增的 `- **Status**: pending` 区块（Drain-Loop），若有则立即继续执行直至队列彻底排空**。
 
 ---
 
-## 当前待办任务包（Wave 10：补齐 Garden 四项核心体验细节——分页图片防截断、向导专属图标、语音一键直达配置与 SecretStorage、多级树状可折叠目录）
+## [Task #10] Wave 10：补齐 Garden 四项核心体验细节——分页图片防截断、向导专属图标、语音一键直达配置与 SecretStorage、多级树状可折叠目录
+
+- **Status**: verified
+- **Verified-Commit**: 9505d96
+- **Updated**: 2026-11-03
+- **验收结论**：类型检查、179 项测试、Obsidian 构建和真实客户端验收脚本通过。独立 Tester 在 `.dev-vault` 真机核验图片与 SVG 封面、分页图注、向导图标、语音设置与 SecretStorage，以及真实多级 EPUB 目录；桌面操作由 CDP 驱动，语音健康检查使用受控服务，未验证真实语音播放。
 
 ### 背景与根因定位（对标母本 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden`）
 用户在 `.dev-vault` 真机体验后指出 4 个丢失的细节，经源码比对定位根因如下：
