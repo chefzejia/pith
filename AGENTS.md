@@ -11,7 +11,9 @@ Pith 是一个宿主无关的**个人注意力与深度内化系统（Personal A
 2. **宿主零泄漏（`Host-Agnostic Core & Plugins`）**：`src/core/**` 与 `src/plugins/**` 严禁导入 `node:*`、`"obsidian"` 或 `@deepseek-ai/*`；所有存储、网络、密钥与子进程能力统一经由 `HostPort`（`src/core/host.ts`）注入。
 3. **内核去隐喻化与 Agent 编排原则**：内核仅使用中性领域词（`Workspace`, `Profile`, `Topic`, `Material`, `Note`, `Anchor`, `Guide`）；插件由内核与向导 Agent 按需编排（`topic.toolkits`），严禁在 UI 设置中向用户暴露底层插件开关列表。
 4. **通用外部语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件（`.mp3/.m4a/.wav/.ogg` + `.vtt/.srt`）解耦；实时 TTS/ASR 通过标准 HTTP 协议接入外部服务，严禁回退系统自带低劣语音 API（`speechSynthesis` / `webkitSpeechRecognition`），不可达时直接 Fail-Closed。
-5. **测试环境与 `.dev-vault` 边界**：单测使用临时目录，不读写用户真实 Obsidian Vault（`ganfan-media`）；Obsidian 真机 E2E 固定使用仓库内 `.dev-vault`（`.dev-vault` 与 `.tmp` 本就是 gitignored 专用测试沙盒，允许 `verify:obsidian` 直接读写与覆盖，无需对其做快照备份或硬链接防御）。
+5. **验证职责切分与 `.dev-vault` 玩具沙盒边界**：
+   - **工程代码自检归 Worker**：`npm run typecheck && npm test && npm run build:obsidian`（包括 `tests/boundaries.test.ts` 守卫单测）由 Worker 在交卷前跑通，严禁写脱离真实环境的 `vm.runInContext` 假 UI 测试；
+   - **模拟真实用户验收归 Tester**：Tester 不写单测脚本、不拿脚本 `ok: true` 充数，而是完全模拟真实人类用户在 `.dev-vault` 的 Obsidian 窗口与 Web 壳中点按钮、翻页、改窗口尺寸，并**每一步截屏用视觉肉眼审视排版、位置与文案体验**（`.dev-vault` 与 `.tmp` 本就是 gitignored 专用测试沙盒，随便读写点按，严禁搞快照备份或进程树扫描等防御内耗）。
 
 ## 修改与验证
 
