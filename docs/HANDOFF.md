@@ -121,10 +121,10 @@
 - **Status**: pending
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
-- **执行环职责切分与 `.dev-vault` 玩具沙盒直接读写指令（必读，详见 [ROLES.md](ROLES.md) & [AGENTS.md](../AGENTS.md)）**：
-  1. **工程代码自检归 Worker**：`npm run typecheck && npm test && npm run build:obsidian` 由 Worker 在交卷前跑通，确保最新构建产物已直接覆盖同步至 `.dev-vault/.obsidian/plugins/pith/`；
-  2. **模拟真实用户视觉体验归 Tester**：Tester 不写单测脚本、不拿脚本 `ok: true` 充数，而是完全模拟真实人类用户在 `.dev-vault` 的 Obsidian 窗口与 Web 壳中实际点按钮、切换单/双/三栏、改字号、缩放窗口、改设置，并**每一步截屏用 `view_image` 肉眼审视排版、位置与文案体验**；
-  3. **给 `.dev-vault` 彻底松绑**：`.dev-vault`（含其中的 `Pith/_cache/web-settings.json`、`.obsidian/workspace.json` 与插件目录）和 `.tmp` **本来就是专门供 Agent 随意覆盖、改写和点按的 gitignored 玩具沙盒**！严禁 Router 或 Tester 以“不能覆盖 `.dev-vault` 现有设置/workspace 文件”为由阻塞验收，严禁要求 Worker 研究所谓的“不改写 `.dev-vault` 隔离方案”！直接覆盖读写并打开 `.dev-vault` 操作看图即可！
+- **执行环职责切分与专用沙盒直接读写指令（必读，详见 [ROLES.md](ROLES.md) & [AGENTS.md](../AGENTS.md)）**：
+  1. **工程代码自检归 Worker**：编译、类型检查、单元测试、架构守卫单测与对应产物构建由 Worker 在交卷前跑通；
+  2. **按交付形态模拟真实用户归 Tester**：Tester 不写单测脚本、不拿脚本 `ok: true` 充数，而是根据本任务涉及的目标宿主形态（如 Web 壳、Obsidian 壳或 DSH 工具包壳）完全模拟真实用户操作与审视产物；
+  3. **专用测试沙盒直接读写、零防御内耗**：仓库内已列入 `.gitignore` 的专用测试沙盒（如 `.tmp`、`.dev-vault`）本来就是供 Agent 随意覆盖、改写和操作演练的游乐场！严禁 Router 或 Tester 以“不能覆盖沙盒内现有文件”为由阻塞验收，严禁要求 Worker 研究或编写快照备份、回滚或进程树扫描代码！
 
 ### 背景与目标（基于全仓「打补丁 vs 根因解决」专项审计，详见 [LESSONS.md](LESSONS.md)）
 全仓审计发现多处典型的“表层补丁 / 凑测试 / 契约失真”反模式，必须在继续新增业务功能前一次性完成根因级清创。**本任务包中子模块 1（Core/PluginRT & Stage-Reader 分页）与子模块 2（Scripts & Tests 清创）可按 [ROLES.md](ROLES.md) 规则组织执行，Tester 首轮审查必须一次性穷尽全部静态与真机验证项。**
