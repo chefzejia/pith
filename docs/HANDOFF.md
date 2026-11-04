@@ -118,9 +118,10 @@
 
 ## [Task #13] 架构清创：铲除函数重赋值套娃、抠源码字符串假测试、沙盒快照反模式，并统一 1/2/3 栏用户偏好分页与 PluginRuntime 热重配
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 9c3ce87
 - **Updated**: 2026-11-04
+- **验收**：Worker 完成 typecheck、205 项测试及 Obsidian 构建；Tester 在 Web 与 `.dev-vault` Obsidian 验证长中文连续缩放、分栏、字号、离线设置、真实书籍连续翻页及窗口边缘拖拽缩窄，截图位于 `.tmp/task13-visual/screenshots/round4-*` 至 `round6-*`。原生拖拽扩宽未验证；音频栏开合已验证，未验证音频播放。
 - **上游 Brain 根因修复（解除 `blocked`）**：
   - 针对 Tester 第三轮视觉验收抓到的真实 Bug（跨页无空格长中文段落从 `1600×900` 缩放至 `1100×700` 时位置回退至上一屏）：
     1. **根因 1（多列跨页 Range 的 `getBoundingClientRect` 退化）**：当一个长中文文本块跨越多列（多页）且被匹配为一个整块 `\S+` 时，`range.getBoundingClientRect()` 返回的是跨越第 1 列与第 2 列的合并外包框（其 `rect.left` 永远等于第 1 列的左边界）；当某字符恰好处于跨列折行边界时，必须检查 `Array.from(range.getClientRects())` 中真正具有宽高且落入当前视口的单个字符片段矩形，并在 `restoreReaderPosition` 中优先使用折叠光标点（或末片段矩形）计算列偏移；
