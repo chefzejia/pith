@@ -95,7 +95,7 @@ export interface TextQuoteMatch {
 }
 
 export interface PaginationMetrics {
-  readonly columns: 1 | 2;
+  readonly columns: 1 | 2 | 3;
   readonly columnWidthPx: number;
   readonly columnGapPx: number;
   readonly horizontalInsetPx: number;
@@ -115,10 +115,11 @@ export interface ResponsiveLayoutDecision {
   readonly sheetMode: "split-right" | "bottom-sheet" | "overlay-drawer";
   /** Stage width remaining after accounting for a docked right guide when `guideOpen && canSplitGuide`. */
   readonly stageWidthPx: number;
-  /** Whether the reading stage geometry satisfies the Two-Page Spread rule (`W_stage >= 936 && R_stage >= 1.15 && H_stage >= 520`). */
+  /** Whether at least two readable columns fit the reader. */
   readonly canDoubleColumn: boolean;
-  /** Effective columns (1 or 2) after combining user preference with physical geometry constraints. */
-  readonly effectiveColumns: 1 | 2;
+  readonly maxColumns: 1 | 2 | 3;
+  /** Effective columns after combining user preference with physical geometry constraints. */
+  readonly effectiveColumns: 1 | 2 | 3;
   /** Minimum interactive target size in px (44px on coarse pointer / phone, 34px on fine desktop). */
   readonly hitTargetPx: 34 | 44;
 }
@@ -130,14 +131,15 @@ export interface StageReaderService {
   extractProseBlocks?(markdownOrHtml: string): readonly ProseBlock[];
   extractTeachingBlocks?(markdown: string): readonly TeachingBlockSpec[];
   matchTextAnchor?(fullText: string, anchor: { readonly locator: IntrinsicLocator; readonly quote?: string; readonly prefix?: string; readonly suffix?: string }): TextQuoteMatch | null;
-  computePagination?(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode?: "auto" | "single" | "double"): PaginationMetrics;
+  computePagination?(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode?: "auto" | "single" | "double" | "triple"): PaginationMetrics;
   resolveResponsiveLayout?(input: {
     readonly width: number;
     readonly height: number;
     readonly fontSizePx?: number;
     readonly guideOpen?: boolean;
     readonly guideWidthPx?: number;
-    readonly preferredColumns?: "auto" | "single" | "double";
+    readonly readerWidthPx?: number;
+    readonly preferredColumns?: "auto" | "single" | "double" | "triple";
     readonly coarsePointer?: boolean;
   }): ResponsiveLayoutDecision;
   renderFile?(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView>;
@@ -286,4 +288,81 @@ export interface GuideAgentService {
     readonly anchor?: SelectionAnchor;
     readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[];
   }): string;
+}
+
+/**
+ * Interline ("行间" · Read originals with subtitles) capability seam (`dojo.interline`).
+ *
+ * Brings Interline's core reading model into Pith:
+ * - Source text remains the trust anchor (visible, quieter, checkable);
+ * - Target-language subtitle is embedded directly below each prose block;
+ * - Neighborhood preparation warms `[activeUnit, activeUnit + 1, ...]` with
+ *   reprioritization when the learner jumps to a new chapter/page, persisting
+ *   bilingual blocks to `_cache/interline/` so already-warmed units render with zero latency.
+ */
+export type InterlineTargetLanguage = "zh-Hans" | "zh-Hant" | "ja" | "ko" | "en";
+
+export type InterlineDisplayMode = "original" | "bilingual" | "subtitle-primary";
+
+export type InterlineUnitStatus = "pending" | "warming" | "ready" | "partial" | "failed";
+
+export interface InterlineSourceSegment {
+  readonly locator: IntrinsicLocator;
+  readonly blockIndex: number;
+  readonly sourceText: string;
+  readonly sourceHash: string;
+}
+
+export interface InterlineBilingualBlock {
+  readonly locator: IntrinsicLocator;
+  readonly blockIndex: number;
+  readonly sourceText: string;
+  readonly sourceHash: string;
+  readonly translation: string;
+  readonly status: "ready" | "pending" | "failed";
+}
+
+export interface InterlinePreparedUnit {
+  readonly materialId: string;
+  readonly file: string;
+  readonly unitIndex: number;
+  readonly targetLanguage: InterlineTargetLanguage;
+  readonly status: InterlineUnitStatus;
+  readonly blocks: readonly InterlineBilingualBlock[];
+  readonly updatedAt: string;
+  readonly error?: string;
+}
+
+export interface InterlinePrepareBatchInput {
+  readonly materialId: string;
+  readonly file: string;
+  readonly unitIndex: number;
+  readonly targetLanguage: InterlineTargetLanguage;
+  readonly segments: readonly InterlineSourceSegment[];
+  readonly signal?: AbortSignal;
+}
+
+export type InterlineTranslator = (
+  input: InterlinePrepareBatchInput,
+) => Promise<ReadonlyMap<IntrinsicLocator, string>>;
+
+export interface InterlineWarmupSnapshot {
+  readonly activeUnitIndex: number;
+  readonly targetLanguage: InterlineTargetLanguage;
+  readonly displayMode: InterlineDisplayMode;
+  readonly runningUnits: readonly number[];
+  readonly readyUnits: readonly number[];
+  readonly failedUnits: readonly number[];
+}
+
+export interface InterlineService extends DojoToolkitDescriptor {
+  readonly id: "interline";
+  readonly defaultTargetLanguage: InterlineTargetLanguage;
+  planNeighborhoodOrder(activeUnit: number, totalUnits: number, radius?: number): readonly number[];
+  computeSourceHash(text: string): string;
+  renderInterlineHtml(
+    chapterHtml: string,
+    translations: ReadonlyMap<IntrinsicLocator, string>,
+    mode: InterlineDisplayMode,
+  ): string;
 }
