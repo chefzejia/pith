@@ -42,7 +42,7 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     let base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, data: unknown) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
     const html = await (await fetch(base)).text();
-    for (const id of ["agent-id", "detect-agents", "agent-model", "agent-effort", "persona"]) assert.ok(html.includes(`id="${id}"`), id);
+    for (const id of ["simple-agent", "simple-scan", "simple-persona"]) assert.ok(html.includes(`id="${id}"`), id);
     assert.doesNotMatch(html, /data-plugin=|id="preset"/);
     const agents = await (await fetch(base + "/api/agents?force=true")).json() as { id: string; available: boolean; version: string }[];
     assert.equal(agents.find(agent => agent.id === "dsh")?.version, "dsh 1.2.3");

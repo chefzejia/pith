@@ -7,10 +7,7 @@ import { promisify } from "node:util";
 import { Script } from "node:vm";
 import test from "node:test";
 import type { DojoToolkitDescriptor } from "../src/core/index.ts";
-import { applyPaginationStyles, computePagination, navigateReaderTarget, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
 import { PithObsidianController, createObsidianHostPort } from "../src/shells/obsidian/index.ts";
-import { effectiveToolkits, toolkitSlot } from "../src/shells/toolkitSlot.ts";
-import { speechMode } from "../src/shells/speechSettings.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 
@@ -54,14 +51,19 @@ test("Obsidian build and web reader script expose production controls", async t 
   for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(buildRoot, path), { recursive: true });
   await symlink(resolve("node_modules"), join(buildRoot, "node_modules"), "dir");
   await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot });
-  const [main, manifest, styles, web] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css", "src/shells/web/server.ts"].map(path => readFile(join(buildRoot, path), "utf8")));
+  const [main, manifest, styles] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css"].map(path => readFile(join(buildRoot, path), "utf8")));
   assert.ok(main && styles); assert.equal(JSON.parse(manifest!).id, "pith");
   assert.doesNotMatch(main!, /此视图尚未提供/);
   assert.match(styles!, /\.pith-dojo-panel/);
-  let script = web!.split("<script>")[1]!.split("</script>")[0]!;
-  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, navigateReaderTarget, resolveEpubTarget, resolveReaderLocator, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
-  assert.doesNotThrow(() => new Script(script));
-  for (const token of ["page-mode", "columnWidth", "data-stage", "toolkit,saveNote", "n.anchor.prefix"]) assert.ok(script.includes(token), token);
+  const workspace = await mkdtemp(join(tmpdir(), "pith-reader-http-"));
+  const server = await createPithWebServer({ workspaceDir: workspace });
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string");
+    const html = await (await fetch(`http://127.0.0.1:${address.port}`)).text();
+    const script = html.split("<script>")[1]!.split("</script>")[0]!;
+    assert.doesNotThrow(() => new Script(script));
+    for (const token of ["page-mode", "columnWidth", "data-stage", "toolkit,saveNote", "n.anchor.prefix"]) assert.ok(script.includes(token), token);
+  } finally { await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await rm(workspace, { recursive: true, force: true }); }
 });
 
 test("web dojo API defaults to shadowing and validates explicit toolkit", async () => {

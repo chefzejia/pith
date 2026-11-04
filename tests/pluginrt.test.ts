@@ -9,6 +9,82 @@ import {
 } from "../src/core/index.ts";
 import { bootStandaloneShell } from "../src/shells/web/index.ts";
 
+test("configuration changes remount active providers and transitive consumers in dependency order", () => {
+  const events: string[] = [];
+  const plugin = (id: string, requires: string[], provides: string[]): PluginManifest => ({
+    id, name: id, description: id, requires, provides,
+    ...(id === "provider" ? { settings: { value: { type: "string" as const, title: "Value", default: "one" } } } : {}),
+    apply(ctx) {
+      events.push(`start:${id}:${ctx.config.value ?? ""}`);
+      for (const service of provides) ctx.provide(service, ctx.config.value ?? id);
+      ctx.onDispose(() => events.push(`stop:${id}`));
+    },
+  });
+  const rt = new PluginRuntime([plugin("provider", [], ["provider.service"]), plugin("consumer", ["provider.service"], ["consumer.service"]), plugin("downstream", ["consumer.service"], []), plugin("unrelated", [], [])]);
+  const config = (value: string) => ({ plugins: { provider: { config: { value } } } });
+  rt.reconcile(config("one")); events.length = 0;
+  rt.reconcile(config("one")); assert.deepEqual(events, []);
+  rt.reconcile(config("two"));
+  assert.deepEqual(events, ["stop:downstream", "stop:consumer", "stop:provider", "start:provider:two", "start:consumer:", "start:downstream:"]);
+  assert.equal(rt.getService("provider.service"), "two");
+});
+
+test("failed remount disposes dependent services without affecting unrelated plugins", () => {
+  const events: string[] = [];
+  const rt = new PluginRuntime([
+    { id: "provider", name: "Provider", description: "", provides: ["example"], settings: { value: { type: "string", title: "Value", default: "ok" } }, apply(ctx) { ctx.onDispose(() => events.push("provider disposed")); if (ctx.config.value === "bad") throw new Error("bad config"); ctx.provide("example", ctx.config.value); } },
+    { id: "consumer", name: "Consumer", description: "", requires: ["example"], apply(ctx) { ctx.onDispose(() => events.push("consumer disposed")); } },
+    { id: "unrelated", name: "Unrelated", description: "" },
+  ]);
+  rt.reconcile({ plugins: { provider: { config: { value: "ok" } } } });
+  rt.reconcile({ plugins: { provider: { config: { value: "bad" } } } });
+  assert.deepEqual(events, ["consumer disposed", "provider disposed", "provider disposed"]);
+  assert.equal(rt.active("unrelated"), true);
+  assert.equal(rt.getService("example"), undefined);
+  assert.equal(rt.statuses().find(status => status.id === "provider")!.state, "failed");
+  assert.equal(rt.statuses().find(status => status.id === "consumer")!.state, "pending");
+  rt.reconcile({ plugins: { provider: { config: { value: "fixed" } } } });
+  assert.equal(rt.getService("example"), "fixed");
+  assert.equal(rt.active("provider"), true);
+  assert.equal(rt.active("consumer"), true);
+});
+
+test("reconfiguring a lower stacked provider preserves the active provider priority", () => {
+  const rt = new PluginRuntime([
+    { id: "a", name: "A", description: "", provides: ["stacked"], settings: { value: { type: "string", title: "Value", default: "old" } }, apply(ctx) { ctx.provide("stacked", ctx.config.value); } },
+    { id: "b", name: "B", description: "", provides: ["stacked"], apply(ctx) { ctx.provide("stacked", "upper"); } },
+  ]);
+  rt.reconcile({ plugins: { a: { config: { value: "old" } } } });
+  assert.equal(rt.getService("stacked"), "upper");
+  rt.reconcile({ plugins: { a: { config: { value: "new" } } } });
+  assert.equal(rt.getService("stacked"), "upper");
+  rt.reconcile({ plugins: { a: { config: { value: "new" } }, b: { enabled: false } } });
+  assert.equal(rt.getService("stacked"), "new");
+});
+
+test("stacked providers recover from a failed reconfiguration without disturbing unrelated plugins", () => {
+  const events: string[] = [];
+  const rt = new PluginRuntime([
+    { id: "a", name: "A", description: "", provides: ["service"], settings: { value: { type: "string", title: "Value", default: "ok" } }, apply(ctx) { events.push(`start:a:${ctx.config.value}`); ctx.onDispose(() => events.push("stop:a")); if (ctx.config.value === "bad") throw new Error("invalid"); ctx.provide("service", ctx.config.value); } },
+    { id: "b", name: "B", description: "", provides: ["service"], apply(ctx) { events.push("start:b"); ctx.onDispose(() => events.push("stop:b")); ctx.provide("service", "upper"); } },
+    { id: "c", name: "C", description: "", requires: ["service"], provides: ["dependent"], apply(ctx) { events.push(`start:c:${ctx.service("service")}`); ctx.onDispose(() => events.push("stop:c")); ctx.provide("dependent", true); } },
+    { id: "d", name: "D", description: "", requires: ["dependent"], apply(ctx) { events.push("start:d"); ctx.onDispose(() => events.push("stop:d")); } },
+    { id: "unrelated", name: "Unrelated", description: "", apply(ctx) { events.push("start:unrelated"); ctx.onDispose(() => events.push("stop:unrelated")); } },
+  ]);
+  const config = (value: string) => ({ plugins: { a: { config: { value } } } });
+  rt.reconcile(config("ok")); events.length = 0;
+  rt.reconcile(config("bad"));
+  assert.deepEqual(events, ["stop:d", "stop:c", "stop:b", "stop:a", "start:a:bad", "stop:a", "start:b", "start:c:upper", "start:d"]);
+  assert.equal(rt.getService("service"), "upper");
+  events.length = 0;
+  rt.reconcile(config("fixed"));
+  assert.deepEqual(events, ["stop:d", "stop:c", "stop:b", "start:a:fixed", "start:b", "start:c:upper", "start:d"]);
+  assert.equal(rt.getService("service"), "upper");
+  rt.reconcile({ plugins: { a: { config: { value: "fixed" } }, b: { enabled: false } } });
+  assert.equal(rt.getService("service"), "fixed");
+  rt.stop();
+});
+
 test("Reconcile: topological order, failed plugin rollback, reverse cascading disposal", () => {
   const events: string[] = [];
   const note = (label: string) => () => {

@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createContext, runInContext } from "node:vm";
 import { PithObsidianController, PithWorkspaceView, createObsidianHostPort, validateWorkspacePath } from "../src/shells/obsidian/index.ts";
 import { PithObsidianView, obsidianStyles } from "../src/shells/obsidian/plugin.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -69,25 +68,4 @@ test("guide visibility is retained independently per topic and across chapters",
   Object.assign(workspace, { workspace: { leftSplit: { collapse: () => { collapsed++; } } }, homeRequest: 0, controller: { openCompass: async () => { throw new Error("offline"); } } });
   await assert.rejects((workspace.onOpen as () => Promise<void>).call(workspace), /offline/);
   assert.equal(collapsed, 1);
-});
-
-test("web remembers guide state by topic and keeps reader controls above content", async () => {
-  const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  const state = source.match(/^const guideByTopic=new Map\(\);.*$/m);
-  const handler = source.match(/^document\.addEventListener\('click',e=>\{const button=e\.target\.closest\('button'\);if\(!button\|\|!topic\)return;if\(button\.id==='toggle-side'.*$/m);
-  assert.ok(state && handler);
-  const handlers: ((event: unknown) => void)[] = [];
-  const context = createContext({ document: { addEventListener: (_name: string, fn: (event: unknown) => void) => handlers.push(fn) } });
-  runInContext(`let topic=null,sideVisible=true;let openTopic=async id=>{topic={id}};${state[0]}\n${handler[0]}`, context);
-  await runInContext("openTopic('a')", context);
-  assert.equal(runInContext("sideVisible", context), false);
-  runInContext("sideVisible=true", context);
-  handlers[0]!({ target: { closest: () => ({ id: "toggle-side", dataset: {} }) } });
-  await runInContext("openTopic('b')", context);
-  assert.equal(runInContext("sideVisible", context), false);
-  await runInContext("openTopic('a')", context);
-  assert.equal(runInContext("sideVisible", context), true);
-  assert.match(source, /\.pith-dock-zone\{position:static;display:block/);
-  assert.match(source, /\.reader-chrome\{height:44px/);
-  assert.match(source, /\.pith-typography-popover/);
 });

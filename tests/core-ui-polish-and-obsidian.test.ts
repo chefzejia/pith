@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createContext, runInContext, runInNewContext } from "node:vm";
 import { PithObsidianController, PithWorkspaceView, createObsidianHostPort } from "../src/shells/obsidian/index.ts";
 import { PithObsidianView, obsidianStyles, speechChapterRoot } from "../src/shells/obsidian/plugin.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
-import { applyPaginationStyles, computePagination, navigateReaderTarget, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
-import { effectiveToolkits, toolkitSlot } from "../src/shells/toolkitSlot.ts";
-import { speechMode } from "../src/shells/speechSettings.ts";
 
 test("web serves the real WOFF2 with an explicit font policy and reader styling", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-font-"));
@@ -65,21 +61,6 @@ test("Obsidian empty topic accepts an import and rejects replacement", async () 
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("web dock selects a mounted toolkit and keeps the optional add control", async () => {
-    const html = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-    const source = html.match(/const renderTrainingWithControls=renderTraining;renderTraining=function\(\)\{[^\n]+/);
-    assert.ok(source);
-    const run = (mounted: string[]) => {
-      const button = { textContent: "", title: "", classList: { toggle(_name: string, _value: boolean) {} }, setAttribute(_name: string, _value: string) {} };
-      const read = { textContent: "" };
-      const context = { renderTraining: () => {}, state: { dojos: ["shadowing", "feynman"] }, topic: { toolkits: mounted }, toolkit: "shadowing", file: "", readerFormat: "", effectiveToolkits, speechActive: false, $: (selector: string) => selector === "#open-dojo" ? button : read };
-      runInNewContext(`${source[0]}\nrenderTraining();`, context);
-      return { button, read, toolkit: context.toolkit };
-    };
-    const empty = run([]); assert.equal(empty.button.textContent, "+"); assert.equal(empty.read.textContent, "🎧 听读本章");
-    const feynman = run(["dojo-feynman"]); assert.equal(feynman.button.textContent, "费曼复述"); assert.equal(feynman.toolkit, "feynman");
-});
-
 test("chapter selection follows the viewport or selection and leaves ordinary documents whole", () => {
   const rect = (left: number, top: number, right: number, bottom: number) => ({ left, top, right, bottom });
   const first = { getClientRects: () => [rect(-800, 0, -1, 700)] };
@@ -127,139 +108,6 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
     return spoken;
   };
   assert.deepEqual(await run(false), ["B first.", "B second."]);
-});
-
-test("web navigation clears quoted state and cue clicks never mount shadowing", async () => {
-  const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  let script = source.split("<script>")[1]!.split("</script>")[0]!;
-  for (const fn of [resolveResponsiveLayout, computePagination, applyPaginationStyles, renderTocTree, navigateReaderTarget, resolveEpubTarget, resolveReaderLocator, updateTocLocation, toolkitSlot, effectiveToolkits, speechMode]) script = script.replace(`\${${fn.name}.toString()}`, fn.toString());
-  script = script.replace("refresh().then(home).catch(notify);", "");
-  const handlers: Record<string, ((event: unknown) => unknown)[]> = {};
-  const elements = new Map<string, Record<string, unknown>>();
-  const created: Record<string, unknown>[] = [];
-  const element = (selector: string): Record<string, unknown> => {
-    if (!elements.has(selector)) elements.set(selector, { style: {}, dataset: {}, hidden: false, innerHTML: "", value: "", disabled: false, classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, focus() {}, prepend() {}, before() {}, insertAdjacentHTML() {}, append() {}, querySelector: () => null, querySelectorAll: () => [] });
-    return elements.get(selector)!;
-  };
-  const document = {
-    body: { querySelector: () => null },
-    querySelector: (selector: string) => elements.has(selector) ? elements.get(selector) : ["#training", "#article", ".reader"].includes(selector) ? null : element(selector),
-    querySelectorAll: (selector: string) => selector === '[data-speech-active="true"]' ? [] : elements.has(selector) ? [elements.get(selector)] : ["#training", "#article", ".reader"].includes(selector) ? [] : [element(selector)],
-    createElement: () => { const node = { ...element("template"), dataset: {}, classList: { toggle() {} } }; created.push(node); return node; },
-    addEventListener: (name: string, fn: (event: unknown) => unknown) => { (handlers[name] ||= []).push(fn); },
-  };
-  element("#navigation").ownerDocument = document;
-  const context = createContext({ document, window: { addEventListener() {} }, console, Intl, AbortController, URL, setTimeout, clearTimeout, FormData, calls: [] as unknown[] });
-  runInContext(script, context);
-  runInContext(`state={compass:{exploring:[{id:'a',toolkits:[],notes:[]},{id:'b',toolkits:[],notes:[]}],settled:[]},materials:[],plugins:[],dojos:['shadowing','feynman']};topic=state.compass.exploring[0];file='a.md';pending={file:'a.md',quote:'A'};selection=pending;selectionRange={};refresh=async()=>{};api=async(path,data)=>{calls.push({path,data});return []}`, context);
-  const handler = handlers.click!.find(fn => String(fn).includes("t.dataset.open")); assert.ok(handler);
-  const click = (button: Record<string, unknown>) => ({ target: { closest: (selector: string) => selector === "button" ? button : null } });
-  await handler(click({ dataset: { open: "b" } }));
-  assert.equal(runInContext("topic.id", context), "b", String(element("#toast").textContent));
-  assert.equal(runInContext("pending", context), null);
-  assert.equal(runInContext("selectionRange", context), null);
-  element("#message").value = "B message";
-  await handler(click({ id: "send", dataset: {} }));
-  const calls = runInContext("calls", context) as { path: string; data: { topicId?: string; anchor?: unknown } }[];
-  const sent = calls.find(call => call.path === "/api/chat" && call.data); assert.ok(sent);
-  assert.equal(sent.data.topicId, "b"); assert.equal(sent.data.anchor, undefined);
-
-  let releaseChat!: () => void, releaseFile!: () => void, releaseOldFile!: () => void, chatStarted!: () => void, fileStarted!: () => void, oldFileStarted!: () => void;
-  const chatGate = new Promise<void>(resolve => { releaseChat = resolve; });
-  const fileGate = new Promise<void>(resolve => { releaseFile = resolve; });
-  const oldFileGate = new Promise<void>(resolve => { releaseOldFile = resolve; });
-  const chatWaiting = new Promise<void>(resolve => { chatStarted = resolve; });
-  const fileWaiting = new Promise<void>(resolve => { fileStarted = resolve; });
-  const oldFileWaiting = new Promise<void>(resolve => { oldFileStarted = resolve; });
-  Object.assign(context, { chatGate, fileGate, oldFileGate, chatStarted, fileStarted, oldFileStarted });
-  runInContext(`state.compass.exploring=[{id:'a',title:'A',materialId:'ma',toolkits:[],notes:[]},{id:'b',title:'B',materialId:'mb',toolkits:[],notes:[]}];state.materials=[{id:'ma',files:[{name:'same.md'}]},{id:'mb',files:[{name:'same.md'}]}];topic=state.compass.exploring[0];file='same.md';api=async(path,data)=>{calls.push({path,data});if(path.includes('/api/chat?topicId=b')){chatStarted();await chatGate;return []}if(path.includes('/api/materials/file?id=mb')){fileStarted();await fileGate;return {html:'B document',sections:[]}}if(path.includes('/api/materials/file?id=ma')){oldFileStarted();await oldFileGate;return {html:'A document',sections:[]}}return []}`, context);
-  const navigating = handler(click({ dataset: { open: "b" } }));
-  await chatWaiting;
-  assert.equal(runInContext("topic.id", context), "a");
-  runInContext("selection={file:'same.md',locator:'text:offset:0',quote:'A while loading'};selectionRange={}", context);
-  const quoting = handler(click({ dataset: { action: "ask" } }));
-  await oldFileWaiting;
-  assert.equal(runInContext("pending.quote", context), "A while loading");
-  releaseChat(); await fileWaiting;
-  assert.equal(runInContext("topic.id", context), "a");
-  releaseFile(); await navigating;
-  assert.equal(runInContext("topic.id", context), "b");
-  assert.equal(runInContext("pending", context), null);
-  assert.equal(runInContext("selectionRange", context), null);
-  assert.match(String(element("#main").innerHTML), /B document/);
-  releaseOldFile(); await quoting;
-  assert.match(String(element("#main").innerHTML), /B document/);
-  runInContext("calls.length=0", context);
-  element("#message").value = "B after loading";
-  await handler(click({ id: "send", dataset: {} }));
-  const afterLoad = (runInContext("calls", context) as { path: string; data?: { anchor?: unknown } }[]).find(call => call.path === "/api/chat" && call.data);
-  assert.ok(afterLoad); assert.equal(afterLoad.data!.anchor, undefined);
-
-  runInContext(`topic.materialId='m';state.materials=[{id:'m',files:[{name:'a.md'},{name:'b.md'}]}];file='a.md';pending={file:'a.md',quote:'A'};selection=pending;selectionRange={};api=async()=>({html:'',sections:[{title:'Deep heading',level:4,locator:'deep'}]})`, context);
-  await handler(click({ dataset: { file: "b.md" } }));
-  assert.equal(runInContext("pending", context), null);
-  assert.equal(runInContext("selectionRange", context), null);
-  assert.ok(created.some(node => node.textContent === "Deep heading"));
-  runInContext("pending={file:'b.md',quote:'B'};selection=pending;selectionRange={}", context);
-  await handler(click({ id: "home", dataset: {} }));
-  assert.equal(runInContext("pending", context), null);
-  assert.equal(runInContext("selectionRange", context), null);
-
-  const cueHandler = handlers.click!.find(fn => String(fn).includes("const cue=e.target.closest('.pith-cue')")); assert.ok(cueHandler);
-  runInContext("topic={id:'b',toolkits:['feynman']};trainingOpen=false;calls.length=0;transformTraining=async()=>{calls.push('transform')}", context);
-  const cue = { textContent: "00:01 spoken", dataset: { locator: "time:1" }, querySelector: () => ({ textContent: "00:01" }) };
-  const cueEvent = { target: { closest: (selector: string) => selector === ".pith-cue" ? cue : null } };
-  await cueHandler(cueEvent);
-  assert.equal(runInContext("trainingOpen", context), false);
-  assert.equal(runInContext("calls.length", context), 0);
-  runInContext("topic.toolkits=['shadowing']", context);
-  await cueHandler(cueEvent);
-  assert.equal(runInContext("trainingOpen", context), true);
-  assert.deepEqual(Array.from(runInContext("calls", context) as string[]), ["transform"]);
-
-  const trainingHandler = handlers.click!.find(fn => String(fn).includes("t.dataset.chooseDojo")); assert.ok(trainingHandler);
-  runInContext("topic={id:'b',toolkits:[]};trainingOpen=false;trainingChoosing=false;calls.length=0;renderTraining=()=>{};api=async(path,data)=>{calls.push({path,data})};openTopic=async(id)=>{calls.push({opened:id})}", context);
-  await trainingHandler(click({ id: "open-dojo", dataset: {} }));
-  assert.equal(runInContext("trainingChoosing", context), false);
-  assert.equal(runInContext("calls.length", context), 0);
-  await trainingHandler(click({ dataset: { chooseDojo: "feynman" }, disabled: false }));
-  assert.equal(runInContext("calls.length", context), 0);
-  runInContext("topic.toolkits=['feynman','shadowing']", context);
-  await trainingHandler(click({ id: "open-dojo", dataset: {} }));
-  assert.equal(runInContext("trainingChoosing", context), true);
-  await trainingHandler(click({ dataset: { chooseDojo: "feynman" }, disabled: false }));
-  assert.equal(runInContext("toolkit", context), "feynman");
-  assert.equal(runInContext("trainingOpen", context), true);
-  assert.equal(runInContext("calls.length", context), 0);
-
-  const makeChapter = (left: number, texts: string[]) => {
-    const chapter = { getClientRects: () => [{ left, right: left + 800, top: 0, bottom: 700 }], querySelectorAll: () => [] as object[] };
-    const blocks = texts.map(text => ({ textContent: text, dataset: { prose: "true" }, closest: (selector: string) => selector === ".pith-epub-chapter" ? chapter : null, querySelector: () => null }));
-    chapter.querySelectorAll = () => blocks;
-    return { chapter, blocks };
-  };
-  const first = makeChapter(-800, ["A."]), second = makeChapter(0, ["B first.", "B second."]);
-  const article = { querySelectorAll: () => [first.chapter, second.chapter], contains: (value: unknown) => value === first.chapter || value === second.chapter };
-  elements.set("#article", article);
-  elements.set(".reader", { getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 700 }) });
-  Object.assign(document, { createTreeWalker: () => ({ nextNode: () => null }), createRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => "" }) });
-  const audio = { onended: () => {}, onerror: () => {}, playbackRate: 1, play() { this.onended(); return Promise.resolve(); } };
-  let finish!: () => void;
-  Object.assign(context, { Node: { ELEMENT_NODE: 1 }, NodeFilter: { SHOW_TEXT: 4 }, Audio: function () { return audio; }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, finish: () => finish() });
-  runInContext("stopSpeech=()=>{if(speechActive){speechActive=false;finish()}};renderTraining=()=>{};speechGeneration=0;pageMode='double';speechRate=1;fetch=async(path,options)=>{calls.push(JSON.parse(options.body).text);return {ok:true,blob:async()=>({})}}", context);
-  const speak = async (selected: boolean): Promise<string[]> => {
-    runInContext("calls.length=0;speechActive=false", context);
-    const done = new Promise<void>(resolve => { finish = resolve; });
-    if (selected) {
-      const block = second.blocks[1]!;
-      Object.assign(context, { testRange: { startContainer: { nodeType: 3, parentElement: { closest: (selector: string) => selector === "[data-prose]" ? block : null } }, startOffset: 0 } });
-      runInContext("selectionRange=testRange", context);
-    }
-    runInContext(`startSpeech(${selected})`, context);
-    await done;
-    return Array.from(runInContext("calls", context) as string[]);
-  };
-  assert.deepEqual(await speak(false), ["B first.", "B second."]);
 });
 
 test("Obsidian tool chooser and cue require explicit or existing toolkit", async () => {

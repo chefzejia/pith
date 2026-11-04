@@ -9,6 +9,7 @@ import { PithObsidianController, PithSettingTab } from "../src/shells/obsidian/i
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
+import { testSandbox } from "./sandbox.ts";
 
 const close = (server: Server) => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 const response = (value: string, contentType: string) => { const bytes = new TextEncoder().encode(value); return { status: 200, headers: { "content-type": contentType }, bytes, text: () => value }; };
@@ -42,7 +43,7 @@ test("web speech settings survive restart and reach local TTS and ASR and cloud 
   try {
     await start();
     const html = await (await fetch(base)).text();
-    for (const id of ["tts-model", "asr-model", "tts-endpoint", "asr-endpoint"]) assert.ok(html.includes(`id="${id}"`), id);
+    for (const field of ["ttsModel", "asrModel", "ttsEndpoint", "asrLoopbackUrl"]) assert.ok(html.includes(`data-speech-field="${field}"`), field);
     assert.doesNotMatch(html, /Kokoro-82M|ghcr\.io\/remsky/);
     assert.equal((await post("/api/settings", { speech })).status, 200);
     assert.equal((await post("/api/settings", { speech: { ttsModel: 12 } })).status, 400);
@@ -99,6 +100,8 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
     ownerDocument = { createElement: (_tag: string) => new Element() };
     append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
     replaceChildren() { this.children = []; }
+    contains(node: Element): boolean { return this === node || this.children.some(child => child.contains(node)); }
+    querySelector(selector: string): Element | null { return selector === 'option[value="unconfigured"]' ? this.children.find(child => child.value === "unconfigured") ?? null : null; }
     setAttribute(_name: string, _value: string) {}
     addEventListener(_type: string, listener: () => void) { this.onchange = listener; }
   }
@@ -119,5 +122,90 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
     const path = row("Pith 数据目录（相对于 Vault）"); path.value = "../invalid"; status.textContent = ""; path.onchange!();
     for (let i = 0; i < 1000 && !status.textContent; i++) await new Promise<void>(resolve => setImmediate(resolve));
     assert.match(status.textContent, /Invalid workspace root/);
+  } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("Obsidian ignores a stale scan after settings are rebuilt and persists explicit offline", async () => {
+  class Element {
+    children: Element[] = []; parentElement: Element | null = null; textContent = ""; value = ""; disabled = false; hidden = false; onclick: (() => void) | null = null; onchange: (() => void) | null = null;
+    ownerDocument = { createElement: (_tag: string) => new Element() };
+    append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
+    replaceChildren() { this.children = []; }
+    contains(node: Element): boolean { return this === node || this.children.some(child => child.contains(node)); }
+    querySelector(selector: string): Element | null { return selector === 'option[value="unconfigured"]' ? this.children.find(child => child.value === "unconfigured") ?? null : null; }
+    setAttribute() {}
+    addEventListener(type: string, listener: () => void) { if (type === "change") this.onchange = listener; }
+  }
+  const dir = await mkdtemp(join(tmpdir(), "pith-wave13-obsidian-agent-"));
+  const host = { id: "obsidian" as const, storage: new NodeWorkspaceStorage(dir) };
+  let controller = new PithObsidianController(host);
+  try {
+    await controller.initialize();
+    let resolveScan!: (value: Awaited<ReturnType<typeof controller.detectAgents>>) => void;
+    let calls = 0;
+    controller.detectAgents = () => ++calls === 1 ? new Promise(resolve => { resolveScan = resolve; }) : Promise.resolve([]);
+    const tab = new PithSettingTab({} as never, { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false } as never, controller);
+    const root = new Element(); tab.containerEl = root as never; tab.display();
+    const firstScan = root.children.find(node => node.textContent === "本机 Agent")!.children[1]!;
+    tab.display();
+    resolveScan([{ id: "dsh", available: true } as Awaited<ReturnType<typeof controller.detectAgents>>[number]]);
+    for (let i = 0; i < 100 && firstScan.disabled; i++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(firstScan.disabled, false);
+    assert.equal(controller.isAgentConfigured(), false);
+    const agent = root.children.find(node => node.textContent === "本机 Agent")!.children[0]!;
+    agent.value = ""; agent.onchange!();
+    for (let i = 0; i < 100 && !controller.isAgentConfigured(); i++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(controller.isAgentConfigured(), true);
+    for (let i = 0; i < 100 && !await host.storage.exists("_cache/web-settings.json"); i++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(JSON.parse(await host.storage.readText("_cache/web-settings.json")).agentConfigured, true);
+    controller.dispose(); controller = new PithObsidianController(host); await controller.initialize();
+    assert.equal(controller.isAgentConfigured(), true);
+    assert.equal(controller.getAgentConfig().agentId, "");
+  } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("Obsidian settings serialize offline intent across rebuilt panels and delayed saves", async () => {
+  class Element {
+    children: Element[] = []; parentElement: Element | null = null; textContent = ""; value = ""; disabled = false; hidden = false; onclick: (() => void) | null = null; onchange: (() => void) | null = null;
+    ownerDocument = { createElement: (_tag: string) => new Element() };
+    append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
+    replaceChildren() { this.children = []; }
+    contains(node: Element): boolean { return this === node || this.children.some(child => child.contains(node)); }
+    querySelector(selector: string): Element | null { return selector === 'option[value="unconfigured"]' ? this.children.find(child => child.value === "unconfigured") ?? null : null; }
+    setAttribute() {}
+    addEventListener(type: string, listener: () => void) { if (type === "change") this.onchange = listener; }
+  }
+  const dir = await testSandbox("pith-agent-queue-");
+  const host = { id: "obsidian" as const, storage: new NodeWorkspaceStorage(dir) };
+  let controller = new PithObsidianController(host);
+  try {
+    await controller.initialize();
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const setPersona = controller.setPersona.bind(controller);
+    controller.setPersona = async value => { entered(); await gate; await setPersona(value); };
+    let offlineDone!: () => void, releaseDsh!: () => void, dshDone!: () => void, dshCalls = 0;
+    const offlineSaved = new Promise<void>(resolve => { offlineDone = resolve; });
+    const dshGate = new Promise<void>(resolve => { releaseDsh = resolve; });
+    const dshSaved = new Promise<void>(resolve => { dshDone = resolve; });
+    const setAgentConfig = controller.setAgentConfig.bind(controller);
+    controller.setAgentConfig = async config => { if (config.agentId === "dsh") { dshCalls++; await dshGate; } await setAgentConfig(config); if (config.agentId === "") offlineDone(); else if (config.agentId === "dsh") dshDone(); };
+    let scans = 0;
+    controller.detectAgents = async () => ++scans === 1 ? [] : [{ id: "dsh", available: true } as Awaited<ReturnType<typeof controller.detectAgents>>[number]];
+    const tab = new PithSettingTab({} as never, { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false } as never, controller);
+    const root = new Element(); tab.containerEl = root as never; tab.display();
+    const field = (label: string) => root.children.find(node => node.textContent === label)!.children[0]!;
+    field("术语风格").value = "studio"; field("术语风格").onchange!(); await started;
+    field("本机 Agent").value = ""; field("本机 Agent").onchange!();
+    tab.display();
+    const scan = root.children.find(node => node.textContent === "本机 Agent")!.children[1]!;
+    for (let i = 0; i < 100 && scan.disabled; i++) await new Promise<void>(resolve => setImmediate(resolve));
+    const displayed = field("本机 Agent").value;
+    release(); await offlineSaved; releaseDsh(); if (dshCalls) await dshSaved;
+    assert.equal(scan.disabled, false); assert.equal(displayed, "");
+    assert.equal(dshCalls, 0); assert.equal(controller.getAgentConfig().agentId, "");
+    controller.dispose(); controller = new PithObsidianController(host); await controller.initialize();
+    assert.equal(controller.isAgentConfigured(), true); assert.equal(controller.getAgentConfig().agentId, "");
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });

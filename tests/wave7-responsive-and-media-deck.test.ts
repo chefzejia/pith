@@ -15,11 +15,11 @@ import type { HostPort, StageReaderService } from "../src/core/index.ts";
 test("responsive reader geometry follows container shape and guide width", () => {
   const cases = [
     [{ width: 390, height: 844 }, "portrait-phone", false, "bottom-sheet", false, 1, 44],
-    [{ width: 844, height: 390 }, "landscape-phone", false, "overlay-drawer", false, 1, 44],
+    [{ width: 844, height: 390 }, "landscape-phone", false, "overlay-drawer", true, 1, 44],
     [{ width: 780, height: 860 }, "foldable-square", true, "split-right", false, 1, 34],
-    [{ width: 1150, height: 800 }, "tablet-desktop", true, "split-right", true, 2, 34],
-    [{ width: 1150, height: 800, guideOpen: true }, "tablet-desktop", true, "split-right", false, 1, 34],
-    [{ width: 1440, height: 900, guideOpen: true }, "tablet-desktop", true, "split-right", true, 2, 34],
+    [{ width: 1150, height: 800 }, "tablet-desktop", true, "split-right", true, 1, 34],
+    [{ width: 1150, height: 800, guideOpen: true }, "tablet-desktop", true, "split-right", true, 1, 34],
+    [{ width: 1440, height: 900, guideOpen: true }, "tablet-desktop", true, "split-right", true, 1, 34],
   ] as const;
   for (const [input, formFactor, canSplitGuide, sheetMode, canDoubleColumn, effectiveColumns, hitTargetPx] of cases) {
     const result = resolveResponsiveLayout(input);
@@ -31,8 +31,21 @@ test("responsive reader geometry follows container shape and guide width", () =>
   assert.equal(resolveResponsiveLayout({ width: 1200, height: 800, coarsePointer: true }).hitTargetPx, 44);
   assert.equal(resolveResponsiveLayout({ width: 739, height: 600 }).canSplitGuide, false);
   assert.equal(resolveResponsiveLayout({ width: 740, height: 600 }).canSplitGuide, true);
-  assert.equal(resolveResponsiveLayout({ width: 935, height: 520 }).canDoubleColumn, false);
-  assert.equal(resolveResponsiveLayout({ width: 936, height: 520 }).canDoubleColumn, true);
+  assert.equal(resolveResponsiveLayout({ width: 720, height: 2000 }).maxColumns, 1);
+  assert.equal(resolveResponsiveLayout({ width: 800, height: 2000, preferredColumns: "double" }).effectiveColumns, 2);
+  assert.equal(resolveResponsiveLayout({ width: 1248, height: 300, preferredColumns: "triple" }).effectiveColumns, 3);
+  assert.equal(resolveResponsiveLayout({ width: 1248, height: 300, readerWidthPx: 700, preferredColumns: "triple" }).effectiveColumns, 1);
+  assert.equal(resolveResponsiveLayout({ width: 1248, height: 300, preferredColumns: "single" }).effectiveColumns, 1);
+});
+
+test("column limits use actual reader width, including the gap, independent of window height", () => {
+  for (const height of [200, 2000]) {
+    for (const [readerWidthPx, expected] of [[799, 1], [800, 2], [1247, 2], [1248, 3]] as const) {
+      const layout = resolveResponsiveLayout({ width: 2000, height, readerWidthPx, preferredColumns: "triple" });
+      assert.equal(layout.maxColumns, expected, `${readerWidthPx}x${height}`);
+      assert.equal(layout.effectiveColumns, expected);
+    }
+  }
 });
 
 test("audio types are detected by MIME or recognized extension", () => {

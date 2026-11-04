@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { createContext, runInContext } from "node:vm";
 import type { HostPort, HttpRequestSpec, HttpResponseData } from "../src/core/index.ts";
 import { createNeuralSpeech, isLoopbackSafe } from "../src/plugins/speech-service/index.ts";
+import { createPithWebServer } from "../src/shells/web/server.ts";
 
 const config = { ttsProvider: "kokoro-local" as const, ttsEndpoint: "", ttsVoice: "", azureRegion: "", asrProvider: "whisper-local" as const, asrLoopbackUrl: "http://localhost:9999", rate: 1 };
 const response = (text: string, contentType: string, status = 200): HttpResponseData => ({ status, headers: { "content-type": contentType }, bytes: new TextEncoder().encode(text), text: () => text });
@@ -37,35 +39,21 @@ for (const provider of ["whisper-local", "sensevoice-local"] as const) {
   });
 }
 
-test("web ASR provider switching preserves custom endpoints and updates defaults", async () => {
-  const source = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  const lines = source.split("\n");
-  const submit = lines.find(line => line.startsWith("document.addEventListener('submit',async e=>{if(e.target.id!=='create'"));
-  const options = lines.find(line => line.startsWith("const speechOptions="));
-  const click = lines.find(line => line.startsWith("document.addEventListener('click',async e=>{const button=e.target.closest('button')"));
-  assert.ok(submit && options && click);
-  const handlers: Record<string, ((event: never) => Promise<void>)[]> = {};
-  class Element {
-    value = ""; disabled = false; textContent = ""; listeners: (() => void)[] = [];
-    addEventListener(_type: string, fn: () => void) { this.listeners.push(fn); }
-    insertAdjacentHTML() {}
-    change(value: string) { this.value = value; for (const listener of this.listeners) listener(); }
-  }
-  const elements = new Map<string, Element>();
-  const element = (key: string) => { if (!elements.has(key)) elements.set(key, new Element()); return elements.get(key)!; };
-  const document = { addEventListener: (event: string, fn: (event: never) => Promise<void>) => { (handlers[event] ||= []).push(fn); } };
-  const sent: { speech: { asrProvider: string; asrLoopbackUrl: string } }[] = [];
-  const state = { settings: { speech: { asrProvider: "whisper-local", asrLoopbackUrl: "http://localhost:9876/custom" } } };
-  const context = createContext({ document, $: element, state, api: async (_path: string, body: typeof sent[number]) => { sent.push(body); }, refresh: async () => {}, topic: null, drawer: { hidden: false }, notify: (error: unknown) => { throw error; } });
-  runInContext(`${options}\n${click}\n${submit}`, context);
-  await handlers.click![0]!({ target: { closest: () => ({ id: "settings" }) } } as never);
-  const select = element("#asr-provider"), endpoint = element("#asr-endpoint");
-  assert.equal(endpoint.value, "http://localhost:9876/custom");
-  select.change("sensevoice-local"); assert.equal(endpoint.value, "http://localhost:9876/custom");
-  select.change("whisper-local"); assert.equal(endpoint.value, "http://localhost:9876/custom");
-  await handlers.submit![0]!({ target: { id: "settings-form" }, preventDefault() {} } as never);
-  assert.equal(sent[0]!.speech.asrLoopbackUrl, "http://localhost:9876/custom");
-  endpoint.value = "http://localhost:8765";
-  select.change("sensevoice-local"); assert.equal(endpoint.value, "http://127.0.0.1:8766");
-  select.change("whisper-local"); assert.equal(endpoint.value, "http://localhost:8765");
+test("web ASR provider settings preserve custom endpoints across changes and restart", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pith-asr-provider-"));
+  let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
+  try {
+    const start = async () => { server = await createPithWebServer({ workspaceDir: dir }); const address = server.address(); assert.ok(address && typeof address !== "string"); return `http://127.0.0.1:${address.port}`; };
+    const close = async () => { await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; };
+    let base = await start();
+    for (const asrProvider of ["whisper-local", "sensevoice-local", "whisper-local"]) {
+      const speech = { asrProvider, asrLoopbackUrl: "http://localhost:9876/custom" };
+      const result = await fetch(`${base}/api/settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ speech }) });
+      assert.equal(result.status, 200);
+      assert.deepEqual((await result.json()).settings.speech, speech);
+    }
+    await close(); base = await start();
+    const saved = (await (await fetch(`${base}/api/state`)).json()).settings.speech;
+    assert.deepEqual(saved, { asrProvider: "whisper-local", asrLoopbackUrl: "http://localhost:9876/custom" });
+  } finally { if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

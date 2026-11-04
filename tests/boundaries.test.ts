@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -13,7 +14,7 @@ function walkTsFiles(dir: string): string[] {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...walkTsFiles(full));
-    } else if (entry.isFile() && full.endsWith(".ts")) {
+    } else if (entry.isFile() && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(full)) {
       results.push(full);
     }
   }
@@ -35,6 +36,62 @@ function extractModuleSpecifiers(source: string): string[] {
   }
   return specs;
 }
+
+test("source does not retain Base aliases for function wrappers", () => {
+  const alias = /\bconst\s+[A-Za-z_$][\w$]*Base\s*=\s*[A-Za-z_$][\w$]*\s*(?:;|,|$)/gm;
+  assert.match("const renderTrainingBase=renderTraining;", new RegExp(alias.source));
+  assert.match("const trainingChromeBase=renderTraining;", new RegExp(alias.source));
+  assert.doesNotMatch("const SettingTabBase = obsidian.PluginSettingTab || class {};", new RegExp(alias.source));
+  const violations = walkTsFiles(SRC).flatMap(file => {
+    const content = readFileSync(file, "utf8");
+    return Array.from(content.matchAll(alias), match => `${relative(ROOT, file)}: ${match[0]}`);
+  });
+  assert.deepEqual(violations, []);
+});
+
+test("Web reader entry points have one definition and are never reassigned", () => {
+  const content = readFileSync(join(SRC, "shells/web/server.ts"), "utf8");
+  for (const name of ["renderTraining", "home", "workspace", "openTopic", "startSpeech"]) {
+    assert.equal([...content.matchAll(new RegExp(`\\b(?:async\\s+)?function\\s+${name}\\s*\\(`, "g"))].length, 1, name);
+    assert.doesNotMatch(content, new RegExp(`\\b${name}\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>)`), name);
+  }
+  assert.doesNotMatch(content, /stopImmediatePropagation\s*\(/);
+});
+
+function extractsSourceIntoVm(content: string): boolean {
+  const file = ts.createSourceFile("test.ts", content, ts.ScriptTarget.Latest, true);
+  const readNames = new Set(["readFile", "readFileSync"]), vmNames = new Set(["runInContext", "runInNewContext"]);
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const item of statement.importClause.namedBindings.elements) {
+      const original = item.propertyName?.text ?? item.name.text;
+      if (readNames.has(original)) readNames.add(item.name.text);
+      if (vmNames.has(original)) vmNames.add(item.name.text);
+    }
+  }
+  let sourcePath = false, fileRead = false, vmExecution = false;
+  function visit(node: ts.Node): void {
+    if (ts.isStringLiteralLike(node) && !(ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) && /(?:^|\/)src(?:\/|$)/.test(node.text)) sourcePath = true;
+    if (ts.isCallExpression(node)) {
+      const name = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ts.isIdentifier(node.expression) ? node.expression.text : "";
+      if (readNames.has(name)) fileRead = true;
+      if (vmNames.has(name)) vmExecution = true;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return sourcePath && fileRead && vmExecution;
+}
+
+test("tests do not execute extracted source in a VM", () => {
+  assert.equal(extractsSourceIntoVm('const s=readFile("src/example.ts"); vm.runInContext(s, context);'), true);
+  assert.equal(extractsSourceIntoVm('import {readFile as read} from "node:fs/promises"; import {runInContext as run} from "node:vm"; const p="../src/example.ts"; run(read(p), context);'), true);
+  assert.equal(extractsSourceIntoVm('vm.runInNewContext(readFileSync(join(root, "src", "example.js")), context);'), true);
+  assert.equal(extractsSourceIntoVm('const s=readFile("src/example.ts"); assert.match(s, /rule/);'), false);
+  assert.equal(extractsSourceIntoVm('const s=readFile("fixture.json"); vm.runInContext(s, context);'), false);
+  const violations = walkTsFiles(join(ROOT, "tests")).filter(file => extractsSourceIntoVm(readFileSync(file, "utf8"))).map(file => relative(ROOT, file));
+  assert.deepEqual(violations, []);
+});
 
 test("PluginsImportOnlyCore: core never imports plugins/shells, and plugins never import each other", () => {
   const files = walkTsFiles(SRC);

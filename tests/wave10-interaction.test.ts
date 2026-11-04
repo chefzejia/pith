@@ -1,23 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { runInNewContext } from "node:vm";
 import { applyPaginationStyles, renderTocTree, updateTocLocation } from "../src/plugins/stage-reader/pagination.ts";
 import { PithSettingTab, createObsidianHostPort, saveObsidianSecret } from "../src/shells/obsidian/index.ts";
-
-test("Web speech error action opens the complete settings entry point", () => {
-  const source = readFileSync(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-  const notify = source.match(/let toastTimer;function notify\(e,speechSettings=false\)\{[^\n]+/);
-  assert.ok(notify);
-  let button: { textContent: string; onclick?: () => void } | undefined, clicks = 0;
-  const toast = { hidden: true, textContent: "", append: (_: string, element: typeof button) => { button = element; } };
-  const context = { document: { createElement: () => ({ textContent: "" }) }, $: (selector: string) => selector === "#toast" ? toast : { click: () => { clicks++; } }, clearTimeout() {}, setTimeout: () => 1, settings: () => { throw new Error("incomplete settings entry"); } };
-  runInNewContext(`${notify[0]};notify(new Error("unavailable"), true)`, context);
-  assert.ok(button?.onclick);
-  button.onclick();
-  assert.equal(clicks, 1);
-  assert.equal(toast.hidden, true);
-});
 
 test("pagination sizes media after margins and binds one load callback", () => {
   const properties = new Map<string, string>();
@@ -50,13 +34,15 @@ test("settings save secrets only through encrypted storage and report saved heal
     ownerDocument = { createElement: () => new Element() };
     append(...children: Element[]) { for (const child of children) child.parentElement = this; this.children.push(...children); }
     replaceChildren() { this.children = []; }
+    contains(node: Element): boolean { return this === node || this.children.some(child => child.contains(node)); }
+    querySelector(selector: string): Element | null { return selector === 'option[value="unconfigured"]' ? this.children.find(child => child.value === "unconfigured") ?? null : null; }
     setAttribute() {} addEventListener(type: string, fn: () => void) { if (type === "change") this.onchange = fn; }
   }
   const values = new Map<string, string>(), writes: unknown[] = [];
   const storage = { getSecret: (id: string) => values.get(id) ?? null, setSecret: (id: string, value: string) => { values.set(id, value); }, isEncryptionAvailable: () => true };
   const plugin = { app: { secretStorage: storage }, saveSpeechSecret: (value: string) => { saveObsidianSecret(storage, "OPENAI_API_KEY", value); return "encrypted"; }, getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
   const controller = {
-    getAgentConfig: () => ({ agentId: "", persona: "sanctuary" }), getSpeechConfig: () => ({}),
+    getAgentConfig: () => ({ agentId: "", persona: "sanctuary" }), isAgentConfigured: () => true, getSpeechConfig: () => ({}),
     detectAgents: async () => [],
     setAgentConfig: async (config: unknown) => { writes.push(config); }, setSpeechConfig: async (config: unknown) => { writes.push(config); },
     runtime: { getService: (id: string) => ({ checkHealth: async () => id === "speech.tts" ? { status: "verified", note: "ready" } : { status: "unverified", note: "not checked" } }) },

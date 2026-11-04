@@ -1,16 +1,49 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isDeepStrictEqual, promisify } from "node:util";
-import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles } from "../src/shells/speechSettings.ts";
-// @ts-expect-error JavaScript helper has no declaration file.
-import { snapshotFiles } from "./obsidian-safety.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { migrateLegacySpeech, switchSpeechMode } from "../src/shells/speechSettings.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const devVault = resolve(root, ".dev-vault");
 const obsidianBin = "/Applications/Obsidian.app/Contents/MacOS/Obsidian";
+
+export async function startSpeechStub(): Promise<{ base: string; requests: string[]; close: () => Promise<void> }> {
+  const requests: string[] = [];
+  const server = createHttpServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    if (request.method === "GET" && request.url === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end("{}"); }
+    else { response.writeHead(404); response.end(); }
+  });
+  await new Promise<void>((resolveListen, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolveListen); });
+  const address = server.address();
+  if (!address || typeof address === "string") { server.close(); throw new Error("Speech stub has no TCP address"); }
+  return { base: `http://127.0.0.1:${address.port}`, requests, close: () => new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())) };
+}
+
+export function isolatedLaunchArgs(userDataDir: string, port: number): string[] {
+  return [`--user-data-dir=${userDataDir}`, `--remote-debugging-port=${port}`, "--use-mock-keychain", "--password-store=basic"];
+}
+
+export function isolatedVaultRegistry(timestamp: number): object {
+  return { updateDisabled: true, vaults: { devvault00000001: { path: devVault, ts: timestamp } } };
+}
+
+export async function prepareIsolatedVault(vault: string, build: string): Promise<{ configDir: string; workspacePath: string }> {
+  const info = await lstat(vault);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(".dev-vault must be an existing directory");
+  const config = await mkdtemp(resolve(vault, ".pith-e2e-"));
+  const workspace = await mkdtemp(resolve(vault, "Pith-e2e-"));
+  const plugin = resolve(config, "plugins/pith");
+  await mkdir(plugin, { recursive: true });
+  for (const name of ["main.js", "manifest.json", "styles.css"]) await copyFile(resolve(build, name), resolve(plugin, name));
+  await writeFile(resolve(plugin, "data.json"), JSON.stringify({ workspacePath: basename(workspace) }), { flag: "wx" });
+  await writeFile(resolve(config, "community-plugins.json"), JSON.stringify(["pith"]), { flag: "wx" });
+  return { configDir: basename(config), workspacePath: basename(workspace) };
+}
 
 async function findFreePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
@@ -29,12 +62,6 @@ async function findFreePort(): Promise<number> {
   });
 }
 
-export function isOwnedProcess(pid: number, owner: number, parents: Map<number, number>): boolean {
-  const seen = new Set<number>();
-  while (pid > 0 && !seen.has(pid)) { if (pid === owner) return true; seen.add(pid); pid = parents.get(pid) ?? 0; }
-  return false;
-}
-
 export async function stopOwnedChild(child: ChildProcess, exited: Promise<void>, timeoutMs = 15_000): Promise<void> {
   if (!child.pid) return;
   if (child.exitCode === null && child.signalCode === null && child.pid) child.kill("SIGTERM");
@@ -43,27 +70,15 @@ export async function stopOwnedChild(child: ChildProcess, exited: Promise<void>,
   finally { if (timer) clearTimeout(timer); }
 }
 
-async function ownedPort(port: number, owner: number): Promise<boolean> {
-  let listeners: string;
-  try { listeners = (await promisify(execFile)("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"])).stdout; }
-  catch (error) { if ((error as { code?: number }).code === 1) return false; throw error; }
-  const ids = listeners.trim().split(/\s+/).map(Number);
-  const processes = await promisify(execFile)("/bin/ps", ["-axo", "pid=,ppid="]);
-  const parents = new Map<number, number>();
-  for (const line of processes.stdout.split("\n")) { const match = line.trim().match(/^(\d+)\s+(\d+)$/); if (match) parents.set(Number(match[1]), Number(match[2])); }
-  if (!ids.length || ids.some(pid => !Number.isInteger(pid) || !isOwnedProcess(pid, owner, parents))) throw new Error("CDP port belongs to an unowned process");
-  return true;
-}
-
-async function pollJson(url: string, checkOwner: () => Promise<boolean>, timeoutMs = 15_000): Promise<Array<{ id: string; url: string; webSocketDebuggerUrl: string }>> {
+async function pollJson(url: string, child: ChildProcess, matches: (url: string) => boolean, timeoutMs = 15_000): Promise<Array<{ id: string; url: string; webSocketDebuggerUrl: string }>> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!await checkOwner()) { await new Promise(r => setTimeout(r, 250)); continue; }
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error("Obsidian process exited");
     try {
       const res = await fetch(url);
       if (res.ok) {
         const list = (await res.json()) as Array<{ id: string; url: string; webSocketDebuggerUrl: string }>;
-        if (list.some(item => item.url.includes("obsidian.md") && item.webSocketDebuggerUrl)) return list;
+        if (list.some(item => matches(item.url) && item.webSocketDebuggerUrl)) return list;
       }
     } catch {
       // retry until deadline
@@ -111,108 +126,60 @@ async function evaluateInPage<T>(wsUrl: string, expression: string): Promise<T> 
       resolveEval(msg.result?.result?.value as T);
     });
 
-    ws.addEventListener("error", err => {
+    ws.addEventListener("error", () => {
       clearTimeout(timer);
-      rejectEval(err);
+      rejectEval(new Error(`CDP WebSocket connection failed: ${wsUrl}`));
     });
   });
 }
 
-export function hasObsidianProcess(output: string): boolean {
-  return output.split("\n").some(line => /\/Obsidian\.app\/Contents\/MacOS\/Obsidian(?:\s|$)/.test(line));
-}
-
-async function assertNoObsidian(): Promise<void> {
-  const processes = await promisify(execFile)("/bin/ps", ["-axo", "pid=,command="]);
-  if (hasObsidianProcess(processes.stdout)) throw new Error("An Obsidian process is already running; refusing to attach or launch");
-}
-
-async function assertOwnedObsidian(owner: number): Promise<void> {
-  const processes = await promisify(execFile)("/bin/ps", ["-axo", "pid=,ppid=,command="]);
-  const parents = new Map<number, number>(); const mains: number[] = [];
-  for (const line of processes.stdout.split("\n")) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line); if (!match) continue;
-    const pid = Number(match[1]); parents.set(pid, Number(match[2]));
-    if (/\/Obsidian\.app\/Contents\/MacOS\/Obsidian(?:\s|$)/.test(match[3]!)) mains.push(pid);
-  }
-  if (!mains.includes(owner) || mains.some(pid => !isOwnedProcess(pid, owner, parents))) throw new Error("Unowned or missing Obsidian process; refusing to continue");
-}
-
 async function main(): Promise<void> {
-  const vaultInfo = await lstat(devVault);
-  if (!vaultInfo.isDirectory() || vaultInfo.isSymbolicLink()) throw new Error(".dev-vault must be an existing directory");
-  await assertNoObsidian();
-  for (const path of ["Pith", "Pith/topics", "Pith/materials", "Pith/_cache"]) {
-    const info = await lstat(resolve(devVault, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Expected existing directory: ${path}`);
-  }
-  const profile = await lstat(resolve(devVault, "Pith/ME.md")); if (!profile.isFile() || profile.isSymbolicLink()) throw new Error("Expected existing Pith/ME.md");
   const tmp = resolve(root, ".tmp"); await mkdir(tmp, { recursive: true }); const tmpInfo = await lstat(tmp); if (!tmpInfo.isDirectory() || tmpInfo.isSymbolicLink()) throw new Error("Invalid .tmp directory");
   const runDir = await mkdtemp(resolve(tmp, "pith-obsidian-e2e-"));
   const userDataDir = resolve(runDir, "profile");
-  const settingsPath = "Pith/_cache/web-settings.json";
-  const configPaths = [settingsPath, ".obsidian/plugins/pith/data.json", ".obsidian/community-plugins.json", ".obsidian/workspace.json", ".obsidian/app.json", ".obsidian/appearance.json", ".obsidian/core-plugins.json", ".obsidian/graph.json", ".obsidian/hotkeys.json"];
-  console.error(`Obsidian E2E backup: ${resolve(runDir, "backup")}`);
-  const snapshot = await snapshotFiles(devVault, configPaths, resolve(runDir, "backup"));
-  let pluginData: { workspacePath?: unknown } = {};
-  try { pluginData = JSON.parse(await readFile(resolve(devVault, ".obsidian/plugins/pith/data.json"), "utf8")); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  if (!pluginData || (pluginData.workspacePath !== undefined && pluginData.workspacePath !== "Pith")) throw new Error(`Unsupported workspace path; backup: ${runDir}`);
-  try { const enabled: unknown = JSON.parse(await readFile(resolve(devVault, ".obsidian/community-plugins.json"), "utf8")); if (!Array.isArray(enabled) || enabled.some(id => id !== "pith")) throw new Error("Other community plugins are enabled"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  let saved: Record<string, unknown> = {};
-  try { saved = JSON.parse(await readFile(resolve(devVault, settingsPath), "utf8")); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid saved settings");
-  if (saved.speech !== undefined && (!saved.speech || typeof saved.speech !== "object" || Array.isArray(saved.speech) || Object.values(saved.speech).some(value => typeof value !== "string"))) throw new Error("Invalid speech settings");
-  if (saved.speechProfiles !== undefined && !validSpeechProfiles(saved.speechProfiles)) throw new Error("Invalid speech profiles");
-  if (saved.speechSettingsVersion !== undefined && saved.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
-  const originalSpeech = migrateLegacySpeech((saved.speech ?? {}) as Record<string, string>, saved.speechSettingsVersion, saved.speechProfiles);
-  const switched = switchSpeechMode(originalSpeech, saved.speechProfiles ?? {}, "local");
-  const speech = { ...switched.speech, ttsEndpoint: "http://127.0.0.1:8880/v1/audio/speech", ttsModel: "e2e-tts-model", ttsVoice: "e2e-voice", asrLoopbackUrl: "http://127.0.0.1:8766/v1/audio/transcriptions", asrModel: "e2e-asr-model" };
-  const agent = { agentId: saved.agentId ?? "", model: saved.model ?? "", effort: saved.effort ?? "", persona: saved.persona ?? "sanctuary" };
-  const intermediate = Object.assign({}, { preset: "all", persona: "sanctuary", plugins: {}, agentId: "", model: "", effort: "" }, saved, agent);
-  let step: Record<string, string> = switched.speech;
-  const steps = [step];
-  for (const key of ["ttsEndpoint", "ttsModel", "ttsVoice", "asrLoopbackUrl", "asrModel"] as const) { step = { ...step, [key]: speech[key] }; steps.push(step); }
-  for (const agentId of [String(agent.agentId), "dsh", "claude", "codex"]) {
-    await snapshot.expect(settingsPath, `${JSON.stringify({ ...intermediate, agentId }, null, 2)}\n`);
-    for (const value of steps) await snapshot.expect(settingsPath, `${JSON.stringify({ ...intermediate, agentId, speech: value, speechProfiles: switched.profiles, speechSettingsVersion: 1 }, null, 2)}\n`);
-  }
-  for (const path of configPaths) await snapshot.assertOriginal(path);
-  await mkdir(userDataDir);
-  await writeFile(
-    resolve(userDataDir, "obsidian.json"),
-    JSON.stringify({
-      vaults: {
-        devvault00000001: {
-          path: devVault,
-          ts: Date.now(),
-          open: true,
-        },
-      },
-    }),
-  );
+  const { configDir, workspacePath } = await prepareIsolatedVault(devVault, resolve(root, "dist/obsidian"));
+  const settingsPath = `${workspacePath}/_cache/web-settings.json`;
+  const switched = switchSpeechMode(migrateLegacySpeech({}, undefined, undefined), {}, "local");
+  const stub = await startSpeechStub();
+  let stubFailure: unknown;
+  let success: Record<string, unknown> | undefined;
+  try {
+  const speech = { ...switched.speech, ttsEndpoint: `${stub.base}/v1/audio/speech`, ttsModel: "e2e-tts-model", ttsVoice: "e2e-voice", asrLoopbackUrl: `${stub.base}/v1/audio/transcriptions`, asrModel: "e2e-asr-model" };
+  const appDataDir = resolve(userDataDir, "Library/Application Support/obsidian");
+  await mkdir(appDataDir, { recursive: true });
+  const registry = JSON.stringify(isolatedVaultRegistry(Date.now()));
+  await writeFile(resolve(appDataDir, "obsidian.json"), registry);
+  await writeFile(resolve(userDataDir, "obsidian.json"), registry);
 
   const port = await findFreePort();
-  const child = spawn(obsidianBin, [`--user-data-dir=${userDataDir}`, `--remote-debugging-port=${port}`, "--use-mock-keychain", "--password-store=basic"], {
-    stdio: "ignore",
+  const child = spawn(obsidianBin, isolatedLaunchArgs(userDataDir, port), {
+    stdio: ["ignore", "ignore", "pipe"],
+    env: { ...process.env, HOME: userDataDir, CFFIXED_USER_HOME: userDataDir, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
   });
+  let stderr = "";
+  child.stderr?.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-8192); });
   const exited = new Promise<void>((resolveExit, rejectExit) => { child.once("exit", () => resolveExit()); child.once("error", rejectExit); });
   void exited.catch(() => {});
   let report: Record<string, unknown> | undefined;
-  let completed = false;
   let failure: unknown;
 
   try {
     if (!child.pid) throw new Error("Obsidian did not spawn");
-    const owned = async () => { if (child.exitCode !== null || child.signalCode !== null || !child.pid) throw new Error("Owned Obsidian process exited"); await assertOwnedObsidian(child.pid); return ownedPort(port, child.pid); };
-    const targets = await pollJson(`http://127.0.0.1:${port}/json/list`, owned);
-    const page = targets.find(t => t.url.includes("obsidian.md") && t.webSocketDebuggerUrl)!;
+    const starterTargets = await pollJson(`http://127.0.0.1:${port}/json/list`, child, url => url === "app://obsidian.md/starter.html");
+    const starter = starterTargets.find(t => t.url === "app://obsidian.md/starter.html")!;
+    const deadline = Date.now() + 15_000;
+    while (true) {
+      if (await evaluateInPage<boolean>(starter.webSocketDebuggerUrl, 'typeof window.electron?.ipcRenderer?.sendSync === "function"')) break;
+      if (Date.now() >= deadline) throw new Error("Starter IPC did not become ready");
+      await new Promise(r => setTimeout(r, 200));
+    }
+    const opened = await evaluateInPage<unknown>(starter.webSocketDebuggerUrl, `(() => { localStorage.setItem("devvault00000001-config", ${JSON.stringify(configDir)}); localStorage.setItem("enable-plugin-devvault00000001", "true"); if (localStorage.getItem("devvault00000001-config") !== ${JSON.stringify(configDir)}) throw new Error("Configuration override failed"); return window.electron.ipcRenderer.sendSync("vault-open", ${JSON.stringify(devVault)}, false); })()`);
+    if (opened !== true) throw new Error(`Vault open failed: ${JSON.stringify(opened)}`);
+    const targets = await pollJson(`http://127.0.0.1:${port}/json/list`, child, url => url.startsWith("app://obsidian.md/") && !url.includes("starter.html"));
+    const page = targets.find(t => t.url.startsWith("app://obsidian.md/") && !t.url.includes("starter.html"))!;
 
     if (child.exitCode !== null || child.signalCode !== null || !child.pid) throw new Error("Owned Obsidian process exited before CDP was ready");
-    if (!await owned()) throw new Error("CDP listener disappeared");
-    let monitorBusy = false;
-    let rejectMonitor!: (error: unknown) => void;
-    const monitor = new Promise<never>((_, reject) => { rejectMonitor = reject; });
-    const interval = setInterval(() => { if (monitorBusy || !child.pid) return; monitorBusy = true; void assertOwnedObsidian(child.pid).catch(error => { child.kill("SIGTERM"); rejectMonitor(error); }).finally(() => { monitorBusy = false; }); }, 250);
-    try { report = await Promise.race([monitor, evaluateInPage<{
+    report = await evaluateInPage<{
       ok: boolean;
       error?: string;
       vaultName?: string;
@@ -234,12 +201,15 @@ async function main(): Promise<void> {
           const app = window.app;
           if (!app) return { ok: false, error: "window.app not found" };
           if (app.vault.adapter.getBasePath() !== ${JSON.stringify(devVault)}) return { ok: false, error: "unexpected vault path" };
+          if (app.vault.configDir !== ${JSON.stringify(configDir)}) return { ok: false, error: "unexpected vault configuration directory: " + app.vault.configDir + "; appId: " + app.appId };
           if (app.plugins.setEnable) await app.plugins.setEnable(true);
           if (!app.plugins.plugins["pith"]) {
             await app.plugins.enablePlugin("pith");
           }
+          while (Date.now() < deadline && (!app.plugins.plugins["pith"] || !app.plugins.plugins["pith"].controller || !(app.setting.pluginTabs || []).some(t => t.id === "pith"))) await new Promise(r => setTimeout(r, 100));
           const plugin = app.plugins.plugins["pith"];
           if (!plugin) return { ok: false, error: "pith plugin instance not loaded" };
+          if (plugin.getWorkspacePath() !== ${JSON.stringify(workspacePath)}) return { ok: false, error: "unexpected Pith workspace" };
           if (!plugin.controller) return { ok: false, error: "pith controller unavailable" };
           await plugin.openView();
           const leaves = app.workspace.getLeavesOfType("pith-reader");
@@ -282,8 +252,9 @@ async function main(): Promise<void> {
           return { ok: false, error: err && err.stack ? err.stack : String(err) };
         }
       })()`,
-    )]); } finally { clearInterval(interval); }
+    );
 
+    if (!report) throw new Error("Obsidian E2E produced no report");
     if (!report.ok) {
       throw new Error(`Obsidian E2E inner error:\n${report.error}`);
     }
@@ -297,22 +268,22 @@ async function main(): Promise<void> {
     const persisted = JSON.parse(await readFile(resolve(devVault, settingsPath), "utf8"));
     if (!isDeepStrictEqual(persisted.speech, speech)) throw new Error("Saved speech settings do not match the form");
     if (!isDeepStrictEqual(persisted.speechProfiles, switched.profiles)) throw new Error("Saved speech profiles do not match the mode change");
-    completed = true;
+    if (!stub.requests.includes("GET /health")) throw new Error("TTS health check did not reach the owned stub");
   } catch (error) {
     failure = error;
   } finally {
     try { await stopOwnedChild(child, exited); }
-    catch (error) { throw new AggregateError(failure ? [failure, error] : [error], `Cannot confirm child exit; backups preserved at ${runDir}`); }
-    try {
-      for (const path of configPaths.filter(path => path !== settingsPath)) if (completed || path === ".obsidian/workspace.json") await snapshot.expectCurrent(path);
-      await snapshot.restore();
-    } catch (error) { throw new AggregateError(failure ? [failure, error] : [error], `Restore failed; backups preserved at ${runDir}`); }
+    catch (error) { throw new AggregateError(failure ? [failure, error] : [error], `Cannot confirm child exit; profile retained at ${runDir}`); }
   }
-  if (failure) throw failure;
-  console.log(JSON.stringify({ ok: true, cdpPort: port, ...report, backup: resolve(runDir, "backup") }, null, 2));
+  if (failure) throw new Error(`Obsidian E2E failed; isolated files retained at ${runDir}, ${configDir}, ${workspacePath}. Obsidian stderr: ${stderr}`, { cause: failure });
+  success = { ok: true, cdpPort: port, ...report, profile: userDataDir, configDir, workspacePath };
+  } catch (error) { stubFailure = error; }
+  try { await stub.close(); }
+  catch (error) { throw new AggregateError(stubFailure ? [stubFailure, error] : [error], "Speech stub cleanup failed"); }
+  if (stubFailure) throw stubFailure;
+  console.log(JSON.stringify(success, null, 2));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv[2] === "--preflight") await assertNoObsidian();
-  else await main();
+  await main();
 }

@@ -1,22 +1,32 @@
 import type { PaginationMetrics, ReaderSectionHeading, ResponsiveLayoutDecision, StageReaderService } from "../../core/index.ts";
 
-type ColumnMode = "auto" | "single" | "double";
+type ColumnMode = "auto" | "single" | "double" | "triple";
+
+export function readerPageIndex(reader: HTMLElement): number {
+  const width = Math.max(1, reader.clientWidth), total = Math.max(1, Math.ceil(reader.scrollWidth / width));
+  const max = Math.max(0, reader.scrollWidth - width);
+  return max > 0 && reader.scrollLeft >= max - 0.5 ? total - 1 : Math.max(0, Math.min(total - 1, Math.round(reader.scrollLeft / width)));
+}
 
 export function resolveResponsiveLayout(input: Parameters<NonNullable<StageReaderService["resolveResponsiveLayout"]>>[0]): ResponsiveLayoutDecision {
-  const { width, height, guideOpen = false, guideWidthPx = 320, preferredColumns = "auto", coarsePointer = false } = input;
+  const { width, height, guideOpen = false, guideWidthPx = 320, preferredColumns = "single", coarsePointer = false } = input;
   const aspectRatio = width / Math.max(1, height);
   const formFactor = aspectRatio < .85 || width < 600 ? "portrait-phone" : height < 480 ? "landscape-phone" : aspectRatio < 1.18 && width < 960 ? "foldable-square" : "tablet-desktop";
   const canSplitGuide = width >= 420 + guideWidthPx && aspectRatio >= .85 && height >= 480;
   const sheetMode = canSplitGuide ? "split-right" : aspectRatio < .85 || width < 600 ? "bottom-sheet" : "overlay-drawer";
   const stageWidthPx = guideOpen && canSplitGuide ? Math.max(1, width - guideWidthPx) : width;
-  const canDoubleColumn = stageWidthPx >= 936 && stageWidthPx / Math.max(1, height) >= 1.15 && height >= 520;
-  const effectiveColumns = canDoubleColumn && preferredColumns !== "single" ? 2 : 1;
+  const readerWidth = Math.max(0, input.readerWidthPx ?? stageWidthPx);
+  const fits = (columns: number) => readerWidth / columns - 2 * Math.min(48, Math.max(16, readerWidth * .05), readerWidth / (columns * 4)) >= 320;
+  const maxColumns: 1 | 2 | 3 = fits(3) ? 3 : fits(2) ? 2 : 1;
+  const canDoubleColumn = maxColumns >= 2;
+  const requested = preferredColumns === "triple" ? 3 : preferredColumns === "double" || preferredColumns === "auto" ? 2 : 1;
+  const effectiveColumns = Math.min(maxColumns, requested) as 1 | 2 | 3;
   const hitTargetPx = coarsePointer || formFactor === "portrait-phone" || formFactor === "landscape-phone" ? 44 : 34;
-  return { formFactor, aspectRatio, canSplitGuide, sheetMode, stageWidthPx, canDoubleColumn, effectiveColumns, hitTargetPx };
+  return { formFactor, aspectRatio, canSplitGuide, sheetMode, stageWidthPx, canDoubleColumn, maxColumns, effectiveColumns, hitTargetPx };
 }
 
 export function computePagination(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode: ColumnMode = "auto"): PaginationMetrics {
-  const columns = mode === "double" || (mode === "auto" && viewportWidth >= 900) ? 2 : 1;
+  const columns = mode === "triple" ? 3 : mode === "double" || (mode === "auto" && viewportWidth >= 900) ? 2 : 1;
   const horizontalInsetPx = Math.min(48, Math.max(16, viewportWidth * 0.05), viewportWidth / (columns * 4));
   const verticalInsetPx = Math.min(32, Math.max(12, viewportHeight * 0.05));
   return {
@@ -67,6 +77,69 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
   const result = computePagination(width, height, viewport.scrollWidth, mode);
   viewport.style.setProperty("--pith-page-scroll-extent", `${Math.max(0, result.totalScreens * width - 1)}px`);
   return result;
+}
+
+export type ReaderPosition = { readonly node: Text; readonly offset: number; readonly locator: string; readonly block: HTMLElement; readonly textOffset: number } | { readonly node: Element; readonly locator: string; readonly block: HTMLElement };
+
+export function captureReaderPosition(reader: HTMLElement, article: HTMLElement): ReaderPosition | null {
+  const viewport = reader.getBoundingClientRect(), doc = article.ownerDocument;
+  const walker = doc.createTreeWalker(article, 5), range = doc.createRange();
+  let current: Node | null;
+  while ((current = walker.nextNode())) {
+    if (current.nodeType === 1) {
+      const element = current as Element;
+      if (!element.matches("img, svg, math")) continue;
+      const block = element.closest<HTMLElement>("[data-locator]");
+      if (!block || !article.contains(block)) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom) return { node: element, locator: block.dataset.locator!, block };
+      continue;
+    }
+    const node = current as Text, parent = node.parentElement;
+    const block = parent && parent.closest<HTMLElement>("[data-locator]");
+    if (!block || !article.contains(block)) continue;
+    for (const match of node.data.matchAll(/\S+/gu)) {
+      range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+      if (!Array.from(range.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom)) continue;
+      let offset = match.index;
+      for (const character of match[0]) {
+        range.setStart(node, offset); range.setEnd(node, offset + character.length);
+        const charRects = Array.from(range.getClientRects());
+        if (charRects.some(rect => (rect.width > 0 || rect.height > 0) && rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom)) {
+          range.selectNodeContents(block); range.setEnd(node, offset);
+          return { node, offset, locator: block.dataset.locator!, block, textOffset: range.toString().length };
+        }
+        offset += character.length;
+      }
+    }
+  }
+  return null;
+}
+
+export function restoreReaderPosition(reader: HTMLElement, article: HTMLElement, position: ReaderPosition | null): void {
+  if (!position) return;
+  const block = article.contains(position.block) ? position.block : Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === position.locator);
+  if (!block) return;
+  let rect: DOMRect;
+  if ("textOffset" in position) {
+    const walker = article.ownerDocument.createTreeWalker(block, 4);
+    let remaining = position.textOffset, current: Node | null, text: Text | null = null;
+    while ((current = walker.nextNode())) { const node = current as Text; if (remaining < node.length) { text = node; break; } remaining -= node.length; }
+    if (!text) return;
+    const range = article.ownerDocument.createRange();
+    range.setStart(text, remaining); range.setEnd(text, remaining);
+    const collapsedRects = Array.from(range.getClientRects()).filter(r => r.width > 0 || r.height > 0);
+    if (collapsedRects.length) {
+      rect = collapsedRects[0]!;
+    } else {
+      range.setEnd(text, Math.min(text.length, remaining + 1));
+      const charRects = Array.from(range.getClientRects()).filter(r => r.width > 0 || r.height > 0);
+      rect = charRects[charRects.length - 1] ?? range.getBoundingClientRect();
+    }
+  } else rect = (article.contains(position.node) ? position.node : block).getBoundingClientRect();
+  const viewport = reader.getBoundingClientRect();
+  const x = reader.scrollLeft + rect.left - viewport.left;
+  reader.scrollTo({ left: Math.floor(Math.max(0, x) / Math.max(1, reader.clientWidth)) * reader.clientWidth, behavior: "instant" });
 }
 
 export function navigateReaderTarget(reader: HTMLElement, target: HTMLElement, paged: boolean): void {

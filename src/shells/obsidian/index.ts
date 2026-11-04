@@ -165,12 +165,11 @@ export class PithObsidianController {
   private config: PluginsConfigFile = { preset: "all" };
   private persona: "sanctuary" | "studio" = "sanctuary";
   private agentId: ObsidianAgentConfig["agentId"] = "";
+  private agentConfigured = false;
   private model = "";
   private effort = "";
-  private appliedGuideConfig = "";
   private speechConfig: Record<string, string> = {};
   private speechProfiles: SpeechProfiles = {};
-  private appliedSpeechConfig = "";
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
   private readonly views = new Set<PithObsidianView>();
@@ -198,10 +197,12 @@ export class PithObsidianController {
     if (await this.host.storage.exists("_cache/web-settings.json")) {
       const data: unknown = JSON.parse(await this.host.storage.readText("_cache/web-settings.json"));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
-      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown };
+      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown };
+      if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
       if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.persona = value.persona;
       this.agentId = (value.agentId ?? "") as ObsidianAgentConfig["agentId"];
+      this.agentConfigured = value.agentConfigured ?? value.agentId !== undefined;
       this.model = (value.model ?? "") as string;
       this.effort = (value.effort ?? "") as string;
       if (value.speechSettingsVersion !== undefined && value.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
@@ -217,13 +218,7 @@ export class PithObsidianController {
     finally {
       const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona };
       const config: PluginsConfigFile = { ...this.config, plugins: { ...this.config.plugins, "speech-service": { ...this.config.plugins?.["speech-service"], config: this.speechConfig }, "guide-acp": { ...this.config.plugins?.["guide-acp"], config: guideConfig } } };
-      const signature = JSON.stringify(guideConfig);
-      if (this.appliedGuideConfig && this.appliedGuideConfig !== signature) this.runtime.reconcile({ ...config, plugins: { ...config.plugins, "guide-acp": { enabled: false } } });
-      const speechSignature = JSON.stringify(this.speechConfig);
-      if (this.appliedSpeechConfig && this.appliedSpeechConfig !== speechSignature) this.runtime.reconcile(Object.fromEntries(this.runtime.statuses().map(plugin => [plugin.id, plugin.id !== "speech-service" && plugin.state === "active"])));
       this.runtime.reconcile(config);
-      this.appliedGuideConfig = signature;
-      this.appliedSpeechConfig = speechSignature;
     }
   }
   private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }): Promise<void> {
@@ -232,7 +227,7 @@ export class PithObsidianController {
       const path = "_cache/web-settings.json";
       const saved: unknown = await this.host.storage.exists(path) ? JSON.parse(await this.host.storage.readText(path)) : {};
       if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid settings");
-      await this.host.storage.writeText(path, `${JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "", model: "", effort: "", ...saved, ...fields }, null, 2)}\n`);
+      await this.host.storage.writeText(path, `${JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "", model: "", effort: "", ...saved, ...fields, agentConfigured: this.agentConfigured }, null, 2)}\n`);
     });
   }
   async openCompass() { await this.refresh(); return this.engine.compass(); }
@@ -268,12 +263,13 @@ export class PithObsidianController {
   async detectAgents(force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable"); return guide.detectAgents(force); }
   async setAgentConfig(config: ObsidianAgentConfig): Promise<void> {
     if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string" || (config.persona !== "sanctuary" && config.persona !== "studio")) throw new Error("Invalid agent config");
-    this.agentId = config.agentId; this.model = config.model; this.effort = config.effort; this.persona = config.persona;
+    this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort; this.persona = config.persona;
     await this.refresh(); await this.save(config);
   }
   async setPlugins(config: PluginsConfigFile): Promise<void> { this.config = config; await this.refresh(); const available = this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"); for (const view of this.views) view.setGuideAvailable(available); await this.save({ preset: config.preset ?? "all", plugins: config.plugins ?? {} }); }
   getPersona(): "sanctuary" | "studio" { return this.persona; }
   getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona }; }
+  isAgentConfigured(): boolean { return this.agentConfigured; }
   getSpeechConfig(): Record<string, string> { return { ...this.speechConfig }; }
   createView(root: HTMLElement, actions: ObsidianViewActions): PithObsidianView {
     const view = new PithObsidianView(root, actions);
@@ -404,6 +400,8 @@ const SettingTabBase = obsidian.PluginSettingTab || class { containerEl!: HTMLEl
 export class PithSettingTab extends SettingTabBase {
   private readonly controller: PithObsidianController;
   private readonly plugin: PithObsidianPlugin;
+  private pending = Promise.resolve();
+  private agentIntent: ObsidianAgentConfig["agentId"] | undefined;
   constructor(app: ObsidianPluginBase["app"], plugin: PithObsidianPlugin, controller: PithObsidianController) { super(app, plugin); this.plugin = plugin; this.controller = controller; }
   display(): void {
     const root = this.containerEl; root.replaceChildren(); const doc = root.ownerDocument;
@@ -413,17 +411,18 @@ export class PithSettingTab extends SettingTabBase {
     const select = (options: readonly (readonly [string, string])[], value: string) => { const node = doc.createElement("select"); for (const [id, label] of options) { const option = doc.createElement("option"); option.value = id; option.textContent = label; node.append(option); } node.value = value; return node; };
     const input = (parent: HTMLElement, label: string, value: string) => { const node = doc.createElement("input"); node.value = value; row(parent, label, node); return node; };
     const status = doc.createElement("p"); status.setAttribute("role", "status");
-    let pending = Promise.resolve(); const enqueue = (operation: () => Promise<void>) => { pending = pending.then(operation).catch(error => { status.textContent = String(error); }); return pending; };
+    const enqueue = (operation: () => Promise<void>) => { this.pending = this.pending.then(operation).catch(error => { status.textContent = String(error); }); return this.pending; };
     heading("工作区与向导 Agent");
     const path = input(root, "Pith 数据目录（相对于 Vault）", this.plugin.getWorkspacePath());
     path.addEventListener("change", () => { const value = path.value; void enqueue(async () => { validateWorkspacePath(value); const changed = await this.plugin.setWorkspacePath(value); status.textContent = changed ? "目录已保存，重载插件后生效" : "设置已保存"; }); });
     const config = this.controller.getAgentConfig();
-    const agent = select([["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], config.agentId); const agentRow = row(root, "本机 Agent", agent);
+    const agent = select([...(this.controller.isAgentConfigured() ? [] : [["unconfigured", "未配置"] as const]), ["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? config.agentId : "unconfigured"); const agentRow = row(root, "本机 Agent", agent);
+    const unconfigured = agent.querySelector<HTMLOptionElement>('option[value="unconfigured"]'); if (unconfigured) unconfigured.disabled = true;
     const scan = doc.createElement("button"); scan.textContent = "重新检测"; scan.type = "button"; agentRow.append(scan);
     const persona = select([["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona); row(root, "术语风格", persona);
-    let agentChanged = false; const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
-    agent.addEventListener("change", () => { agentChanged = true; saveAgent(); }); persona.addEventListener("change", saveAgent);
-    const detect = () => { scan.disabled = true; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (!agentChanged && !agent.value && available) { agent.value = available.id; saveAgent(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); }; scan.onclick = detect;
+    const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
+    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); }); persona.addEventListener("change", () => { const value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setPersona(value); status.textContent = "设置已保存"; }); });
+    const detect = () => { scan.disabled = true; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); }; scan.onclick = detect;
     heading("语音服务"); const speech = this.controller.getSpeechConfig();
     const currentMode = speechMode(speech);
     const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);
@@ -437,7 +436,7 @@ export class PithSettingTab extends SettingTabBase {
     const visibility = () => { keyRow.hidden = mode.value !== "cloud"; health.hidden = mode.value !== "cloud"; }; visibility();
     mode.addEventListener("change", () => { visibility(); const selected = mode.value as SpeechMode; void enqueue(async () => { await this.controller.setSpeechMode(selected); if (mode.value === selected) { const current = this.controller.getSpeechConfig(); for (const [name, control] of controls) control.value = current[name] || ""; } status.textContent = "设置已保存"; }); });
     key.addEventListener("change", () => { try { if (key.value) { const result = this.plugin.saveSpeechSecret(key.value); key.value = ""; status.textContent = result === "encrypted" ? "密钥已保存" : "密钥仅保存在本次运行的内存中，重启后需重新配置"; } } catch (error) { status.textContent = String(error); } });
-    health.onclick = () => { health.disabled = true; void pending.then(async () => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `TTS ${await check(tts)}；ASR ${await check(asr)}`; }).catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
+    health.onclick = () => { health.disabled = true; void this.pending.then(async () => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `TTS ${await check(tts)}；ASR ${await check(asr)}`; }).catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
     root.append(status); detect();
   }
 }

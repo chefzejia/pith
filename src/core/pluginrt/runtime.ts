@@ -162,6 +162,8 @@ interface RunningPlugin {
   wanted: boolean;
   source: ConfigSource;
   inUseCount: number;
+  attemptedConfig: Readonly<Record<string, boolean | number | string>> | null;
+  activationRank: number | null;
 }
 
 export class PluginRegistry {
@@ -200,6 +202,7 @@ export class PluginRuntime {
   private readonly plugins = new Map<string, RunningPlugin>();
   private readonly order: string[] = [];
   private readonly services = new Map<string, unknown[]>();
+  private nextActivationRank = 0;
 
   constructor(
     manifests: readonly PluginManifest[],
@@ -222,6 +225,8 @@ export class PluginRuntime {
         wanted: false,
         source: "default",
         inUseCount: 0,
+        attemptedConfig: null,
+        activationRank: null,
       });
     }
   }
@@ -348,12 +353,36 @@ export class PluginRuntime {
     // Step 1: Off first — every plugin no longer wanted, and every active plugin
     // that requires a service provided by one going off, disposed newest first.
     const going = new Set<string>();
+    const reconfiguring = new Set<string>();
+    for (const [id, p] of this.plugins) {
+      const applied = p.ctx ? p.ctx.config : p.state === "failed" ? p.attemptedConfig : null;
+      if (!applied || !p.wanted) continue;
+      const next = configMap[id] ?? {};
+      const keys = Object.keys(applied);
+      if (keys.length !== Object.keys(next).length || keys.some(key => applied[key] !== next[key])) reconfiguring.add(id);
+    }
+    while (true) {
+      let more = false;
+      const services = new Set([...reconfiguring].flatMap(id => {
+        const p = this.plugins.get(id)!;
+        return [...(p.manifest.provides ?? []), ...(p.ctx ? p.ctx.getProvidedServices() : [])];
+      }));
+      for (const id of this.order) {
+        if (reconfiguring.has(id)) continue;
+        const p = this.plugins.get(id)!;
+        if ((p.manifest.requires ?? []).some(req => services.has(req)) || p.ctx!.getProvidedServices().some(service => services.has(service))) {
+          reconfiguring.add(id);
+          more = true;
+        }
+      }
+      if (!more) break;
+    }
     while (true) {
       let more = false;
       for (const id of this.order) {
         if (going.has(id)) continue;
         const p = this.plugins.get(id)!;
-        if (!p.wanted || this.needsGoing(p, going)) {
+        if (!p.wanted || reconfiguring.has(id) || this.needsGoing(p, going)) {
           going.add(id);
           more = true;
         }
@@ -365,11 +394,16 @@ export class PluginRuntime {
       const id = this.order[i]!;
       if (going.has(id)) {
         this.disposePlugin(this.plugins.get(id)!);
+        if (!reconfiguring.has(id)) this.plugins.get(id)!.activationRank = null;
       }
+    }
+    for (const id of reconfiguring) {
+      const p = this.plugins.get(id)!;
+      if (p.state === "failed") { p.state = "pending"; p.why = ""; }
     }
 
     // Step 2: On next — apply wanted plugins once their required services exist.
-    const ids = [...this.plugins.keys()].sort();
+    const ids = [...this.plugins.keys()].sort((a, b) => (this.plugins.get(a)!.activationRank ?? Infinity) - (this.plugins.get(b)!.activationRank ?? Infinity) || a.localeCompare(b));
     while (true) {
       let appliedAny = false;
       for (const id of ids) {
@@ -516,6 +550,8 @@ export class PluginRuntime {
     config: Readonly<Record<string, boolean | number | string>>,
   ): boolean {
     const ctx = new PluginContext(p.manifest.id, config, this, p.manifest.parts ?? []);
+    p.attemptedConfig = { ...config };
+    if (p.activationRank === null) p.activationRank = this.nextActivationRank++;
     try {
       if (p.manifest.apply) {
         p.manifest.apply(ctx);

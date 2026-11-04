@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit --typeRoots ./node_modules/@types",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build:obsidian": "node scripts/build-obsidian.mjs",
-    "verify:obsidian": "node scripts/verify-obsidian.mjs",
+    "verify:obsidian": "npm run build:obsidian && node --experimental-strip-types scripts/verify-obsidian-e2e.ts",
     "web": "node --experimental-strip-types src/shells/web/cli.ts"
   },
   "license": "GPL-3.0-only",
