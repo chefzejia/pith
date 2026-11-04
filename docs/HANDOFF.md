@@ -72,10 +72,17 @@
 
 ## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
 
-- **Status**: blocked
+- **Status**: pending
 - **Verified-Commit**: none
 - **Updated**: 2026-11-04
-- **阻塞**：现有 `Topic.toolkits` 将未配置和明确清空均持久化为 `[]`，无法从已有数据区分；任务对显式清空后的默认工具行为亦需明确。请 Brain 冻结区分语义及旧数据处理方式，或明确两种空数组行为相同。云端 ASR 自定义端点目前受官方域名白名单保护，需明确端点、凭据与重定向安全契约后才能支持兼容网关。
+- **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项）**：
+  1. **实训工具两阶段筛选与 `toolkits` 语义冻结**：
+     - 当 `topic.toolkits` 为空数组 `[]` 时，UI 渲染层（`toolkitSlot` / 视图层，无需修改已有 `topic.md` 磁盘存储，也无需改变旧 API 对 `topic.toolkits` 存储数组的返回）在顶栏计算有效工具列表时，若 `topic.toolkits.length === 0`，在阅读视图顶栏按当前打开的内容格式提供默认一级工具（书本/文章 `epub | pdf | cbz | markdown` 默认为 `["feynman"]`；音视频/字幕 `media | .vtt | .srt` 默认为 `["shadowing"]`）；
+     - 若向导 Agent 显式配置了非空的 `topic.toolkits`（如 `["shadowing"]` 或 `["feynman", "shadowing"]`），则按该数组展示；
+     - 若向导或用户显式传入 `["none"]`，则代表显式清空所有实训工具（此时顶栏仅显示带工具扳手图标的轻量入口，不默认挂载 `feynman`/`shadowing`）。
+     - *注：在 `/api/dojo/transform` 和 `/api/dojo/diagnose` 校验中，当 `topic.toolkits.length === 0` 时，同样允许该课题关联材料格式对应的默认工具（书本/文章允许 `feynman`，音视频允许 `shadowing`）通过校验！*
+  2. **云端自定义语音端点安全契约冻结（`src/plugins/speech-service/neuralSpeech.ts`）**：
+     - 放开 `api.openai.com` 硬编码域名白名单：在云端模式（`kind === "cloud"`）下，允许用户配置任意合法的 `https://` 兼容网关 URL（校验满足 `https:` 协议、无 URL 账号密码 `@`、无 `?query` / `#hash`、主机名非内网/回环地址，且 `HostPort.http` 请求默认不跨源转发 Bearer Token）；`asrProvider === "openai-whisper"` 同样读取用户配置的自定义 `asrLoopbackUrl`（若为 `https://` 合法云端端点则使用该自定义端点，留空则使用默认 `https://api.openai.com/v1/audio/transcriptions`）。
 
 ### 背景与用户真机诊断（必须 100% 解决的 4 大心智违和问题）
 用户在查看 `.dev-vault` 真机截图后指出以下 4 个严重违反用户心智的设计缺陷：
@@ -112,6 +119,8 @@
         - 清理 `.dev-vault/Pith/_cache/web-settings.json` 中残留的 `e2e-*` 测试脏数据，且确保 `verify-obsidian-e2e.ts` 跑完后自动恢复默认干净配置！
 
 ### 授权修改范围（Worker · 含 Router 同目标裁决权）
+- `src/plugins/speech-service/neuralSpeech.ts` & `src/plugins/speech-service/index.ts`
+- `src/plugins/guide-acp/`（如需支持 `"none"` 工具标识）
 - `src/shells/obsidian/plugin.ts` & `src/shells/obsidian/index.ts`
 - `src/shells/web/server.ts`
 - `src/shells/toolkitSlot.ts`
