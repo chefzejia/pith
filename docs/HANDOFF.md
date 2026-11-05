@@ -74,7 +74,7 @@
 
 ## [Task #16] 修复分页阅读器横向滚动条泄露与超宽屏单栏行宽失控/大片留白
 
-- **Status**: pending
+- **Status**: in_progress
 - **Verified-Commit**: none
 - **Updated**: 2026-11-05
 
