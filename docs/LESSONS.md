@@ -3,6 +3,14 @@
 
 ## Active Lessons
 
+**异步听读结束时保留明确的完成或失败状态，不能仅凭播放控件消失判断音频已完整播放。**
+- `[Task #15]` 独立验收在原生阅读器观察到朗读进度推进到 13/15，随后控件消失但无完成或错误提示，无法确认末尾是否播完。
+- Seen 1× (2026-11-05).
+
+**切换本机 ACP Agent 时，验证此前保存的模型和推理强度不会被误用于新 Agent；探测失败和空选项也应保留明确的界面状态。**
+- `[Task #15]` 独立验收发现跨 profile 残留旧模型会导致 ACP 探测失败；修复后分别在 Web 和 `.dev-vault` Obsidian 复验。
+- Seen 1× (2026-11-05).
+
 **外部或用户材料（EPUB / Markdown / 网页剪藏）净化渲染进 Pith 舞台时，必须剥离宿主保留命名空间（`pith-*` 类名与 `data-*` 属性），且章节容器查询必须使用直接子选择器或显式章节属性，不得依赖全局 `.querySelectorAll(".pith-epub-chapter")[i]`。**
 - 若原书 HTML 含 `class="pith-epub-chapter"` 或保留属性，全局选择器下标会错位，导致跨章链接、伴读章节识别与目录高亮跳向伪造节点。
 - 真实翻车证据：`[Task #12]`（`dc49e6d`）连续 3 轮修补链接目标，第 3 轮因原书正文可包含 `.pith-epub-chapter` 干扰 `article.querySelectorAll(".pith-epub-chapter")[target.chapter]` 而阻塞，后在 `e9c0f0f` 剥离 `pith-*` 类名修复。
