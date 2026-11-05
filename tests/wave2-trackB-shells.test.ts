@@ -18,7 +18,8 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
   NodeAgentProcessPort.prototype.probeExecutable = async (_path, args) => args.includes("--help") ? "Agent Client Protocol ACP" : "dsh 1.2.3";
   NodeAgentProcessPort.prototype.spawnStdio = async () => {
     let listener: ((line: string) => void) | undefined;
-    const handle: AgentStdioHandle = {
+    const handle: AgentStdioHandle & { cwd: string } = {
+      cwd: dir,
       onLine(callback) { listener = callback; return () => { listener = undefined; }; },
       writeLine(line) {
         const request = JSON.parse(line) as { id?: number; method: string; params: Record<string, unknown> };

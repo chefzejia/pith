@@ -92,7 +92,8 @@ test("ACP executes only scoped workspace directives", async () => {
       findExecutable: async () => null, probeExecutable: async () => null,
       async spawnStdio() {
         let listener: (line: string) => void = () => {};
-        const handle: AgentStdioHandle = {
+        const handle: AgentStdioHandle & { cwd: string } = {
+          cwd: dir,
           onLine(fn) { listener = fn; return () => {}; },
           writeLine(line) {
             const request = JSON.parse(line) as { id?: number; method: string };

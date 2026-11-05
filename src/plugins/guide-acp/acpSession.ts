@@ -2,6 +2,7 @@ import type {
   AgentProcessPort,
   AgentProcessSpawnSpec,
   AgentStdioHandle,
+  AcpConfigOptionDescriptor,
   AttentionEngine,
   DiscoveredAgentDescriptor,
   GuideConversationEntry,
@@ -56,12 +57,37 @@ export interface AcpClientSessionOptions {
   readonly effort?: string;
   readonly timeoutMs?: number;
   readonly onTextDelta?: (delta: string) => void;
+  readonly probeOnly?: boolean;
 }
 
 export interface AcpPromptResult {
   readonly sessionId: string;
   readonly text: string;
   readonly stopReason: string;
+  readonly configOptions?: readonly AcpConfigOptionDescriptor[];
+}
+
+export function parseAcpConfigOptions(raw: unknown): AcpConfigOptionDescriptor[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.name !== "string" || typeof record.type !== "string") return [];
+    const choices: AcpConfigOptionDescriptor["options"][number][] = [];
+    const add = (value: unknown, group?: string, groupLabel?: string): void => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const choice = value as Record<string, unknown>;
+      if (Array.isArray(choice.options)) {
+        const id = typeof choice.group === "string" ? choice.group : undefined;
+        const label = typeof choice.name === "string" ? choice.name : id;
+        for (const child of choice.options) add(child, id, label);
+      } else if (typeof choice.value === "string" && typeof choice.name === "string") {
+        choices.push({ value: choice.value, name: choice.name, ...(group !== undefined ? { group } : {}), ...(groupLabel !== undefined ? { groupLabel } : {}), ...(typeof choice.description === "string" ? { description: choice.description } : {}) });
+      }
+    };
+    if (Array.isArray(record.options)) for (const choice of record.options) add(choice);
+    return [{ id: record.id, name: record.name, type: record.type, ...(typeof record.category === "string" ? { category: record.category } : {}), ...(typeof record.currentValue === "string" ? { currentValue: record.currentValue } : {}), options: choices }];
+  });
 }
 
 export function createGuidePermissionGate(allowedToolNames: readonly string[]): {
@@ -303,6 +329,8 @@ export async function runOneShotAcpPrompt(
   signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
+    const cwd = options.cwd ?? (handle as AgentStdioHandle & { readonly cwd?: string }).cwd;
+    if (!cwd || !/^(?:\/|[a-zA-Z]:[\\/]|\\\\)/u.test(cwd)) throw new Error("ACP 会话需要宿主提供绝对工作目录");
     await callRpc("initialize", {
       protocolVersion: 1,
       clientCapabilities: {
@@ -313,7 +341,7 @@ export async function runOneShotAcpPrompt(
     });
 
     const newSessionResult = (await callRpc("session/new", {
-      cwd: options.cwd ?? ".",
+      cwd,
       mcpServers: [],
       permissionMode: "read-only",
       ...(options.model ? { model: options.model } : {}),
@@ -324,6 +352,16 @@ export async function runOneShotAcpPrompt(
       typeof newSessionResult?.sessionId === "string" && newSessionResult.sessionId
         ? newSessionResult.sessionId
         : "session-1";
+
+    let configOptions = parseAcpConfigOptions(newSessionResult?.configOptions);
+    const modelOption = configOptions.find(option => option.id === "model");
+    if (options.model && (!modelOption || modelOption.currentValue !== options.model)) {
+      const result = await callRpc("session/set_config_option", { sessionId, configId: modelOption ? modelOption.id : "model", value: options.model });
+      if (result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).configOptions)) configOptions = parseAcpConfigOptions((result as Record<string, unknown>).configOptions);
+    }
+    if (options.probeOnly) return { sessionId, text: "", stopReason: "end_turn", configOptions };
+    const effortOption = configOptions.find(option => option.id === "reasoning_effort" || option.category === "thought_level");
+    if (options.effort && (!effortOption || effortOption.currentValue !== options.effort)) await callRpc("session/set_config_option", { sessionId, configId: effortOption ? effortOption.id : "reasoning_effort", value: options.effort });
 
     const promptResult = await callRpc("session/prompt", {
       sessionId,

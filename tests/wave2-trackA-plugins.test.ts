@@ -79,8 +79,9 @@ test("ACP toolkit directive is validated and persisted", async () => {
       searchPaths: () => [], findExecutable: async () => null, probeExecutable: async () => null,
       async spawnStdio() {
         let listener: (line: string) => void = () => {};
-        const handle: AgentStdioHandle = {
+        const handle: AgentStdioHandle & { cwd: string } = {
           pid: 1,
+          cwd: dir,
           onLine(fn) { listener = fn; return () => { listener = () => {}; }; },
           writeLine(line) {
             const request = JSON.parse(line) as { id?: number; method: string };

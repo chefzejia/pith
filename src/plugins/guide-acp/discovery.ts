@@ -1,4 +1,5 @@
-import type { AgentProcessPort, DiscoveredAgentDescriptor } from "../../core/index.ts";
+import type { AcpConfigOptionDescriptor, AgentProcessPort, DiscoveredAgentDescriptor } from "../../core/index.ts";
+import { runOneShotAcpPrompt } from "./acpSession.ts";
 
 export interface LocalAgentCandidateSpec {
   readonly id: "dsh" | "claude" | "codex" | (string & {});
@@ -172,6 +173,7 @@ export class CachedAgentDetector {
   private readonly ttlMs: number;
   private readonly options: DiscoverLocalAgentsOptions;
   private readonly now: () => number;
+  private readonly optionCache = new Map<string, { at: number; options: readonly AcpConfigOptionDescriptor[] }>();
 
   constructor(options: DiscoverLocalAgentsOptions = {}, ttlMs = 30_000, now: () => number = () => Date.now()) {
     this.options = options;
@@ -187,5 +189,19 @@ export class CachedAgentDetector {
     const descriptors = await discoverLocalAgents(this.options);
     this.cache = { at: timestamp, descriptors };
     return descriptors.map((d) => ({ ...d, args: [...d.args] }));
+  }
+
+  async probeAgentOptions(agentId: string, force = false, model = ""): Promise<readonly AcpConfigOptionDescriptor[]> {
+    const key = JSON.stringify([agentId, model]);
+    const cached = this.optionCache.get(key), timestamp = this.now();
+    if (!force && cached && timestamp - cached.at < this.ttlMs) return cached.options;
+    const descriptor = (await this.detect(force)).find(item => item.id === agentId);
+    if (!descriptor || !descriptor.available || !this.options.processPort) throw new Error("Agent 不可用");
+    let result;
+    try { result = await runOneShotAcpPrompt("", { descriptor, processPort: this.options.processPort, timeoutMs: this.options.timeoutMs, probeOnly: true, model }); }
+    catch (error) { throw new Error(`检测 ${descriptor.label} 配置失败：${error instanceof Error ? error.message : String(error)}`); }
+    const options = result.configOptions ?? [];
+    this.optionCache.set(key, { at: timestamp, options });
+    return options;
   }
 }

@@ -200,8 +200,9 @@ export class NodeAgentProcessPort implements AgentProcessPort {
       for (const listener of exitListeners) listener(code, signal);
     });
 
-    return {
+    const handle: AgentStdioHandle & { readonly cwd: string } = {
       pid: child.pid,
+      cwd: resolve(cwd),
       writeLine(line: string): Promise<void> {
         return new Promise((resolveWrite, rejectWrite) => {
           if (!child.stdin.writable) {
@@ -251,5 +252,6 @@ export class NodeAgentProcessPort implements AgentProcessPort {
         }
       },
     };
+    return handle;
   }
 }

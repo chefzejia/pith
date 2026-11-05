@@ -10,6 +10,8 @@ import { audioContentType } from "../mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speechSettings.ts";
 import { topicUsesToolkit } from "../toolkitSlot.ts";
 import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../interline.ts";
+import { renderAcpSelect } from "../acpSettings.ts";
+import { NodeManagedSpeechRuntime } from "../speechRuntime.ts";
 
 interface ObsidianLeaf {
   view?: ObsidianItemViewBase;
@@ -148,7 +150,8 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
     },
   };
   const access = secretAccess ?? createObsidianSecretAccess(() => secrets);
-  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}) };
+  const speechRuntime = processPort && vault.getFullPath ? new NodeManagedSpeechRuntime({ protectedRoot: vault.getFullPath("") }) : undefined;
+  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -276,6 +279,7 @@ export class PithObsidianController {
   async captureHighlight(topicId: string, body: string, anchor?: SelectionAnchor) { return this.engine.captureSelection({ topicId, kind: "highlight", body, anchor }); }
   async setPersona(persona: "sanctuary" | "studio"): Promise<void> { this.persona = persona; await this.refresh(); await this.save({ persona }); }
   async detectAgents(force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable"); return guide.detectAgents(force); }
+  async probeAgentOptions(id: string, force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.probeAgentOptions) throw new Error("Guide service unavailable"); return guide.probeAgentOptions(id, force); }
   async setAgentConfig(config: ObsidianAgentConfig): Promise<void> {
     if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string" || (config.persona !== "sanctuary" && config.persona !== "studio")) throw new Error("Invalid agent config");
     this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort; this.persona = config.persona;
@@ -286,6 +290,8 @@ export class PithObsidianController {
   getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona }; }
   isAgentConfigured(): boolean { return this.agentConfigured; }
   getSpeechConfig(): Record<string, string> { return { ...this.speechConfig }; }
+  async speechRuntimeState() { return this.host.speechRuntime ? this.host.speechRuntime.getState() : { supported: false, status: "not-installed" as const, note: "本宿主不支持托管本机语音" }; }
+  async speechRuntimeAction(action: "install" | "ensureRunning" | "stop" | "remove") { const runtime = this.host.speechRuntime; if (!runtime || !runtime[action]) throw new Error("本宿主不支持该操作"); return runtime[action](); }
   createView(root: HTMLElement, actions: ObsidianViewActions): PithObsidianView {
     const view = new PithObsidianView(root, actions);
     view.setGuideAvailable(this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"));
@@ -293,7 +299,7 @@ export class PithObsidianController {
     return view;
   }
   releaseView(view: PithObsidianView): void { if (this.views.delete(view)) view.dispose(); }
-  dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.runtime.stop(); }
+  dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
 }
 
 const PITH_VIEW_TYPE = "pith-reader";
@@ -436,13 +442,21 @@ export class PithSettingTab extends SettingTabBase {
     const agent = select([...(this.controller.isAgentConfigured() ? [] : [["unconfigured", "未配置"] as const]), ["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? config.agentId : "unconfigured"); const agentRow = row(root, "本机 Agent", agent);
     const unconfigured = agent.querySelector<HTMLOptionElement>('option[value="unconfigured"]'); if (unconfigured) unconfigured.disabled = true;
     const scan = doc.createElement("button"); scan.textContent = "重新检测"; scan.type = "button"; agentRow.append(scan);
+    const model = select([], ""), effort = select([], ""); row(root, "模型（Model）", model); row(root, "推理强度（Effort）", effort);
     const persona = select([["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona); row(root, "术语风格", persona);
     const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
-    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); }); persona.addEventListener("change", () => { const value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setPersona(value); status.textContent = "设置已保存"; }); });
-    const detect = () => { scan.disabled = true; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); }; scan.onclick = detect;
+    let probeGeneration = 0;
+    const probe = (force = false) => { const id = agent.value, generation = ++probeGeneration; model.disabled = !id || id === "unconfigured"; effort.disabled = true; const current = this.controller.getAgentConfig(); renderAcpSelect(model, undefined, current.model); renderAcpSelect(effort, undefined, current.effort); if (model.disabled) return; void this.controller.probeAgentOptions(id, force).then(options => { if (generation !== probeGeneration || !root.contains(agent) || agent.value !== id) return; renderAcpSelect(model, options.find(item => item.id === "model"), model.value); renderAcpSelect(effort, options.find(item => item.id === "reasoning_effort" || item.category === "thought_level"), effort.value); effort.disabled = false; }).catch(error => { if (generation === probeGeneration && root.contains(agent)) status.textContent = error instanceof Error ? error.message : String(error); }); };
+    const saveOption = (name: "model" | "effort", value: string) => { void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), [name]: value }); status.textContent = "设置已保存"; }); };
+    model.addEventListener("change", () => { const selected = model.value, id = agent.value; probeGeneration++; effort.value = ""; effort.disabled = true; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), model: selected, effort: "" }); status.textContent = "设置已保存"; }).then(() => { if (root.contains(agent) && agent.value === id && model.value === selected) probe(); }); }); effort.addEventListener("change", () => saveOption("effort", effort.value));
+    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); probe(); }); persona.addEventListener("change", () => { const value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setPersona(value); status.textContent = "设置已保存"; }); });
+    const detect = () => { scan.disabled = true; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); probe(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; }); }; scan.onclick = () => { detect(); probe(true); };
     heading("语音服务"); const speech = this.controller.getSpeechConfig();
     const currentMode = speechMode(speech);
     const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);
+    const runtimePanel = doc.createElement("div"), runtimeStatus = doc.createElement("p"); runtimePanel.append(runtimeStatus); root.append(runtimePanel);
+    const runtimeButtons = ([['install', '安装/启用本机语音引擎'], ['ensureRunning', '启动/检测'], ['stop', '释放'], ['remove', '卸载引擎']] as const).map(([action, label]) => { const button = doc.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { for (const item of runtimeButtons) item.disabled = true; runtimeStatus.textContent = action === "install" ? "正在安装本机语音引擎" : "处理中"; void this.controller.speechRuntimeAction(action).then(state => { runtimeStatus.textContent = state.note; }).catch(error => { runtimeStatus.textContent = String(error); }).finally(() => { for (const item of runtimeButtons) item.disabled = false; }); }; runtimePanel.append(button); return button; });
+    void this.controller.speechRuntimeState().then(state => { if (root.contains(runtimePanel)) { runtimeStatus.textContent = state.note; if (!state.supported) for (const item of runtimeButtons) item.disabled = true; } }).catch(error => { if (root.contains(runtimePanel)) runtimeStatus.textContent = String(error); });
     if (currentMode === "legacy") { const legacy = mode.querySelector<HTMLOptionElement>('option[value="legacy"]'); if (legacy) legacy.disabled = true; status.textContent = "现有语音配置保持不变；选择模式可切换标准协议"; }
     const key = input(root, "API Key", ""); key.type = "password"; key.autocomplete = "new-password"; const keyRow = key.parentElement!;
     const health = doc.createElement("button"); health.textContent = "检测连接"; health.type = "button"; root.append(health);
@@ -450,11 +464,11 @@ export class PithSettingTab extends SettingTabBase {
     const fields = [["ttsEndpoint", "TTS 端点 URL"], ["ttsModel", "TTS 模型"], ["ttsVoice", "音色"], ["asrLoopbackUrl", "ASR 端点 URL"], ["asrModel", "ASR 模型"]] as const;
     const controls = new Map<string, HTMLInputElement>();
     for (const [name, label] of fields) { const control = input(details, label, speech[name] || ""); controls.set(name, control); control.addEventListener("change", () => { const value = control.value; void enqueue(async () => { await this.controller.setSpeechConfig({ ...this.controller.getSpeechConfig(), [name]: value }); status.textContent = "设置已保存"; }); }); }
-    const visibility = () => { keyRow.hidden = mode.value !== "cloud"; health.hidden = mode.value !== "cloud"; }; visibility();
+    const visibility = () => { keyRow.hidden = mode.value !== "cloud"; health.hidden = mode.value !== "cloud"; runtimePanel.hidden = mode.value !== "local"; }; visibility();
     mode.addEventListener("change", () => { visibility(); const selected = mode.value as SpeechMode; void enqueue(async () => { await this.controller.setSpeechMode(selected); if (mode.value === selected) { const current = this.controller.getSpeechConfig(); for (const [name, control] of controls) control.value = current[name] || ""; } status.textContent = "设置已保存"; }); });
     key.addEventListener("change", () => { try { if (key.value) { const result = this.plugin.saveSpeechSecret(key.value); key.value = ""; status.textContent = result === "encrypted" ? "密钥已保存" : "密钥仅保存在本次运行的内存中，重启后需重新配置"; } } catch (error) { status.textContent = String(error); } });
     health.onclick = () => { health.disabled = true; void this.pending.then(async () => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `TTS ${await check(tts)}；ASR ${await check(asr)}`; }).catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
-    root.append(status); detect();
+    root.append(status); detect(); probe();
   }
 }
 

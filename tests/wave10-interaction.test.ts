@@ -44,6 +44,7 @@ test("settings save secrets only through encrypted storage and report saved heal
   const controller = {
     getAgentConfig: () => ({ agentId: "", persona: "sanctuary" }), isAgentConfigured: () => true, getSpeechConfig: () => ({}),
     detectAgents: async () => [],
+    speechRuntimeState: async () => ({ supported: false, status: "not-installed", note: "unsupported" }),
     setAgentConfig: async (config: unknown) => { writes.push(config); }, setSpeechConfig: async (config: unknown) => { writes.push(config); },
     runtime: { getService: (id: string) => ({ checkHealth: async () => id === "speech.tts" ? { status: "verified", note: "ready" } : { status: "unverified", note: "not checked" } }) },
   };

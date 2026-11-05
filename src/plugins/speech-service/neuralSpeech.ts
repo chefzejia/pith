@@ -30,8 +30,18 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.id === "kokoro-local" ? "kokoro" : tts.defaultModel || "gpt-4o-mini-tts");
   const asrModel = (config.asrModel && config.asrModel.trim()) || asr.defaultModel || "whisper-1";
   const voice = config.ttsVoice || tts.defaultVoice!;
-  function validateAsrConfig(): void {
-    if (asr.kind === "local" && !openAiLocalAsr && config.asrModel && config.asrModel.trim()) throw new Error("本机原始音频协议不支持指定模型，请使用 /v1/audio/transcriptions 兼容端点");
+  function validateAsrConfig(openAi = openAiLocalAsr): void {
+    if (asr.kind === "local" && !openAi && config.asrModel && config.asrModel.trim()) throw new Error("本机原始音频协议不支持指定模型，请使用 /v1/audio/transcriptions 兼容端点");
+  }
+  async function managedEndpoint(preset: SpeechEnginePreset, fallback: string, kind: "tts" | "asr", signal?: AbortSignal): Promise<string> {
+    if (preset.kind !== "local" || !host || !host.speechRuntime) return fallback;
+    const state = await host.speechRuntime.getState();
+    if (!state.supported || state.status === "not-installed") return fallback;
+    if (!host.speechRuntime.ensureRunning) throw new Error("本机语音网关无法启动");
+    const running = await host.speechRuntime.ensureRunning(signal);
+    const endpoint = kind === "tts" ? running.endpoint : running.asrEndpoint;
+    if (running.status !== "running" || !endpoint || !isLoopbackSafe(endpoint)) throw new Error("本机语音网关不可用");
+    return endpoint;
   }
   async function prepare(preset: SpeechEnginePreset, endpoint: string): Promise<string> {
     if (!host || !host.http) throw new Error(`HTTP unavailable. ${preset.installHint}`);
@@ -63,11 +73,12 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   }
   async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<SpeechSynthesisAudio> {
     if (!text.trim()) throw new Error(`Empty speech text. ${tts.installHint}`);
-    const key = await prepare(tts, ttsEndpoint);
+    const endpoint = await managedEndpoint(tts, ttsEndpoint, "tts", signal);
+    const key = await prepare(tts, endpoint);
     const azure = tts.id === "azure-neural";
     const language = /^([a-z]{2,3}-[a-z]{2})-/i.exec(voice);
     if (azure && (!language || !/^[a-z0-9-]+$/i.test(voice))) throw new Error(`Invalid Azure voice. ${tts.installHint}`);
-    const response = await request(tts, { url: ttsEndpoint, method: "POST", signal, headers: azure
+    const response = await request(tts, { url: endpoint, method: "POST", signal, headers: azure
       ? { "Content-Type": "application/ssml+xml", "Ocp-Apim-Subscription-Key": key, "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3" }
       : { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body: azure ? `<speak version="1.0" xml:lang="${language![1]}"><voice name="${xml(voice)}"><prosody rate="${Math.round((config.rate - 1) * 100)}%">${xml(text)}</prosody></voice></speak>` : JSON.stringify({ model: ttsModel, input: text, voice, response_format: "mp3", speed: config.rate }) });
@@ -77,8 +88,10 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   async function transcribeAudio(bytes: Uint8Array, mimeType = "audio/webm", signal?: AbortSignal): Promise<AsrTranscriptionResult> {
     if (!bytes.byteLength) throw new Error(`Empty audio. ${asr.installHint}`);
     if (!/^audio\/[a-z0-9.+-]+$/i.test(mimeType)) throw new Error(`Invalid audio MIME type. ${asr.installHint}`);
-    const key = await prepare(asr, asrEndpoint);
-    validateAsrConfig();
+    const endpoint = await managedEndpoint(asr, asrEndpoint, "asr", signal);
+    const openAiLocalAsr = asr.kind === "local" && /\/v1\/audio\/transcriptions\/?$/.test(endpoint);
+    const key = await prepare(asr, endpoint);
+    validateAsrConfig(openAiLocalAsr);
     let body: Uint8Array = bytes; let contentType = mimeType;
     if (asr.kind === "cloud" || openAiLocalAsr) {
       const boundary = `pith-${crypto.randomUUID()}`;
@@ -89,7 +102,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
       body = new Uint8Array(prefix.length + bytes.length + suffix.length); body.set(prefix); body.set(bytes, prefix.length); body.set(suffix, prefix.length + bytes.length);
       contentType = `multipart/form-data; boundary=${boundary}`;
     }
-    const response = await request(asr, { url: asr.kind === "local" && !openAiLocalAsr ? `${asrEndpoint.replace(/\/$/, "")}/transcribe` : asrEndpoint, method: "POST", headers: { "Content-Type": contentType, ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body, signal });
+    const response = await request(asr, { url: asr.kind === "local" && !openAiLocalAsr ? `${endpoint.replace(/\/$/, "")}/transcribe` : endpoint, method: "POST", headers: { "Content-Type": contentType, ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body, signal });
     const raw = response.text().trim(); const responseType = header(response.headers, "content-type").split(";")[0]!.trim().toLowerCase();
     const legacyLocal = asr.kind === "local" && !openAiLocalAsr;
     let record: Record<string, unknown> | null = null; let text = "";

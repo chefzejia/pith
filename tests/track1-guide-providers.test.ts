@@ -19,6 +19,48 @@ import {
   discoverLocalAgents,
   runOneShotAcpPrompt,
 } from "../src/plugins/guide-acp/index.ts";
+import { parseAcpConfigOptions } from "../src/plugins/guide-acp/acpSession.ts";
+
+test("ACP options preserve groups, probe cache, and apply session selections", async () => {
+  const raw = [{ id: "model", name: "Model", type: "select", currentValue: "m1", options: [{ group: "magpie", name: "Magpie", options: [{ value: "m1", name: "First" }, { value: "m2", name: "Second", description: "A model" }] }] }, { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }];
+  const parsed = parseAcpConfigOptions(raw);
+  assert.deepEqual(parsed[0]!.options[1], { value: "m2", name: "Second", group: "magpie", groupLabel: "Magpie", description: "A model" });
+  const requests: { method: string; params?: Record<string, unknown> }[] = [];
+  const { port, spawnedSpecs } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); requests.push(request); if (request.id !== undefined) server.sendToClient({ jsonrpc: "2.0", id: request.id, result: request.method === "session/new" ? { sessionId: "s", configOptions: raw } : request.method === "session/prompt" ? { text: "done" } : {} }); }); } });
+  const detector = new CachedAgentDetector({ processPort: port });
+  assert.deepEqual(await detector.probeAgentOptions("dsh"), parsed);
+  assert.deepEqual(await detector.probeAgentOptions("dsh"), parsed);
+  assert.equal(requests.find(item => item.method === "session/new")?.params?.cwd, "/sandbox/agent");
+  assert.equal(spawnedSpecs.length, 1);
+  const descriptor = (await detector.detect()).find(item => item.id === "dsh")!;
+  await runOneShotAcpPrompt("hello", { descriptor, processPort: port, model: "m2", effort: "high" });
+  assert.ok(requests.filter(item => item.method === "session/new").every(item => item.params?.cwd === "/sandbox/agent"));
+  const calls = requests.filter(item => item.method === "session/set_config_option");
+  assert.deepEqual(calls.map(item => item.params), [{ sessionId: "s", configId: "model", value: "m2" }, { sessionId: "s", configId: "thinking", value: "high" }]);
+  assert.ok(requests.findIndex(item => item.method === "session/set_config_option") < requests.findIndex(item => item.method === "session/prompt"));
+});
+
+test("ACP rejects a relative working directory and reports probe errors clearly", async () => {
+  const { port, closedCount } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); if (request.id !== undefined) server.sendToClient({ jsonrpc: "2.0", id: request.id, error: { code: -32602, message: "invalid session directory" } }); }); } });
+  const detector = new CachedAgentDetector({ processPort: port });
+  const descriptor = (await detector.detect())[0]!;
+  await assert.rejects(runOneShotAcpPrompt("", { descriptor, processPort: port, cwd: ".", probeOnly: true }), /绝对工作目录/);
+  assert.equal(closedCount(), 1);
+  await assert.rejects(detector.probeAgentOptions("dsh"), /检测 DeepSeek Harness 配置失败：invalid session directory/);
+});
+
+test("ACP probes and applies effort against the selected model's updated options", async () => {
+  const requests: { method: string; params?: Record<string, unknown> }[] = [];
+  const initial = [{ id: "model", name: "Model", type: "select", currentValue: "alpha", options: [{ value: "alpha", name: "Alpha" }, { value: "beta", name: "Beta" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }] }];
+  const changed = [initial[0], { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "high", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }];
+  const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); requests.push(request); if (request.id === undefined) return; const result = request.method === "session/new" ? { sessionId: "s", configOptions: initial } : request.method === "session/set_config_option" && request.params.configId === "model" ? { configOptions: changed } : request.method === "session/prompt" ? { text: "done" } : {}; server.sendToClient({ jsonrpc: "2.0", id: request.id, result }); }); } });
+  const detector = new CachedAgentDetector({ processPort: port });
+  const probed = await detector.probeAgentOptions("dsh", false, "beta");
+  assert.equal(probed.find(item => item.id === "reasoning_effort")?.currentValue, "high");
+  const descriptor = (await detector.detect())[0]!;
+  await runOneShotAcpPrompt("hello", { descriptor, processPort: port, model: "beta", effort: "low" });
+  assert.ok(requests.some(item => item.method === "session/set_config_option" && item.params?.configId === "reasoning_effort" && item.params.value === "low"));
+});
 
 function createMemoryStorage(): WorkspaceStoragePort {
   const files = new Map<string, Uint8Array>();
@@ -112,8 +154,9 @@ function createFakeProcessPort(options: {
       const clientListeners = new Set<(line: string) => void>();
       const serverListeners = new Set<(line: string) => void>();
 
-      const handle: AgentStdioHandle = {
+      const handle: AgentStdioHandle & { cwd: string } = {
         pid: 4242,
+        cwd: spec.cwd ?? "/sandbox/agent",
         writeLine(line: string) {
           for (const fn of serverListeners) fn(line);
         },
