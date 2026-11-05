@@ -74,9 +74,10 @@
 
 ## [Task #16] 修复分页阅读器横向滚动条泄露与超宽屏单栏行宽失控/大片留白
 
-- **Status**: in_progress
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 3441c988aab6e1cfe80fdd5c4b516df557bde80d
 - **Updated**: 2026-11-05
+- **验收**：Worker 通过 typecheck、242 项测试、Obsidian 构建和分页破壁；Tester 检查 Web 与隔离 Obsidian 的单、双、三栏、音频条和翻页，原生宽视口约 2049 CSS px 的第 1/2/3 页通过独立 CDP 交互及截图审视。未做扬声器听证；暂停竞态的原始现场未复现。单栏 28% 边距上限与超宽屏 820px 列宽上限冲突，实现优先保证列宽上限与翻页步长。
 
 ### 背景与用户真机截图根因诊断（对标母本 `ganfan-garden/styles.css:1246-1256`）
 用户在超宽屏下打开 `.dev-vault` Obsidian 阅读英文 EPUB 时截屏指出两处严重影响阅读质感的缺陷：
