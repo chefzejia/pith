@@ -101,7 +101,7 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
       dock: { classList: { add() {} }, querySelector: () => null },
       assetControls: { hidden: true }, mediaDeck: { hidden: true, querySelector: () => null },
       actions: { synthesizeSpeech: async (text: string) => { spoken.push(text); return { bytes: new Uint8Array([1]), mimeType: "audio/wav" }; } },
-      clearSpeechMark() {}, stopSpeech() { if (view.speaking) finished(); },
+      clearSpeechMark() {}, stopSpeech() {}, finishSpeech() { finished(); },
     });
     (view.startSpeech as (selected: boolean) => void)(selection);
     await done;

@@ -97,7 +97,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.locator('.pith-dojo-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('.pith-article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();
     await page.locator('[data-command="read"]').click();
-    await page.waitForFunction(() => document.querySelector('.pith-toast-tip')?.textContent?.includes('stub'));
+    await page.locator('.pith-speech-controls [role="alert"]').getByText('stub').waitFor();
     assert.ok(spoken.length > 0); assert.ok(spoken.every(text => !text.includes("译文标记")));
     await page.locator('.pith-dojo-panel [data-interline-mode="original"]').click(); assert.equal(await page.locator('.pith-interline-subtitle').count(), 0);
   } finally { if (browser) await browser.close(); if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
