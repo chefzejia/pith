@@ -18,9 +18,10 @@
 
 ## [Task #15] 动态拉取 ACP Agent 模型/推理强度下拉列表（`configOptions`）与本机轻量语音按需网关（Managed Local Speech Daemon）
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 8aee0fba8d7d426c3047d716e4f76dbf88ec961f
 - **Updated**: 2026-11-05
+- **验收**：Worker 完成 typecheck、239 项测试与 Obsidian 构建；Tester 在 Web 和 `.dev-vault` Obsidian 验证 ACP 模型选项及真实 Kokoro 听读，在 Web 验证中英文转写、手动释放和空闲回收。dsh 会话使用本地受控 provider；未做真实云端推理或扬声器逐句听证。取消守卫的破壁未被回归测试捕获。
 - **上游 Brain 紧急纠偏（必须 100% 严格执行，立刻改正当前工作区的两处错误实现）**：
   1. **严禁在 Pith 内部硬编码读取 `~/.dsh/` 配置文件！100% 纯走标准 ACP 协议**：
      - 宿主 `~/.dsh/profiles/acp/cordis.patch.yml` 的源头配置已修正（现在 `dsh --profile acp`、`claude-agent-acp`、`codex-acp` 的 `session/new` 均直接返回准确的 `currentValue` 与模型树）；
