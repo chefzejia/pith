@@ -148,4 +148,45 @@
   1. 在 Web 与 `.dev-vault` 真实 Obsidian 中打开设置面板，验证连接本机 `dsh` Agent 时能真实拉取并展示 `dsh` 的模型分组下拉列表（DeepSeek / Magpie / Anthropic / Responses）与推理强度下拉列表，切换模型后自动保存并在真实会话中生效；
   2. 验证在设置面板中启用本机按需语音网关、在阅读页点击 `🎧 听读本章` 自动拉起网关完成播放，以及空闲/停止后进程干净回收，全程截屏通过 `view_image` 审视 UI 排版与交互体验。
 
+---
+
+## [Task #16] 修复分页阅读器横向滚动条泄露与超宽屏单栏行宽失控/大片留白
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-05
+
+### 背景与用户真机截图根因诊断（对标母本 `ganfan-garden/styles.css:1246-1256`）
+用户在超宽屏下打开 `.dev-vault` Obsidian 阅读英文 EPUB 时截屏指出两处严重影响阅读质感的缺陷：
+1. **底部出现一条恶心的原生横向滚动条（Horizontal Scrollbar）**：
+   - **根因 1**：`src/plugins/stage-reader/pagination.ts:74` 写了 `viewport.style.overflowX = "auto"`（且 `plugin.ts:27` 与 `web/server.ts:348` 写了 `.pith-reader.pith-paged { overflow-x: auto }`），直接把浏览器原生的灰色横向滚动条暴露在了书页正下方（紧贴音频播放条上方）！而在母本 `ganfan-garden/styles.css:1246-1249` 中，分页容器 `.gg-material-paginated` 明确设置的是 **`position: relative; overflow: hidden;`（或配合 `scrollbar-width: none; ::-webkit-scrollbar { display: none; }`）**——因为按屏翻页完全由滚轮、键盘方向键与顶栏 `< 1/3 >` 按钮驱动 programmatic `scrollTo({ left })`，**绝不允许在书页底部露出丑陋的原生横向滚动条**！
+   - **根因 2（`::after` 伪元素未绝对定位导致撑高）**：`ganfan-garden/styles.css:1250-1256` 中 `::after` 伪元素是 `position: absolute; left: var(--gg-page-scroll-extent, 0px); top: 0; width: 1px; height: 1px; pointer-events: none;`，而当前 `plugin.ts:54` 与 `server.ts:371` 写成了 `display: block; width: var(--pith-page-scroll-extent, 0px); height: 1px;`，放在正常文档流里占了高度！
+2. **超宽屏下「单栏」模式一行拉到 2000px+ 宽、四周与下方出现失衡的大片空白**：
+   - **根因**：`src/plugins/stage-reader/pagination.ts:30` 计算单栏边距时写了 `horizontalInsetPx = Math.min(48, Math.max(16, viewportWidth * 0.05), ...)`——把左右内边距上限死锁在了 `48px`！导致在 2200px 宽的屏幕上选「单栏」时，一行英文长达 2100px（远超人类眼球舒适扫视的 65~75 字符 / `720px~840px` 最佳行宽），不仅左对齐贴在最左边极难阅读，而且因为一行字塞了太多词，短短 8 段话只占了屏幕上方 1/3，底下全是苍白空洞！
+   - **修复方案（书卷黄金行宽居中版心）**：
+     - 当 `columns === 1`（单栏分页）且 `viewportWidth` 大于单栏舒适最大行宽（如 `maxSingleColumnWidthPx = 820`）时，自动将水平内边距 `horizontalInsetPx` 扩大为 `Math.max(baseInset, Math.round((viewportWidth - 820) / 2))`（让单栏正文在超宽屏下像一本摊在桌中央的精装书一样**水平居中、保持 ~820px 的黄金阅读行宽**！）；
+     - 当 `columns === 2` 或 `3` 时，同样为每栏设置舒适上限（如双栏总净宽上限 `1560px`，三栏总净宽上限 `2160px`，超出部分转化为两侧均衡的书页留白 `horizontalInsetPx`），确保任何屏幕尺寸下字行都不会被拉成横跨整个显示器的面条！
+
+### 核心实现要求
+1. **彻底消除分页模式下的横向滚动条 & 修正 `::after` 定位（`pagination.ts`、`obsidian/plugin.ts`、`web/server.ts`）**：
+   - 在 `src/plugins/stage-reader/pagination.ts:74` 将 `viewport.style.overflowX = "hidden"`（编程式 `scrollTo` / `scrollLeft` 在 `overflow: hidden` 容器上 100% 正常工作，且零滚动条）；同时在 `obsidian/plugin.ts` 与 `web/server.ts` 的 `.pith-reader.pith-paged` / `.reader.paged` 上设置 `position: relative; overflow: hidden; scrollbar-width: none;` 及 `::-webkit-scrollbar { display: none; }`；
+   - 将 `.pith-reader.pith-paged::after` 与 `.reader.paged::after` 修正为 `content: ""; position: absolute; left: var(--pith-page-scroll-extent, 0px); top: 0; width: 1px; height: 1px; pointer-events: none;`（对标 `ganfan-garden/styles.css:1250-1256`）。
+2. **单/双/三栏黄金版心宽度约束与居中留白（`src/plugins/stage-reader/pagination.ts`）**：
+   - 在 `computePagination(viewportWidth, viewportHeight, scrollWidth, mode)` 中：
+     - 基础边距 `baseInset = Math.min(48, Math.max(16, viewportWidth * 0.05), viewportWidth / (columns * 4))`；
+     - 设定单栏最大舒适列宽 `maxColumnWidth = columns === 1 ? 820 : columns === 2 ? 680 : 580`；
+     - 当默认计算出的 `columnWidthPx > maxColumnWidth` 时，将多余宽度均分到水平边距中（使版心在视口内自然水平居中，且 strictly 保持 `columns * columnWidthPx + columns * columnGapPx === viewportWidth` 分页步长等式恒成立！注意：在 CSS Multicol 中，`padding-left/right` + `column-width` + `column-gap` 必须满足每屏恰好等于 `viewportWidth`，若通过加大 `horizontalInsetPx` 实现，请确认多屏翻页时第 2 屏及后续屏的列步长 `columnWidthPx + columnGapPx` 与 `viewportWidth / columns` 严格对齐，或者对单栏/多栏使用精确匹配的 `horizontalInsetPx` / 版心约束，绝不能破坏多屏 `scrollLeft = pageIndex * viewportWidth` 的像素级对齐！）。
+     - *数学校验提示*：在 CSS Multi-column 中，每一列的重复步长（stride）固定是 `columnWidth + columnGap`。若 `body` 的 `padding-left = horizontalInsetPx`、`padding-right = horizontalInsetPx`，则第一屏能放下 `columns` 列的充要条件是 `2 * horizontalInsetPx + columns * columnWidth + (columns - 1) * columnGap = viewportWidth`；而后续每一屏滚动 `viewportWidth` 要恰好对齐新的一组 `columns` 列，必须满足 **`columns * (columnWidth + columnGap) === viewportWidth`**，即 **`columnGap === 2 * horizontalInsetPx`**！因此，当单栏 `columns === 1` 时，令 `horizontalInsetPx = Math.max(baseInset, Math.min(Math.floor((viewportWidth - 820) / 2), Math.floor(viewportWidth * 0.28)))`，此时 `columnWidthPx = viewportWidth - 2 * horizontalInsetPx`，`columnGapPx = 2 * horizontalInsetPx`，不仅单栏完美居中控制在 `820px` 黄金行宽，而且 **`1 * (columnWidthPx + columnGapPx) === viewportWidth` 恒等式 100% 严格成立**，翻到第 2、3、N 页永远分毫不差居中对齐！
+
+### 授权修改范围
+- `src/plugins/stage-reader/pagination.ts`
+- `src/shells/obsidian/plugin.ts`
+- `src/shells/web/server.ts`
+- `tests/` 下相关测试文件
+
+### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准
+- **Worker 工程自检门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；
+- **Tester 模拟真实用户验收**：在超宽视口（如 `1800×1000`）与常规视口下打开 Web 与 `.dev-vault` 真实 Obsidian 阅读器，切换单栏/双栏/三栏并开启底部音频朗读条，截屏通过 `view_image` 肉眼确认：**1) 书页底部横向滚动条 100% 消失；2) 超宽屏下单栏正文居中呈黄金书卷行宽（约 820px），翻到第 2、3 页依然严丝合缝居中对齐，不再贴左拉成超长面条行**。
+
+
 
