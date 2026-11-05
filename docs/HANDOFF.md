@@ -106,40 +106,40 @@
 - **Status**: pending
 - **Verified-Commit**: none
 - **Updated**: 2026-11-05
+- **上游 Brain 紧急纠偏（必须 100% 严格执行，立刻改正当前工作区的两处错误实现）**：
+  1. **严禁在 Pith 内部硬编码读取 `~/.dsh/` 配置文件！100% 纯走标准 ACP 协议**：
+     - 宿主 `~/.dsh/profiles/acp/cordis.patch.yml` 的源头配置已修正（现在 `dsh --profile acp`、`claude-agent-acp`、`codex-acp` 的 `session/new` 均直接返回准确的 `currentValue` 与模型树）；
+     - **立即删除** `src/plugins/guide-acp/acpSession.ts` 或 `discovery.ts` 中任何针对 `dsh` 去读取 `~/.dsh/` YAML/配置文件的硬编码代码！Pith 对所有 Agent 一视同仁，**只通过标准 ACP `session/new` 返回的 `configOptions` 获取模型/推理强度列表与 `currentValue`，并通过标准 `session/set_config_option` 切换**！
+  2. **严禁在 `speechRuntime.ts` 中使用 `python3 -m venv` / `pip install` 从 PyPI 下载，严禁使用只支持英文的 `vits-piper-en_US` 和 `whisper-tiny.en`！**：
+     - 当前工作区 `src/shells/speechRuntime.ts` 竟然在调 `python3 -m venv` + `pip install` 并且下载了根本不支持中文的 `vits-piper-en_US-lessac-medium` 与 `whisper-tiny.en`，**必须彻底重写**！
+     - **正确的零 Python 依赖 + 正确的多语种轻量模型（我们之前明确调研选定的方案）**：
+       - **运行时（零 Python / 零 pip）**：使用 Node 原生包 `sherpa-onnx-node`（或 `sherpa-onnx` 官方预编译原生二进制 `sherpa-onnx-v1.12.23-osx-universal2-shared.tar.bz2` / Node 子进程直接加载，**绝不调用 `python3` 或 `pip`**）；
+       - **TTS 模型（必须是我们调研选定的中英双语 `Kokoro-82M v1.1-zh` int8 量化版）**：`https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2`（支持中英双语 103 音色，含 `model.int8.onnx`、`voices.bin`、`tokens.txt`、`espeak-ng-data`、`dict`、`lexicon-us-en.txt,lexicon-zh.txt` 及中文日期/数字 `.fst`）；
+       - **ASR 模型（必须是我们调研选定的中英日韩粤多语种 `SenseVoice-Small` int8 量化版）**：`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2`（使用 `model.int8.onnx` + `tokens.txt`）。
 
 ### 背景与目标
-1. **ACP Agent 模型与推理强度动态发现和切换**：
-   - 实测本机 `dsh --profile acp`（及 `claude-agent-acp` / `codex-acp`）在执行 `initialize` + `session/new` 时，会在 `result.configOptions` 中返回完整的模型树（`id: "model"`，含分组 `group` / `name` / `options` 及默认 `currentValue`）与推理强度选项（`id: "reasoning_effort"`，含 `off / low / high / max`）。
-   - 同时，ACP 标准协议规定切换会话配置项应调用 JSON-RPC 方法 `session/set_config_option`（参数 `{ sessionId, configId: "model" | "reasoning_effort", value }`），而非仅在 `session/new` 中传非标字段。
-   - 用户希望在设置面板选中某个本机 Agent（如 `dsh`）后，直接通过下拉框看到并选择对方 Agent 暴露的真实模型列表（含默认项“使用 Agent 默认模型 (currentValue)”）与推理强度，即选即存。
-2. **本机轻量语音按需守护网关（Managed Local Speech Daemon · 类 Magpie 模式）**：
-   - 语音模型体积较大（数百 MB），绝不能打包进插件 `main.js` 或放入 Obsidian Vault 同步目录；
-   - 采用类似 Magpie 的**本机按需网关服务模式**（已由 Brain 在 `src/core/seams.ts` 与 `src/core/host.ts` 冻结 `ManagedSpeechRuntimePort` / `ManagedSpeechState` 契约）：
-     - 运行时与模型缓存统一存放在 Vault 外的系统应用数据目录（如 macOS `~/Library/Application Support/pith/speech/` 或由环境变量 `PITH_SPEECH_HOME` 指定）；
-     - 宿主提供本机语音网关生命周期管理（`getState` / `install` / `ensureRunning` / `stop` / `remove`）：当处于 `local` 语音模式且用户点击 `🎧 听读` 或测试语音时，若本机语音网关已安装但处于 `stopped` 状态，宿主自动按需拉起回环网关进程（监听 `127.0.0.1` 动态或默认端口），并在空闲超时（默认 180 秒无合成/转写请求）或宿主卸载时自动退出进程释放内存！
-     - 在设置面板的「本机语音」模式下，清晰展示本机语音网关状态（未安装 / 已就绪按需启动 / 运行中），并提供一键 `[安装/启用本机语音引擎]`、`[启动/检测]` 与 `[释放/清理]` 控件。
+1. **ACP Agent 模型与推理强度动态发现和切换（纯协议化，零特定 Agent 硬编码）**：
+   - `dsh --profile acp`、`claude-agent-acp`、`codex-acp` 在执行 `initialize` + `session/new` 时，均在 `result.configOptions` 中返回完整的模型树（`id: "model"`）与推理强度选项（`id: "reasoning_effort"` 或 `id: "effort"` / `category: "thought_level"`）。
+   - ACP 标准协议规定切换会话配置项应调用 JSON-RPC 方法 `session/set_config_option`（参数 `{ sessionId, configId, value }`）。
+   - 用户在设置面板选中任意本机 Agent 后，直接通过下拉框看到并选择对方 Agent 暴露的真实模型列表（含默认项“默认（跟随 Agent 当前默认）”）与推理强度，即选即存。
+2. **本机轻量语音按需守护网关（`Kokoro-82M v1.1-zh int8` + `SenseVoice int8` · 零 Python 依赖 · 类 Magpie 按需网关）**：
+   - 模型与运行时缓存统一存放在 Vault 外的系统应用数据目录（如 macOS `~/Library/Application Support/pith/speech/` 或由环境变量 `PITH_SPEECH_HOME` 指定）；
+   - 宿主提供本机语音网关生命周期管理（`getState` / `install` / `ensureRunning` / `stop` / `remove`）：当处于 `local` 语音模式且用户点击 `🎧 听读` 或测试语音时，若本机语音网关已就绪但处于 `stopped` 状态，宿主自动按需拉起回环网关进程，并在空闲超时（默认 180 秒无合成/转写请求）或宿主卸载时自动退出进程释放内存。
 
 ### 核心实现要求
 
-1. **ACP `configOptions` 解析、探测、与剔除 DSH `acp` profile 硬编码假默认模型（`src/plugins/guide-acp/`）**：
-   - 在 `src/plugins/guide-acp/acpSession.ts` 中新增 `parseAcpConfigOptions(raw)`：完整支持扁平选项与分组嵌套选项（如 `dsh` 的 `{ group, name, options: [{ value, name, description }] }`），将其归一化为 `AcpConfigOptionDescriptor[]`（保留 `group`、`groupLabel`、`currentValue`）；
-   - **修复 DSH `dsh-acp-app` 硬编码 `deepseek-v4-flash` 假默认与幽灵官方模型问题**：
-     - 根因：DSH 的 `@deepseek-ai/dsh-acp-app/cordis.patch.yml` 在 `id: acp` 插件上硬编码了 `provider: deepseek-official, model: deepseek-v4-flash` 作为 `fallbackSelection`， completely 绕过了用户在 `~/.dsh/profiles/*/cordis.patch.yml` 中配置的 `agent-default-model`（如 `provider: magpie, model: zzshu-gemini/gemini-4-argon` 或 `sorrycode-cn/deepseek-flash`），且把未激活的内置 `deepseek-official` / `deepseek-account` 死目录排在第一位！
-     - 修复：当探测或运行 `dsh` Agent 时：
-       1. 读取用户本机 `~/.dsh/profiles/desktop/cordis.patch.yml`、`~/.dsh/profiles/acp/cordis.patch.yml` 或 `~/.dsh/settings.yaml` 中 `agent-default-model` 配置的真实默认 `[provider, model]`（以及用户在 `llm-pi-ai.providers` 下实际配置的 provider 分组如 `magpie`, `magpie-anthropic`, `magpie-responses`）；
-       2. 若用户在 `llm-pi-ai` 中配置了自定义 provider（如 `magpie*`），在返回的 `model` 选项中**过滤掉未在用户 `settings.yaml / cordis.patch.yml` 显式启用的内置 `deepseek-official` / `deepseek-account` 幽灵模型**（或将用户配置的 `agent-default-model` 对应的模型作为真正的 `currentValue` 默认模型！）；
-       3. 当用户在 Pith 中选择“默认”模型（`model === ""`）且当前 Agent 为 `dsh` 时，在 `session/new` 之后自动调用 `session/set_config_option` 将模型切换到从用户 `agent-default-model` 解析出的真实默认模型（例如 `["magpie","zzshu-gemini/gemini-4-argon"]` 或 `["magpie","sorrycode-cn/deepseek-flash"]`），**彻底杜绝回退到不存在的 `["deepseek-official","deepseek-v4-flash"]` 报错**！
-   - 在 `discoverLocalAgents` 或新增 `probeAgentOptions(agentId, force)`（带缓存）中，对可用 Agent 通过轻量 `initialize` + `session/new` 探测并缓存其修正后的 `configOptions`，随 `DiscoveredAgentDescriptor.configOptions` 一并返回；
-   - 在 `runLocalAcpPrompt` 中：`session/new` 拿到 `sessionId` 后，调用 `callRpc("session/set_config_option", { sessionId, configId: "model", value: effectiveModel })` 与 `reasoning_effort`。
+1. **纯标准 ACP `configOptions` 解析、探测与 `session/set_config_option` 协议对齐（`src/plugins/guide-acp/`）**：
+   - 在 `src/plugins/guide-acp/acpSession.ts` 中实现 `parseAcpConfigOptions(raw)`：完整支持扁平选项与分组嵌套选项，归一化为 `AcpConfigOptionDescriptor[]`；**严禁读取任何 `~/.dsh/` 本地配置文件**；
+   - 在 `probeAgentOptions(agentId, force)`（带缓存）中，对可用 Agent 通过轻量 `initialize` + `session/new` 探测并缓存其返回的 `configOptions`；
+   - 在 `runLocalAcpPrompt` 中：`session/new` 拿到 `sessionId` 后，若用户配置了非空的 `options.model`（且不同于返回的 `currentValue`），调用 `callRpc("session/set_config_option", { sessionId, configId: "model", value: options.model })`；若配置了非空的 `options.effort`，同样调用 `session/set_config_option`（使用探测到的 `reasoning_effort` 或 `effort` 对应的 `configId`）。
 2. **双壳设置面板模型与推理强度下拉框（`src/shells/obsidian/index.ts` & `src/shells/web/server.ts`）**：
-   - 在设置面板「本机 Agent」下方展示 **「模型（Model）」** 与 **「推理强度（Effort）」** 两个 `<select>` 下拉框（当 Agent 选为“离线”时禁用或隐藏）；
-   - 第一项固定为 `""`（文案显示为 `默认（跟随 Agent 当前默认：${currentModelName}）`），随后按分组（`<optgroup>` 或前缀）渲染从该 Agent 探测到的全部可选模型与推理强度；若探测未返回列表，仍允许保留已有配置值，选择变更后立即自动保存（Auto-save）。
-3. **本机轻量语音按需网关管理器（`src/shells/speechRuntime.ts` 及双壳接入）**：
-   - 新建 `src/shells/speechRuntime.ts` 实现 `NodeManagedSpeechRuntime`（实现 `ManagedSpeechRuntimePort`）：
-     - 管理 Vault 外目录（默认 `os.homedir() + "/Library/Application Support/pith/speech"`，支持 `PITH_SPEECH_HOME` 覆盖以供沙盒测试）；
-     - 内置标准的 OpenAI 兼容回环 HTTP 网关进程脚本（支持 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions` 及 `/transcribe`），优先对接已安装的本地轻量引擎（如 `sherpa-onnx` / 本机已配置的本地合成器命令），支持**按需自动拉起（Auto-start on demand）**与**空闲自动退出（Idle auto-shutdown，默认 180s 无请求自动 `close()` 释放内存）**；
-     - 在 `speech-service` 或宿主 `synthesizeSpeech` / `transcribeAudio` 调用前：若当前为 `local` 模式且 `host.speechRuntime` 存在并已安装，自动调用 `await host.speechRuntime.ensureRunning()` 按需唤醒网关并将请求路由至其回环端点；
-     - 在 Web（`/api/speech/runtime`）与 Obsidian 设置面板中展示本机语音网关状态与一键启用/停止操作。
+   - 在设置面板「本机 Agent」下方展示 **「模型（Model）」** 与 **「推理强度（Effort）」** 两个 `<select>` 下拉框；
+   - 第一项固定为 `""`（文案显示为 `默认（跟随 Agent 当前默认：${currentModelName}）`），随后按分组（`<optgroup>` 或前缀）渲染从该 Agent 探测到的全部可选模型与推理强度，选择变更后立即自动保存（Auto-save）。
+3. **本机轻量语音按需网关管理器（`src/shells/speechRuntime.ts` · 严禁用 Python/pip，必须用 `Kokoro-82M v1.1-zh` + `SenseVoice`）**：
+   - 管理 Vault 外目录（默认 `os.homedir() + "/Library/Application Support/pith/speech"`，支持 `PITH_SPEECH_HOME` 覆盖）；
+   - 下载并校验 `kokoro-int8-multi-lang-v1_1.tar.bz2`（中英双语 TTS）与 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2`（中英多语种 ASR）以及 `sherpa-onnx` 原生运行时（或 Node 绑定，**零 Python / 零 PyPI 依赖**），提供标准 OpenAI 兼容回环 HTTP 网关（`/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions` 及 `/transcribe`），支持**按需自动拉起（Auto-start on demand）**与**空闲自动退出（Idle auto-shutdown，默认 180s 无请求自动退出释放内存）**；
+   - 在 `speech-service` 或宿主 `synthesizeSpeech` / `transcribeAudio` 调用前：若当前为 `local` 模式且 `host.speechRuntime` 已安装就绪，自动调用 `await host.speechRuntime.ensureRunning()` 按需唤醒网关；
+   - 在 Web（`/api/speech/runtime`）与 Obsidian 设置面板中展示本机语音网关状态（明确显示模型名称 `Kokoro-82M v1.1 (中英) + SenseVoice (多语种)`）与一键安装/启动/停止/卸载操作。
 
 ### 授权修改范围
 - `src/core/seams.ts` & `src/core/host.ts`（已由 Brain 冻结契约）
