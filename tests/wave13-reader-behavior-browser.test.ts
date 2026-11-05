@@ -49,7 +49,7 @@ test("reader speech checks visible words across chapters in both rendered shells
       await Promise.race([request, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${shell}: speech request missing`)), 3000))]);
       assert.deepEqual(spoken, ["Visible words."]);
       if (shell === "web") {
-        await page.locator("#toast button").click();
+        await page.locator("#speech-settings").click();
         assert.equal(await page.locator("#drawer #simple-mode").count(), 1);
       }
     }

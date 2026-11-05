@@ -65,6 +65,58 @@ test("Web reader plays real gateway audio and advances its visible progress", { 
     }
     await page.route("**/api/speech/synthesize", (route: any) => route.fulfill({ status: 503, json: { error: "测试网关不可用" } }));
     await page.locator("#read-aloud").click();
-    await page.locator("#toast").getByText("测试网关不可用").waitFor();
+    await page.locator('#speech-result[role="alert"]').getByText("测试网关不可用").waitFor();
+    await page.locator("#speech-close").click();
+    assert.equal(await page.locator("#speech-result").count(), 0);
+  } finally { if (browser) await browser.close(); await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); if (previous === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previous; await rm(dir, { recursive: true, force: true }); }
+});
+
+test("short Chinese chapter plays every real Kokoro sentence and retains its result", { timeout: 90000, skip: !process.env.PITH_SPEECH_TEST_HOME || !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+  const home = resolve(process.env.PITH_SPEECH_TEST_HOME!); assert.ok(home.startsWith(resolve(".tmp") + sep));
+  const previous = process.env.PITH_SPEECH_HOME; process.env.PITH_SPEECH_HOME = home;
+  const dir = await testSandbox("pith-speech-cn-"), server = await createPithWebServer({ workspaceDir: dir });
+  let browser: any;
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
+    const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
+    const topic = await post("/api/topics", { title: "短文验收" });
+    const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>短文</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": '<html><body><h1>短文</h1><p>清晨阳光照进窗户。我们安静地读完这一段文字。</p></body></html>' });
+    await post("/api/materials", { topicId: topic.id, title: "短文", kind: "book", files: [{ name: "short.epub", data: Buffer.from(book).toString("base64") }] });
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
+    browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true });
+    const page = await browser.newPage(); await page.route("**/api/agents?**", (route: any) => route.fulfill({ json: [] }));
+    await page.addInitScript(() => {
+      const original = window.Audio;
+      (window as any).speechEvents = [];
+      window.Audio = new Proxy(original, { construct(target, args: ConstructorParameters<typeof Audio>) {
+        const audio = new target(...args);
+        for (const type of ["playing", "timeupdate", "ended", "error"]) audio.addEventListener(type, () => (window as any).speechEvents.push({ type, time: audio.currentTime, duration: audio.duration }));
+        return audio;
+      } });
+    });
+    await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.locator("#read-aloud").click();
+      assert.equal(await page.locator("#speech-result").count(), 0);
+      await page.waitForFunction((count: number) => (window as any).speechEvents.filter((event: any) => event.type === "ended").length === count * 3, attempt, { timeout: 30000 });
+      await page.locator('#speech-result[role="status"]').getByText("本章听读完成").waitFor();
+      const events = await page.evaluate(() => (window as any).speechEvents);
+      assert.equal(events.filter((event: any) => event.type === "error").length, 0);
+      assert.equal(events.filter((event: any) => event.type === "playing").length, attempt * 3);
+      assert.ok(events.filter((event: any) => event.type === "ended").every((event: any) => event.duration > 1 && event.time === event.duration));
+      if (attempt === 2) {
+        await page.locator('[data-page="next"]').click();
+        assert.equal(await page.locator("#speech-result").count(), 0);
+      }
+    }
+    await page.clock.install(); await page.clock.fastForward(10000);
+    assert.equal(await page.locator("#speech-result").isVisible(), true);
+    await page.locator("#speech-close").click();
+    assert.equal(await page.locator("#speech-result").count(), 0);
+    await page.locator("#read-aloud").click();
+    assert.equal(await page.locator("#speech-result").count(), 0);
+    await page.locator("#speech-close").click();
+    await page.locator("#home").click();
+    assert.equal(await page.locator("#speech-result").count(), 0);
   } finally { if (browser) await browser.close(); await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); if (previous === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previous; await rm(dir, { recursive: true, force: true }); }
 });

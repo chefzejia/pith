@@ -77,7 +77,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.locator('.training-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('#article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();
     await page.locator('#read-aloud').click();
-    await page.waitForFunction(() => document.querySelector("#toast")?.textContent?.includes("语音"));
+    await page.locator('#speech-result[role="alert"]').getByText("stub").waitFor();
     assert.ok(spoken.length > 0); assert.ok(spoken.every(text => !text.includes("译文标记")));
     await page.locator('.training-panel [data-interline-mode="original"]').click();
     assert.equal(await page.locator(".pith-interline-subtitle").count(), 0);
