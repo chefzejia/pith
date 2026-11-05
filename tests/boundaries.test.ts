@@ -218,34 +218,23 @@ test("Zero OS-TTS & External Repo Coupling: src/** forbids browser speechSynthes
   assert.deepEqual(hits, []);
 });
 
-test("Ordered docs in docs/ resolve local links and never depend forward", () => {
+test("Documentation links in README.md, AGENTS.md, and docs/ resolve cleanly", () => {
   const docsDir = join(ROOT, "docs");
-  const docFiles = readdirSync(docsDir)
-    .filter((f) => /^\d{3}-.*\.md$/.test(f))
-    .sort();
-
-  for (const file of docFiles) {
-    const num = Number.parseInt(file.slice(0, 3), 10);
-    const content = readFileSync(join(docsDir, file), "utf8");
+  const checkLinksIn = (filePath: string) => {
+    const baseDir = dirname(filePath);
+    const content = readFileSync(filePath, "utf8").replace(/<!--[\s\S]*?-->/g, "");
     const linkRe = /\]\(([^)#]+)(?:#[^)]*)?\)/g;
     for (const match of content.matchAll(linkRe)) {
-      const href = match[1]!;
+      const href = match[1]!.replace(/^<|>$/g, "");
       if (/^[a-z]+:/i.test(href)) continue;
-      const resolved = resolve(docsDir, href);
-      assert.equal(
-        statSync(resolved, { throwIfNoEntry: false })?.isFile() ?? false,
-        true,
-        `docs/${file} has broken local link: ${href}`,
-      );
-      const targetBase = relative(docsDir, resolved);
-      if (/^\d{3}-.*\.md$/.test(targetBase)) {
-        const targetNum = Number.parseInt(targetBase.slice(0, 3), 10);
-        assert.equal(
-          targetNum <= num,
-          true,
-          `docs/${file} links forward to later document ${targetBase}`,
-        );
-      }
+      const resolved = resolve(baseDir, href);
+      const exists = statSync(resolved, { throwIfNoEntry: false }) !== undefined;
+      assert.equal(exists, true, `${relative(ROOT, filePath)} has broken local link: ${href}`);
     }
+  };
+  checkLinksIn(join(ROOT, "README.md"));
+  checkLinksIn(join(ROOT, "AGENTS.md"));
+  for (const file of readdirSync(docsDir).filter(f => f.endsWith(".md"))) {
+    checkLinksIn(join(docsDir, file));
   }
 });

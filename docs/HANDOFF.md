@@ -1,70 +1,9 @@
 # Pith · 跨会话交接单（HANDOFF Queue）
 
 > **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **单文件滑动任务栈协同契约（详见 [ROLES.md](ROLES.md)）**：
-> - **思考环（Brain）**：冻结 `src/core/` 与 `docs/003-interaction.md` 契约后，以独立编号区块 `## [Task #N] <标题>`（区块内标记 `- **Status**: pending`）写入本文件，并执行隔离提交 `git commit --only docs/HANDOFF.md`（若上一轮 `#N-1` 仍在执行，直接在末尾追加 `## [Task #N]` 绝不覆盖 `#N-1`；若推翻未完旧单，将其改为 `- **Status**: superseded (by #N)` 并追加新单；文件内仅保留未结案区块 + 最近 1~2 个已结案锚点）；
-> - **执行环（无人值守 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒，在同一轮次内循环 `wait_agent` 按序调度常驻 Worker 与独立 Tester 完成实现与 `.dev-vault` 真机验收：每完成一单先重读确认未被标为 `superseded`，再仅将该 `[Task #N]` 区块更新为 `- **Status**: verified`（附 `Verified-Commit`）并 `git commit`；**提交后结束回合前必须再次检查本文件是否仍有新增的 `- **Status**: pending` 区块（Drain-Loop），若有则立即继续执行直至队列彻底排空**。
-
----
-
-## [Task #13] 架构清创：铲除函数重赋值套娃、抠源码字符串假测试、沙盒快照反模式，并统一 1/2/3 栏用户偏好分页与 PluginRuntime 热重配
-
-- **Status**: verified
-- **Verified-Commit**: 9c3ce87
-- **Updated**: 2026-11-04
-- **验收**：Worker 完成 typecheck、205 项测试及 Obsidian 构建；Tester 在 Web 与 `.dev-vault` Obsidian 验证长中文连续缩放、分栏、字号、离线设置、真实书籍连续翻页及窗口边缘拖拽缩窄，截图位于 `.tmp/task13-visual/screenshots/round4-*` 至 `round6-*`。原生拖拽扩宽未验证；音频栏开合已验证，未验证音频播放。
-- **上游 Brain 根因修复（解除 `blocked`）**：
-  - 针对 Tester 第三轮视觉验收抓到的真实 Bug（跨页无空格长中文段落从 `1600×900` 缩放至 `1100×700` 时位置回退至上一屏）：
-    1. **根因 1（多列跨页 Range 的 `getBoundingClientRect` 退化）**：当一个长中文文本块跨越多列（多页）且被匹配为一个整块 `\S+` 时，`range.getBoundingClientRect()` 返回的是跨越第 1 列与第 2 列的合并外包框（其 `rect.left` 永远等于第 1 列的左边界）；当某字符恰好处于跨列折行边界时，必须检查 `Array.from(range.getClientRects())` 中真正具有宽高且落入当前视口的单个字符片段矩形，并在 `restoreReaderPosition` 中优先使用折叠光标点（或末片段矩形）计算列偏移；
-    2. **根因 2（连续缩放/重排覆盖锚点）**：`applyPageMode(position)` 在恢复位置后立即无条件用 `captureReaderPosition` 覆写了 `readerPosition`，导致连续 resize 事件中锚点逐级向页首漂移；现已修正为保留传入的 `position` 锚点，仅在用户主动翻页、滚动或点击目录/书内链接时才采样更新 `readerPosition`。
-  - 以上两处已在 `src/plugins/stage-reader/pagination.ts`、`src/shells/obsidian/plugin.ts` 与 `src/shells/web/server.ts` 中修复并通过 `typecheck` 与 204 项测试，请直接复验该长中文段落缩放场景与 Obsidian 真机体验并完成收口。
-- **执行环职责切分与专用沙盒直接读写指令（必读，详见 [ROLES.md](ROLES.md) & [AGENTS.md](../AGENTS.md)）**：
-  1. **工程代码自检归 Worker**：编译、类型检查、单元测试、架构守卫单测与对应产物构建由 Worker 在交卷前跑通；
-  2. **按交付形态模拟真实用户归 Tester**：Tester 不写单测脚本、不拿脚本 `ok: true` 充数，而是根据本任务涉及的目标宿主形态（如 Web 壳、Obsidian 壳或 DSH 工具包壳）完全模拟真实用户操作与审视产物；
-  3. **专用测试沙盒直接读写、零防御内耗**：仓库内已列入 `.gitignore` 的专用测试沙盒（如 `.tmp`、`.dev-vault`）本来就是供 Agent 随意覆盖、改写和操作演练的游乐场！严禁 Router 或 Tester 以“不能覆盖沙盒内现有文件”为由阻塞验收，严禁要求 Worker 研究或编写快照备份、回滚或进程树扫描代码！
-
-### 背景与目标（基于全仓「打补丁 vs 根因解决」专项审计，详见 [LESSONS.md](LESSONS.md)）
-全仓审计发现多处典型的“表层补丁 / 凑测试 / 契约失真”反模式，必须在继续新增业务功能前一次性完成根因级清创。**本任务包中子模块 1（Core/PluginRT & Stage-Reader 分页）与子模块 2（Scripts & Tests 清创）可按 [ROLES.md](ROLES.md) 规则组织执行，Tester 首轮审查必须一次性穷尽全部静态与真机验证项。**
-
-### 核心根因清创要求
-
-1. **铲除 `src/shells/web/server.ts` 的 5 层函数重赋值套娃与死代码截胡**：
-   - 将 `server.ts` 中被 5 层包装的 `renderTraining`（`renderTrainingBase` / `renderTrainingWithControls` / `renderTrainingWithChooser` / `trainingChromeBase` / `renderTrainingWithMediaControls`）以及多层包装的 `home`、`workspace`、`openTopic`、`startSpeech` 合并为**单一、清晰的函数定义**，直接将 DOM 渲染到正确的目标容器中（严禁先渲染在 `#training` 再用 `document.body.append` / `readerTools.append` 拔节点搬家）；
-   - 删除 `server.ts` 中被 `stopImmediatePropagation()` 屏蔽的旧设置表单死代码（`L409-414`），保留唯一生效的简化设置入口；
-   - 在 `tests/boundaries.test.ts` 中新增静态守卫：扫描 `src/**` 严禁出现 `const \w+Base\s*=` 同名函数重赋值套娃模式。
-
-2. **废除 `readFile("src/...") + vm.runInContext` 抠源码字符串假测试**：
-   - 清理或重写 `tests/wave8-asr-tester-regressions.test.ts`、`tests/core-epub-and-typography.test.ts`、`tests/obsidian-e2e-safety.test.ts` 等文件中通过 `readFile` 切取 `src/` 源码行塞入 `vm.runInContext` / `vm.runInNewContext` 的测试，改为直接 `import` 真实导出的模块函数或通过真实 HTTP / 渲染器验证；
-   - 在 `tests/boundaries.test.ts` 中新增静态守卫：扫描 `tests/**` 严禁同时使用 `readFile` 读取 `src/` 源码并送入 `runInContext` / `runInNewContext`。
-
-3. **清理 `scripts/` 下的沙盒快照回滚与全局 `assertNoObsidian` 封锁**：
-   - 移除 `scripts/obsidian-safety.mjs`、`scripts/verify-obsidian.mjs`、`tests/obsidian-e2e-safety.test.ts` 中对 `.dev-vault` 的快照回滚恢复逻辑，以及 `scripts/verify-obsidian-e2e.ts` 中的 `assertNoObsidian()` 全局进程拦截（保留 `--user-data-dir`、动态 CDP 端口、`--use-mock-keychain --password-store=basic` 与仅关闭自身派生 `child` 进程的干净实现）；
-   - `scripts/build-obsidian.mjs` 直接构建并覆盖同步 `.dev-vault/.obsidian/plugins/pith/`，不再向 `.tmp/` 写入 `pith-build-backup-*` 备份目录；
-   - `package.json` 的 `verify:obsidian` 直接执行 `npm run build:obsidian && node --experimental-strip-types scripts/verify-obsidian-e2e.ts`。
-
-4. **重构阅读器栏数模型（支持用户明确选择 `1 / 2 / 3` 栏 + 真实 `.pith-reader` 宽度自适应）**：
-   - 更新 `src/core/seams.ts`、`src/plugins/stage-reader/pagination.ts`、`src/shells/obsidian/plugin.ts` 与 `src/shells/web/server.ts`：
-     - 将用户栏数偏好扩展为 `"single" | "double" | "triple"`（UI `[Aa]` 面板提供 **`单栏` | `双栏` | `三栏`** 三个按钮，默认 `单栏`）；
-     - **彻底移除以窗口宽高比（`aspectRatio >= 1.15`）或窗口高度（`height >= 520`）禁用多栏的死板规则**！仅根据**实际阅读容器（`.pith-reader` / `.reader`）的实时宽度 `W`** 与最小可读列宽（每栏至少 `320px` 净宽 + 栏间距）判定最大可容纳栏数 `maxColumns`（1、2 或 3），不满足宽度的栏数按钮置灰禁用，满足时严格尊重用户所选的 `1 / 2 / 3` 栏（哪怕在超宽屏上用户选了 `单栏`，也必须保持 1 栏！）；
-     - 补齐消费 `--pith-page-scroll-extent` 的 CSS 规则（确保最后一屏对齐），将 `ResizeObserver` 绑定在実際の `.pith-reader` / `.reader` 上，且切换字号、开关侧栏、展开/收起音频条时统一触发重排并保持当前阅读位置（`IntrinsicLocator`）。
-
-5. **内核 `PluginRuntime` 原生支持插件配置变更重挂 & 区分 Agent `"offline"` 与 `"unconfigured"`**：
-   - 在 `src/core/pluginrt/runtime.ts` 中记录每个激活插件已应用的 `config` 快照；当 `reconcile()` 发现已激活插件的 `config` 发生变化时，自动停用并重新挂载该插件及其下游依赖，从而移除 `shells/obsidian/index.ts` 与 `shells/web/server.ts` 外层的手动关停重启补丁；
-   - 区分 Agent 配置的“尚未初始化”与“用户主动选择离线模式”，确保用户选定“离线模式”后再次打开设置页不会被自动扫描篡改回 `dsh`。
-
-### 授权修改范围
-- `src/core/seams.ts` & `src/core/pluginrt/runtime.ts`
-- `src/plugins/stage-reader/` & `src/plugins/speech-service/` & `src/plugins/guide-acp/`
-- `src/shells/**`
-- `scripts/**` & `package.json` & `.gitignore`
-- `docs/003-interaction.md`
-- `tests/**`
-
-### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准（首轮穷尽）
-- **Worker 工程自检门禁（交卷前置条件）**：
-  - `npm run typecheck && npm test && npm run build:obsidian` 全部零报错通过（包括 `tests/boundaries.test.ts` 新增的「零函数重赋值套娃」与「零抠源码 `runInContext`」守卫单测全绿），确保最新构建产物已同步至 `.dev-vault`；
-- **Tester 模拟真实用户验收（直接操作 `.dev-vault` 玩具沙盒与 Web 界面，严禁只跑脚本看 `ok: true`）**：
-  - 像真实人类用户一样在 `.dev-vault` 的 Obsidian 窗口与 Web 壳中实际点击、切换 `单栏 / 双栏 / 三栏`、在超宽屏下选择 `单栏`、调整字号与拖拽缩放窗口、打开设置面板切换离线模式并重开，**每一步截屏用视觉（`view_image`）肉眼审视画面排版、分栏对齐、位置保持与文案体验**。
+> **单文件滑动任务栈协同契约（详见 [ROLES.md](ROLES.md) & [PRODUCT.md](PRODUCT.md) & [ARCHITECTURE.md](ARCHITECTURE.md)）**：
+> - **思考环（Brain）**：冻结 `src/core/` 与 `docs/PRODUCT.md` / `docs/ARCHITECTURE.md` 契约后，以独立编号区块 `## [Task #N] <标题>`（区块内标记 `- **Status**: pending`）写入本文件，并执行隔离提交 `git commit --only docs/HANDOFF.md`（若上一轮 `#N-1` 仍在执行，直接在末尾追加 `## [Task #N]` 绝不覆盖 `#N-1`；若推翻未完旧单，将其改为 `- **Status**: superseded (by #N)` 并追加新单；文件内仅保留未结案区块 + 最近 1~2 个已结案锚点）；
+> - **执行环（无人值守战术法官 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒（监听 `HEAD:docs/HANDOFF.md`），取单先置 `Status: in_progress`，串联调度常驻 Worker（必读 [LESSONS.md](LESSONS.md)、完成全仓测试 + 手动破壁 `Broken by hand, each red` 并在业务 Commit Body 记录完整审计账本）与独立 Tester（在专用沙盒中模拟真实用户操作与截屏审视，首轮穷尽挑刺）：若 Tester 打回显性问题，由 Router 亲自记入 `LESSONS.md`（满 `Seen 3×` 令 Worker 顺手固化为 `tests/` 守卫单测）并在执行环内部直接拍板闭环；每完成一单先重读确认未被标为 `superseded`，再仅将该 `[Task #N]` 区块更新为 `- **Status**: verified`（附真实业务 `Verified-Commit`）并 `git commit`；**提交后结束回合前必须再次检查本文件是否仍有新增的 `- **Status**: pending` 区块（Drain-Loop），若有则立即继续执行直至队列彻底排空**。
 
 ---
 
@@ -73,31 +12,7 @@
 - **Status**: verified
 - **Verified-Commit**: df97236
 - **Updated**: 2026-11-05
-- **验收**：Worker 完成 typecheck、222 项测试和 Obsidian 构建；Tester 在 Web 与 `.dev-vault` Obsidian 实际验证三种模式、分栏、邻章预热与缓存回放，以及受控 TTS 请求不包含译文。Guide、翻译及 TTS 使用替身，不证明真实模型理解、翻译或音质；未验证重启后的持久缓存。
-
-### 背景与目标
-独立 Worker 已完成 `src/plugins/dojo-interline/`（`index.ts`、`coordinator.ts`、`tests/dojo-interline.test.ts`）并在 `src/plugins/all.ts` 注册了 `dojo.interline` 服务。本任务将 `dojo-interline`（行间双语 · Read originals with subtitles）完整接入宿主壳与向导发现体系，让用户在阅读英文/外文材料且向导注入 `interline` 工具后，能够直接在阅读舞台开启行间双语字幕、静默预热邻域章节并保持原文 TTS 朗读纯净。
-
-### 核心实现要求
-1. **向导发现、`inUse` 保活与工具槽标签接入**：
-   - 在 `src/shells/web/index.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/server.ts`、`src/shells/dsh/index.ts` 与 `src/shells/toolkitSlot.ts` 中将 `"interline"` 纳入可用 Dojo 发现列表（与 `"shadowing"`, `"feynman"` 并列）及 `inUse` 保活统计，工具标签显示为 `"行间双语"`。
-2. **阅读舞台「行间双语」内嵌渲染与模式切换（`original` | `bilingual` | `subtitle-primary`）**：
-   - 当课题已挂载 `interline` 工具且用户点击顶栏 `[🛠 行间双语]` 时，提供简洁的近源模式切换（`原文` | `行间双语` | `译文主显`），调用 `InterlineService.renderInterlineHtml` 与 `InterlinePreparationCoordinator`（通过向导 Provider 或翻译回调按 `activeUnit -> neighborhood` 优先顺序生成并缓存 `_cache/interline/` 双语块）；
-   - 为 `.pith-interline-subtitle` 编写温润克制的书卷双语排版样式：
-     - `data-interline-mode="bilingual"`：原文保持清晰可读，行间译文以块级（`display: block`）柔和衬于段落下方；
-     - `data-interline-mode="subtitle-primary"`：译文作为主视觉字号，原文以安静的小字号弱化呈现供随时核对。
-3. **TTS 朗读严格排除行间译文（`data-prose="false"` 子树过滤）**：
-   - 在 `src/shells/obsidian/plugin.ts` 与 `src/shells/web/server.ts` 提取 `[data-prose="true"]` 段落文本送入 TTS 分句器时，**必须排除内部带有 `[data-prose="false"]`（如 `.pith-interline-subtitle`）的子节点文本**，确保开启行间双语后点击 `🎧 听读本章` 仍然只朗读纯粹的原著外文，绝不把嵌入的中文译文混进去重读！
-
-### 授权修改范围
-- `src/plugins/dojo-interline/` & `src/plugins/all.ts` & `src/plugins/guide-acp/`
-- `src/shells/**`
-- `docs/003-interaction.md`
-- `tests/**`
-
-### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准
-- **Worker 工程自检门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（含 `tests/dojo-interline.test.ts` 与 `tests/boundaries.test.ts`）；
-- **Tester 模拟真实用户验收**：在英文材料课题中注入 `interline`，按真实用户路径切换 `原文 / 行间双语 / 译文主显`、翻页观察邻域缓存回放、开启伴读核验仅读英文原文，并截屏用 `view_image` 审视行间双语排版呼吸感与多栏分页对齐。
+- **验收**：Worker 完成 typecheck、222 项测试和 Obsidian 构建；Tester 在 Web 与 `.dev-vault` Obsidian 实际验证三种模式、分栏、邻章预热与缓存回放，以及受控 TTS 请求不包含译文。
 
 ---
 
