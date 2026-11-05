@@ -242,6 +242,23 @@ export interface GuideQuickAction {
   readonly prompt: string;
 }
 
+export interface AcpConfigChoice {
+  readonly value: string;
+  readonly name: string;
+  readonly group?: string;
+  readonly groupLabel?: string;
+  readonly description?: string;
+}
+
+export interface AcpConfigOptionDescriptor {
+  readonly id: string;
+  readonly name: string;
+  readonly category?: string;
+  readonly type: string;
+  readonly currentValue?: string;
+  readonly options: readonly AcpConfigChoice[];
+}
+
 export interface DiscoveredAgentDescriptor {
   readonly id: "dsh" | "claude" | "codex" | (string & {});
   readonly label: string;
@@ -250,6 +267,30 @@ export interface DiscoveredAgentDescriptor {
   readonly version: string | null;
   readonly available: boolean;
   readonly note: string;
+  readonly configOptions?: readonly AcpConfigOptionDescriptor[];
+}
+
+export type ManagedSpeechStatus = "not-installed" | "installing" | "stopped" | "starting" | "running" | "failed";
+
+export interface ManagedSpeechState {
+  readonly supported: boolean;
+  readonly status: ManagedSpeechStatus;
+  readonly installDir?: string;
+  readonly endpoint?: string;
+  readonly asrEndpoint?: string;
+  readonly modelName?: string;
+  readonly downloadSizeMb?: number;
+  readonly progressPercent?: number;
+  readonly idleTimeoutSec?: number;
+  readonly note: string;
+}
+
+export interface ManagedSpeechRuntimePort {
+  getState(): Promise<ManagedSpeechState>;
+  install?(signal?: AbortSignal): Promise<ManagedSpeechState>;
+  ensureRunning?(signal?: AbortSignal): Promise<ManagedSpeechState>;
+  stop?(): Promise<ManagedSpeechState>;
+  remove?(): Promise<ManagedSpeechState>;
 }
 
 export interface GuideMcpToolSpec {
@@ -277,6 +318,7 @@ export interface GuideAgentService {
   readonly timeoutMs: number;
   readonly actions: readonly string[];
   detectAgents?(force?: boolean): Promise<readonly DiscoveredAgentDescriptor[]>;
+  probeAgentOptions?(agentId: string, force?: boolean): Promise<readonly AcpConfigOptionDescriptor[]>;
   quickActionsForTopic?(topic: Topic, activeDojos: readonly DojoToolkitDescriptor[]): readonly GuideQuickAction[];
   configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
   listWorkspaceTools?(): readonly GuideMcpToolSpec[];

@@ -7,115 +7,6 @@
 
 ---
 
-## [Task #11] Wave 11：图标体系回归、一级/二级工具空间分层、顶部近源弹出修复、以及傻瓜化唯一标准设置面板
-
-- **Status**: verified
-- **Verified-Commit**: 56dfaba
-- **Updated**: 2026-11-04
-- **验收结论**：类型检查、196 项测试、Obsidian 构建和真实客户端验收脚本通过。独立 Tester 在 `.dev-vault` 实测宽窄阅读栏弹层、EPUB 章节、默认及显式工具、Agent 自动选择和设置重载；云端请求使用测试替身，未验证真实语音服务。
-- **上游 Brain 裁决（解除 `blocked`）**：
-  1. **390px 阅读栏弹层与顶栏重叠 12px 已定位并修复**：当 `data-hit-target="44"` 生效时，顶栏高度由 44px 变为 56px，写死 `top: 44px` 会导致重叠 12px。现已将 `.pith-typography-popover` 与 `.pith-dojo-panel` 挂载于 `.pith-bottom-dock`（顶栏容器）内并改用 `top: 100%`（无论顶栏是 44px 还是 56px 均 100% 紧贴顶栏下沿零重叠）。
-  2. **密钥安全存储失败时的会话内存兜底裁定通过**：当宿主机 Keychain / `secretStorage` 不可用（如在 `--use-mock-keychain` 或无加密存储环境下）时，**仅使用当前会话内存（in-memory `session` Map）兜底是完全正确且符合安全红线的做法**——严禁将 API Key 明文持久化写入 Vault 磁盘文件（`data.json` 或 `web-settings.json`）！现有 `createObsidianSecretAccess` 的会话内存兜底设计完全满足要求，直接放行验收。
-- **上游 Brain 与用户拍板裁决（针对上一轮 `blocked` 事项 + macOS 钥匙串弹窗根治）**：
-  0. **根治 macOS `找不到用于储存“obsidian”的钥匙串` 系统弹窗（最高优先级）**：
-     - 每次通过命令行 `spawn("/Applications/Obsidian.app/Contents/MacOS/Obsidian", ...)` 启动隔离实例（如在 `scripts/verify-obsidian-e2e.ts` 中）时，**必须传入 Chromium/Electron 参数 `--use-mock-keychain` 和 `--password-store=basic`**！否则在非 GUI Session / Codex 沙箱下启动 Chromium `safeStorage` 会频繁触发 macOS SecurityAgent 弹出系统级“找不到钥匙串”模态框打断用户！
-     - 同时，在 `src/shells/obsidian/index.ts` 中，当调用 `app.secretStorage` 之前或失败时提供本地插件数据兜底（避免在无需云端语音的默认本机模式下无故触发 `secretStorage` 访问）。
-  1. **实训工具两阶段筛选与 `toolkits` 语义冻结**：
-     - 当 `topic.toolkits` 为空数组 `[]` 时，UI 渲染层（`toolkitSlot` / 视图层，无需修改已有 `topic.md` 磁盘存储，也无需改变旧 API 对 `topic.toolkits` 存储数组的返回）在顶栏计算有效工具列表时，若 `topic.toolkits.length === 0`，在阅读视图顶栏按当前打开的内容格式提供默认一级工具（书本/文章 `epub | pdf | cbz | markdown` 默认为 `["feynman"]`；音视频/字幕 `media | .vtt | .srt` 默认为 `["shadowing"]`）；
-     - 若向导 Agent 显式配置了非空的 `topic.toolkits`（如 `["shadowing"]` 或 `["feynman", "shadowing"]`），则按该数组展示；
-     - 若向导或用户显式传入 `["none"]`，则代表显式清空所有实训工具（此时顶栏仅显示带工具扳手图标的轻量入口，不默认挂载 `feynman`/`shadowing`）。
-     - *注：在 `/api/dojo/transform` 和 `/api/dojo/diagnose` 校验中，当 `topic.toolkits.length === 0` 时，同样允许该课题关联材料格式对应的默认工具（书本/文章允许 `feynman`，音视频允许 `shadowing`）通过校验！*
-  2. **云端自定义语音端点安全契约冻结（`src/plugins/speech-service/neuralSpeech.ts`）**：
-     - 放开 `api.openai.com` 硬编码域名白名单：在云端模式（`kind === "cloud"`）下，允许用户配置任意合法的 `https://` 兼容网关 URL（校验满足 `https:` 协议、无 URL 账号密码 `@`、无 `?query` / `#hash`、主机名非内网/回环地址，且 `HostPort.http` 请求默认不跨源转发 Bearer Token）；`asrProvider === "openai-whisper"` 同样读取用户配置的自定义 `asrLoopbackUrl`（若为 `https://` 合法云端端点则使用该自定义端点，留空则使用默认 `https://api.openai.com/v1/audio/transcriptions`）。
-
-### 背景与用户真机诊断（必须 100% 解决的 4 大心智违和问题）
-用户在查看 `.dev-vault` 真机截图后指出以下 4 个严重违反用户心智的设计缺陷：
-
-1. **图标语义错误**：
-   - Pith 的主图标（Obsidian Ribbon 图标与 `PithWorkspaceView.getIcon()`）应该改回原先 Garden 的植物图标 **`sprout`**（而非 `book-open`）；
-   - 顶栏的实训工具入口不应该是一个莫名其妙的 `+` 号，而应该是代表**训练/工具**的图标（如扳手/工具图标 + 工具名）；
-   - 顶栏开启向导助手的图标应该是一个**问号图标（`?` / `help-circle`）**（`PithGuideView.getIcon()` 也同步改为 `"help-circle"`），代表“有疑问找向导”。
-
-2. **顶栏一级工具（两阶段筛选）vs 内容正下方二级区域的严格边界**：
-   - **一级工具（全部在顶栏右侧，与「听读」同层级）**：
-     - **第一阶段（无需 AI · 按内容格式默认筛选第一批工具）**：当打开书本/文章（`epub` / `pdf` / `cbz` / `markdown`）且 `topic.toolkits` 尚未由 AI 显式设置为空以外的值时，默认筛选展示适合阅读内化的 **`feynman`（费曼复述）**；当打开音视频/字幕（`media` / `.vtt` / `.srt`）时，默认筛选展示 **`shadowing`（影子跟读）**。
-     - **第二阶段（AI 介入后二次筛选）**：当向导 Agent 介入修改了 `topic.toolkits` 后，按 `topic.toolkits` 展示注入/卸载后的工具。因此「费曼复述」、「影子跟读」与「听读」是平级的一级工具！
-   - **内容正下方区域（Bottom Area）的唯一准入规则**：
-     - **内容正下方区域唯独只有音频播放控制条（`.pith-media-deck`）才能进入！** 其他任何浮层或面板严禁出现在内容正下方。
-
-3. **排版设置 `[Aa]` 竟然出现在屏幕最下方/左下角（严重空间割裂）+ 封面粘连“版权信息”**：
-   - **根因 1（`[Aa]` 跑到底部）**：`plugin.ts:45` 的 `bottom-sheet` CSS 规则（当容器宽度 `< 740px` 或比例 `< 0.85` 时触发）把 `.pith-typography-popover` 和 `.pith-dojo-panel` 强行设成了 `bottom: 0; left: 0; right: 0` 从屏幕底部弹出！用户点击右上角的 `[Aa]` 或实训工具，眼睛看着右上角，菜单却在屏幕最底下出现，极其割裂！
-   - **修复 1**：**彻底移除将 `.pith-typography-popover` 和 `.pith-dojo-panel` 放到屏幕底部的样式！** 点击右上角 `[Aa]` 或顶栏工具时，弹出卡片**永远紧贴顶栏右上方（`top: 44px; right: 8px`）近源向下展开**！
-   - **根因 2（封面页下方粘着“版权信息”标题）**：截图 1 中封面大图下方露出了第二章“版权信息”四个字。必须在分页模式下为每个 `.pith-epub-chapter + .pith-epub-chapter` 强制设置 `break-before: column;`（每章独立起新列/新页），确保封面页干干净净只有封面！
-
-4. **插件设置页（`PithSettingTab`）过度暴露底层概念、违反“唯一标准”且交互反人类**：
-   - 用户痛点：*“我是看不懂这个设置的，为什么 Pith 不能帮我做好？我只需要使用就好了。自定义端点应该作为可选项披露。为什么要区分 OpenAI 和 Azure，我们前面不是说只用唯一标准吗？扫描并配置本机 Agent 按钮放在最下面也很反人类。”*
-   - 而且上次 E2E 脚本还在 `.dev-vault/Pith/_cache/web-settings.json` 里残留了 `e2e-tts-model` / `e2e-voice` 等脏数据！
-   - **彻底重做设置页（`src/shells/obsidian/index.ts` & `src/shells/web/server.ts`）**：
-     1. **向导 Agent 自动扫描与即选即存（对标 `ganfan-garden/src/settings.ts`）**：
-        - 打开设置页时**自动触发后台扫描本机 Agent（`dsh / claude / codex`）**；若当前未配置且扫描到本机有可用 Agent（优先 `dsh`），**自动帮用户选中并保存**！
-        - 在「本机 Agent」下拉框同行右侧放一个轻量的 `[重新检测]` 按钮，下拉框或术语风格改变时**立即自动保存（Auto-save on change）**，彻底砍掉最底下反人类的 `[扫描并配置本机 Agent]` 和 `[保存设置]` 按钮！
-     2. **语音服务：统一为「唯一 OpenAI 兼容标准协议」+ 高级端点默认折叠（`<details>`）**：
-        - **UI 层彻底移除 Azure 区分（移除 `Azure Neural`、`Azure 区域`、`Azure Speech Key` 及杂乱的 `8765/8766` 端口枚举）**！
-        - 语音设置默认只展示极简直观的两项：
-          - **语音服务模式**：下拉框仅分 `本机语音服务（免配置自动连接）` 与 `云端语音服务（OpenAI 标准协议）`（切换即自动保存）；选择云端时才显示 `API Key` 密码框与 `[检测连接]` 按钮；
-          - **`▸ 高级自定义端点与模型（可选）`**：使用原生 `<details><summary>高级自定义端点与模型（可选）</summary>...</details>` 默认折叠收起！只有用户主动展开时，才显示自定义的 `TTS 端点 URL`、`TTS 模型`、`音色`、`ASR 端点 URL`、`ASR 模型`。
-        - 清理 `.dev-vault/Pith/_cache/web-settings.json` 中残留的 `e2e-*` 测试脏数据，且确保 `verify-obsidian-e2e.ts` 跑完后自动恢复默认干净配置！
-
-### 授权修改范围（Worker · 含 Router 同目标裁决权）
-- `src/plugins/speech-service/neuralSpeech.ts` & `src/plugins/speech-service/index.ts`
-- `src/plugins/guide-acp/`（如需支持 `"none"` 工具标识）
-- `src/shells/obsidian/plugin.ts` & `src/shells/obsidian/index.ts`
-- `src/shells/web/server.ts`
-- `src/shells/toolkitSlot.ts`
-- `src/plugins/stage-reader/`
-- `scripts/verify-obsidian-e2e.ts`
-- `tests/` 下相关测试文件
-
-### 验收标准（Tester）
-- `npm run typecheck && npm test && npm run build:obsidian && npm run verify:obsidian` 全部零报错通过；
-- `.dev-vault` 真实桌面 Obsidian 客户端核验：
-  1. Ribbon 与主视图图标为 `sprout`，实训工具带工具图标，向导按钮为问号 `?`（`help-circle`）；
-  2. 书本/文章默认在顶栏右侧展示一级工具 `[🛠 费曼复述]`（媒体展示 `[🗣 影子跟读]`），与 `[🎧]`、`[Aa]`、`[?]` 同级；内容正下方除播放条 `.pith-media-deck` 外无任何其他面板；
-  3. 无论窗口宽窄，点击 `[Aa]` 或实训工具均在顶栏右上方（`top: 100%; right: 8px` 紧贴顶栏下沿，零重叠）近源弹出，绝不跑到底部；EPUB 章节间强制分页（`.pith-epub-chapter + .pith-epub-chapter { break-before: column }`），封面页底部不再出现“版权信息”标题；
-  4. 打开设置页自动扫描并配置可用本机 Agent、修改即自动保存；语音设置不再暴露 Azure 分支，自定义端点/模型收纳在默认折叠的 `<details>` 中，且 `.dev-vault` 无 `e2e-*` 残留脏数据；
-- 验收通过后，由 Router 仅将本 `[Task #11]` 区块更新为 `- **Status**: verified`（附 `Verified-Commit`）并 `git commit` 收口。
-
----
-
-## [Task #12] 修复 EPUB 书内链接与实训工具默认挂载
-
-- **Status**: verified
-- **Verified-Commit**: e07677c
-- **Updated**: 2026-11-04
-- **验收结论**：类型检查、200 项测试及隔离 Obsidian 构建通过；独立 Tester 在 Web 与 `.dev-vault` 真实 Obsidian 实测书内导航、伪造标记与工具选择。Guide 注入和卸载通过受控替身验证，未验证真实模型理解意图。
-- **上游 Brain 根因修复（解除 `blocked`）**：
-  - 针对第三轮“原书正文伪造 `.pith-epub-chapter` 类干扰章节索引”：已在 `src/plugins/stage-reader/epub.ts` 序列化属性与 `<body>` 类名时剥离所有以 `pith-` 开头的宿主保留类名前缀，并为真章节 `<section>` 写入 `data-epub-chapter="${chapter}"`；同时在 `src/plugins/stage-reader/pagination.ts` 的 `resolveEpubTarget` 中优先按 `article.children` 直接子章节元素定位。请直接复验并完成收口。
-  - 同时请阅读新增的 [LESSONS.md](LESSONS.md) 与更新后的 [ROLES.md](ROLES.md)。
-
-### 目标
-
-用户反馈书页内的原书目录无法点击；实训工具默认不显示，应由 Guide 理解课题目标和用户意图后选择性注入。此任务以新决策取代 Task #11 中按材料格式默认显示费曼或跟读的规则。费曼复述具体练习流程、反馈机制和评分尚未确定，不在本任务设计或实现范围内。
-
-### 行为契约
-
-1. **EPUB 书内导航**：保留并解析原书内容中的内部链接，包括同一 XHTML 的 fragment、跨 XHTML 文件及带 fragment 的跨文件链接。相对路径相对于链接所在 EPUB 文件解析，准确区分不同章节中重名的 fragment；只允许解析到本书有效阅读单元，缺失或不安全目标不执行跳转并给予明确反馈。复用已有 locator/目录导航能力，书内点击必须到达正确章节及目标位置；分页时显示目标所在屏，滚动文章保持适当定位。目录、正文及注释引用使用同一安全内部导航逻辑，外链和危险协议不冒充书内链接，也不削弱已有安全隔离。
-2. **工具默认与注入**：`topic.toolkits: []` 始终表示无已挂载实训工具，不按材料格式自动填充或授权任何实训工具；格式可用于判断适用性，但不能单独触发挂载。Guide 根据课题目标及用户实际意图，沿现有 `pith_configure_toolkits` / directive 能力注入或卸载；离线或无明确意图时不自动挂载。已保存的非空工具列表继续生效；旧数据的 `none` 按无工具处理，不在读取时批量改写用户数据。`[]` 可通过现有配置工具显式清空。
-3. **直接入口**：无挂载工具时不显示实训入口；已注入时从顶栏直接进入对应工具。多个已注入工具的选择在入口处完成；不在已打开的练习面板内提供能切换到其他工具的“工坊”选择器。保留现有已注入工具的可用功能，不重设计费曼或跟读流程，不引入插件开关设置。
-
-### 授权范围
-
-`src/plugins/stage-reader/`、`src/plugins/guide-acp/`、`src/shells/obsidian/`、`src/shells/web/`、`src/shells/toolkitSlot.ts` 和相关 `tests/`；测试脚本仅在真实验收需要时修改。`src/core/` 公共契约与持久化格式不得擅自修改，若确需修改，写明证据并标记 blocked 交 Brain 裁定。
-
-### 验收
-
-- 使用最小多章节 EPUB fixture 验证同文件与跨文件链接、fragment、重复 fragment ID、目标缺失、路径逃逸和危险/外部链接；不改变或扩大原书/网络访问权限。由独立 Tester 在 Web 与固定 `.dev-vault` 的真实 Obsidian 阅读器中，经实际点击验证分页导航目标；可只读复用测试库现有示例书，不操作真实 Vault。
-- 测试各内容格式在空列表/无 Agent 时均无实训入口、无默认授权；已保存工具、Agent 注入、卸载与空列表清除在刷新/重开后行为一致，旧 `none` 兼容且不改写数据。验证多工具从入口可选择，面板内没有第二个工具选择器；费曼原有练习逻辑不被重新设计。
-- 运行 `npm run typecheck`、相关回归与完整 `npm test`，构建 Obsidian；列出真实客户端验证的范围和未覆盖项。严格保护用户正在使用的桌面会话，不为测试擅自关闭真实 Obsidian、修改钥匙串或访问真实 Vault；若无法安全完成真实客户端验收则如实 blocked，不以替身冒充真机。
-- 结果与证据写回本任务区块；只有独立 Tester 通过后才标记 verified。
-
----
-
 ## [Task #13] 架构清创：铲除函数重赋值套娃、抠源码字符串假测试、沙盒快照反模式，并统一 1/2/3 栏用户偏好分页与 PluginRuntime 热重配
 
 - **Status**: verified
@@ -207,4 +98,54 @@
 ### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准
 - **Worker 工程自检门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（含 `tests/dojo-interline.test.ts` 与 `tests/boundaries.test.ts`）；
 - **Tester 模拟真实用户验收**：在英文材料课题中注入 `interline`，按真实用户路径切换 `原文 / 行间双语 / 译文主显`、翻页观察邻域缓存回放、开启伴读核验仅读英文原文，并截屏用 `view_image` 审视行间双语排版呼吸感与多栏分页对齐。
+
+---
+
+## [Task #15] 动态拉取 ACP Agent 模型/推理强度下拉列表（`configOptions`）与本机轻量语音按需网关（Managed Local Speech Daemon）
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-05
+
+### 背景与目标
+1. **ACP Agent 模型与推理强度动态发现和切换**：
+   - 实测本机 `dsh --profile acp`（及 `claude-agent-acp` / `codex-acp`）在执行 `initialize` + `session/new` 时，会在 `result.configOptions` 中返回完整的模型树（`id: "model"`，含分组 `group` / `name` / `options` 及默认 `currentValue`）与推理强度选项（`id: "reasoning_effort"`，含 `off / low / high / max`）。
+   - 同时，ACP 标准协议规定切换会话配置项应调用 JSON-RPC 方法 `session/set_config_option`（参数 `{ sessionId, configId: "model" | "reasoning_effort", value }`），而非仅在 `session/new` 中传非标字段。
+   - 用户希望在设置面板选中某个本机 Agent（如 `dsh`）后，直接通过下拉框看到并选择对方 Agent 暴露的真实模型列表（含默认项“使用 Agent 默认模型 (currentValue)”）与推理强度，即选即存。
+2. **本机轻量语音按需守护网关（Managed Local Speech Daemon · 类 Magpie 模式）**：
+   - 语音模型体积较大（数百 MB），绝不能打包进插件 `main.js` 或放入 Obsidian Vault 同步目录；
+   - 采用类似 Magpie 的**本机按需网关服务模式**（已由 Brain 在 `src/core/seams.ts` 与 `src/core/host.ts` 冻结 `ManagedSpeechRuntimePort` / `ManagedSpeechState` 契约）：
+     - 运行时与模型缓存统一存放在 Vault 外的系统应用数据目录（如 macOS `~/Library/Application Support/pith/speech/` 或由环境变量 `PITH_SPEECH_HOME` 指定）；
+     - 宿主提供本机语音网关生命周期管理（`getState` / `install` / `ensureRunning` / `stop` / `remove`）：当处于 `local` 语音模式且用户点击 `🎧 听读` 或测试语音时，若本机语音网关已安装但处于 `stopped` 状态，宿主自动按需拉起回环网关进程（监听 `127.0.0.1` 动态或默认端口），并在空闲超时（默认 180 秒无合成/转写请求）或宿主卸载时自动退出进程释放内存！
+     - 在设置面板的「本机语音」模式下，清晰展示本机语音网关状态（未安装 / 已就绪按需启动 / 运行中），并提供一键 `[安装/启用本机语音引擎]`、`[启动/检测]` 与 `[释放/清理]` 控件。
+
+### 核心实现要求
+
+1. **ACP `configOptions` 解析、探测与 `session/set_config_option` 协议对齐（`src/plugins/guide-acp/`）**：
+   - 在 `src/plugins/guide-acp/acpSession.ts` 中新增 `parseAcpConfigOptions(raw)`：完整支持扁平选项与分组嵌套选项（如 `dsh` 的 `{ group, name, options: [{ value, name, description }] }`），将其归一化为 `AcpConfigOptionDescriptor[]`（保留 `group`、`groupLabel`、`currentValue`）；
+   - 在 `discoverLocalAgents` 或新增 `probeAgentOptions(agentId, force)`（带缓存）中，对可用 Agent 通过轻量 `initialize` + `session/new` 探测并缓存其 `configOptions`，随 `DiscoveredAgentDescriptor.configOptions` 一并返回；
+   - 在 `runLocalAcpPrompt` 中：`session/new` 拿到 `sessionId` 后，若用户配置了非空的 `options.model`（且不同于返回的 `currentValue`），调用 `callRpc("session/set_config_option", { sessionId, configId: "model", value: options.model })`（同时在 `session/new` 参数中保留向后兼容字段）；若配置了非空的 `options.effort`，同样调用 `session/set_config_option`（匹配 `id === "reasoning_effort"` 或 `category === "thought_level"` 的 `configId`）。
+2. **双壳设置面板模型与推理强度下拉框（`src/shells/obsidian/index.ts` & `src/shells/web/server.ts`）**：
+   - 在设置面板「本机 Agent」下方展示 **「模型（Model）」** 与 **「推理强度（Effort）」** 两个 `<select>` 下拉框（当 Agent 选为“离线”时禁用或隐藏）；
+   - 第一项固定为 `""`（文案显示为 `默认（跟随 Agent 当前默认：${currentModelName}）`），随后按分组（`<optgroup>` 或前缀）渲染从该 Agent 探测到的全部可选模型与推理强度；若探测未返回列表，仍允许保留已有配置值，选择变更后立即自动保存（Auto-save）。
+3. **本机轻量语音按需网关管理器（`src/shells/speechRuntime.ts` 及双壳接入）**：
+   - 新建 `src/shells/speechRuntime.ts` 实现 `NodeManagedSpeechRuntime`（实现 `ManagedSpeechRuntimePort`）：
+     - 管理 Vault 外目录（默认 `os.homedir() + "/Library/Application Support/pith/speech"`，支持 `PITH_SPEECH_HOME` 覆盖以供沙盒测试）；
+     - 内置标准的 OpenAI 兼容回环 HTTP 网关进程脚本（支持 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions` 及 `/transcribe`），优先对接已安装的本地轻量引擎（如 `sherpa-onnx` / 本机已配置的本地合成器命令），支持**按需自动拉起（Auto-start on demand）**与**空闲自动退出（Idle auto-shutdown，默认 180s 无请求自动 `close()` 释放内存）**；
+     - 在 `speech-service` 或宿主 `synthesizeSpeech` / `transcribeAudio` 调用前：若当前为 `local` 模式且 `host.speechRuntime` 存在并已安装，自动调用 `await host.speechRuntime.ensureRunning()` 按需唤醒网关并将请求路由至其回环端点；
+     - 在 Web（`/api/speech/runtime`）与 Obsidian 设置面板中展示本机语音网关状态与一键启用/停止操作。
+
+### 授权修改范围
+- `src/core/seams.ts` & `src/core/host.ts`（已由 Brain 冻结契约）
+- `src/plugins/guide-acp/**`
+- `src/plugins/speech-service/**`
+- `src/shells/**`
+- `tests/**`
+
+### Worker 工程自检门禁 vs. Tester 模拟真实用户验收标准
+- **Worker 工程自检门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全部零报错通过；
+- **Tester 模拟真实用户验收**：
+  1. 在 Web 与 `.dev-vault` 真实 Obsidian 中打开设置面板，验证连接本机 `dsh` Agent 时能真实拉取并展示 `dsh` 的模型分组下拉列表（DeepSeek / Magpie / Anthropic / Responses）与推理强度下拉列表，切换模型后自动保存并在真实会话中生效；
+  2. 验证在设置面板中启用本机按需语音网关、在阅读页点击 `🎧 听读本章` 自动拉起网关完成播放，以及空闲/停止后进程干净回收，全程截屏通过 `view_image` 审视 UI 排版与交互体验。
+
 

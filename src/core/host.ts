@@ -78,6 +78,8 @@ export interface AgentProcessPort {
   spawnStdio(spec: AgentProcessSpawnSpec): Promise<AgentStdioHandle>;
 }
 
+import type { ManagedSpeechRuntimePort } from "./seams.ts";
+
 export interface HostPort {
   readonly id: "obsidian" | "dsh" | "web" | "desktop" | "mobile" | "memory";
   readonly storage: WorkspaceStoragePort;
@@ -85,5 +87,6 @@ export interface HostPort {
   readonly secrets?: SecretPort;
   readonly sanitizer?: DomSanitizerPort;
   readonly process?: AgentProcessPort;
+  readonly speechRuntime?: ManagedSpeechRuntimePort;
   notify?(message: string, timeoutMs?: number): void;
 }
