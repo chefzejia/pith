@@ -121,10 +121,16 @@
 
 ### 核心实现要求
 
-1. **ACP `configOptions` 解析、探测与 `session/set_config_option` 协议对齐（`src/plugins/guide-acp/`）**：
+1. **ACP `configOptions` 解析、探测、与剔除 DSH `acp` profile 硬编码假默认模型（`src/plugins/guide-acp/`）**：
    - 在 `src/plugins/guide-acp/acpSession.ts` 中新增 `parseAcpConfigOptions(raw)`：完整支持扁平选项与分组嵌套选项（如 `dsh` 的 `{ group, name, options: [{ value, name, description }] }`），将其归一化为 `AcpConfigOptionDescriptor[]`（保留 `group`、`groupLabel`、`currentValue`）；
-   - 在 `discoverLocalAgents` 或新增 `probeAgentOptions(agentId, force)`（带缓存）中，对可用 Agent 通过轻量 `initialize` + `session/new` 探测并缓存其 `configOptions`，随 `DiscoveredAgentDescriptor.configOptions` 一并返回；
-   - 在 `runLocalAcpPrompt` 中：`session/new` 拿到 `sessionId` 后，若用户配置了非空的 `options.model`（且不同于返回的 `currentValue`），调用 `callRpc("session/set_config_option", { sessionId, configId: "model", value: options.model })`（同时在 `session/new` 参数中保留向后兼容字段）；若配置了非空的 `options.effort`，同样调用 `session/set_config_option`（匹配 `id === "reasoning_effort"` 或 `category === "thought_level"` 的 `configId`）。
+   - **修复 DSH `dsh-acp-app` 硬编码 `deepseek-v4-flash` 假默认与幽灵官方模型问题**：
+     - 根因：DSH 的 `@deepseek-ai/dsh-acp-app/cordis.patch.yml` 在 `id: acp` 插件上硬编码了 `provider: deepseek-official, model: deepseek-v4-flash` 作为 `fallbackSelection`， completely 绕过了用户在 `~/.dsh/profiles/*/cordis.patch.yml` 中配置的 `agent-default-model`（如 `provider: magpie, model: zzshu-gemini/gemini-4-argon` 或 `sorrycode-cn/deepseek-flash`），且把未激活的内置 `deepseek-official` / `deepseek-account` 死目录排在第一位！
+     - 修复：当探测或运行 `dsh` Agent 时：
+       1. 读取用户本机 `~/.dsh/profiles/desktop/cordis.patch.yml`、`~/.dsh/profiles/acp/cordis.patch.yml` 或 `~/.dsh/settings.yaml` 中 `agent-default-model` 配置的真实默认 `[provider, model]`（以及用户在 `llm-pi-ai.providers` 下实际配置的 provider 分组如 `magpie`, `magpie-anthropic`, `magpie-responses`）；
+       2. 若用户在 `llm-pi-ai` 中配置了自定义 provider（如 `magpie*`），在返回的 `model` 选项中**过滤掉未在用户 `settings.yaml / cordis.patch.yml` 显式启用的内置 `deepseek-official` / `deepseek-account` 幽灵模型**（或将用户配置的 `agent-default-model` 对应的模型作为真正的 `currentValue` 默认模型！）；
+       3. 当用户在 Pith 中选择“默认”模型（`model === ""`）且当前 Agent 为 `dsh` 时，在 `session/new` 之后自动调用 `session/set_config_option` 将模型切换到从用户 `agent-default-model` 解析出的真实默认模型（例如 `["magpie","zzshu-gemini/gemini-4-argon"]` 或 `["magpie","sorrycode-cn/deepseek-flash"]`），**彻底杜绝回退到不存在的 `["deepseek-official","deepseek-v4-flash"]` 报错**！
+   - 在 `discoverLocalAgents` 或新增 `probeAgentOptions(agentId, force)`（带缓存）中，对可用 Agent 通过轻量 `initialize` + `session/new` 探测并缓存其修正后的 `configOptions`，随 `DiscoveredAgentDescriptor.configOptions` 一并返回；
+   - 在 `runLocalAcpPrompt` 中：`session/new` 拿到 `sessionId` 后，调用 `callRpc("session/set_config_option", { sessionId, configId: "model", value: effectiveModel })` 与 `reasoning_effort`。
 2. **双壳设置面板模型与推理强度下拉框（`src/shells/obsidian/index.ts` & `src/shells/web/server.ts`）**：
    - 在设置面板「本机 Agent」下方展示 **「模型（Model）」** 与 **「推理强度（Effort）」** 两个 `<select>` 下拉框（当 Agent 选为“离线”时禁用或隐藏）；
    - 第一项固定为 `""`（文案显示为 `默认（跟随 Agent 当前默认：${currentModelName}）`），随后按分组（`<optgroup>` 或前缀）渲染从该 Agent 探测到的全部可选模型与推理强度；若探测未返回列表，仍允许保留已有配置值，选择变更后立即自动保存（Auto-save）。
