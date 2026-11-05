@@ -8,6 +8,15 @@ import ts from "typescript";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
 
+test("managed speech uses native multilingual models and ACP never reads dsh private configuration", () => {
+  const forbiddenSpeech = /python3|\bpip\b|pypi\.org|vits-piper-en_US|whisper-tiny\.en/i;
+  assert.match("python3 -m pip install", forbiddenSpeech);
+  for (const name of ["shells/speechRuntime.ts", "shells/speechGateway.ts"]) assert.doesNotMatch(readFileSync(join(SRC, name), "utf8"), forbiddenSpeech);
+  const privateConfig = /(?:~\/|["'`]\.\/?)\.dsh\/|cordis\.patch\.ya?ml/i;
+  assert.match("~/.dsh/profiles/acp/cordis.patch.yml", privateConfig);
+  for (const file of walkTsFiles(join(SRC, "plugins/guide-acp"))) assert.doesNotMatch(readFileSync(file, "utf8"), privateConfig);
+});
+
 function walkTsFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

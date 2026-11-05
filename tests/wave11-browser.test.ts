@@ -80,6 +80,7 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");
     await page.locator("#simple-mode").selectOption("local");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsProvider === "kokoro-local");
+    await page.waitForFunction(() => (document.querySelector('[data-speech-field="ttsEndpoint"]') as HTMLInputElement).value === "");
     assert.equal(await page.locator('[data-speech-field="ttsEndpoint"]').inputValue(), "");
     await page.locator("#simple-mode").selectOption("cloud");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");

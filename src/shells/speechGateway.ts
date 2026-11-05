@@ -1,109 +1,63 @@
-export const SPEECH_GATEWAY = String.raw`import array, io, json, os, shutil, subprocess, sys, tempfile, time, wave
-from email.parser import BytesParser
-from email.policy import default
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import numpy as np
-import sherpa_onnx as sherpa
-
-home = os.path.dirname(os.path.abspath(__file__))
-tts_dir = os.path.join(home, 'vits-piper-en_US-lessac-medium')
-asr_dir = os.path.join(home, 'sherpa-onnx-whisper-tiny.en')
-tts = None
-asr = None
-last_request = time.monotonic()
-idle_seconds = int(os.environ.get('PITH_SPEECH_IDLE_SECONDS', '180'))
-
-def synthesis(text, speed):
-    global tts
-    if tts is None:
-        model = sherpa.OfflineTtsVitsModelConfig(model=os.path.join(tts_dir, 'en_US-lessac-medium.onnx'), tokens=os.path.join(tts_dir, 'tokens.txt'), data_dir=os.path.join(tts_dir, 'espeak-ng-data'))
-        tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(model=sherpa.OfflineTtsModelConfig(vits=model, num_threads=2)))
-    audio = tts.generate(text, speed=speed)
-    if not audio.samples:
-        raise ValueError('Empty generated audio')
-    samples = array.array('h', (max(-32768, min(32767, int(sample * 32767))) for sample in audio.samples))
-    if sys.byteorder != 'little': samples.byteswap()
-    output = io.BytesIO()
-    with wave.open(output, 'wb') as out:
-        out.setnchannels(1); out.setsampwidth(2); out.setframerate(audio.sample_rate); out.writeframes(samples.tobytes())
-    return output.getvalue()
-
-def transcription(data):
-    global asr
-    ffmpeg = shutil.which('ffmpeg')
-    if not ffmpeg: raise ValueError('ffmpeg is required for local transcription')
-    with tempfile.TemporaryDirectory(dir=home) as directory:
-        source = os.path.join(directory, 'input'); target = os.path.join(directory, 'audio.wav')
-        with open(source, 'wb') as f: f.write(data)
-        subprocess.run([ffmpeg, '-nostdin', '-v', 'error', '-i', source, '-ac', '1', '-ar', '16000', '-f', 'wav', target], check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        with wave.open(target, 'rb') as audio:
-            if audio.getsampwidth() != 2: raise ValueError('Invalid audio')
-            samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype='<i2').astype(np.float32) / 32768.0
-    if asr is None:
-        asr = sherpa.OfflineRecognizer.from_whisper(encoder=os.path.join(asr_dir, 'tiny.en-encoder.int8.onnx'), decoder=os.path.join(asr_dir, 'tiny.en-decoder.int8.onnx'), tokens=os.path.join(asr_dir, 'tiny.en-tokens.txt'), language='en', task='transcribe', num_threads=2)
-    stream = asr.create_stream(); stream.accept_waveform(16000, samples); asr.decode_stream(stream)
-    return stream.result.text
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args): pass
-    def respond(self, status, content_type, data):
-        self.send_response(status); self.send_header('Content-Type', content_type); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
-    def authorized(self):
-        return self.headers.get('Host') == '127.0.0.1:%s' % self.server.server_port and not self.headers.get('Origin')
-    def read_body(self):
-        limit = 30000000
-        if self.headers.get('Transfer-Encoding', '').lower() == 'chunked':
-            chunks = []; total = 0
-            while True:
-                header = self.rfile.readline(128)
-                size = int(header.split(b';', 1)[0].strip(), 16)
-                if size == 0:
-                    while self.rfile.readline(8192).strip(): pass
-                    break
-                total += size
-                if total > limit: raise ValueError('Invalid request size')
-                chunk = self.rfile.read(size)
-                if len(chunk) != size or self.rfile.read(2) != b'\r\n': raise ValueError('Invalid chunk')
-                chunks.append(chunk)
-            if total == 0: raise ValueError('Invalid request size')
-            return b''.join(chunks)
-        size = int(self.headers.get('Content-Length', '0'))
-        if size <= 0 or size > limit: raise ValueError('Invalid request size')
-        data = self.rfile.read(size)
-        if len(data) != size: raise ValueError('Incomplete request')
-        return data
-    def do_GET(self):
-        global last_request
-        if not self.authorized() or self.path != '/health': self.respond(404, 'application/json', b'{}'); return
-        last_request = time.monotonic(); self.respond(200, 'application/json', b'{"ok":true}')
-    def do_POST(self):
-        global last_request
-        if not self.authorized(): self.respond(403, 'application/json', b'{}'); return
-        last_request = time.monotonic()
-        try:
-            data = self.read_body(); content_type = self.headers.get('Content-Type', '')
-            if self.path == '/v1/audio/speech':
-                if not content_type.startswith('application/json'): raise ValueError('Expected JSON')
-                request = json.loads(data); text = request.get('input', ''); speed = float(request.get('speed', 1))
-                if not isinstance(text, str) or not text.strip() or len(text) > 10000 or not 0.5 <= speed <= 2: raise ValueError('Invalid speech request')
-                self.respond(200, 'audio/wav', synthesis(text, speed))
-            elif self.path in ('/v1/audio/transcriptions', '/transcribe'):
-                if self.path == '/v1/audio/transcriptions':
-                    if not content_type.startswith('multipart/form-data;'): raise ValueError('Expected multipart audio')
-                    message = BytesParser(policy=default).parsebytes(('Content-Type: ' + content_type + '\r\nMIME-Version: 1.0\r\n\r\n').encode() + data)
-                    parts = [p for p in message.iter_parts() if p.get_param('name', header='content-disposition') == 'file']
-                    if len(parts) != 1: raise ValueError('Expected one audio file')
-                    data = parts[0].get_payload(decode=True)
-                self.respond(200, 'application/json', json.dumps({'text': transcription(data)}).encode())
-            else: self.respond(404, 'application/json', b'{}')
-        except Exception as error:
-            self.respond(503, 'application/json', json.dumps({'error': str(error)}).encode())
-        finally: last_request = time.monotonic()
-
-server = HTTPServer(('127.0.0.1', 0), Handler)
-server.timeout = 1
-print(server.server_port, flush=True)
-while time.monotonic() - last_request < idle_seconds:
-    server.handle_request()
-server.server_close()
+export const SPEECH_GATEWAY = String.raw`'use strict';
+const http = require('node:http');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const sherpa = require('sherpa-onnx-node');
+const root = __dirname;
+const ttsDir = path.join(root, 'kokoro-int8-multi-lang-v1_1');
+const asrDir = path.join(root, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17');
+let tts, asr, timer, active = 0;
+const converters = new Set();
+const idle = Number(process.env.PITH_SPEECH_IDLE_SECONDS || '180') * 1000;
+function resetIdle() { clearTimeout(timer); if (!active) timer = setTimeout(() => server.close(), idle); }
+function synthesize(text, speed) {
+  if (!tts) tts = new sherpa.OfflineTts({ model: { kokoro: { model: path.join(ttsDir, 'model.int8.onnx'), voices: path.join(ttsDir, 'voices.bin'), tokens: path.join(ttsDir, 'tokens.txt'), dataDir: path.join(ttsDir, 'espeak-ng-data'), lexicon: [path.join(ttsDir, 'lexicon-us-en.txt'), path.join(ttsDir, 'lexicon-zh.txt')].join(',') }, numThreads: 2, provider: 'cpu' }, ruleFsts: [path.join(ttsDir, 'date-zh.fst'), path.join(ttsDir, 'number-zh.fst'), path.join(ttsDir, 'phone-zh.fst')].join(','), maxNumSentences: 1 });
+  const audio = tts.generate({ text, speed, sid: 48 });
+  if (!audio.samples.length) throw Error('Empty generated audio');
+  const output = Buffer.alloc(44 + audio.samples.length * 2);
+  output.write('RIFF', 0); output.writeUInt32LE(output.length - 8, 4); output.write('WAVEfmt ', 8); output.writeUInt32LE(16, 16); output.writeUInt16LE(1, 20); output.writeUInt16LE(1, 22); output.writeUInt32LE(audio.sampleRate, 24); output.writeUInt32LE(audio.sampleRate * 2, 28); output.writeUInt16LE(2, 32); output.writeUInt16LE(16, 34); output.write('data', 36); output.writeUInt32LE(output.length - 44, 40);
+  for (let i = 0; i < audio.samples.length; i++) output.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(audio.samples[i] * 32767))), 44 + i * 2);
+  return output;
+}
+async function transcribe(bytes) {
+  const pcm = await new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', ['-nostdin', '-v', 'error', '-i', 'pipe:0', '-ac', '1', '-ar', '16000', '-f', 's16le', 'pipe:1'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    converters.add(child); let size = 0, failed = false; const chunks = [];
+    const timeout = setTimeout(() => { failed = true; child.kill('SIGKILL'); }, 120000);
+    child.stdout.on('data', chunk => { size += chunk.length; if (size > 100000000) { failed = true; child.kill('SIGKILL'); } else chunks.push(chunk); });
+    child.stdin.on('error', () => {}); child.stdin.end(bytes);
+    child.on('error', () => { failed = true; });
+    child.on('close', code => { clearTimeout(timeout); converters.delete(child); if (failed || code !== 0) reject(Error('Audio conversion failed; ffmpeg is required')); else resolve(Buffer.concat(chunks)); });
+  });
+  if (!asr) asr = new sherpa.OfflineRecognizer({ featConfig: { sampleRate: 16000, featureDim: 80 }, modelConfig: { senseVoice: { model: path.join(asrDir, 'model.int8.onnx'), useInverseTextNormalization: 1 }, tokens: path.join(asrDir, 'tokens.txt'), numThreads: 2, provider: 'cpu' } });
+  const samples = new Float32Array(Math.floor(pcm.length / 2));
+  for (let i = 0; i < samples.length; i++) samples[i] = pcm.readInt16LE(i * 2) / 32768;
+  const stream = asr.createStream(); stream.acceptWaveform({ sampleRate: 16000, samples }); asr.decode(stream);
+  return asr.getResult(stream).text;
+}
+function respond(res, status, type, body) { res.writeHead(status, { 'Content-Type': type, 'Content-Length': body.length }); res.end(body); }
+async function readBody(req) { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 30000000) throw Error('Request too large'); chunks.push(chunk); } if (!size) throw Error('Empty request'); return Buffer.concat(chunks); }
+const server = http.createServer(async (req, res) => {
+  if (req.headers.host !== '127.0.0.1:' + server.address().port || req.headers.origin) { respond(res, 403, 'application/json', Buffer.from('{}')); return; }
+  active++; resetIdle();
+  try {
+    if (req.method === 'GET' && req.url === '/health') { respond(res, 200, 'application/json', Buffer.from('{"ok":true}')); return; }
+    if (req.method !== 'POST') { respond(res, 404, 'application/json', Buffer.from('{}')); return; }
+    const data = await readBody(req), type = req.headers['content-type'] || '';
+    if (req.url === '/v1/audio/speech') {
+      if (!type.startsWith('application/json')) throw Error('Expected JSON');
+      const input = JSON.parse(data.toString('utf8')), speed = Number(input.speed || 1);
+      if (typeof input.input !== 'string' || !input.input.trim() || input.input.length > 10000 || speed < 0.5 || speed > 2 || !Number.isFinite(speed)) throw Error('Invalid speech request');
+      respond(res, 200, 'audio/wav', synthesize(input.input, speed));
+    } else if (req.url === '/v1/audio/transcriptions' || req.url === '/transcribe') {
+      let audio = data;
+      if (req.url === '/v1/audio/transcriptions') { if (!type.startsWith('multipart/form-data;')) throw Error('Expected multipart audio'); const form = await new Request('http://127.0.0.1/', { method: 'POST', headers: { 'content-type': type }, body: data }).formData(); const files = form.getAll('file'); if (files.length !== 1 || typeof files[0] === 'string') throw Error('Expected one audio file'); audio = Buffer.from(await files[0].arrayBuffer()); }
+      respond(res, 200, 'application/json', Buffer.from(JSON.stringify({ text: await transcribe(audio) })));
+    } else respond(res, 404, 'application/json', Buffer.from('{}'));
+  } catch (error) { if (!res.headersSent) respond(res, 503, 'application/json', Buffer.from(JSON.stringify({ error: error.message }))); }
+  finally { active--; resetIdle(); }
+});
+server.requestTimeout = 30000; server.headersTimeout = 10000;
+process.on('SIGTERM', () => { for (const child of converters) child.kill('SIGKILL'); server.close(); process.exit(0); });
+server.listen(0, '127.0.0.1', () => { console.log(server.address().port); resetIdle(); });
 `;

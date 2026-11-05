@@ -127,7 +127,7 @@ registerPlugin({
       timeoutMs: timeout,
       actions: ["解释这段内容", "给我一个例子", "检验我的理解"],
       detectAgents: (force?: boolean) => detector.detect(force),
-      probeAgentOptions: (id, force) => detector.probeAgentOptions(id, force, id === agentId ? model : ""),
+      probeAgentOptions: (id, force) => detector.probeAgentOptions(id, force),
       quickActionsForTopic,
       buildScenePrompt,
       listWorkspaceTools: () => {

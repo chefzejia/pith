@@ -48,18 +48,23 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     web = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const webAddress = web.address(); assert.ok(webAddress && typeof webAddress !== "string"); const base = `http://127.0.0.1:${webAddress.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
+    await post("/api/settings", { agentId: "dsh", model: "old-profile-model", effort: "low" });
     const topic = await post("/api/topics", { title: "English reading" });
     const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>Speech test</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": "<html><body><h1>Chapter One: Attention</h1><p>Reading carefully begins with the decision to notice what is in front of us.</p></body></html>" });
     await post("/api/materials", { topicId: topic.id, title: "English", kind: "book", files: [{ name: "english.epub", data: Buffer.from(book).toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "browser"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1280, height: 720 } });
     const page = await browser.newPage(); const errors: string[] = []; page.on("pageerror", (error: Error) => errors.push(error.message));
-    await page.goto(base); await page.locator("#settings").click(); await page.locator("#simple-agent").selectOption("dsh");
+    await page.goto(base); await page.locator("#settings").click();
     const beta = page.locator('#simple-model optgroup[label="Local Test"] option').filter({ hasText: "Local Beta" }); await beta.waitFor({ state: "attached" });
-    const model = await beta.getAttribute("value"); assert.ok(model); await page.locator("#simple-effort").selectOption("low"); await page.locator("#simple-model").selectOption(model);
+    assert.equal(await page.locator("#simple-model").inputValue(), "old-profile-model");
+    assert.equal(await page.locator("#simple-effort").inputValue(), "low");
+    assert.equal(frames.some((frame: any) => frame.sent === "session/set_config_option"), false);
+    const model = await beta.getAttribute("value"); assert.ok(model); await page.locator("#simple-model").selectOption(model);
+    await page.waitForFunction(async (selected: string) => { const settings = (await (await fetch("/api/state")).json()).settings; return settings.model === selected && settings.effort === "low"; }, model);
+    await page.locator("#simple-effort").selectOption("");
     await page.waitForFunction(async (selected: string) => { const settings = (await (await fetch("/api/state")).json()).settings; return settings.agentId === "dsh" && settings.model === selected && settings.effort === ""; }, model);
     await page.waitForFunction(() => !(document.querySelector("#simple-effort") as HTMLSelectElement).disabled);
-    assert.equal(await page.locator('#simple-effort option[value="low"]').count(), 0);
     await page.locator("#close-drawer").click(); await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator("#toggle-side").click();
     await page.locator("#message").fill("This is a local fixture request."); await page.locator("#send").click();
     try { await page.locator(".message.guide").getByText("Local fixture response.").waitFor({ timeout: 20000 }); }

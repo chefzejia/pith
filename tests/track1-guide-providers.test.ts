@@ -49,17 +49,37 @@ test("ACP rejects a relative working directory and reports probe errors clearly"
   await assert.rejects(detector.probeAgentOptions("dsh"), /检测 DeepSeek Harness 配置失败：invalid session directory/);
 });
 
-test("ACP probes and applies effort against the selected model's updated options", async () => {
+test("ACP probes session defaults and applies effort against the selected model's updated options", async () => {
   const requests: { method: string; params?: Record<string, unknown> }[] = [];
   const initial = [{ id: "model", name: "Model", type: "select", currentValue: "alpha", options: [{ value: "alpha", name: "Alpha" }, { value: "beta", name: "Beta" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }] }];
   const changed = [initial[0], { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "high", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }];
   const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); requests.push(request); if (request.id === undefined) return; const result = request.method === "session/new" ? { sessionId: "s", configOptions: initial } : request.method === "session/set_config_option" && request.params.configId === "model" ? { configOptions: changed } : request.method === "session/prompt" ? { text: "done" } : {}; server.sendToClient({ jsonrpc: "2.0", id: request.id, result }); }); } });
   const detector = new CachedAgentDetector({ processPort: port });
-  const probed = await detector.probeAgentOptions("dsh", false, "beta");
-  assert.equal(probed.find(item => item.id === "reasoning_effort")?.currentValue, "high");
+  const probed = await detector.probeAgentOptions("dsh");
+  assert.equal(probed.find(item => item.id === "reasoning_effort")?.currentValue, "low");
   const descriptor = (await detector.detect())[0]!;
   await runOneShotAcpPrompt("hello", { descriptor, processPort: port, model: "beta", effort: "low" });
   assert.ok(requests.some(item => item.method === "session/set_config_option" && item.params?.configId === "reasoning_effort" && item.params.value === "low"));
+});
+
+test("ACP uses the standard effort option id", async () => {
+  const requests: { method: string; params?: Record<string, unknown> }[] = [];
+  const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); requests.push(request); if (request.id !== undefined) server.sendToClient({ jsonrpc: "2.0", id: request.id, result: request.method === "session/new" ? { sessionId: "s", configOptions: [{ id: "effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }] } : request.method === "session/prompt" ? { text: "done" } : {} }); }); } });
+  const detector = new CachedAgentDetector({ processPort: port });
+  await runOneShotAcpPrompt("hello", { descriptor: (await detector.detect())[0]!, processPort: port, effort: "high" });
+  assert.ok(requests.some(item => item.method === "session/set_config_option" && item.params?.configId === "effort" && item.params.value === "high"));
+});
+
+test("ACP probe ignores stale profile selections while real sessions retain their errors", async () => {
+  const requests: { method: string; params?: Record<string, unknown>; id?: number }[] = [];
+  const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) { server.onClientLine(line => { const request = JSON.parse(line); requests.push(request); if (request.id === undefined) return; if (request.method === "session/set_config_option") server.sendToClient({ jsonrpc: "2.0", id: request.id, error: { code: -32602, message: "unknown model option" } }); else server.sendToClient({ jsonrpc: "2.0", id: request.id, result: request.method === "session/new" ? { sessionId: "s", configOptions: [{ id: "model", name: "Model", type: "select", currentValue: "new-profile", options: [{ value: "new-profile", name: "New profile" }] }] } : {} }); }); } });
+  const descriptor = (await new CachedAgentDetector({ processPort: port }).detect())[0]!;
+  const probe = await runOneShotAcpPrompt("", { descriptor, processPort: port, probeOnly: true, model: "old-profile", effort: "old-effort" });
+  assert.equal(probe.configOptions?.[0]?.currentValue, "new-profile");
+  const session = requests.find(item => item.method === "session/new")!;
+  assert.equal(session.params?.model, undefined); assert.equal(session.params?.reasoningEffort, undefined);
+  assert.equal(requests.some(item => item.method === "session/set_config_option"), false);
+  await assert.rejects(runOneShotAcpPrompt("hello", { descriptor, processPort: port, model: "old-profile", effort: "old-effort" }), /unknown model option/);
 });
 
 function createMemoryStorage(): WorkspaceStoragePort {

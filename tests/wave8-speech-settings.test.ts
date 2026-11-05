@@ -125,7 +125,7 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("Obsidian re-probes effort after changing model", async () => {
+test("Obsidian preserves effort when changing model", async () => {
   class Element {
     children: Element[] = []; parentElement: Element | null = null; textContent = ""; value = ""; disabled = false; hidden = false; onchange: (() => void) | null = null;
     ownerDocument = { createElement: (_tag: string) => new Element() };
@@ -143,15 +143,16 @@ test("Obsidian re-probes effort after changing model", async () => {
     await controller.setAgentConfig({ agentId: "dsh", model: "alpha", effort: "low", persona: "studio" });
     controller.detectAgents = async () => [{ id: "dsh", available: true } as Awaited<ReturnType<typeof controller.detectAgents>>[number]];
     let selectedProbe!: () => void; const probed = new Promise<void>(resolve => { selectedProbe = resolve; });
-    controller.probeAgentOptions = async () => { const model = controller.getAgentConfig().model; if (model === "beta") selectedProbe(); return [{ id: "model", name: "Model", type: "select", currentValue: model, options: [{ value: "alpha", name: "Alpha" }, { value: "beta", name: "Beta" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: model === "beta" ? "off" : "low", options: model === "beta" ? [{ value: "off", name: "Off" }] : [{ value: "low", name: "Low" }] }]; };
+    controller.probeAgentOptions = async () => { selectedProbe(); return [{ id: "model", name: "Model", type: "select", currentValue: "alpha", options: [{ value: "alpha", name: "Alpha" }, { value: "beta", name: "Beta" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }] }]; };
     const tab = new PithSettingTab({} as never, { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false } as never, controller);
     const root = new Element(); tab.containerEl = root as never; tab.display();
     const model = root.children.find(node => node.textContent === "模型（Model）")!.children[0]!;
     const effort = root.children.find(node => node.textContent === "推理强度（Effort）")!.children[0]!;
-    model.value = "beta"; model.onchange!(); await probed;
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(controller.getAgentConfig().effort, "");
-    assert.deepEqual(effort.children.map(item => item.value), ["", "off"]);
+    await probed; await new Promise<void>(resolve => setImmediate(resolve));
+    model.value = "beta"; model.onchange!();
+    for (let i = 0; i < 1000 && controller.getAgentConfig().model !== "beta"; i++) await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(controller.getAgentConfig().effort, "low");
+    assert.deepEqual(effort.children.map(item => item.value), ["", "low"]);
     assert.equal(effort.disabled, false);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });

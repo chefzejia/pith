@@ -16,11 +16,11 @@ test("managed speech rejects Vault paths and preserves unowned directories", asy
     const vault = join(dir, "vault"); await mkdir(vault);
     const inside = new NodeManagedSpeechRuntime({ home: vault, protectedRoot: vault });
     await assert.rejects(inside.install(), /Vault/);
-    const external = join(dir, "external"), managed = join(external, "managed-v1"); await mkdir(managed, { recursive: true }); await writeFile(join(managed, "unrelated"), "preserve");
+    const external = join(dir, "external"), managed = join(external, "managed-v2"); await mkdir(managed, { recursive: true }); await writeFile(join(managed, "unrelated"), "preserve");
     const runtime = new NodeManagedSpeechRuntime({ home: external, protectedRoot: vault });
     await assert.rejects(runtime.install()); await runtime.remove();
     assert.equal(await readFile(join(managed, "unrelated"), "utf8"), "preserve");
-    const broken = join(dir, "broken", "managed-v1"); await mkdir(broken, { recursive: true }); await writeFile(join(broken, ".owner"), "pith-managed-speech-v1"); await writeFile(join(broken, "installed"), "pith-sherpa-1.12.40-v1");
+    const broken = join(dir, "broken", "managed-v2"); await mkdir(broken, { recursive: true }); await writeFile(join(broken, ".owner"), "pith-managed-speech-v2"); await writeFile(join(broken, "installed"), "pith-sherpa-1.12.23-kokoro-sensevoice-v2");
     const incomplete = new NodeManagedSpeechRuntime({ home: join(dir, "broken") }); assert.equal((await incomplete.getState()).status, "failed"); await assert.rejects(incomplete.ensureRunning()); assert.equal((await incomplete.remove()).status, "not-installed");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
@@ -39,6 +39,15 @@ test("managed speech serves real TTS and ASR and stops only its own process", { 
     const audio = await speech.synthesizeSpeech("Hello, this is a local speech test.");
     assert.equal(audio.mimeType, "audio/wav"); assert.equal(new TextDecoder().decode(audio.bytes.slice(0, 4)), "RIFF");
     assert.match((await speech.transcribeAudio(audio.bytes, "audio/wav")).text.toLowerCase(), /local speech test/);
+    const chinese = await speech.synthesizeSpeech("你好，欢迎使用本地语音识别。");
+    assert.equal(new TextDecoder().decode(chinese.bytes.slice(0, 4)), "RIFF");
+    assert.ok(chinese.bytes.slice(44).some(byte => byte !== 0));
+    const recognized = await speech.transcribeAudio(chinese.bytes, "audio/wav");
+    assert.match(recognized.text, /你好|欢迎|本地/);
+    const samples = join(root, "managed-v2", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", "test_wavs");
+    assert.match((await speech.transcribeAudio(await readFile(join(samples, "zh.wav")), "audio/wav")).text, /[\u4e00-\u9fff]/u);
+    assert.match((await speech.transcribeAudio(await readFile(join(samples, "en.wav")), "audio/wav")).text, /[a-z]{3}/i);
+    assert.match((await first.getState()).modelName!, /Kokoro-82M v1\.1.*SenseVoice/);
     await first.stop(); assert.equal((await first.getState()).status, "stopped");
     assert.equal((await fetch(new URL("/health", other.endpoint!))).status, 200);
     await first.ensureRunning(); const deadline = Date.now() + 10000;

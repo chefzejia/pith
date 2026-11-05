@@ -191,17 +191,16 @@ export class CachedAgentDetector {
     return descriptors.map((d) => ({ ...d, args: [...d.args] }));
   }
 
-  async probeAgentOptions(agentId: string, force = false, model = ""): Promise<readonly AcpConfigOptionDescriptor[]> {
-    const key = JSON.stringify([agentId, model]);
-    const cached = this.optionCache.get(key), timestamp = this.now();
+  async probeAgentOptions(agentId: string, force = false): Promise<readonly AcpConfigOptionDescriptor[]> {
+    const cached = this.optionCache.get(agentId), timestamp = this.now();
     if (!force && cached && timestamp - cached.at < this.ttlMs) return cached.options;
     const descriptor = (await this.detect(force)).find(item => item.id === agentId);
     if (!descriptor || !descriptor.available || !this.options.processPort) throw new Error("Agent 不可用");
     let result;
-    try { result = await runOneShotAcpPrompt("", { descriptor, processPort: this.options.processPort, timeoutMs: this.options.timeoutMs, probeOnly: true, model }); }
+    try { result = await runOneShotAcpPrompt("", { descriptor, processPort: this.options.processPort, timeoutMs: this.options.timeoutMs, probeOnly: true }); }
     catch (error) { throw new Error(`检测 ${descriptor.label} 配置失败：${error instanceof Error ? error.message : String(error)}`); }
     const options = result.configOptions ?? [];
-    this.optionCache.set(key, { at: timestamp, options });
+    this.optionCache.set(agentId, { at: timestamp, options });
     return options;
   }
 }

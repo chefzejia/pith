@@ -344,8 +344,8 @@ export async function runOneShotAcpPrompt(
       cwd,
       mcpServers: [],
       permissionMode: "read-only",
-      ...(options.model ? { model: options.model } : {}),
-      ...(options.effort ? { reasoningEffort: options.effort } : {}),
+      ...(!options.probeOnly && options.model ? { model: options.model } : {}),
+      ...(!options.probeOnly && options.effort ? { reasoningEffort: options.effort } : {}),
     })) as Record<string, unknown> | undefined;
 
     sessionId =
@@ -354,13 +354,13 @@ export async function runOneShotAcpPrompt(
         : "session-1";
 
     let configOptions = parseAcpConfigOptions(newSessionResult?.configOptions);
+    if (options.probeOnly) return { sessionId, text: "", stopReason: "end_turn", configOptions };
     const modelOption = configOptions.find(option => option.id === "model");
     if (options.model && (!modelOption || modelOption.currentValue !== options.model)) {
       const result = await callRpc("session/set_config_option", { sessionId, configId: modelOption ? modelOption.id : "model", value: options.model });
       if (result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).configOptions)) configOptions = parseAcpConfigOptions((result as Record<string, unknown>).configOptions);
     }
-    if (options.probeOnly) return { sessionId, text: "", stopReason: "end_turn", configOptions };
-    const effortOption = configOptions.find(option => option.id === "reasoning_effort" || option.category === "thought_level");
+    const effortOption = configOptions.find(option => option.id === "reasoning_effort" || option.id === "effort" || option.category === "thought_level");
     if (options.effort && (!effortOption || effortOption.currentValue !== options.effort)) await callRpc("session/set_config_option", { sessionId, configId: effortOption ? effortOption.id : "reasoning_effort", value: options.effort });
 
     const promptResult = await callRpc("session/prompt", {
