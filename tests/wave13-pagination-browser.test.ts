@@ -9,6 +9,38 @@ import { renderCbz } from "../src/plugins/stage-reader/fixedPage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { linkedEpub } from "./wave12-epub-fixture.ts";
 
+test("wide pagination centers each screen without visible scrollbars in both shells", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+  const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
+  const dir = await testSandbox("pith-wide-page-");
+  let browser: any, server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
+  try {
+    await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
+    const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
+    const post = async (path: string, body: unknown) => { const r = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(r.ok); return r.json(); };
+    const topic = await post("/api/topics", { title: "Wide" }); await post("/api/materials", { topicId: topic.id, title: "Wide", kind: "book", files: [{ name: "wide.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
+    browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 2200, height: 900 } });
+    const page = await browser.newPage();
+    for (const shell of ["web", "obsidian"] as const) {
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
+      else { await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="start">Start</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Wide" }); }); }
+      const reader = page.locator(shell === "web" ? ".reader" : ".pith-reader"), article = page.locator(shell === "web" ? "#article" : ".pith-article");
+      await article.evaluate((node: HTMLElement) => { node.innerHTML = Array.from({ length: 600 }, (_, i) => `<p data-locator="p:${i}">${`Line ${i} reading words and text. `.repeat(12)}</p>`).join(""); });
+      const menu = page.locator(shell === "web" ? "#typography-toggle" : '[data-command="typography"]');
+      await menu.click();
+      for (const [mode, columns, max] of [["single", 1, 820], ["double", 2, 680], ["triple", 3, 580]] as const) {
+        await page.locator(`[data-mode="${mode}"]`).click();
+        const metrics = await reader.evaluate((node: HTMLElement) => { const body = node.firstElementChild as HTMLElement, style = getComputedStyle(body), pseudo = getComputedStyle(node, "::after"), viewport = getComputedStyle(node); return { width: node.clientWidth, scroll: node.scrollWidth, column: parseFloat(style.columnWidth), gap: parseFloat(style.columnGap), inset: parseFloat(style.paddingLeft), overflow: viewport.overflowX, scrollbar: viewport.scrollbarWidth, position: pseudo.position, pseudoWidth: pseudo.width }; });
+        assert.equal(metrics.overflow, "hidden"); assert.equal(metrics.scrollbar, "none"); assert.equal(metrics.position, "absolute"); assert.equal(metrics.pseudoWidth, "1px"); assert.ok(metrics.scroll > metrics.width * 3); assert.ok(metrics.column <= max + .1); assert.ok(Math.abs(columns * (metrics.column + metrics.gap) - metrics.width) < .2); assert.ok(Math.abs(metrics.gap - 2 * metrics.inset) < .1);
+        for (const index of [0, 1, 2]) {
+          await reader.evaluate((node: HTMLElement, n: number) => { node.scrollLeft = n * node.clientWidth; }, index);
+          const value = await reader.evaluate((node: HTMLElement) => { const bounds = node.getBoundingClientRect(), range = document.createRange(), walker = document.createTreeWalker(node.firstElementChild!, NodeFilter.SHOW_TEXT); let current: Node | null, first = Infinity; while ((current = walker.nextNode())) { range.selectNodeContents(current); for (const rect of range.getClientRects()) if (rect.width > 0 && rect.left >= bounds.left - .5 && rect.left < bounds.right - .5 && rect.top >= bounds.top - .5 && rect.bottom <= bounds.bottom + .5) first = Math.min(first, rect.left - bounds.left); } return { left: node.scrollLeft, width: node.clientWidth, first }; }); assert.ok(Math.abs(value.left - index * value.width) <= 1); assert.ok(Math.abs(value.first - metrics.inset) < 2, JSON.stringify({ shell, mode, index, value, metrics }));
+        }
+      }
+    }
+  } finally { if (browser) await browser.close(); if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
+});
+
 test("Web page buttons advance with fractional zoom and an audio deck", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
   const dir = await testSandbox("pith-web-page-turn-");

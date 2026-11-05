@@ -27,7 +27,9 @@ export function resolveResponsiveLayout(input: Parameters<NonNullable<StageReade
 
 export function computePagination(viewportWidth: number, viewportHeight: number, scrollWidth: number, mode: ColumnMode = "auto"): PaginationMetrics {
   const columns = mode === "triple" ? 3 : mode === "double" || (mode === "auto" && viewportWidth >= 900) ? 2 : 1;
-  const horizontalInsetPx = Math.min(48, Math.max(16, viewportWidth * 0.05), viewportWidth / (columns * 4));
+  const baseInset = Math.min(48, Math.max(16, viewportWidth * 0.05), viewportWidth / (columns * 4));
+  const maxColumnWidth = columns === 1 ? 820 : columns === 2 ? 680 : 580;
+  const horizontalInsetPx = Math.max(baseInset, (viewportWidth / columns - maxColumnWidth) / 2);
   const verticalInsetPx = Math.min(32, Math.max(12, viewportHeight * 0.05));
   return {
     columns,
@@ -71,7 +73,7 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
     const available = Math.max(1, (metrics.contentHeightPx - margins - figure.getBoundingClientRect().height + mediaHeight) / media.length);
     for (const item of media) item.style.setProperty("--pith-page-media-height", `${available}px`);
   }
-  viewport.style.overflowX = "auto";
+  viewport.style.overflowX = "hidden";
   viewport.style.overflowY = "hidden";
   viewport.style.removeProperty("--pith-page-scroll-extent");
   const result = computePagination(width, height, viewport.scrollWidth, mode);

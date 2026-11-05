@@ -29,6 +29,16 @@ test("pagination geometry and forced modes", () => {
   assert.equal(computePagination(0, 0, 0).totalScreens, 1);
 });
 
+test("pagination keeps a bounded centered column and exact screen stride", () => {
+  for (const width of [80, 320, 801, 1800, 2200, 3840]) for (const [mode, columns, max] of [["single", 1, 820], ["double", 2, 680], ["triple", 3, 580]] as const) {
+    const metrics = computePagination(width, 700, width * 5, mode);
+    assert.equal(metrics.columns, columns);
+    assert.ok(metrics.columnWidthPx <= max);
+    assert.ok(Math.abs(columns * (metrics.columnWidthPx + metrics.columnGapPx) - width) < 1e-9);
+    assert.ok(Math.abs(metrics.columnGapPx - 2 * metrics.horizontalInsetPx) < 1e-9);
+  }
+});
+
 test("pagination styles measure overflow after layout", () => {
   const properties = new Map<string, string>();
   const style = () => ({ setProperty: (name: string, value: string) => properties.set(name, value), removeProperty: (name: string) => properties.delete(name) });
@@ -40,6 +50,7 @@ test("pagination styles measure overflow after layout", () => {
   assert.equal(body.style.columnGap, "96px");
   assert.equal(properties.get("--pith-page-height"), "540px");
   assert.equal(properties.get("--pith-page-scroll-extent"), "1999px");
+  assert.equal(viewport.style.overflowX, "hidden");
 });
 
 for (const compressed of [false, true]) test(`CBZ natural page order and bytes (${compressed ? "deflated" : "stored"})`, async () => {
