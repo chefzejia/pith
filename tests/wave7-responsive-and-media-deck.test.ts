@@ -76,7 +76,7 @@ test("Obsidian uses one toolkit button and cue clicks seek without mounting a to
   const audio = { currentTime: 0 };
   const cancelled: string[] = [];
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
-  Object.assign(view, { dojos: [], dojoId: "", mountedToolkits: [], dojo: { hidden: true }, voice: { cancel: (target: string) => cancelled.push(target) }, dock: { querySelector: () => button, classList: { toggle() {} } }, assetAudio: audio, article: { contains: () => true } });
+  Object.assign(view, { dojos: [], dojoId: "", mountedToolkits: [], popover: { hidden: true }, dojo: { hidden: true }, voice: { cancel: (target: string) => cancelled.push(target) }, dock: { querySelector: () => button, classList: { toggle() {} } }, assetAudio: audio, article: { contains: () => true } });
   const set = view.setToolkits as (ids: string[]) => void;
   set.call(view, []); assert.equal(button.hidden, true);
   set.call(view, ["feynman"]); assert.equal(button.textContent, "🛠 费曼复述");

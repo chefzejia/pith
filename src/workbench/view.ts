@@ -164,6 +164,7 @@ export class PithWorkbenchView {
   private readonly navigationButton: HTMLButtonElement;
   private readonly guideButton: HTMLButtonElement;
   private selectionRange: Range | null = null;
+  private pendingDojoSelection: { anchor: Node; focus: Node; anchorOffset: number; focusOffset: number } | null = null;
   private toastTimer: number | undefined;
   private generation = 0;
   private disposed = false;
@@ -244,6 +245,13 @@ export class PithWorkbenchView {
     this.dojo = this.doc.createElement("section"); this.dojo.className = "pith-dojo-panel"; this.dojo.hidden = true; this.dock.append(this.dojo);
     const Resize = (this.win as Window & typeof globalThis).ResizeObserver; this.resizeObserver = Resize ? new Resize(() => this.applyPageMode(this.readerPosition)) : null; if (this.resizeObserver) this.resizeObserver.observe(this.reader);
     const options = { signal: this.events.signal };
+    root.addEventListener("pointerdown", event => {
+      const target = event.target;
+      this.pendingDojoSelection = null;
+      if (!(target instanceof (this.win as Window & typeof globalThis).Element) || !target.closest('[data-dojo-close],[data-command="dojo"],[data-dojo-choose]') || !this.dojoSource) return;
+      const selection = this.win.getSelection(), anchor = selection?.anchorNode, focus = selection?.focusNode;
+      if (selection && anchor && focus && !selection.isCollapsed && this.dojoSource.contains(anchor) && this.dojoSource.contains(focus)) this.pendingDojoSelection = { anchor, focus, anchorOffset: selection.anchorOffset, focusOffset: selection.focusOffset };
+    }, options);
     root.addEventListener("click", event => { const target = event.target; if (target instanceof (this.win as Window & typeof globalThis).Node && this.guide.contains(target)) return; void this.click(event); }, options);
     this.guide.addEventListener("click", event => { void this.click(event); }, options);
     this.doc.addEventListener("click", event => { const target = event.target as Node | null; const menu = required<HTMLElement>(".pith-typography-popover"); const toggle = required<HTMLButtonElement>('[data-command="typography"]'); if (target && !menu.contains(target) && !toggle.contains(target)) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); } if (target && !this.navigation.contains(target) && !this.navigationButton.contains(target)) this.closeNavigation(); }, options);
@@ -251,7 +259,7 @@ export class PithWorkbenchView {
     this.reader.addEventListener("wheel", event => { if (!this.paged || event.ctrlKey || Math.abs(event.deltaY) < 2) return; event.preventDefault(); const direction = this.wheelGate.accept(event.deltaY, this.win.performance.now()); if (direction) this.turnPage(direction); }, { ...options, passive: false });
     this.reader.addEventListener("scroll", () => { this.updatePageCount(); const restored = this.restoredScrollLeft === this.reader.scrollLeft; this.restoredScrollLeft = null; if (this.paged && !restored) this.readerPosition = captureReaderPosition(this.reader, this.article); if (this.interline) this.interline.activate(); }, options);
     root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); return; } if (!this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable=true],.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
-    this.article.addEventListener("mouseup", () => this.showSelection(), options);
+    this.article.addEventListener("mouseup", event => { const target = event.target; if (target instanceof (this.win as Window & typeof globalThis).Element && target.closest(".pith-inline-dojo")) return; this.showSelection(); }, options);
     this.assetControls.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.classList.contains("pith-media-seek") && this.assetAudio) this.assetAudio.currentTime = Number(input.value); }, options);
     this.mediaDeck.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.hasAttribute("data-speech-seek") && this.speechAudio) this.speechAudio.currentTime = Number(input.value); }, options);
   }
@@ -306,6 +314,7 @@ export class PithWorkbenchView {
     this.dojos = dojos;
     const mounted = dojos.filter(item => this.mountedToolkits.includes(item.id));
     if (!mounted.length) { this.tip("没有已挂载的实训工具"); return; }
+    this.popover.hidden = true;
     if (this.inlineDojo) this.closeInlineDojo();
     if (text !== undefined) { this.dojoTarget = text; this.dojoAnchor = anchor; }
     else {
@@ -321,12 +330,27 @@ export class PithWorkbenchView {
     this.dojoId = mounted[0]!.id; this.renderDojo();
   }
   private closeInlineDojo(): void {
+    this.popover.hidden = true;
     this.readDojo();
     this.dojoVersion++; this.voice.cancel("dojo");
-    if (this.dojoSource && this.dojoBlock) this.dojoSource.replaceWith(...Array.from(this.dojoSource.childNodes));
+    if (this.dojoSource && this.dojoBlock) { const source = this.dojoSource; this.preserveMovedSelection(source, () => source.replaceWith(...Array.from(source.childNodes))); }
     this.dojoDisplay?.remove(); this.inlineDojo?.remove();
     this.inlineDojo = null; this.dojoBlock = null; this.dojoSource = null; this.dojoDisplay = null;
     this.setDojoActive(false);
+  }
+  private preserveMovedSelection(container: HTMLElement, move: () => void): void {
+    const selection = this.win.getSelection();
+    const anchor = selection?.anchorNode, focus = selection?.focusNode;
+    const saved = selection && anchor && focus && !selection.isCollapsed && container.contains(anchor) && container.contains(focus)
+      ? { anchor, focus, anchorOffset: selection.anchorOffset, focusOffset: selection.focusOffset }
+      : selection?.isCollapsed && this.pendingDojoSelection && container.contains(this.pendingDojoSelection.anchor) && container.contains(this.pendingDojoSelection.focus) ? this.pendingDojoSelection : null;
+    this.pendingDojoSelection = null;
+    move();
+    const validOffset = (node: Node, offset: number): boolean => offset <= (node.nodeType === 3 ? (node as Text).length : node.childNodes.length);
+    if (selection && saved && saved.anchor.isConnected && saved.focus.isConnected && validOffset(saved.anchor, saved.anchorOffset) && validOffset(saved.focus, saved.focusOffset)) {
+      selection.setBaseAndExtent(saved.anchor, saved.anchorOffset, saved.focus, saved.focusOffset);
+      this.selectionRange = selection.getRangeAt(0).cloneRange();
+    }
   }
   private mountInlineDojo(): boolean {
     const requested = this.requestedDojoBlock;
@@ -338,9 +362,9 @@ export class PithWorkbenchView {
     if (this.dojoBlock !== target) {
       this.closeInlineDojo(); this.dojoBlock = target;
       const source = this.doc.createElement("span"); source.className = "pith-dojo-source";
-      while (target.firstChild) source.append(target.firstChild);
+      this.preserveMovedSelection(target, () => { while (target.firstChild) source.append(target.firstChild); target.append(source); });
       const display = this.doc.createElement("span"); display.dataset.dojoDisplay = ""; display.dataset.prose = "false";
-      target.append(source, display); this.dojoSource = source; this.dojoDisplay = display;
+      target.append(display); this.dojoSource = source; this.dojoDisplay = display;
       const inline = this.doc.createElement("section"); inline.className = "pith-inline-dojo"; inline.dataset.prose = "false"; target.insertAdjacentElement("afterend", inline); this.inlineDojo = inline;
     }
     if (this.assetAudio) this.assetAudio.pause();

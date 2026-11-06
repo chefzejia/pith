@@ -59,7 +59,7 @@ test("Obsidian dojo renders one input, anchored source and mode-specific actions
     await page.addScriptTag({ content: shadow.outputFiles[0]!.text }); await page.addScriptTag({ content: feynman.outputFiles[0]!.text });
     await page.evaluate(() => {
       const state: any = (window as any).dojoTest = { calls: [] };
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo(text?: string, locator?: string) { state.view.openDojo([state.shadow, state.feynman], text, text === undefined ? undefined : { file: "dojo.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
       state.view = view; document.body.append(view.guideElement()); view.render({ title: "Dojo", currentFile: "dojo.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
       state.shadow = (window as any).Shadow.shadowingToolkit; state.feynman = (window as any).Feynman.feynmanToolkit; view.openDojo([state.shadow, state.feynman]);
     });
@@ -73,6 +73,18 @@ test("Obsidian dojo renders one input, anchored source and mode-specific actions
     assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="feynman"]').count(), 1);
     assert.equal(await page.locator('.pith-inline-dojo [data-dojo-stage]').count(), 0);
     await page.waitForFunction(() => (window as any).dojoTest.calls.length === 1); const call = await page.evaluate(() => (window as any).dojoTest.calls[0]); assert.equal(call.anchor.quote, "One two three four."); assert.equal(call.body, "Explain"); assert.match(call.rubric, /反例/); await page.locator(".pith-guide").waitFor({ state: "visible", timeout: 3000 });
+    await page.locator('[data-dojo-close]').click();
+    await page.evaluate(() => { const block = document.querySelector('.pith-article [data-prose="true"]')!, text = block.firstChild!; const selection = window.getSelection()!; selection.setBaseAndExtent(text, 13, text, 4); block.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
+    assert.equal(await page.locator('.pith-selection').isVisible(), true);
+    await page.locator('#open-dojo').focus(); await page.locator('#open-dojo').press('Enter');
+    assert.equal(await page.locator('.pith-selection').isHidden(), true);
+    assert.equal(await page.evaluate(() => window.getSelection()!.toString()), "two three");
+    await page.locator('[data-dojo-choose="feynman"]').focus(); await page.locator('[data-dojo-choose="feynman"]').press('Enter');
+    assert.equal(await page.locator('.pith-selection').isHidden(), true);
+    assert.deepEqual(await page.evaluate(() => { const selection = window.getSelection()!; return { text: selection.getRangeAt(0).toString(), anchor: selection.anchorOffset, focus: selection.focusOffset }; }), { text: "two three", anchor: 13, focus: 4 });
+    await page.locator('[data-dojo-close]').click();
+    assert.equal(await page.locator('.pith-selection').isHidden(), true);
+    assert.equal(await page.evaluate(() => window.getSelection()!.toString()), "two three");
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -112,7 +124,13 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator('.pith-article [data-prose="true"]').first().waitFor();
     await page.evaluate(() => { const root = document.querySelector('.pith-article [data-prose="true"]')!; const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const nodes: Text[] = []; let node: Node | null; while ((node = walker.nextNode())) if (node.textContent) nodes.push(node as Text); const range = document.createRange(); let offset = 0; for (const text of nodes) { const end = offset + text.length; if (offset <= 4 && end > 4) range.setStart(text, 4 - offset); if (offset < 13 && end >= 13) { range.setEnd(text, 13 - offset); break; } offset = end; } const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
-    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.equal(await page.locator('.pith-selection').isVisible(), true);
+    await page.locator("#open-dojo").click();
+    assert.equal(await page.locator('.pith-selection').isHidden(), true);
+    assert.equal(await page.evaluate(() => window.getSelection()!.toString()), "two three");
+    await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.equal(await page.locator('.pith-selection').isHidden(), true);
+    assert.equal(await page.evaluate(() => window.getSelection()!.getRangeAt(0).toString()), "two three");
     await page.locator('[data-dojo-reveal]').click();
     assert.match(await page.locator(".pith-dojo-source").textContent(), /two three/);
     await page.locator("[data-dojo-produced]").fill("Selected passage"); await page.locator("[data-dojo-submit]").click();
