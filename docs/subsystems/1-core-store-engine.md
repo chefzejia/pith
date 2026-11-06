@@ -13,9 +13,8 @@ src/core/
 ├── types.ts              # 领域实体：LearnerProfile / Topic / Material / TopicNote / SelectionAnchor
 ├── host.ts               # 宿主窄边界接口：HostPort（storage / http / secrets / sanitizer / process / speechRuntime）
 ├── seams.ts              # 插件能力接缝契约：Stage / Dojo / Speech / Guide / Interline 服务接口
-├── pluginrt/             # 插件运行时与视图槽错误隔离内核
+├── pluginrt/             # 插件运行时与配置 Schema
 │   ├── runtime.ts        # PluginRuntime（4 层配置合成、拓扑挂载、逆序卸载、inUse 传递保活）
-│   ├── kernel.ts         # ViewKernel（UI 槽位 mount/render 错误边界与 retry 恢复）
 │   └── schema.ts         # 插件设置 Schema 编译与默认值合成
 ├── store/                # 纯文本工作区唯一写入通道
 │   ├── contract.ts       # WorkspaceStore 接口定义
@@ -175,9 +174,7 @@ Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`D
 
 ---
 
-## 5. 插件运行时与视图内核（`PluginRuntime` & `ViewKernel`）
-
-### 5.1 四层配置合成与 `inUse` 传递保活
+## 5. 插件运行时（`PluginRuntime`）
 
 [`PluginRuntime.compose()`](../../src/core/pluginrt/runtime.ts) 按四层优先级决定每个插件的开启状态：
 
@@ -193,10 +190,6 @@ Layer 4: inUse 守卫 + 传递依赖提权（Transitive Requirement Propagation�
 
 - **存档保活**：只要工作区中已有课题或材料正在使用某插件（`manifest.inUse() > 0`，或者 `inUse()` 抛错处于未知状态），该插件强制保持开启（`source: "in-use"`），并自动将其 `requires` 依赖链上的底层服务提供者一并拉起，确保已存课题永不因预设切换而卡死在 `pending`。
 - **栈式服务表与热重挂**：[`reconcile()`](../../src/core/pluginrt/runtime.ts) 比对当前激活配置与新配置——当某插件停用或配置变更时，先按激活逆序（`newest first`）卸载该插件及其下游依赖方，再按拓扑顺序重新挂载。单个插件 `apply(ctx)` 抛错时立即调用 [`ctx.undo()`](../../src/core/pluginrt/runtime.ts) 逆序回滚半途注册项并标记为 `failed`，绝不传染其他插件。
-
-### 5.2 视图槽位错误隔离（[`ViewKernel`](../../src/core/pluginrt/kernel.ts)）
-
-管理 `stage`、`dojo`、`guide`、`toolbar`、`nav.page` 五类 UI 槽位。单个槽位的 `mount` 或 `render` 抛错时，仅将该槽位记为 `broken` 并暴露 `retry()` 恢复句柄，主界面其余部分照常运行。
 
 ---
 
