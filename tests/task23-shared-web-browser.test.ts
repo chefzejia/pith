@@ -25,7 +25,9 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await browser.grantPermissions(["microphone"], { origin: base });
     await page.route("**/api/agents?force=true", (route: { fulfill(options: object): Promise<void> }) => route.fulfill({ json: [] }));
     await page.route("**/api/speech/transcribe", (route: { fulfill(options: object): Promise<void> }) => route.fulfill({ json: { text: "受控转写" } }));
-    await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    await page.goto(base);
+    assert.equal(await page.locator(".pith-home h1").textContent(), "课题看板");
+    await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(".pith-view .pith-article .pith-epub-chapter").first().waitFor();
     await page.locator(".pith-view #open-dojo").click();
     await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
