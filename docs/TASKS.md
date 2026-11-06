@@ -78,7 +78,7 @@
 
 ## [Task #19] 课题毕业门禁与 `ME.md` 认知权重合并闭环（Eval & Checkpoint Merge）
 
-- **Status**: pending
+- **Status**: in_progress
 - **Scope**: `src/plugins/guide-acp/**`, `src/shells/**`, `tests/**`
 - **Verified-Commit**: none
 - **Updated**: 2026-11-06
