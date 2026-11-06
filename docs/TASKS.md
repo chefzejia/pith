@@ -93,10 +93,11 @@
 
 ## [Task #24] 将 Dojo 实训彻底原位映射到 Stage 画布段落/字幕块上（废除右上角大弹窗与费曼假四阶按钮）
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/plugins/dojo-feynman/**`, `src/plugins/dojo-shadowing/**`, `src/workbench/**`, `src/shells/**`, `tests/**`, `docs/subsystems/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: b5be043
 - **Updated**: 2026-11-06
+- **验收**：Worker 通过 typecheck、218 项测试、Obsidian 构建及手动破壁，42 项环境相关测试跳过。Tester 在 Web 与隔离 Obsidian 验证原位费曼、跟读四阶段、中英文遗漏、字幕时间锚点和实训笔记；向导使用本地受控替身，未验证真实模型或实体录音。字幕训练展开时暂不显示时间戳，收起后恢复。
 - **授权范围**：允许修改 `src/plugins/dojo-feynman/index.ts`、`src/plugins/dojo-shadowing/index.ts`、`src/workbench/**`、`src/shells/**`、`tests/**` 及同步文档。
 - **不在范围内**：严禁在内容正下方（Bottom Area）新增除 `.pith-media-deck` 以外的常驻底栏。
 - **接口与行为契约（对齐 [`docs/subsystems/5-spatial-ui-and-slots.md`](subsystems/5-spatial-ui-and-slots.md) 的 Stage 原位映射设计）**：
