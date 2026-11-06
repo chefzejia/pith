@@ -54,5 +54,5 @@ npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault
 ## 文档入口
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)：产品定位、核心模块、空间交互铁律与领域词表。
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：三层单向依赖、四大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md)）、数据所有权与架构决策。
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：三层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、数据所有权与架构决策。
 - [`AGENTS.md`](AGENTS.md)：Agent 协作边界、验证命令与按需路由。

@@ -1,6 +1,6 @@
 # 子系统 2：预训练阅读与媒体舞台（`stage-reader` & `stage-timeline`）
 
-> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [3-dojos.md](3-dojos.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md)
+> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [3-dojos.md](3-dojos.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
@@ -37,9 +37,11 @@ src/plugins/
 | **EPUB 重排章节** | `epub:chapter:2;block:5`（章节号 + 块序号） | [`stage-reader/epub.ts`](../../src/plugins/stage-reader/epub.ts) 中的 `renderEpub` |
 | **PDF / CBZ / 固定版 EPUB** | `page:12` | [`stage-reader/fixedPage.ts`](../../src/plugins/stage-reader/fixedPage.ts) 中的 `renderPdf` / `renderCbz` |
 | **音视频字幕流** | `time:860`（秒级起点） | [`stage-timeline/index.ts`](../../src/plugins/stage-timeline/index.ts) 中的 `parseTranscript` |
+| **代码仓库文件** | `repo:<commitSha>:<path>#L<start>-L<end>` | [`src/core/types.ts`](../../src/core/types.ts) 中的 `IntrinsicLocator` |
 
 - **正文与非正文严格标记（`data-prose`）**：标题、普通段落、引文标记为 `data-prose="true"`；代码块、数学公式、表格、YAML Frontmatter、教学卡片以及行间双语嵌入的译文节点一律标记为 `data-prose="false"`。下游 TTS 伴读仅提取 `data-prose="true"` 的纯粹原文朗读。
-- **文本重定位容错**：[`matchTextAnchor`](../../src/plugins/stage-reader/textAnchor.ts) 优先按 `locator` 精确匹配，当文本发生微调时回退至 `quote + prefix + suffix` 上下文匹配。
+- **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching` / ````garden-teaching` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
+- **文本重定位容错（[`matchTextAnchor`](../../src/plugins/stage-reader/textAnchor.ts)）**：优先按 `locator` 精确匹配，当文本前部发生插入/删除导致偏移漂移时，回退至 `quote + prefix + suffix` 上下文匹配度与最小距离评分重定位。
 
 ---
 
@@ -68,10 +70,14 @@ src/plugins/
 
 ---
 
-## 5. 时间轴媒体舞台（`stage-timeline`）
+## 5. 时间轴媒体舞台与跨模态伴读（`stage-timeline`）
 
-- [`parseTranscript`](../../src/plugins/stage-timeline/index.ts) 统一解析标准 WebVTT（含 `<v Speaker>` 说话人标签）、SRT 以及 `[mm:ss] 文本` 简化时间戳格式，按起点排序并自动闭合开放区间。
-- [`sliceLoopRange`](../../src/plugins/stage-timeline/index.ts) 与 [`findCueAt`](../../src/plugins/stage-timeline/index.ts) 支持音视频播放时的字幕高亮同步与 A-B 区间循环复听，为下游 `dojo-shadowing` 提供句级时间锚点。
+1. **复合媒体视图结构（[`renderTimelineView`](../../src/plugins/stage-timeline/index.ts)）**：
+   - 当材料为视频（`mediaKind === "video"`）或音频时，画布呈现为「上方媒体画面/状态区 + 下方带时间锚点的同步台词流（`.pith-cue[data-locator="time:<sec>"][data-prose="true"]`）」，同时联动底部实心停靠播客甲板（`.pith-media-deck`，详见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）；
+   - 用户可直接用鼠标框选任意时间轴台词触发 `[ 高亮 | 记笔记 | 问向导 | 复制 ]`，生成的 `SelectionAnchor` 自动绑定 `locator: "time:<sec>"`；日后在右侧向导 `[笔记]` 账本中点击该卡片，播放器与视图直接跳回对应秒数。
+2. **字幕解析与 A-B 循环切片**：
+   - [`parseTranscript`](../../src/plugins/stage-timeline/index.ts) 统一解析标准 WebVTT（含 `<v Speaker>` 说话人标签）、SRT 以及 `[mm:ss] 文本` 简化时间戳格式，按起点排序并自动闭合开放区间；
+   - [`sliceLoopRange`](../../src/plugins/stage-timeline/index.ts) 与 [`findCueAt`](../../src/plugins/stage-timeline/index.ts) 支持播放时的当前句高亮同步与 A-B 区间循环复听，并为 `dojo-shadowing` 提供原位句级锚点。
 
 ---
 

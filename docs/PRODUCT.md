@@ -31,17 +31,17 @@
 | **ACP 向导协同** | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/) | 通过标准 ACP 协议接入本机 Agent，结合 `ME.md` 因人施教并按用户意图动态挂载 `topic.toolkits` |
 | **外部/按需语音服务** | [`src/plugins/speech-service/`](../src/plugins/speech-service/) & [`src/shells/speechRuntime.ts`](../src/shells/speechRuntime.ts) | 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关，空闲自动退出释放内存 |
 
-### 空间与交互铁律
+### 空间与交互铁律（完整契约见 [subsystems/5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md)）
 
 1. **44px 极简顶栏与意图驱动的一级工具槽**：
    - 顶栏右侧一级入口依次为：分页器 `< 1/N >`、已注入的实训工具胶囊（`🛠`）、伴读（`🎧`）、排版（`Aa`）、向导开关（`?` / `help-circle`）；Pith 主图标固定为植物幼苗 `sprout`。
    - `topic.toolkits: []` 默认不显示任何实训工具入口；仅当向导根据用户意图注入或课题已有保存工具时才在顶栏显示对应入口。多工具选择在顶栏入口完成，不在已打开的面板内嵌套第二个“工坊”切换器。
-2. **近源弹出与底部唯一准入边界**：
-   - 点击顶栏右上角 `[Aa]` 或实训工具时，浮层卡片永远紧贴顶栏右上方（`top: 100%; right: 8px`）近源向下展开，**严禁从屏幕底部或左下角弹出**。
+2. **工具多点位空间注入与底部唯一准入边界**：
+   - 点击顶栏右上角 `[Aa]` 或工具胶囊时，轻量模式/阶段开关紧贴顶栏右下方（`top: 100%; right: 8px`）近源展开，**严禁从屏幕底部或左下角弹出**；而具体的训练动作（行间双语嵌入、跟读词对齐、复述遮罩与阐述）直接映射至 Stage 画布目标块与右侧向导栏，拒绝在浮窗内堆砌可编辑“目标文本”表单。
    - **内容正下方区域（Bottom Area）唯独只有音频播放控制条（`.pith-media-deck`）允许进入**（实心停靠挤压阅读容器高度，零遮挡正文）。
 3. **书卷黄金版心与纯净分页**：
    - 书籍（`epub / pdf / cbz`）采用无横向滚动条的纯按屏分页（`overflow: hidden`，通过滚轮、方向键或顶栏按钮翻页）；每个 `.pith-epub-chapter + .pith-epub-chapter` 强制 `break-before: column` 独立起页。
-   - 用户可在 `[Aa]` 中显式选择 `单栏 | 双栏 | 三栏`（默认单栏）。栏数上限仅由阅读容器实时宽度（每栏净宽 $\ge 320\text{px}$）决定；超宽屏下单栏自动居中收敛于黄金阅读行宽（约 `820px`）并保持多屏翻页步长恒等式 `columns * (columnWidthPx + columnGapPx) === viewportWidth`。
+   - 用户可在 `[Aa]` 中显式选择 `单栏 | 双栏 | 三栏`（默认单栏）。栏数上限仅由阅读容器实时宽度决定；超宽屏下单栏或多栏自动居中收敛于舒适列宽并保持多屏翻页步长恒等式 `columns * (columnWidthPx + columnGapPx) === viewportWidth`。
 4. **纯净框选与伴读过滤**：
    - 框选非空正文时仅弹出 `[ 高亮 | 记笔记 | 问向导 | 复制 ]` 四项动作；
    - 开启 `行间双语` 时，嵌入的译文节点标记 `data-prose="false"`，TTS 伴读仅提取纯粹原文朗读，绝不混读译文。

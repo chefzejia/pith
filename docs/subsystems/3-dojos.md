@@ -1,6 +1,6 @@
 # 子系统 3：正交认知工具与后训练实训道场（`dojo-*`）
 
-> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md)
+> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
@@ -8,40 +8,60 @@
 
 `src/plugins/dojo-*` 下是由向导（Guide）根据课题（`Topic`）的真实意图、按需注入 `topic.toolkits` 的**三个正交认知维度**——它们可以单独挂载，也可以在同一课题中自由组合：
 
-| 正交维度 | 代表插件 | 介入训练阶段 | 物理动作与反馈机制 |
-| :--- | :--- | :--- | :--- |
-| **输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
-| **程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）标出吞音与漏词。 |
-| **生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，配合向导教练规程（Coach Rubric）检验盲区。 |
+| 正交维度 | 代表插件 | 评价模式 (`evalMode`) | 介入训练阶段 | 物理动作与反馈机制 |
+| :--- | :--- | :--- | :--- | :--- |
+| **输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | - | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
+| **程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | `"deterministic"`<br>*(确定性词对齐)* | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）在原位标出吞音与漏词。 |
+| **生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | `"guide-rubric"`<br>*(向导教练规程)* | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，交由向导按 `evaluationRubric`（三明治苏格拉底追问规程）检验盲区。 |
 
 ```text
 src/plugins/
-├── dojo-interline/           # 维度 A：行间双语输入脚手架（提供服务 "dojo.interline"）
+├── dojo-interline/           # 输入脚手架：行间双语（提供服务 "dojo.interline"）
 │   ├── index.ts              # FNV-1a 段落哈希、邻域调度顺序与双语 HTML 嵌入（renderInterlineHtml）
 │   └── coordinator.ts        # InterlinePreparationCoordinator（滑动窗口异步预热与 _cache/interline/ 持久化）
-├── dojo-shadowing/           # 维度 B：程序性影子跟读道场（提供服务 "dojo.shadowing"）
+├── dojo-shadowing/           # 程序性跟练：影子跟读（提供服务 "dojo.shadowing"，evalMode: "deterministic"）
 │   └── index.ts              # 意群斜杠切分、功能词挖空与 LCS 词级对齐漏词诊断（diagnose）
-└── dojo-feynman/             # 维度 C：生成式费曼复述道场（提供服务 "dojo.feynman"）
-    └── index.ts              # 四阶提示词变换（transformCue）、概念盲区检测与向导深水区追问动作
+└── dojo-feynman/             # 生成式内化：费曼复述（提供服务 "dojo.feynman"，evalMode: "guide-rubric"）
+    └── index.ts              # 四阶提示词变换（transformCue）、三明治追问规程（evaluationRubric）与离线兜底诊断
 ```
 
 ---
 
-## 2. 四阶渐进脚手架通用协议（`DojoToolkitDescriptor`）
+## 2. 四阶渐进脚手架与跨学科同构协议（`DojoToolkitDescriptor`）
 
-所有实训类道场均实现 [`DojoToolkitDescriptor`](../../src/core/seams.ts) 接口，共享相同的四阶撤拐杖状态机（`DojoScaffoldStage`）：
+### 2.1 当前内置道场的四阶变形（`DojoScaffoldStage`）
 
-| 阶段标识 | 认知训练目标 | `dojo-feynman`（概念内化与复述） | `dojo-shadowing`（外语语音与语感跟读） |
+所有实训类道场均实现 [`DojoToolkitDescriptor`](../../src/core/seams.ts) 接口，在目标段落/字幕块上共享相同的四阶撤拐杖状态机（UI 原位挂载规范见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）：
+
+| 阶段标识 | 认知训练目标 | `dojo-shadowing`（外语语音与语感跟读） | `dojo-feynman`（概念内化与复述） |
 | :--- | :--- | :--- | :--- |
-| **1. `listen-decompose`** | 有稿感知与结构拆解 | 按句切分编号，理清原文论证的先后因果链 | 每隔意群边界（标点或 ~10 词）插入 `/` 呼吸停顿标记 |
-| **2. `guided-follow`** | 带稿同步跟练 | 展示完整原文，对照原文理顺解释逻辑 | 展示完整字幕，配合语音逐句跟读建立口腔肌肉记忆 |
-| **3. `scaffold-cloze`** | 半脱稿骨架提取 | 挖空英文长实词（$\ge 5$ 字母）、反引号术语与中文核心双字概念词为 `[___]` | 挖空介词、冠词、助动词与连词等语法功能词为 `___`，检验语块衔接 |
-| **4. `blind-produce`** | 脱稿盲产与误差诊断 | 隐藏原文，要求向初学者脱稿解释核心机制与边界条件 | 遮蔽全文为 `••••••••`，凭听觉或记忆盲读并由 ASR 转写 |
+| **1. `listen-decompose`** | 有稿感知与结构拆解 | 每隔意群边界（标点或词数阈值）插入 `/` 呼吸停顿标记，配合单句慢放/循环 | 按句切分编号，理清原文论证的先后因果链 |
+| **2. `guided-follow`** | 带稿同步跟练 | 展示完整字幕，配合语音逐句跟读建立口腔肌肉记忆 | 展示完整原文，对照原文理顺解释逻辑 |
+| **3. `scaffold-cloze`** | 半脱稿骨架提取 | 挖空介词、冠词、助动词与连词等语法功能词为 `___`，检验语块衔接 | 挖空核心概念实词与反引号术语为 `[___]`，逼迫大脑主动提取 |
+| **4. `blind-produce`** | 脱稿盲产与误差对齐 | 遮蔽全文为 `••••••••`，凭听觉或记忆开口跟读并由 ASR 转写对齐漏词 | 合上/遮蔽原文，用自己的话向初学者脱稿口述或写出核心因果链与边界条件 |
 
-### 客观误差对齐（`diagnose(targetText, producedText)`）
+### 2.2 两种正交评价与反馈机制（`evalMode`）
 
-- **费曼概念覆盖诊断（[`diagnoseFeynman`](../../src/plugins/dojo-feynman/index.ts)）**：从目标段落提取去停用词后的中英文核心概念集合（[`conceptTokens`](../../src/plugins/dojo-feynman/index.ts)），逐一比对学习者复述文本，输出概念覆盖率（`accuracyScore`）、已覆盖概念与遗漏盲区列表（`missedTokens`），一键存为 `kind: "practice"` 笔记。
-- **跟读 LCS 词级对齐（[`diagnose`](../../src/plugins/dojo-shadowing/index.ts)）**：对目标文本与学习者产出（或 ASR 转写文本）做 NFC 归一化后执行动态规划最长公共子序列（LCS）对齐，精确标出漏读词与准确率（矩阵规模上限 `2,000,000` 单元，超限直接拒绝以防内存阻塞）。
+1. **`evalMode: "deterministic"`（确定性序列对齐 · 用于 `dojo-shadowing`）**：
+   - [`diagnose(targetText, producedText)`](../../src/plugins/dojo-shadowing/index.ts) 对目标文本与学习者产出（或麦克风 ASR 转写文本）做 NFC 归一化后执行动态规划最长公共子序列（LCS）词级对齐（矩阵规模受硬上限保护）；
+   - 直接在原位标出漏读词（`missedTokens`），不渲染引发防御心理的考试总分，支持一键存为 `kind: "practice"` 笔记。
+2. **`evalMode: "guide-rubric"`（向导语义教练规程 · 用于 `dojo-feynman`）**：
+   - 概念内化与迁移严禁使用死板的正则表达式凑词打分；[`feynmanToolkit`](../../src/plugins/dojo-feynman/index.ts) 声明专属的 `evaluationRubric`（**三明治苏格拉底追问规程**）：
+     - **🟢 已掌握主干**：肯定学习者复述中抓准的核心因果链或自创的恰当类比；
+     - **🟡 遗漏的前提/边界**：指出对照原文漏掉的一个关键机制前提或极端边界条件（不直接替学习者背书）；
+     - **🎯 深水区一问**：提出 1 个具体的反例或跨场景迁移问题，引导学习者补齐缺口。
+   - 学习者提交复述后，系统将目标锚点 `anchor`、学习者复述正文与 `evaluationRubric` 注入向导上下文（[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts)），在右侧向导栏展开追问并落盘 `practice` 笔记（仅当向导离线未配置时回退至本地关键词盲区提示）。
+
+### 2.3 跨领域具身扩展同构性（Text-as-Seed → Embodied Dojo）
+
+同一套「纯文本种子 $\rightarrow$ 四阶渐进脚手架（`DojoScaffoldStage`）$\rightarrow$ 传感器/外部工具捕获产出 $\rightarrow$ 结构化误差落盘 `practice` 笔记」协议天然支持跨领域扩展：
+
+| 认知阶梯 | 语言与声学表达（外语 / 演讲） | 器乐与视唱练耳（WebMIDI / WebAudio） | 形式系统与编程（代码沙箱） | 空间博弈与案例推演 |
+| :--- | :--- | :--- | :--- | :--- |
+| **`listen-decompose`** | 意群斜杠（`/`）与重音连读拆解 | 乐谱/指板全显 + 和弦级数（`II-V-I`）与分句呼吸标注 | 源码与状态图全显 + 关键不变量标注 | 棋谱/案例关键节点拆解 |
+| **`guided-follow`** | 聚光灯游标同步领读跟练 | 节拍器游标引导真琴（MIDI/麦克风测音高）同步跟奏 | 跟随引导微调参数观察沙箱输出 | 跟随名局逐手摆子或步骤推演 |
+| **`scaffold-cloze`** | 保留句式骨架，挖空虚词/核心语块 | Lead Sheet 节奏骨架模式（只给和弦级数或首拍提示音） | 保留函数签名与控制流，挖空核心分支 | 残局关键一手填空 / 隐藏案例结局推演 |
+| **`blind-produce`** | 遮蔽原文盲听跟读 $\rightarrow$ ASR 词级对齐标亮漏词 | 盲弹背谱/听音扒谱 $\rightarrow$ 音准（Pitch）与时值（Rhythm）偏差对齐 | 空白环境从零实现跑通断言 $\rightarrow$ 报错回流向导诊断 | 独立完成决策 $\rightarrow$ 对照真实结果做二阶复盘 |
 
 ---
 
@@ -53,7 +73,7 @@ src/plugins/
    - `original`：仅显示原文；
    - `bilingual`：原文为主，段落正下方嵌入弱化样式的行间译文（`<span class="pith-interline-subtitle" data-prose="false">`）；
    - `subtitle-primary`：译文主显、原文对照。
-   - **伴读隔离铁律**：所有嵌入的译文节点强制标记 `data-prose="false"`，确保开启 `🎧 听读` 时 TTS 只朗读纯粹外文原文，绝不混读中文译文。
+   - **伴读隔离铁律**：所有嵌入的译文节点强制标记 `data-prose="false"`，确保开启 `🎧 听读` 时 TTS 只朗读纯粹外文原文，绝不混读母语译文。
 2. **FNV-1a 64-bit 源文本哈希（[`computeSourceHash`](../../src/plugins/dojo-interline/index.ts)）**：
    - 对每个 `data-prose="true"` 段落归一化空白后计算 16 位十六进制哈希；缓存命中时校验 `sourceHash`，原文未变则直接零延迟复用 `_cache/interline/` 中的译文。
 3. **邻域优先滑动窗口预热（[`InterlinePreparationCoordinator`](../../src/plugins/dojo-interline/coordinator.ts)）**：

@@ -54,5 +54,5 @@ npm run build:obsidian     # Build dist/obsidian/ and sync to .dev-vault/.obsidi
 ## Documentation
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md): Product positioning, core modules, spatial interaction laws, and domain glossary.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 3-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md)), data ownership, and architectural decisions.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 3-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), data ownership, and architectural decisions.
 - [`AGENTS.md`](AGENTS.md): Agent collaboration boundaries, verification commands, and routing.

@@ -1,6 +1,6 @@
 # 子系统 1：领域内核与工作区账本（`src/core/`）
 
-> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[2-stages.md](2-stages.md) · [3-dojos.md](3-dojos.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md)
+> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[2-stages.md](2-stages.md) · [3-dojos.md](3-dojos.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
@@ -29,11 +29,58 @@ src/core/
 
 ---
 
-## 2. 物理磁盘布局与 Markdown 账本协议（`WorkspaceStore`）
+## 2. 四大领域实体与表层解耦（Core Domain vs. Surface Persona）
+
+### 2.1 四大核心实体拓扑
+
+```text
+           ┌──────────────────────────────────────────┐
+           │             Profile (ME.md)              │
+           │  已知领域 · 擅长类比 · 学习偏好 · 常见卡点  │
+           └────────────────────┬─────────────────────┘
+                                │ 因人施教 & 毕业反哺
+                                ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                           Topic (课题)                             │
+│  - id, title, target (唯一核心求知目标)                            │
+│  - status: "exploring" (探索中) | "settled" (已内化沉淀)            │
+│  - nextAction: 下一步 15 分钟内可执行的具体微动作                  │
+│  - toolkits: 按需挂载的认知工具 ID 列表 (如 ["interline","feynman"])│
+└──────────┬──────────────────────────────────────────────┬──────────┘
+           │ 1:1 绑定可观测载体                           │ 1:N 沉淀轨迹
+           ▼                                              ▼
+┌─────────────────────────────────┐        ┌─────────────────────────────────┐
+│       Material (材料包)         │        │      Note (笔记/高亮/诊断)      │
+│  - kind: book|article|media|repo│        │  - kind: highlight|note|practice│
+│  - files: 只读原文件或生成讲义  │◄───────│  - anchor: { file, locator,     │
+│  - locator: 内在阅读位置坐标    │ 精确回跳│              quote }            │
+│  - externalPath / commitSha     │        │  - body: 用户原话或实训误差诊断 │
+└─────────────────────────────────┘        │  - guideRemark: 向导简短批注    │
+                                           └─────────────────────────────────┘
+```
+
+### 2.2 内核中性词与表层皮肤字典（[`DEFAULT_PERSONAS`](../../src/core/types.ts)）
+
+内核代码、存储协议与工具接口固定使用中性领域词；面向用户的界面文案通过 [`SurfacePersona`](../../src/core/types.ts) 解耦，严禁在源码中残留已废弃的历史词：
+
+| 概念维度 | 内核固定标识 | `sanctuary` 皮肤文案 | `studio` 皮肤文案 | 严禁出现的历史废弃词 |
+| :--- | :--- | :--- | :--- | :--- |
+| **工作区根目录** | `Workspace` | 花园 | 工作区 | `Sylva`, `Garden/`, `.gg-*` |
+| **个人认知基座** | `Profile` (`ME.md`) | 学习者画像 (`ME.md`) | 个人基座 (`ME.md`) | - |
+| **探索课题单元** | `Topic` (`topics/<id>/topic.md`) | 课题 | 课题 | `Seed`, `Thread` |
+| **课题状态** | `"exploring" \| "settled"` | 探索中 / 已沉淀 | 进行中 / 已归档 | - |
+| **可观测材料包** | `Material` (`materials/<id>/`) | 材料 | 材料 | `Source`, `SourceRecord` |
+| **思考与实训记录** | `TopicNote` & `SelectionAnchor` | 笔记与高亮 | 笔记与锚点 | `Bloom`, `Gap`, `Attempt` |
+| **AI 引导协作者** | `Guide` (`pith-choices`) | 园丁 | 向导 | `GardenerService` |
+| **按需认知工具** | `DojoToolkit` (`toolkits`) | 实训工坊 | 训练场 | `Echo`, `EchoModal` |
+
+---
+
+## 3. 物理磁盘布局与 Markdown 账本协议（`WorkspaceStore`）
 
 [`DefaultWorkspaceStore`](../../src/core/store/WorkspaceStore.ts) 是工作区持久化文件的**唯一写入所有者**。所有修改操作经由 [`MutationQueue.forStorage`](../../src/core/store/MutationQueue.ts) 按底层存储身份串行排队，杜绝并发 `read -> modify -> write` 互相覆盖。
 
-### 2.1 工作区目录树
+### 3.1 工作区目录树
 
 ```text
 <workspace>/                            # 独立 Web 壳为指定目录，Obsidian 壳默认为 Vault 下 Pith/
@@ -52,16 +99,16 @@ src/core/
     └── interline/<mat>/<file>.<lang>.unit-<n>.json  # 行间双语段落译文缓存
 ```
 
-### 2.2 `topic.md` 持久化格式
+### 3.2 `topic.md` 与 `material.md` 持久化格式
 
-Frontmatter 固定 `type: pith-topic`；正文每条记录以 `## [highlight|note|practice] <timestamp>` 开头，并用 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界，确保多行原文引用（`quote`）、思考正文（`body`）与向导评注（`guideRemark`）无损往返：
+- **`topic.md`**：Frontmatter 固定 `type: pith-topic`；正文每条记录以 `## [highlight|note|practice] <timestamp>` 开头，并用 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界，确保多行原文引用（`quote`）、思考正文（`body`）与向导评注（`guideRemark`）无损往返：
 
 ```markdown
 ---
 type: pith-topic
 id: topic-attention
 title: 搞懂生成式学习与人类后训练
-target: 能合上书向别人讲清为什么只看 AI 摘要不更新大脑参数
+target: 能合上书讲清只看摘要不更新大脑参数的原因
 status: exploring
 material: "[[materials/material-learning/material]]"
 nextAction: 精读第 2 章并使用费曼道场完成一次盲产复述
@@ -89,14 +136,33 @@ updatedAt: "2026-11-05T10:15:00.000Z"
 <!-- pith-note:end -->
 ```
 
-### 2.3 安全与容错语义（Fail-Closed）
+- **`material.md`**：Frontmatter 固定 `type: pith-material`，记录 `id`、`title`、`kind`（`book | article | media | discussion | repo`）、`createdAt`、可选代码仓绑定（`externalPath` / `commitSha`）以及 `files` 数组（含 `name`、`mimeType`、`bytes`、64 位十六进制 `sha256`、当前阅读位置 `locator` 与 `lastActiveAt`）：
+
+```markdown
+---
+type: pith-material
+id: material-learning
+title: 学习科学导论
+kind: book
+createdAt: "2026-11-05T10:00:00.000Z"
+files:
+  - name: book.epub
+    mimeType: application/epub+zip
+    bytes: 412908
+    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    locator: "epub:chapter:1;block:3"
+    lastActiveAt: "2026-11-05T10:15:00.000Z"
+---
+```
+
+### 3.3 安全与容错语义（Fail-Closed）
 
 - **路径穿越拦截**：所有 `topicId`、`materialId` 与 `fileName` 均禁止包含 `/`、`\`、`\0`、`.` 或 `..`；[`writeGeneratedFile`](../../src/core/store/WorkspaceStore.ts) 仅允许写入 `.md / .markdown` 衍生讲义，且严禁覆盖 `files/` 下已有的原始导入文件。
 - **坏文件隔离**：[`listTopics`](../../src/core/store/WorkspaceStore.ts) 与 [`listMaterials`](../../src/core/store/WorkspaceStore.ts) 扫描目录时，遇到单个损坏或格式非法的 Markdown 文件自动跳过，不阻断整个工作区加载。
 
 ---
 
-## 3. 去 Session 化注意力引擎（`AttentionEngine`）
+## 4. 去 Session 化注意力引擎（`AttentionEngine`）
 
 Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`DefaultAttentionEngine`](../../src/core/engine/AttentionEngine.ts) 将所有交互收束到课题（`Topic`）本身：
 
@@ -109,9 +175,9 @@ Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`D
 
 ---
 
-## 4. 插件运行时与视图内核（`PluginRuntime` & `ViewKernel`）
+## 5. 插件运行时与视图内核（`PluginRuntime` & `ViewKernel`）
 
-### 4.1 四层配置合成与 `inUse` 传递保活
+### 5.1 四层配置合成与 `inUse` 传递保活
 
 [`PluginRuntime.compose()`](../../src/core/pluginrt/runtime.ts) 按四层优先级决定每个插件的开启状态：
 
@@ -128,13 +194,13 @@ Layer 4: inUse 守卫 + 传递依赖提权（Transitive Requirement Propagation�
 - **存档保活**：只要工作区中已有课题或材料正在使用某插件（`manifest.inUse() > 0`，或者 `inUse()` 抛错处于未知状态），该插件强制保持开启（`source: "in-use"`），并自动将其 `requires` 依赖链上的底层服务提供者一并拉起，确保已存课题永不因预设切换而卡死在 `pending`。
 - **栈式服务表与热重挂**：[`reconcile()`](../../src/core/pluginrt/runtime.ts) 比对当前激活配置与新配置——当某插件停用或配置变更时，先按激活逆序（`newest first`）卸载该插件及其下游依赖方，再按拓扑顺序重新挂载。单个插件 `apply(ctx)` 抛错时立即调用 [`ctx.undo()`](../../src/core/pluginrt/runtime.ts) 逆序回滚半途注册项并标记为 `failed`，绝不传染其他插件。
 
-### 4.2 视图槽位错误隔离（[`ViewKernel`](../../src/core/pluginrt/kernel.ts)）
+### 5.2 视图槽位错误隔离（[`ViewKernel`](../../src/core/pluginrt/kernel.ts)）
 
 管理 `stage`、`dojo`、`guide`、`toolbar`、`nav.page` 五类 UI 槽位。单个槽位的 `mount` 或 `render` 抛错时，仅将该槽位记为 `broken` 并暴露 `retry()` 恢复句柄，主界面其余部分照常运行。
 
 ---
 
-## 5. 验证命令
+## 6. 验证命令
 
 ```bash
 node --experimental-strip-types --test tests/pluginrt.test.ts tests/store.test.ts tests/engine.test.ts
