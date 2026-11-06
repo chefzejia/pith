@@ -306,10 +306,12 @@ const PITH_VIEW_TYPE = "pith-reader";
 export const PITH_GUIDE_VIEW_TYPE = "pith-guide";
 
 export class PithGuideView extends obsidian.ItemView {
+  private closeHandler: (() => void) | null = null;
   getViewType(): string { return PITH_GUIDE_VIEW_TYPE; }
   getDisplayText(): string { return "Pith 向导"; }
   getIcon(): string { return "help-circle"; }
-  mount(element: HTMLElement): void { this.contentEl.replaceChildren(element); }
+  mount(element: HTMLElement, closeHandler?: () => void): void { if (this.contentEl.firstChild !== element && this.closeHandler) this.closeHandler(); this.closeHandler = closeHandler ?? null; this.contentEl.replaceChildren(element); }
+  async onClose(): Promise<void> { const close = this.closeHandler; this.closeHandler = null; if (close) close(); }
 }
 
 export class PithWorkspaceView extends obsidian.ItemView {
@@ -355,7 +357,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
   async onClose(): Promise<void> { this.generation++; if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
 
   private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
-  private async showNativeGuide(visible: boolean, view: PithObsidianView): Promise<void> {
+  private async showNativeGuide(visible: boolean, view: PithObsidianView, topicId?: string): Promise<void> {
     const workspace = this.workspace;
     if (!workspace || !workspace.rightSplit || !workspace.getRightLeaf) throw new Error("宿主右侧边栏不可用");
     const request = ++this.guideRequest;
@@ -370,7 +372,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     }
     if (this.view !== view || request !== this.guideRequest) { if (created && (request === this.guideRequest || !this.guideDesiredVisible) && leaf.view instanceof PithGuideView) leaf.detach(); return; }
     if (!(leaf.view instanceof PithGuideView)) throw new Error("向导视图未就绪");
-    leaf.view.mount(view.guideElement());
+    leaf.view.mount(view.guideElement(), () => { if (this.view === view) { view.setGuideVisible(false); if (topicId) this.guideByTopic.set(topicId, false); } });
     workspace.rightSplit.expand();
     await workspace.revealLeaf(leaf);
     if (this.view === view && request === this.guideRequest) view.focusQuotedGuide();
@@ -395,11 +397,12 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
-      guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView).catch(error => this.report(error)); },
+      guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView, topic.id).catch(error => this.report(error)); },
       home: () => this.onOpen(),
       openSettings: () => { if (!this.openSettings) throw new Error("设置面板不可用"); this.openSettings(); },
       openFile: render,
       loadAudio: name => this.controller.readAudioAsset(material.id, name),
+      transcribeAudio: async (bytes, mimeType, signal) => { const asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr || !asr.transcribeAudio) throw new Error("请先在设置中配置语音识别服务"); return asr.transcribeAudio(bytes, mimeType, signal); },
       prepareInterline: async (units, index, mode) => { const current = await this.controller.store.getTopic(topic.id); if (!current || current.materialId !== material.id || !topicUsesToolkit(current, [], "interline")) throw new Error("行间双语未挂载"); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); const signature = JSON.stringify(units); if (!interlineSession || interlineSession.file !== currentFile || interlineSession.signature !== signature) interlineSession = { file: currentFile, signature, session: this.controller.createInterlineSession(material.id, currentFile, units) }; return interlineSession.session.render(index, mode); },
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
@@ -412,7 +415,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.view = originatingView;
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;
     this.view.setGuideVisible(guideVisible);
-    if (this.workspace) await this.showNativeGuide(guideVisible, this.view);
+    if (this.workspace) await this.showNativeGuide(guideVisible, this.view, topic.id);
     this.view.setToolkits(topic.toolkits);
     await render(material.files[0]!.name);
     if (generation === this.generation && this.view) await this.view.refreshGuide();

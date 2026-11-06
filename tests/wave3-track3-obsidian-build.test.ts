@@ -68,11 +68,13 @@ test("Obsidian production bundle loads and manages its controller", async t => {
   try {
     await plugin.onload();
     assert.deepEqual(registered, ["pith-reader", "pith-guide"]);
-    const guide = factories.get("pith-guide")!(leaf) as { getViewType(): string; mount(element: unknown): void; contentEl: { children: unknown[] } };
+    const guide = factories.get("pith-guide")!(leaf) as { getViewType(): string; mount(element: unknown, close?: () => void): void; onClose(): Promise<void>; contentEl: { children: unknown[] } };
     const guideElement = {};
-    guide.mount(guideElement);
+    let guideClosed = false;
+    guide.mount(guideElement, () => { guideClosed = true; });
     assert.equal(guide.getViewType(), "pith-guide");
     assert.deepEqual(guide.contentEl.children, [guideElement]);
+    await guide.onClose(); assert.equal(guideClosed, true);
     const reader = factories.get("pith-reader")!(leaf) as { view: unknown; showNativeGuide(visible: boolean, view: unknown): Promise<void> };
     const readerView = { guideElement: () => guideElement, focusQuotedGuide() {} };
     reader.view = readerView;
