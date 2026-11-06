@@ -78,19 +78,22 @@
 
 ## [Task #19] 课题毕业门禁与 `ME.md` 认知权重合并闭环（Eval & Checkpoint Merge）
 
-- **Status**: blocked
-- **Scope**: `src/plugins/guide-acp/**`, `src/shells/**`, `tests/**`
+- **Status**: pending
+- **Scope**: `src/plugins/guide-acp/**`, `src/shells/dsh/**`, `tests/**`
 - **Verified-Commit**: none
 - **Updated**: 2026-11-06
-- **阻塞**：冻结的 `WorkspaceStore` 仅提供各自独立的 `appendNote`、`updateTopic`、`writeProfile`，`WorkspaceStoragePort` 也无跨文件事务或崩溃恢复能力，无法保证 `topic.md` 与 `ME.md` 原子提交；逐项写入或补偿回写均不能满足该契约。需要上游定义并授权跨文件事务、失败及恢复语义；没有业务代码提交。
 - **授权范围**：允许修改 `src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/guide-acp/acpSession.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。只读依赖 `src/core/`。
 - **不在范围内**：严禁引入任何外部图数据库或非 Markdown 状态文件；`ME.md` 保持纯文本 Markdown 唯一事实源。
 - **接口与行为契约**：
-  1. **`pith_settle_topic` 支持原子合并更新 `ME.md`（`src/plugins/guide-acp/tools.ts`）**：
+  1. **`pith_settle_topic` 顺序合并更新 `ME.md` 与 `topic.md`（`src/plugins/guide-acp/tools.ts` · 无需跨文件数据库事务）**：
      - 保持既有硬门禁不变：课题必须处于 `status === "exploring"` 且 `topic.notes.length > 0`（无学习者思考/实训记录严禁结题）；
-     - 扩展 `pith_settle_topic` 的 `inputSchema`：除必填的 `topicId` 与 `verificationSummary` 外，新增可选字段 `profilePatchMarkdown`（字符串，向导提炼出的本次课题对学习者认知基座 `ME.md` 的增量更新或重写后的完整 `ME.md` 内容，包含新内化的核心心智模型及修正的旧认知盲区）；
-     - 当传入非空的 `profilePatchMarkdown` 时，`pith_settle_topic` 在追加 `## 核心认知总结` 并将课题置为 `settled` 的同时，调用 `store.writeProfile(...)` 持久化更新 `<workspace>/ME.md`，在返回值中一并返回 `{ topic, profileUpdated: boolean }`。
+     - 扩展 `pith_settle_topic` 的 `inputSchema`：除必填的 `topicId` 与 `verificationSummary` 外，新增可选字段 `profilePatchMarkdown`（字符串，向导提炼出的更新后 `ME.md` 全文内容，包含新内化的核心心智模型及修正的旧认知盲区）；
+     - **确定性写入顺序（Fail-safe Sequential Write）**：
+       1. 先校验所有参数（`topic` 存在、`status === "exploring"`、`topic.notes.length > 0`、`verificationSummary` 非空；若传入了 `profilePatchMarkdown`，通过 `text(input, "profilePatchMarkdown", 100000)` 校验其为非空字符串）；
+       2. 若提供了 `profilePatchMarkdown`，**先调用 `await store.writeProfile(profilePatchMarkdown)` 更新 `ME.md`**（若写入失败则直接抛错中止，此时课题仍保持 `exploring` 状态，用户可安全重试）；
+       3. 随后调用 `await store.appendNote(topicId, { kind: "note", body: "## 核心认知总结\n\n" + summary })` 与 `const settled = await store.updateTopic(topicId, { status: "settled" })`；
+       4. 返回 `settled`（保持与既有调用方对 `Topic` 返回结构的 100% 兼容）。
   2. **向导毕业答辩与权重合并规程（`src/plugins/guide-acp/index.ts`）**：
-     - 更新 `buildScenePrompt` 中的 `# 毕业门控（Settlement Gate）` 与 `# 工作区工具` 说明：明确指示向导在学习者通过深水区迁移问题后，调用 `pith_settle_topic` 时对比当前 `# 学习者画像`（`ME.md`）与本课题笔记，一并生成 `profilePatchMarkdown` 以完成认知权重合并。
-- **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿，新增 `pith_settle_topic` 结题时同步更新 `ME.md` 及拒绝空笔记结题的单测，并完成手动破壁验证（`Broken by hand`）。
+     - 更新 `buildScenePrompt` 中的 `# 毕业门控（Settlement Gate）` 与 `# 工作区工具` 说明：明确指示向导在学习者通过深水区迁移问题后，调用 `pith_settle_topic` 时对比当前 `# 学习者画像`（`ME.md`）与本课题笔记，一并传入可选参数 `profilePatchMarkdown` 更新 `ME.md`。
+- **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿，新增 `pith_settle_topic` 传入 `profilePatchMarkdown` 时同步更新 `ME.md`、未传入时保持原 `ME.md` 不变、以及空笔记课题拒绝结题且不污染 `ME.md` 的单测，并完成手动破壁验证（`Broken by hand`）。
 - **Tester 模拟用户终验要求**：在真实工作区沙盒中走通一个含笔记/实训记录的课题结题流程，验证结题后 `topic.md` 状态变为 `settled`、追加了 `## 核心认知总结`，且 `<workspace>/ME.md` 真实写入了更新后的认知基座内容。
