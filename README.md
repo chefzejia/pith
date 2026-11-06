@@ -18,10 +18,10 @@ Knowledge that never passes through your own forward generation (rollout), error
 
 | Stage | Model Training | Human Evolution (Theory + Practice) | Pith Mechanism |
 | :--- | :--- | :--- | :--- |
-| **0. Compute & Base Weights** | Allocate finite compute budget; maintain base model weights | **Attention defense & cognitive baseline**: Block out feed noise, focus on active topics and a 15-minute next step | **Attention Compass** + **`ME.md` (personal cognitive baseline)** |
-| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject second-hand summaries. Read original books, papers, code, and podcasts directly | **Reading & Media Stages** + **Bilingual Interline** + **Neural Read-Aloud** |
-| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & lesson generation**: An agent grounded in your `ME.md` breaks down causal chains, writes lessons, and orchestrates topic toolkits | **Guide Collaborator (ACP)** |
-| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied & generative practice**: Progressive scaffolding removes crutches so you shadow, recall, and explain from memory against feedback | **Practice Dojos** (`Decompose` → `Guided Follow` → `Cloze Skeleton` → `Blind Produce`) |
+| **0. Compute & Base Weights** | Allocate finite compute budget; maintain base model weights | **Attention defense & cognitive baseline**: Block out feed noise, focus on active topics and a 15-minute next step | **Topic Board & Next Step** + **`ME.md` (cognitive baseline)** |
+| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject second-hand summaries. Read original books, papers, code, and podcasts directly | **Reading & Media Stages (`stage-*`)** + **Input Scaffolding & Read-Aloud** |
+| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & lesson generation**: An agent grounded in your `ME.md` breaks down causal chains, writes lessons, and orchestrates topic toolkits | **Guide Collaborator (`guide-*`)** |
+| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied & generative practice**: Remove crutches so you shadow, recall, and explain from memory against immediate error feedback | **In-Place Practice Dojos (`dojo-*`)** |
 | **4. Eval & Merge** | Run benchmarks to verify generalization, then merge checkpoint | **Settlement gate & weight consolidation**: Defend against counterexamples and transfer questions; settlement requires your own practice and notes | **Settlement Gate** → Archives the topic and updates `ME.md` |
 
 ---

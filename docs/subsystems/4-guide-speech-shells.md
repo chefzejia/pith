@@ -6,28 +6,7 @@
 
 ## 1. 职责与边界
 
-对应人类认知训练管线的 **第 2 阶段：SFT（因人施教向导）**、**第 4 阶段：Eval（结题门禁与权重合并）**、**篇幅级神经语音伴读基础设施**，以及将这些能力适配到不同原生运行环境的**多态宿主壳**（空间视觉与槽位挂载规范见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）。
-
-```text
-src/
-├── plugins/
-│   ├── guide-acp/                # 标准 ACP 向导插件（提供服务 "guide.agent"）
-│   │   ├── index.ts              # 场景提示词拼装（buildScenePrompt）、快捷动作与插件注册
-│   │   ├── discovery.ts          # 本机 ACP Agent 可执行文件发现与版本探测
-│   │   ├── acpSession.ts         # 标准 JSON-RPC 2.0 stdio 会话、configOptions 探测与工具调用循环
-│   │   ├── tools.ts              # 7 个受控工作区工具（pith_get_context ... pith_settle_topic）
-│   │   └── externalIngest.ts     # SSRF 防护公网 URL 抓取与文章/讨论/媒体打包导入
-│   └── speech-service/           # 语音伴读与转写插件（提供服务 "speech.tts" & "speech.asr"）
-│       ├── index.ts              # 句子切分（Intl.Segmenter）、正文过滤（filterProseOnly）与朗读会话游标
-│       └── neuralSpeech.ts       # OpenAI/Azure/本地兼容 HTTP 语音合成、预取队列（PrefetchSpeechQueue）与 ASR
-└── shells/                       # 多态原生宿主壳（唯一允许导入 node:* / "obsidian" / @deepseek-ai/* 的外层）
-    ├── obsidian/                 # Obsidian 桌面插件壳（index.ts 宿主桥接 + plugin.ts 视图渲染）
-    ├── web/                      # 独立 Web 桌面壳（cli.ts / server.ts / nodeStorage.ts / nodeProcess.ts）
-    ├── dsh/                      # DeepSeek Harness 工具包壳（index.ts 导出 DshTool[] 与公网 DNS 校验器）
-    ├── speechRuntime.ts          # NodeManagedSpeechRuntime（Vault 外本机按需语音守护进程管理）
-    ├── speechGateway.ts          # 内嵌回环 HTTP 语音网关脚本（SPEECH_GATEWAY）
-    └── interline.ts / interlineView.ts / toolkitSlot.ts / speechSettings.ts / acpSettings.ts
-```
+对应人类认知训练管线的 **第 2 阶段：SFT（因人施教向导 [`guide-acp`](../../src/plugins/guide-acp/index.ts)）**、**第 4 阶段：Eval（结题门禁与权重合并 [`pith_settle_topic`](../../src/plugins/guide-acp/tools.ts)）**、**篇幅级神经语音伴读基础设施（[`speech-service`](../../src/plugins/speech-service/index.ts) & [`shells/speech`](../../src/shells/speech/index.ts)）**，以及将统一工作台与宿主能力适配到不同原生运行环境的**多态宿主薄壳（[`src/shells/`](../../src/shells/)）**（全平台工作台与空间槽位规范见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）。
 
 ---
 
@@ -61,7 +40,7 @@ src/
 | 工具名称 | 核心职责与安全门禁 |
 | :--- | :--- |
 | `pith_ingest_external` | 经 SSRF 公网 IP 校验（[`isPublicHttpUrl`](../../src/plugins/guide-acp/externalIngest.ts)）抓取外部文章/讨论/媒体并导入为只读 `Material` |
-| `pith_get_context` | 读取 `ME.md`、注意力罗盘快照与指定 `Topic` 详情 |
+| `pith_get_context` | 读取 `ME.md`、课题看板快照与指定 `Topic` 详情 |
 | `pith_read_material_section` | 按 `text:line:<N>` 有界读取文本材料上下文窗口（前后限定行数，防上下文撑爆） |
 | `pith_save_note` | 向当前课题追加 `note`、`highlight` 或 `practice` 记录及向导评注 `guideRemark` |
 | `pith_write_lesson` | 在材料包下生成新的 `.md` 课程讲义（严禁覆盖已有的原始导入文件） |
@@ -93,15 +72,15 @@ src/
 
 ---
 
-## 4. 多态原生宿主壳（`src/shells/`）
+## 4. 多态原生宿主薄壳（`src/shells/`）
 
-同一套 `src/core/` 与 `src/plugins/` 通过 [`HostPort`](../../src/core/host.ts) 适配三种宿主环境：
+同一套 `src/core/`、`src/plugins/` 与统一图形工作台 `src/workbench/` 通过 [`HostPort`](../../src/core/host.ts) 适配三种原生宿主环境（全 Shell 100% 共享同一份工作台 UI 与交互）：
 
 | 宿主壳 | 入口文件 | 核心适配职责 |
 | :--- | :--- | :--- |
-| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts)<br>[`src/shells/obsidian/plugin.ts`](../../src/shells/obsidian/plugin.ts) | 将 Obsidian `Vault.adapter` 映射为 `WorkspaceStoragePort`（默认根目录 `Pith/`），打开时自动收起原生左侧文件树（`leftSplit.collapse()`），将向导挂载至原生右侧边栏（`rightSplit`，进入阅读默认收起），接入系统钥匙串 `secretStorage`。 |
-| **独立 Web 桌面壳** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 基于 Node 文件系统（[`NodeWorkspaceStorage`](../../src/shells/web/nodeStorage.ts)）与本地 HTTP 服务（默认 `http://127.0.0.1:4173`）提供完整桌面阅读、实训、向导与语音工作台。 |
-| **DSH 工具包壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | [`createDshPluginBundle`](../../src/shells/dsh/index.ts) 将罗盘、课题读写、讲义生成、外部导入（含防 DNS 重绑定的 [`DshPublicHttpPort`](../../src/shells/dsh/index.ts)）封装为标准 `DshTool[]` 供 Super Agent 直接调用。 |
+| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts)<br>[`src/shells/obsidian/plugin.ts`](../../src/shells/obsidian/plugin.ts) | 将 Obsidian `Vault.adapter` 映射为 `WorkspaceStoragePort`（默认根目录 `Pith/`），打开时自动收起原生左侧文件树（`leftSplit.collapse()`），挂载统一工作台视图与右侧向导栏（`rightSplit`，进入阅读默认收起），接入系统钥匙串 `secretStorage`。 |
+| **独立 Web 桌面壳** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 基于 Node 文件系统（[`NodeWorkspaceStorage`](../../src/shells/web/nodeStorage.ts)）与本地 HTTP 服务（默认 `http://127.0.0.1:4173`）挂载同一份统一图形工作台。 |
+| **DSH 宿主壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | 同时导出统一图形工作台视图与 [`createDshPluginBundle`](../../src/shells/dsh/index.ts)（将课题看板、课题读写、讲义生成与含防 DNS 重绑定 [`DshPublicHttpPort`](../../src/shells/dsh/index.ts) 的外部导入封装为标准 `DshTool[]`）。 |
 
 ---
 

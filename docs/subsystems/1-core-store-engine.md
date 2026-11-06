@@ -6,25 +6,7 @@
 
 ## 1. 职责与边界
 
-`src/core/` 是 Pith 的零依赖心脏——它不认识 Obsidian、不认识 Node.js、也不认识浏览器 DOM。所有的领域实体、纯文本 Markdown 读写协议、注意力罗盘调度以及插件挂载生命周期都在这里完成。
-
-```text
-src/core/
-├── types.ts              # 领域实体：LearnerProfile / Topic / Material / TopicNote / SelectionAnchor
-├── host.ts               # 宿主窄边界接口：HostPort（storage / http / secrets / sanitizer / process / speechRuntime）
-├── seams.ts              # 插件能力接缝契约：Stage / Dojo / Speech / Guide / Interline 服务接口
-├── pluginrt/             # 插件运行时与配置 Schema
-│   ├── runtime.ts        # PluginRuntime（4 层配置合成、拓扑挂载、逆序卸载、inUse 传递保活）
-│   └── schema.ts         # 插件设置 Schema 编译与默认值合成
-├── store/                # 纯文本工作区唯一写入通道
-│   ├── contract.ts       # WorkspaceStore 接口定义
-│   ├── WorkspaceStore.ts # DefaultWorkspaceStore（ME.md / topics / materials 序列化与校验）
-│   ├── MutationQueue.ts  # 同一存储实例的串行写队列
-│   └── frontmatter.ts    # YAML Frontmatter 解析与生成
-└── engine/               # 去 Session 化注意力引擎与持久化副作用队列
-    ├── contract.ts       # AttentionEngine 与 EffectRecord 接口定义
-    └── AttentionEngine.ts# DefaultAttentionEngine（compass / captureSelection / sendMessage / effects）
-```
+[`src/core/`](../../src/core/) 是 Pith 的零依赖心脏——它不认识 Obsidian、不认识 Node.js、也不认识浏览器 DOM。所有的领域实体（[`types.ts`](../../src/core/types.ts)）、宿主窄边界（[`HostPort`](../../src/core/host.ts)）、插件接缝契约（[`seams.ts`](../../src/core/seams.ts)）、纯文本 Markdown 读写协议（[`store/`](../../src/core/store/)）、课题看板与注意力调度引擎（[`engine/`](../../src/core/engine/)）以及插件挂载生命周期（[`pluginrt/`](../../src/core/pluginrt/)）都在此定义。
 
 ---
 
@@ -165,7 +147,7 @@ files:
 
 Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`DefaultAttentionEngine`](../../src/core/engine/AttentionEngine.ts) 将所有交互收束到课题（`Topic`）本身：
 
-1. **注意力罗盘（[`compass()`](../../src/core/engine/AttentionEngine.ts)）**：聚合当前所有 `exploring` 与 `settled` 课题，自动挑选第一个带有明确 15 分钟微动作（`nextAction`）的活跃课题作为今日焦点推荐（`focusRecommendation`）。
+1. **课题看板与今日焦点（[`compass()`](../../src/core/engine/AttentionEngine.ts)）**：聚合当前所有 `exploring` 与 `settled` 课题，自动挑选第一个带有明确 15 分钟微动作（`nextAction`）的活跃课题作为今日焦点推荐（`focusRecommendation`）。
 2. **零阻塞选区捕获（[`captureSelection()`](../../src/core/engine/AttentionEngine.ts)）**：用户在阅读舞台划高亮、记笔记或保存实训结果时，前台立即落盘至 `topic.md`，同时在后台合并入队一条 `(kind: "prepare-next-action", key: topicId)` 副作用任务。
 3. **同键合并持久化队列（`_cache/effects.json`）**：
    - [`enqueueEffect(kind, key, payload)`](../../src/core/engine/AttentionEngine.ts) 对处于 `pending` 状态的同 `(kind, key)` 任务原地更新 `payload`，避免连续划线触发多次冗余 LLM 请求；

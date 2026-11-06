@@ -14,17 +14,6 @@
 | **程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | `"deterministic"`<br>*(确定性词对齐)* | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）在原位标出吞音与漏词。 |
 | **生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | `"guide-rubric"`<br>*(向导教练规程)* | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，交由向导按 `evaluationRubric`（三明治苏格拉底追问规程）检验盲区。 |
 
-```text
-src/plugins/
-├── dojo-interline/           # 输入脚手架：行间双语（提供服务 "dojo.interline"）
-│   ├── index.ts              # FNV-1a 段落哈希、邻域调度顺序与双语 HTML 嵌入（renderInterlineHtml）
-│   └── coordinator.ts        # InterlinePreparationCoordinator（滑动窗口异步预热与 _cache/interline/ 持久化）
-├── dojo-shadowing/           # 程序性跟练：影子跟读（提供服务 "dojo.shadowing"，evalMode: "deterministic"）
-│   └── index.ts              # 意群斜杠切分、功能词挖空与 LCS 词级对齐漏词诊断（diagnose）
-└── dojo-feynman/             # 生成式内化：费曼复述（提供服务 "dojo.feynman"，evalMode: "guide-rubric"）
-    └── index.ts              # 四阶提示词变换（transformCue）、三明治追问规程（evaluationRubric）与离线兜底诊断
-```
-
 ---
 
 ## 2. 程序性跟读与生成式复述的差异化脚手架（`DojoToolkitDescriptor`）

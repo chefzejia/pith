@@ -8,22 +8,7 @@
 
 对应人类认知训练管线的 **第 1 阶段：预训练（Pre-training · 一手原始语料摄入）**。
 
-Pith 拒绝用一键 AI 摘要代替原著阅读。舞台子系统的任务是把书籍（EPUB / PDF / CBZ / Markdown）与音视频播客直接呈现在零干扰的画布上，并为每一段正文赋予**与屏幕尺寸、字号无关的内在坐标（`IntrinsicLocator`）**，供高亮、笔记、语音伴读与实训道场精准锚定。
-
-```text
-src/plugins/
-├── stage-reader/             # 书卷阅读舞台（提供服务 "stage.reader"）
-│   ├── index.ts              # Markdown 块解析、正文提取（extractProseBlocks）与插件注册
-│   ├── epub.ts               # EPUB ZIP 解包、HTML/SVG 净化、章节拼装与内部链接解析（resolveEpubTarget）
-│   ├── epubResources.ts      # EPUB CSS 净化、路径规范化与内联图片 Data URL 转换
-│   ├── fixedPage.ts          # PDF / CBZ / Image 固定版面分页解析
-│   ├── pagination.ts         # 1/2/3 栏黄金版心计算、响应式断点决策与无滚动条翻页控制
-│   ├── textAnchor.ts         # 选区文本锚点匹配（locator + quote + prefix/suffix）
-│   ├── teachingBlocks.ts     # 讲义内嵌教学块（reflection / hint / checkpoint / explanation）提取
-│   └── fontData.ts           # 阅读器字体栈与落霞孤鹜文楷（lxgwWenKaiData.ts）注入
-└── stage-timeline/           # 时间轴媒体舞台（提供服务 "stage.timeline"）
-    └── index.ts              # WebVTT / SRT / 时间戳字幕解析、时间游标查找与 A-B 区间切片
-```
+Pith 拒绝用一键 AI 摘要代替原著阅读。舞台子系统（[`stage-reader`](../../src/plugins/stage-reader/index.ts) 与 [`stage-timeline`](../../src/plugins/stage-timeline/index.ts)）的任务是把书籍（EPUB / PDF / CBZ / Markdown）与音视频播客直接呈现在零干扰的画布上，并为每一段正文赋予**与屏幕尺寸、字号无关的内在坐标（`IntrinsicLocator`）**，供高亮、笔记、语音伴读与实训道场精准锚定。
 
 ---
 
@@ -40,7 +25,7 @@ src/plugins/
 | **代码仓库文件** | `repo:<commitSha>:<path>#L<start>-L<end>` | [`src/core/types.ts`](../../src/core/types.ts) 中的 `IntrinsicLocator` |
 
 - **正文与非正文严格标记（`data-prose`）**：标题、普通段落、引文标记为 `data-prose="true"`；代码块、数学公式、表格、YAML Frontmatter、教学卡片以及行间双语嵌入的译文节点一律标记为 `data-prose="false"`。下游 TTS 伴读仅提取 `data-prose="true"` 的纯粹原文朗读。
-- **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching` / ````garden-teaching` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
+- **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
 - **文本重定位容错（[`matchTextAnchor`](../../src/plugins/stage-reader/textAnchor.ts)）**：优先按 `locator` 精确匹配，当文本前部发生插入/删除导致偏移漂移时，回退至 `quote + prefix + suffix` 上下文匹配度与最小距离评分重定位。
 
 ---
