@@ -55,7 +55,7 @@
 
 ## [Task #18] 重做 Dojo 原地实训卡片与正交 Eval 反馈闭环（废除双文本框与费曼正则凑词打分）
 
-- **Status**: pending
+- **Status**: in_progress
 - **Scope**: `src/plugins/dojo-feynman/**`, `src/plugins/dojo-shadowing/**`, `src/plugins/guide-acp/**`, `src/shells/**`, `tests/**`
 - **Verified-Commit**: none
 - **Updated**: 2026-11-06
