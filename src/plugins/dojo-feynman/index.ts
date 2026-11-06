@@ -32,15 +32,15 @@ export function diagnoseFeynman(targetText: string, producedText: string): DojoD
 export const feynmanToolkit: DojoToolkitDescriptor = {
   id: "feynman", label: "费曼复述", category: "comprehension", evalMode: "guide-rubric",
   evaluationRubric: "以三明治式苏格拉底追问回应：先肯定复述中抓准的核心因果链或自创类比，再指出对照原文遗漏的一个关键前提或边界条件，最后提出一个具体反例或跨场景问题。不要替学习者作答或背书。",
-  stages: ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"],
+  stages: ["blind-produce"],
   transformCue, diagnose: diagnoseFeynman,
   quickActions: [{ id: "feynman-coach", label: "费曼深水区追问", prompt: "请审视我的费曼复述，指出逻辑跳跃或概念遗漏，并用一个反例追问我。" }],
 };
 
 registerPlugin({
   id: "dojo-feynman", api: "^1", requires: ["stage.reader"], provides: ["dojo.feynman"], essential: false,
-  name: "4-Stage Feynman Recall Dojo",
-  description: "Concept decomposition, guided comparison, cloze recall, and blind explanation",
+  name: "Feynman Recall Dojo",
+  description: "Blind explanation and guided reflection",
   oneInUse: "1 topic using feynman", manyInUse: "{n} topics using feynman",
   apply(ctx) { ctx.provide("dojo.feynman", feynmanToolkit); },
 });

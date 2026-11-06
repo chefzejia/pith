@@ -34,7 +34,7 @@ test("Obsidian controller persists quoted conversation and practice from both re
     assert.deepEqual((await controller.engine.getConversation(topic.id))[0]!.anchor, anchor);
     for (const id of ["shadowing", "feynman"]) {
       const dojo = controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); assert.ok(dojo);
-      assert.equal(dojo.stages.length, 4);
+      assert.equal(dojo.stages.length, dojo.id === "feynman" ? 1 : 4);
       for (const stage of dojo.stages) assert.ok(dojo.transformCue("A useful concept", stage));
       const diagnosis = dojo.diagnose("A useful concept", "useful concept");
       await controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body: diagnosis.summaryMarkdown, anchor });

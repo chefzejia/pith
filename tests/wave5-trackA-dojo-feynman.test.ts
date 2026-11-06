@@ -11,7 +11,7 @@ function topic(toolkits: string[]): Topic {
 }
 
 test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind recall", () => {
-  assert.deepEqual(feynmanToolkit.stages, ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"]);
+  assert.deepEqual(feynmanToolkit.stages, ["blind-produce"]);
   const text = "因为缓存降低延迟；所以 `SQLite WAL` supports durable writes.\n如果索引失效，查询变慢。";
   assert.equal(transformCue(text, "listen-decompose"), "1. 因为缓存降低延迟；\n2. 所以 `SQLite WAL` supports durable writes.\n3. 如果索引失效，查询变慢。");
   assert.equal(transformCue(text, "guided-follow"), text);

@@ -139,14 +139,15 @@ test("Web subtitle cues anchor the mounted practice toolkit without mounting ano
     const open = async () => { await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-cue").first().waitFor(); };
     await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator("[data-dojo-submit]").waitFor();
-    assert.match(await page.locator(".pith-dojo-panel pre").textContent(), /A spoken sentence/);
+    await page.locator('.pith-article .pith-inline-dojo[data-dojo="feynman"] [data-dojo-submit]').waitFor({ timeout: 5000 });
+    await page.locator('[data-dojo-reveal]').click();
+    assert.match(await page.locator(".pith-cue .pith-dojo-source").textContent(), /A spoken sentence/);
     assert.equal((await (await fetch(`${base}/api/state`)).json()).compass.exploring.find((item: { id: string }) => item.id === topic.id).toolkits.includes("shadowing"), false);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     await page.locator('[data-command="home"]').click(); await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator(".pith-dojo-panel [data-dojo-diagnose]").waitFor();
-    await page.waitForFunction(() => document.querySelector(".pith-dojo-panel pre")?.textContent?.includes("A spoken sentence."));
+    await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"] [data-dojo-diagnose]').waitFor({ timeout: 5000 });
+    assert.match(await page.locator(".pith-cue [data-dojo-display]").textContent(), /A spoken sentence/);
   } finally {
     if (browser) await browser.close();
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));

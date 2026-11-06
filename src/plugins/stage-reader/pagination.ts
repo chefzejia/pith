@@ -220,9 +220,8 @@ export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, fil
   const viewport = reader.getBoundingClientRect();
   for (const chapter of candidates) {
     const blocks = Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"]'));
-    const visible = blocks.some(block => Array.from(block.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
-    if (!visible || !blocks.length) continue;
-    const block = blocks[0]!;
+    const block = blocks.find(item => Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
+    if (!block) continue;
     const copy = block.cloneNode(true) as HTMLElement;
     for (const child of copy.querySelectorAll(".pith-interline-subtitle,time")) child.remove();
     const quote = (copy.textContent ?? "").trim();

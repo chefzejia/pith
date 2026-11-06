@@ -41,7 +41,7 @@ test("both shells record and transcribe guide and dojo input, and release tracks
     await page.evaluate(() => {
       const state: any = (window as any).voiceTest;
       const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async (bytes: Uint8Array, mime: string, signal: AbortSignal) => { state.calls.push({ size: bytes.length, mime }); if (state.defer) return new Promise(resolve => { state.signal = signal; state.finish = resolve; }); return { text: "recognized" }; } });
-      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Voice", currentFile: "voice.md", files: [], sections: [], format: "markdown", html: "<p>Voice</p>" }); view.setGuideVisible(true);
+      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Voice", currentFile: "voice.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">Voice</p>' }); view.setGuideVisible(true);
       state.dojo = { id: "shadowing", label: "跟读", stages: ["listen-decompose"], transformCue: (s: string) => s };
     });
     await page.evaluate(() => (window as any).voiceTest.view.refreshGuide());

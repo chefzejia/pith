@@ -32,6 +32,22 @@ test("unconfigured guide saves practice and reports offline fallback", async () 
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });
 
+test("toolbar practice anchors the visible paragraph after scrolling", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+  const dir = await testSandbox("pith-visible-dojo-"); const server = await createPithWebServer({ workspaceDir: dir }); let browser: any;
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
+    const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
+    const topic = await post("/api/topics", { title: "Visible paragraph" });
+    await post("/api/materials", { topicId: topic.id, title: "Visible paragraph", kind: "article", files: [{ name: "source.md", data: Buffer.from(`${"First paragraph. ".repeat(400)}\n\nVisible target paragraph.\n\n${"Following text. ".repeat(100)}`).toString("base64") }] });
+    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 500 } });
+    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    const target = page.locator('.pith-article [data-prose="true"]').filter({ hasText: "Visible target paragraph." }); await target.evaluate((node: HTMLElement) => node.scrollIntoView({ block: "start" }));
+    await page.locator("#open-dojo").click(); await page.locator("[data-dojo-reveal]").click();
+    assert.equal(await page.locator(".pith-dojo-source").textContent(), "Visible target paragraph.");
+  } finally { if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
+});
+
 test("Obsidian dojo renders one input, anchored source and mode-specific actions", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const dir = await testSandbox("pith-dojo18-obsidian-"); let browser: any;
   try {
@@ -47,11 +63,15 @@ test("Obsidian dojo renders one input, anchored source and mode-specific actions
       state.view = view; document.body.append(view.guideElement()); view.render({ title: "Dojo", currentFile: "dojo.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
       state.shadow = (window as any).Shadow.shadowingToolkit; state.feynman = (window as any).Feynman.feynmanToolkit; view.openDojo([state.shadow, state.feynman]);
     });
-    await page.locator('[data-dojo-choose="shadowing"]').click(); assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
-    await page.locator('[data-dojo-produced]').fill("One three four"); await page.locator('[data-dojo-diagnose]').click(); assert.equal(await page.locator('.pith-dojo-panel mark').textContent(), "two");
-    await page.locator('[data-dojo-stage="blind-produce"]').click(); assert.equal(await page.locator('.pith-dojo-panel mark').count(), 0); assert.match(await page.locator('.pith-dojo-panel pre').textContent(), /••/);
+    await page.locator('[data-dojo-choose="shadowing"]').click(); assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
+    assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"]').count(), 1);
+    assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 0);
+    await page.locator('[data-dojo-produced]').fill("One three four"); await page.locator('[data-dojo-diagnose]').click(); assert.equal(await page.locator('[data-dojo-display] mark').textContent(), "two");
+    await page.locator('[data-dojo-stage="blind-produce"]').click(); assert.equal(await page.locator('[data-dojo-display] mark').count(), 0); assert.match(await page.locator('[data-dojo-display]').textContent(), /••/);
     await page.evaluate(() => { const state: any = (window as any).dojoTest; state.view.openDojo([state.shadow, state.feynman]); state.view.openDojo([state.shadow, state.feynman]); });
-    await page.locator('[data-dojo-choose="feynman"]').click(); await page.locator('[data-dojo-produced]').fill("Explain"); await page.locator('[data-dojo-submit]').click();
+    await page.locator('[data-dojo-choose="feynman"]').click(); assert.equal(await page.locator('.pith-dojo-source').isHidden(), true); assert.equal(await page.locator('[data-dojo-produced]').inputValue(), ""); await page.locator('[data-dojo-produced]').fill("Explain"); await page.locator('[data-dojo-submit]').click();
+    assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="feynman"]').count(), 1);
+    assert.equal(await page.locator('.pith-inline-dojo [data-dojo-stage]').count(), 0);
     await page.waitForFunction(() => (window as any).dojoTest.calls.length === 1); const call = await page.evaluate(() => (window as any).dojoTest.calls[0]); assert.equal(call.anchor.quote, "One two three four."); assert.equal(call.body, "Explain"); assert.match(call.rubric, /反例/); await page.locator(".pith-guide").waitFor({ state: "visible", timeout: 3000 });
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
 });
@@ -70,13 +90,16 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
     const page = await browser.newPage(); page.setDefaultTimeout(5000); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click();
-    await page.waitForFunction(() => document.querySelector(".pith-dojo-panel pre")?.textContent?.includes("One two three four"));
-    assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
+    assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"]').count(), 1);
+    assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 0);
+    await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("One two three four"));
+    assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
     await page.locator("[data-dojo-produced]").fill("One three four"); await page.locator("[data-dojo-diagnose]").click();
-    await page.locator(".pith-dojo-panel mark").waitFor(); assert.equal(await page.locator(".pith-dojo-panel mark").textContent(), "two");
+    await page.locator("[data-dojo-display] mark").waitFor(); assert.equal(await page.locator("[data-dojo-display] mark").textContent(), "two");
     await page.locator('[data-dojo-stage="guided-follow"]').click();
-    await page.locator('[data-dojo-stage="blind-produce"]').click(); await page.waitForFunction(() => document.querySelector(".pith-dojo-panel pre")?.textContent?.includes("••")); assert.equal(await page.locator(".pith-dojo-panel mark").count(), 0);
+    await page.locator('[data-dojo-stage="blind-produce"]').click(); await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("••")); assert.equal(await page.locator("[data-dojo-display] mark").count(), 0);
     await page.locator("#open-dojo").click(); await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.equal(await page.locator('[data-dojo-produced]').inputValue(), "");
     await page.locator("[data-dojo-produced]").fill("My explanation"); await page.locator("[data-dojo-submit]").click();
     await page.waitForFunction(() => document.querySelector(".pith-guide-content")?.textContent?.includes("My explanation") && document.querySelector(".pith-guide-content")?.textContent?.includes("受控追问"));
     const entry = requests.flatMap(item => item.conversation).find((item: any) => item.text.startsWith("PITH_PRACTICE:")); assert.ok(entry); assert.equal(entry.anchor.quote, "One two three four."); assert.equal(entry.anchor.file, "dojo.md"); assert.equal(entry.anchor.locator, "text:line:0"); const payload = JSON.parse(entry.text.slice("PITH_PRACTICE:".length)); assert.equal(payload.text, "My explanation"); assert.match(payload.rubric, /反例/);
@@ -90,8 +113,8 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     await page.locator('.pith-article [data-prose="true"]').first().waitFor();
     await page.evaluate(() => { const root = document.querySelector('.pith-article [data-prose="true"]')!; const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const nodes: Text[] = []; let node: Node | null; while ((node = walker.nextNode())) if (node.textContent) nodes.push(node as Text); const range = document.createRange(); let offset = 0; for (const text of nodes) { const end = offset + text.length; if (offset <= 4 && end > 4) range.setStart(text, 4 - offset); if (offset < 13 && end >= 13) { range.setEnd(text, 13 - offset); break; } offset = end; } const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); root.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
     await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
-    await page.locator('[data-dojo-stage="guided-follow"]').click();
-    await page.waitForFunction(() => document.querySelector(".pith-dojo-panel pre")?.textContent?.includes("two three"));
+    await page.locator('[data-dojo-reveal]').click();
+    assert.match(await page.locator(".pith-dojo-source").textContent(), /two three/);
     await page.locator("[data-dojo-produced]").fill("Selected passage"); await page.locator("[data-dojo-submit]").click();
     await page.waitForFunction(() => document.querySelector(".pith-guide-content")?.textContent?.includes("Selected passage"));
     const selectedEntry = requests.flatMap(item => item.conversation).find((item: any) => item.text.includes("Selected passage")); assert.equal(selectedEntry.anchor.quote, "two three");

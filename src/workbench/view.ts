@@ -57,6 +57,7 @@ body.theme-dark .pith-view{--pith-sage:#9bbfa2;--pith-clay:#d88d70}
 .pith-reader.pith-paged::after{content:"";position:absolute;left:var(--pith-page-scroll-extent,0px);top:0;width:1px;height:1px;pointer-events:none}
 .pith-reader.pith-paged .pith-article :is(img,svg,math){break-inside:avoid;page-break-inside:avoid;max-width:100%;max-height:var(--pith-page-media-height,var(--pith-page-height))!important;width:auto;height:auto;object-fit:contain}
 .pith-guide-toggle[aria-pressed=true]{color:var(--pith-sage)!important;background:color-mix(in srgb,var(--pith-sage) 14%,transparent)}
+.pith-inline-dojo{break-inside:avoid;margin:12px 0 20px;padding:14px;border-left:3px solid var(--pith-sage);background:var(--background-secondary);font:14px/1.5 var(--font-interface);display:flex;flex-wrap:wrap;align-items:center;gap:8px}.pith-inline-dojo label{width:100%}.pith-inline-dojo textarea{display:block;width:100%;min-height:80px}.pith-inline-dojo button{padding:6px 10px}.pith-inline-dojo [data-dojo-close]{margin-left:auto}.pith-inline-dojo [role=status]{width:100%;white-space:pre-wrap}
 .pith-interline-subtitle{display:block;margin-top:.3em;color:var(--text-muted);font-size:.9em;line-height:1.8}.pith-article [data-interline-mode=subtitle-primary]:not(.pith-interline-subtitle){font-size:.88em;color:var(--text-muted)}.pith-article [data-interline-mode=subtitle-primary]>.pith-interline-subtitle{font-size:1.2em;color:var(--text-normal)}.pith-interline-modes{display:flex;gap:4px}.pith-interline-modes [aria-pressed=true]{background:var(--background-modifier-hover)}
 .pith-toc-tree,.pith-toc-tree ul{list-style:none;padding:0 0 0 14px;margin:0}.pith-toc-tree>li>div,.pith-toc-tree li>div{display:flex;align-items:start}.pith-left-drawer .pith-toc-tree [data-toc-toggle]{width:28px;flex:none;padding:8px 4px}.pith-toc-tree [data-toc-toggle][hidden]{display:block!important;visibility:hidden}.pith-left-drawer [aria-current=location]{background:var(--background-modifier-hover);color:var(--pith-sage)}
 `;
@@ -176,6 +177,12 @@ export class PithWorkbenchView {
   private speechRate = 1;
   private dojoActive = false;
   private readonly dojo: HTMLElement;
+  private inlineDojo: HTMLElement | null = null;
+  private dojoBlock: HTMLElement | null = null;
+  private dojoSource: HTMLElement | null = null;
+  private dojoDisplay: HTMLElement | null = null;
+  private requestedDojoBlock: HTMLElement | null = null;
+  private dojoReveal = false;
   private interline: InterlineView | null = null;
   private interlineMode: InterlineDisplayMode = "original";
   private currentFile = "";
@@ -195,6 +202,7 @@ export class PithWorkbenchView {
   private dojoStage: DojoScaffoldStage = "listen-decompose";
   private dojoTarget = "";
   private dojoProduced = "";
+  private readonly dojoDrafts = new Map<string, string>();
   private dojoAnchor: SelectionAnchor | undefined;
   private dojoResult: DojoDiagnosisResult | null = null;
   private dojoStatus = "";
@@ -211,11 +219,12 @@ export class PithWorkbenchView {
       if (!this.actions.transcribeAudio) throw new Error("请先在设置中配置语音识别服务");
       return this.actions.transcribeAudio(bytes, mime, signal);
     }, (target, phase) => {
-      const host = target === "guide" ? this.guide : this.dojo;
+      const host = target === "guide" ? this.guide : this.inlineDojo;
+      if (!host) return;
       const button = host.querySelector<HTMLButtonElement>("[data-voice]");
       if (button) { button.textContent = phase === "recording" ? "⏹ 停止录音" : phase === "permission" ? "取消录音" : phase === "transcribing" ? "识别中…" : "🎙️ 语音输入"; button.disabled = phase === "transcribing"; button.setAttribute("aria-pressed", String(phase === "recording")); }
     }, (target, text) => {
-      const input = target === "guide" ? this.guide.querySelector<HTMLTextAreaElement>("textarea") : this.dojo.querySelector<HTMLTextAreaElement>("[data-dojo-produced]");
+      const input = target === "guide" ? this.guide.querySelector<HTMLTextAreaElement>("textarea") : this.inlineDojo?.querySelector<HTMLTextAreaElement>("[data-dojo-produced]");
       if (input) { input.value = input.value ? `${input.value} ${text}` : text; input.dispatchEvent(new (this.win as Window & typeof globalThis).Event("input", { bubbles: true })); input.focus(); if (target === "dojo") this.dojoProduced = input.value; }
     }, message => this.tip(message));
     root.classList.add("pith-view");
@@ -248,6 +257,7 @@ export class PithWorkbenchView {
   }
 
   render(document: ObsidianReaderDocument): void {
+    this.closeInlineDojo();
     this.dojoVersion++; this.dojoTarget = ""; this.dojoAnchor = undefined; this.dojoResult = null; this.dojoStatus = ""; this.dojo.hidden = true; this.setDojoActive(false);
     this.voice.cancel();
     if (this.interline) this.interline.dispose(); this.interline = null; this.interlineMode = "original";
@@ -275,7 +285,7 @@ export class PithWorkbenchView {
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
   setGuideAvailable(available: boolean): void { this.guideButton.hidden = !available; if (!available) this.setGuideVisible(false); }
   setDojoActive(active: boolean): void { this.dojoActive = active; this.dock.classList.toggle("active", active || this.speaking); }
-  setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = toolkits; const previous = this.dojoId; const slot = toolkitSlot(effectiveToolkits(toolkits, this.currentFile), previous, Object.fromEntries(this.dojos.map(item => [item.id, item.label]))); if (!slot.ids.includes("interline") && this.interline && this.interlineMode !== "original") { this.interlineMode = "original"; this.interline.setMode("original"); } this.mountedToolkits = slot.ids; this.dojoId = slot.active; if (previous && !slot.ids.includes(previous)) { this.dojoVersion++; this.voice.cancel("dojo"); this.dojo.hidden = true; this.setDojoActive(false); } const button = this.dock.querySelector<HTMLButtonElement>("#open-dojo"); if (!button) return; button.hidden = !slot.ids.length; button.textContent = slot.text; button.classList.toggle("pith-dojo-add", !slot.ids.length); button.title = "打开实训工具"; button.setAttribute("aria-label", button.title); }
+  setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = toolkits; const previous = this.dojoId; const slot = toolkitSlot(effectiveToolkits(toolkits, this.currentFile), previous, Object.fromEntries(this.dojos.map(item => [item.id, item.label]))); if (!slot.ids.includes("interline") && this.interline && this.interlineMode !== "original") { this.interlineMode = "original"; this.interline.setMode("original"); } this.mountedToolkits = slot.ids; this.dojoId = slot.active; if (previous && !slot.ids.includes(previous)) { this.closeInlineDojo(); this.dojo.hidden = true; } const button = this.dock.querySelector<HTMLButtonElement>("#open-dojo"); if (!button) return; button.hidden = !slot.ids.length; button.textContent = slot.text; button.classList.toggle("pith-dojo-add", !slot.ids.length); button.title = "打开实训工具"; button.setAttribute("aria-label", button.title); }
   turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); }
   private updatePageCount(): void { const counter = this.root.querySelector<HTMLElement>("[data-page-count]"); if (!counter) return; const width = Math.max(1, this.reader.clientWidth); const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)); counter.textContent = `${readerPageIndex(this.reader) + 1} / ${total}`; }
   dispose(): void { this.disposed = true; this.voice.cancel(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
@@ -284,7 +294,7 @@ export class PithWorkbenchView {
   private updateAssetControls(): void { const audio = this.assetAudio; if (!audio) return; if (this.loopStart !== null && this.loopEnd !== null && audio.currentTime >= this.loopEnd) audio.currentTime = this.loopStart; const format = (value: number): string => { const n = Number.isFinite(value) ? Math.floor(value) : 0; return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; }; const time = this.assetControls.querySelector<HTMLElement>("[data-media-time]"); if (time) time.textContent = `${format(audio.currentTime)} / ${format(audio.duration)}`; const seek = this.assetControls.querySelector<HTMLInputElement>(".pith-media-seek"); if (seek) { seek.max = String(Number.isFinite(audio.duration) ? audio.duration : 0); seek.value = String(audio.currentTime); } const play = this.assetControls.querySelector<HTMLButtonElement>('[data-media="play"]'); if (play) { play.textContent = audio.paused ? "▶" : "⏸"; play.setAttribute("aria-label", audio.paused ? "播放" : "暂停"); } const cues = Array.from(this.article.querySelectorAll<HTMLElement>('.pith-cue[data-locator^="time:"]')); for (let i = 0; i < cues.length; i++) { const cue = cues[i]!; const start = Number(cue.dataset.locator!.slice(5)), end = cue.dataset.endSec !== undefined ? Number(cue.dataset.endSec) : cues[i + 1] ? Number(cues[i + 1]!.dataset.locator!.slice(5)) : Infinity; cue.classList.toggle("pith-speech-active", audio.currentTime >= start && audio.currentTime < end); } }
 
   private applyPageMode(position: ReaderPosition | null = null): void { const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches }); this.root.dataset.formFactor = decision.formFactor; this.root.dataset.sheetMode = decision.sheetMode; this.root.dataset.hitTarget = String(decision.hitTargetPx); const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]'); if (double) double.disabled = decision.maxColumns < 2; if (triple) triple.disabled = decision.maxColumns < 3; const controls = this.root.querySelector<HTMLElement>("[data-pages]"); if (controls) controls.hidden = !this.paged; const modes = this.root.querySelector<HTMLElement>("[data-page-modes]"); if (modes) modes.hidden = !this.paged; this.reader.classList.toggle("pith-paged", this.paged); if (this.paged) { applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded); restoreReaderPosition(this.reader, this.article, position); this.restoredScrollLeft = position ? this.reader.scrollLeft : null; this.readerPosition = position ?? captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else { for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height"]) this.article.style.removeProperty(property); this.reader.style.removeProperty("overflow-x"); this.reader.style.removeProperty("overflow-y"); } if (this.interline) this.interline.activate(); }
-  private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (!anchor || anchor.file !== this.currentFile || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
+  private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (!anchor || anchor.file !== this.currentFile || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-dojo,[data-dojo-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
   quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
   private renderGuide(): void {
@@ -292,18 +302,71 @@ export class PithWorkbenchView {
     const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     this.guide.innerHTML = `<div class="pith-guide-tabs"><button data-guide-tab="chat" aria-pressed="${this.guideTab === "chat"}">对话</button><button data-guide-tab="notes" aria-pressed="${this.guideTab === "notes"}">笔记 ${this.guideData.notes.length}</button></div><div class="pith-guide-content">${this.guideTab === "chat" ? this.guideData.conversation.map(entry => `<p><strong>${entry.role === "user" ? "你" : "向导"}</strong><br>${escape(displayPracticeMessage(entry.text))}</p>${(entry.choices ?? []).map(choice => `<button data-guide-prompt="${escape(choice)}">${escape(choice)}</button>`).join("")}`).join("") + this.guideData.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}">${escape(action.label)}</button>`).join("") : this.guideData.notes.map(note => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" title="跳回原文"><strong>${escape(note.kind)}</strong><br>${escape(note.body)}</button>` : `<p><strong>${escape(note.kind)}</strong><br>${escape(note.body)}</p>`).join("")}</div><div class="pith-guide-compose"><blockquote>${this.pendingAnchor && this.pendingAnchor.quote ? escape(this.pendingAnchor.quote) : ""}</blockquote><textarea aria-label="消息"></textarea><button type="button" data-voice="guide" aria-pressed="false">🎙️ 语音输入</button><div data-guide-error role="alert"></div><button data-guide-send>发送</button></div>`;
   }
-  openDojo(dojos: readonly DojoToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void { this.dojos = dojos; const mounted = dojos.filter(item => this.mountedToolkits.includes(item.id)); if (!mounted.length) { this.tip("没有已挂载的实训工具"); return; } if (text !== undefined) { this.dojoTarget = text; this.dojoAnchor = anchor; this.dojoResult = null; this.dojoStatus = ""; this.dojoVersion++; } else if (this.dojo.hidden) { const current = visibleDojoTarget(this.article, this.reader, this.currentFile); if (current) { this.dojoTarget = current.quote; this.dojoAnchor = current; this.dojoResult = null; this.dojoStatus = ""; this.dojoVersion++; } } this.dojo.hidden = !this.dojo.hidden && text === undefined; this.setDojoActive(!this.dojo.hidden); if (this.dojo.hidden) { this.dojoVersion++; this.voice.cancel("dojo"); return; } if (mounted.length > 1) { this.dojo.innerHTML = "<p>选择实训工具</p>"; for (const item of mounted) { const button = this.doc.createElement("button"); button.dataset.dojoChoose = item.id; button.textContent = item.label; this.dojo.append(button); } return; } if (!mounted.some(item => item.id === this.dojoId)) this.dojoId = mounted[0]!.id; this.renderDojo(); }
+  openDojo(dojos: readonly DojoToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
+    this.dojos = dojos;
+    const mounted = dojos.filter(item => this.mountedToolkits.includes(item.id));
+    if (!mounted.length) { this.tip("没有已挂载的实训工具"); return; }
+    if (this.inlineDojo) this.closeInlineDojo();
+    if (text !== undefined) { this.dojoTarget = text; this.dojoAnchor = anchor; }
+    else {
+      const current = visibleDojoTarget(this.article, this.reader, this.currentFile);
+      if (current) { this.dojoTarget = current.quote; this.dojoAnchor = current; }
+    }
+    this.dojoResult = null; this.dojoStatus = ""; this.dojoVersion++;
+    if (mounted.length > 1) {
+      this.dojo.hidden = false; this.dojo.innerHTML = "";
+      for (const item of mounted) { const button = this.doc.createElement("button"); button.dataset.dojoChoose = item.id; button.textContent = item.label; this.dojo.append(button); }
+      return;
+    }
+    this.dojoId = mounted[0]!.id; this.renderDojo();
+  }
+  private closeInlineDojo(): void {
+    this.readDojo();
+    this.dojoVersion++; this.voice.cancel("dojo");
+    if (this.dojoSource && this.dojoBlock) this.dojoSource.replaceWith(...Array.from(this.dojoSource.childNodes));
+    this.dojoDisplay?.remove(); this.inlineDojo?.remove();
+    this.inlineDojo = null; this.dojoBlock = null; this.dojoSource = null; this.dojoDisplay = null;
+    this.setDojoActive(false);
+  }
+  private mountInlineDojo(): boolean {
+    const requested = this.requestedDojoBlock;
+    const anchor = this.dojoAnchor;
+    const block = requested && this.article.contains(requested) ? requested : anchor ? resolveReaderLocator(this.article, anchor.locator) : null;
+    const target = block ?? Array.from(this.article.querySelectorAll<HTMLElement>('[data-prose="true"],.pith-cue')).find(item => (item.textContent ?? "").includes(this.dojoTarget)) ?? null;
+    this.requestedDojoBlock = null;
+    if (!target || !this.dojoTarget || !anchor) { this.tip("当前页面没有可用原文"); return false; }
+    if (this.dojoBlock !== target) {
+      this.closeInlineDojo(); this.dojoBlock = target;
+      const source = this.doc.createElement("span"); source.className = "pith-dojo-source";
+      while (target.firstChild) source.append(target.firstChild);
+      const display = this.doc.createElement("span"); display.dataset.dojoDisplay = ""; display.dataset.prose = "false";
+      target.append(source, display); this.dojoSource = source; this.dojoDisplay = display;
+      const inline = this.doc.createElement("section"); inline.className = "pith-inline-dojo"; inline.dataset.prose = "false"; target.insertAdjacentElement("afterend", inline); this.inlineDojo = inline;
+    }
+    if (this.assetAudio) this.assetAudio.pause();
+    if (this.speaking) this.stopSpeech();
+    this.dojoProduced = this.dojoDrafts.get(this.dojoDraftKey()) ?? "";
+    this.dojoReveal = false; this.setDojoActive(true); return true;
+  }
   private renderDojo(): void {
     this.voice.cancel("dojo"); const toolkit = this.dojos.find(item => item.id === this.dojoId); if (!toolkit) return;
     this.setToolkits(this.configuredToolkits);
-    if (toolkit.id === "interline") { this.dojo.innerHTML = `<strong>行间双语</strong><div class="pith-interline-modes" role="group" aria-label="行间双语模式">${([["original", "原文"], ["bilingual", "行间双语"], ["subtitle-primary", "译文主显"]] as const).map(([mode, label]) => `<button data-interline-mode="${mode}" aria-pressed="${this.interlineMode === mode}">${label}</button>`).join("")}</div>`; return; }
+    if (toolkit.id === "interline") { this.dojo.hidden = false; this.dojo.innerHTML = `<strong>行间双语</strong><div class="pith-interline-modes" role="group" aria-label="行间双语模式">${([["original", "原文"], ["bilingual", "行间双语"], ["subtitle-primary", "译文主显"]] as const).map(([mode, label]) => `<button data-interline-mode="${mode}" aria-pressed="${this.interlineMode === mode}">${label}</button>`).join("")}</div>`; return; }
+    this.dojo.hidden = true;
+    if (!this.inlineDojo && !this.mountInlineDojo()) return;
     if (!toolkit.stages.includes(this.dojoStage)) this.dojoStage = toolkit.stages[0]!;
     const esc = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     const labels: Record<DojoScaffoldStage, string> = { "listen-decompose": "意群拆解", "guided-follow": "原文", "scaffold-cloze": "骨干词", "blind-produce": "盲听诊断" };
-    const feedback = this.dojoResult && toolkit.evalMode === "deterministic" ? renderDojoAlignment(this.dojoTarget, this.dojoResult.matchedTokens) : esc(this.dojoStatus);
-    this.dojo.innerHTML = `<strong>${esc(toolkit.label)}</strong><div>${toolkit.stages.map(stage => `<button data-dojo-stage="${stage}" aria-pressed="${stage === this.dojoStage}">${labels[stage]}</button>`).join("")}</div><pre>${esc(this.dojoTarget ? toolkit.transformCue(this.dojoTarget, this.dojoStage) : "当前页面没有可用原文")}</pre><label>复述文本<textarea data-dojo-produced>${esc(this.dojoProduced)}</textarea></label><button type="button" data-voice="dojo" aria-pressed="false">🎙️ 语音输入</button>${toolkit.evalMode === "guide-rubric" ? '<button data-dojo-submit>提交复述并请向导追问</button>' : `<button data-dojo-diagnose>对齐漏词</button><button data-dojo-save ${this.dojoResult ? "" : "disabled"}>记入实训账本</button>`}<div role="status">${feedback}</div>`;
+    const inline = this.inlineDojo!, source = this.dojoSource!, display = this.dojoDisplay!;
+    inline.dataset.dojo = toolkit.id;
+    const showOriginal = this.dojoReveal || (toolkit.id === "shadowing" && this.dojoStage === "guided-follow" && !this.dojoResult);
+    source.hidden = !showOriginal;
+    display.hidden = showOriginal;
+    display.innerHTML = this.dojoResult && toolkit.evalMode === "deterministic" ? renderDojoAlignment(this.dojoTarget, this.dojoResult.matchedTokens) : esc(toolkit.transformCue(this.dojoTarget, this.dojoStage));
+    inline.innerHTML = `<strong>${esc(toolkit.label)}</strong><button data-dojo-close aria-label="收起">×</button>${toolkit.evalMode === "guide-rubric" ? `<button data-dojo-reveal>${this.dojoReveal ? "合上原文" : "查看原文"}</button>` : `<div>${toolkit.stages.map(stage => `<button data-dojo-stage="${stage}" aria-pressed="${stage === this.dojoStage}">${labels[stage]}</button>`).join("")}</div>`}<label>复述文本<textarea data-dojo-produced>${esc(this.dojoProduced)}</textarea></label><button type="button" data-voice="dojo" aria-pressed="false">🎙️ 语音输入</button>${toolkit.evalMode === "guide-rubric" ? '<button data-dojo-submit>提交复述并请向导追问</button>' : `<button data-dojo-diagnose>对齐漏词</button><button data-dojo-save ${this.dojoResult ? "" : "disabled"}>记入实训账本</button>`}<div role="status">${esc(this.dojoStatus)}</div>`;
   }
-  private readDojo(): void { const produced = this.dojo.querySelector<HTMLTextAreaElement>("[data-dojo-produced]"); if (produced && produced.value !== this.dojoProduced) { this.dojoResult = null; this.dojoStatus = ""; } if (produced) this.dojoProduced = produced.value; }
+  private dojoDraftKey(): string { return JSON.stringify([this.dojoId, this.dojoAnchor?.file, this.dojoAnchor?.locator, this.dojoAnchor?.quote]); }
+  private readDojo(): void { const produced = this.inlineDojo?.querySelector<HTMLTextAreaElement>("[data-dojo-produced]"); if (produced && produced.value !== this.dojoProduced) { this.dojoResult = null; this.dojoStatus = ""; } if (produced) { this.dojoProduced = produced.value; this.dojoDrafts.set(this.dojoDraftKey(), produced.value); } }
 
   private closeNavigation(): void { this.navigation.hidden = true; this.navigationButton.setAttribute("aria-expanded", "false"); }
   private openEpubLink(link: HTMLElement): void { const target = resolveEpubTarget(this.article, link.dataset.epubTarget ?? ""); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); }
@@ -311,7 +374,9 @@ export class PithWorkbenchView {
   private async click(event: MouseEvent): Promise<void> {
     const target = event.target as Element | null; if (!target || typeof target.closest !== "function") return; const link = target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link)) { event.preventDefault(); this.openEpubLink(link); return; } const button = target.closest<HTMLButtonElement>("button");
     const cue = target.closest<HTMLElement>(".pith-cue");
-    if (cue && this.article.contains(cue)) { if (this.assetAudio && cue.dataset.locator?.startsWith("time:")) { const position = Number(cue.dataset.locator.slice(5)); if (Number.isFinite(position)) this.assetAudio.currentTime = position; } const available = this.mountedToolkits.filter(id => id === "shadowing" || id === "feynman"); if (!available.length) return; if (!available.some(id => id === this.dojoId)) this.dojoId = available[0]!; const copy = cue.cloneNode(true) as HTMLElement; const time = copy.querySelector("time"); if (time) time.remove(); this.actions.openDojo((copy.textContent ?? "").trim(), cue.dataset.locator); return; }
+    if (cue && cue !== this.dojoBlock && this.article.contains(cue) && !button) { if (this.assetAudio && cue.dataset.locator?.startsWith("time:")) { const position = Number(cue.dataset.locator.slice(5)); if (Number.isFinite(position)) this.assetAudio.currentTime = position; } const available = this.mountedToolkits.filter(id => id === "shadowing" || id === "feynman"); if (!available.length) return; if (!available.some(id => id === this.dojoId)) this.dojoId = available[0]!; const copy = cue.cloneNode(true) as HTMLElement; const time = copy.querySelector("time"); if (time) time.remove(); this.requestedDojoBlock = cue; this.actions.openDojo((copy.textContent ?? "").trim(), cue.dataset.locator); return; }
+    const prose = target.closest<HTMLElement>('[data-prose="true"]');
+    if (!button && prose && prose !== this.dojoBlock && this.article.contains(prose) && this.mountedToolkits.some(id => id === "shadowing" || id === "feynman")) { const selection = this.win.getSelection(); if (selection && !selection.isCollapsed) return; this.requestedDojoBlock = prose; const range = this.doc.createRange(); range.selectNodeContents(this.article); range.setEndBefore(prose); this.actions.openDojo(proseTextNodes(prose).map(node => node.data).join("").trim(), prose.dataset.locator || `text:offset:${range.toString().length}`); return; }
     if (!button) return;
     if (!this.root.contains(button) && !this.guide.contains(button)) return;
     if (button.dataset.voice) { void this.voice.toggle(button.dataset.voice); return; }
@@ -322,7 +387,9 @@ export class PithWorkbenchView {
     if (button.dataset.size) { const position = this.paged ? captureReaderPosition(this.reader, this.article) : null; this.article.style.setProperty("--pith-reader-size", `${button.dataset.size}px`); if (this.paged) { this.applyPageMode(position); this.readerPosition = captureReaderPosition(this.reader, this.article); } for (const item of this.root.querySelectorAll<HTMLButtonElement>("[data-size]")) item.setAttribute("aria-pressed", String(item === button)); return; }
     if (button.dataset.mode === "single" || button.dataset.mode === "double" || button.dataset.mode === "triple") { const position = captureReaderPosition(this.reader, this.article); this.pageMode = button.dataset.mode; this.applyPageMode(position); this.readerPosition = captureReaderPosition(this.reader, this.article); for (const item of this.root.querySelectorAll<HTMLButtonElement>("[data-mode]")) item.setAttribute("aria-pressed", String(item === button)); return; }
     if (button.dataset.page) { this.turnPage(button.dataset.page === "previous" ? -1 : 1); return; }
-    if (button.dataset.dojoChoose) { const id = button.dataset.dojoChoose; if (!this.mountedToolkits.includes(id) || !this.dojos.some(item => item.id === id)) return; this.dojoVersion++; this.dojoResult = null; this.dojoStatus = ""; this.dojoId = id; this.renderDojo(); return; }
+    if (button.dataset.dojoChoose) { const id = button.dataset.dojoChoose; if (!this.mountedToolkits.includes(id) || !this.dojos.some(item => item.id === id)) return; this.closeInlineDojo(); this.dojoResult = null; this.dojoStatus = ""; this.dojoId = id; this.renderDojo(); return; }
+    if (button.hasAttribute("data-dojo-close")) { this.closeInlineDojo(); return; }
+    if (button.hasAttribute("data-dojo-reveal")) { this.readDojo(); this.dojoReveal = !this.dojoReveal; this.renderDojo(); return; }
     if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
     if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) { input.value = button.dataset.guidePrompt; input.focus(); } return; }
@@ -363,7 +430,7 @@ export class PithWorkbenchView {
     else if (button === this.guideButton) { const visible = this.guide.hidden; this.setGuideVisible(visible); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(visible); }
     else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.locator) { this.closeNavigation(); const heading = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === button.dataset.locator); if (heading) heading.scrollIntoView({ block: "start" }); }
-    else if (button.dataset.command === "dojo") { const range = this.selectionRange; if (this.dojo.hidden && range && !range.collapsed && this.article.contains(range.startContainer)) { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(range.startContainer, range.startOffset); this.actions.openDojo(range.toString(), `text:offset:${prefix.toString().length}`); } else this.actions.openDojo(); }
+    else if (button.dataset.command === "dojo") { const range = this.selectionRange; if (this.dojo.hidden && range && !range.collapsed && this.article.contains(range.startContainer)) { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(range.startContainer, range.startOffset); this.requestedDojoBlock = (range.startContainer.parentElement?.closest<HTMLElement>('[data-prose="true"],.pith-cue') ?? null); this.actions.openDojo(range.toString(), `text:offset:${prefix.toString().length}`); } else this.actions.openDojo(); }
     else if (button.dataset.command === "read") { if (this.speaking) this.stopSpeech(); else if (this.assetAudio && this.mediaDeck.hidden) this.mediaDeck.hidden = false; else this.startSpeech(); }
     else if (button.dataset.selection && this.selectionRange) { if (button.dataset.selection === "copy") { try { await this.win.navigator.clipboard.writeText(this.selectionRange.toString()); } catch { this.tip("复制失败"); } } else if (button.dataset.selection === "highlight" || button.dataset.selection === "note" || button.dataset.selection === "ask") { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(this.selectionRange.startContainer, this.selectionRange.startOffset); this.actions.selection(button.dataset.selection, this.selectionRange.toString(), `text:offset:${prefix.toString().length}`); } this.popover.hidden = true; }
   }
