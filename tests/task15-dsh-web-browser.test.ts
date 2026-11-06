@@ -55,7 +55,7 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "browser"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1280, height: 720 } });
     const page = await browser.newPage(); const errors: string[] = []; page.on("pageerror", (error: Error) => errors.push(error.message));
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     const beta = page.locator('#simple-model optgroup[label="Local Test"] option').filter({ hasText: "Local Beta" }); await beta.waitFor({ state: "attached" });
     assert.equal(await page.locator("#simple-model").inputValue(), "old-profile-model");
     assert.equal(await page.locator("#simple-effort").inputValue(), "low");
@@ -65,15 +65,15 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     await page.locator("#simple-effort").selectOption("");
     await page.waitForFunction(async (selected: string) => { const settings = (await (await fetch("/api/state")).json()).settings; return settings.agentId === "dsh" && settings.model === selected && settings.effort === ""; }, model);
     await page.waitForFunction(() => !(document.querySelector("#simple-effort") as HTMLSelectElement).disabled);
-    await page.locator("#close-drawer").click(); await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator("#toggle-side").click();
-    await page.locator("#message").fill("This is a local fixture request."); await page.locator("#send").click();
-    try { await page.locator(".message.guide").getByText("Local fixture response.").waitFor({ timeout: 20000 }); }
-    catch { throw new Error(JSON.stringify({ requests, frames, errors, toast: await page.locator("#toast").textContent(), input: await page.locator("#message").inputValue() })); }
+    await page.locator("#close-drawer").click(); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
+    await page.locator(".pith-guide textarea").fill("This is a local fixture request."); await page.locator("[data-guide-send]").click();
+    try { await page.locator(".pith-guide-content").getByText("Local fixture response.").waitFor({ timeout: 20000 }); }
+    catch { throw new Error(JSON.stringify({ requests, frames, errors, toast: await page.locator("#toast").textContent(), input: await page.locator(".pith-guide textarea").inputValue() })); }
     assert.equal(requests.length, 1); assert.equal(requests[0]!.model, "local-beta"); assert.deepEqual(errors, []);
     await page.route("**/api/chat", (route: any) => route.fulfill({ status: 503, json: { error: "Fixture failure" } }));
-    await page.locator("#message").fill("Second fixture request."); await page.locator("#send").click();
-    await page.locator("#guide-error").getByText("Fixture failure").waitFor();
-    assert.equal(await page.locator("#message").inputValue(), "Second fixture request.");
+    await page.locator(".pith-guide textarea").fill("Second fixture request."); await page.locator("[data-guide-send]").click();
+    await page.locator("[data-guide-error]").getByText("Fixture failure").waitFor();
+    assert.equal(await page.locator(".pith-guide textarea").inputValue(), "Second fixture request.");
   } finally {
     if (browser) await browser.close();
     if (web) await new Promise<void>((done, reject) => web!.close(error => error ? reject(error) : done()));

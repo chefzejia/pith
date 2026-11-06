@@ -18,7 +18,7 @@ test("settings labels and controls fit the drawer at desktop and narrow widths",
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 700 } });
     const page = await browser.newPage();
     await page.route("**/api/agents?force=true", (route: { fulfill(options: unknown): Promise<void> }) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
-    await page.goto(`http://127.0.0.1:${address.port}`); await page.locator("#settings").click();
+    await page.goto(`http://127.0.0.1:${address.port}`); await page.locator("[data-home-settings]").click();
     for (const width of [1100, 390, 280]) {
       await page.setViewportSize({ width, height: 700 });
       for (const mode of ["local", "cloud"]) {
@@ -61,12 +61,12 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     const page = await browser.newPage();
     let agentsAvailable = false;
     await page.route("**/api/agents?force=true", (route: { fulfill(options: unknown): Promise<void> }) => route.fulfill({ status: 200, contentType: "application/json", body: agentsAvailable ? JSON.stringify([{ id: "dsh", available: true }]) : "[]" }));
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     assert.equal(await page.locator("#simple-agent").inputValue(), "unconfigured");
     await page.locator("#simple-agent").selectOption("");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.agentConfigured === true);
     agentsAvailable = true;
-    await page.locator("#close-drawer").click(); await page.locator("#settings").click();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     assert.equal(await page.locator("#simple-agent").inputValue(), "");
     assert.equal((await (await fetch(`${base}/api/state`)).json()).settings.agentId, "");
@@ -85,22 +85,22 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     await page.locator("#simple-mode").selectOption("cloud");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");
     await page.locator("#close-drawer").click();
-    await page.locator(`[data-open="${topic.id}"]`).first().click();
+    await page.locator(`[data-topic="${topic.id}"]`).first().click();
     assert.equal(await page.locator("#open-dojo").isHidden(), true);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
-    await page.locator("#home").click(); await page.locator(`[data-open="${topic.id}"]`).first().click();
+    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.waitForFunction(() => document.querySelector("#open-dojo")?.textContent?.includes("费曼复述"));
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 800 });
       assert.match(await page.locator("#open-dojo").textContent(), /费曼复述/);
       await page.locator("#open-dojo").click();
-      const panel = page.locator(".training-panel"); assert.equal(await panel.count(), 1);
-      assert.equal(await panel.evaluate((node: HTMLElement) => node.parentElement === document.body), true);
-      const bounds = await panel.boundingBox(); assert.ok(bounds); assert.ok(Math.abs(bounds.y - 44) < 2); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
+      const panel = page.locator(".pith-dojo-panel"); assert.equal(await panel.count(), 1);
+      assert.equal(await panel.evaluate((node: HTMLElement) => node.parentElement?.classList.contains("pith-bottom-dock")), true);
+      const bounds = await panel.boundingBox(); assert.ok(bounds); assert.ok(Math.abs(bounds.y - 48) < 2); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
       await page.locator("#open-dojo").click();
-      await page.locator("#typography-toggle").click();
-      const typeBounds = await page.locator(".pith-typography-popover").boundingBox(); assert.ok(typeBounds); assert.ok(Math.abs(typeBounds.y - 44) < 2);
-      await page.locator("#typography-toggle").click();
+      await page.locator('[data-command="typography"]').click();
+      const typeBounds = await page.locator(".pith-typography-popover").boundingBox(); assert.ok(typeBounds); assert.ok(Math.abs(typeBounds.y - 48) < 2);
+      await page.locator('[data-command="typography"]').click();
     }
   } finally {
     if (browser) await browser.close();

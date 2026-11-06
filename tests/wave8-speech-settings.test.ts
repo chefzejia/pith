@@ -43,7 +43,8 @@ test("web speech settings survive restart and reach local TTS and ASR and cloud 
   try {
     await start();
     const html = await (await fetch(base)).text();
-    for (const field of ["ttsModel", "asrModel", "ttsEndpoint", "asrLoopbackUrl"]) assert.ok(html.includes(`data-speech-field="${field}"`), field);
+    const script = await (await fetch(base + "/app.js")).text();
+    for (const field of ["ttsModel", "asrModel", "ttsEndpoint", "asrLoopbackUrl"]) assert.ok(script.includes(`data-speech-field="${field}"`), field);
     assert.doesNotMatch(html, /Kokoro-82M|ghcr\.io\/remsky/);
     assert.equal((await post("/api/settings", { speech })).status, 200);
     assert.equal((await post("/api/settings", { speech: { ttsModel: 12 } })).status, 400);

@@ -4,7 +4,7 @@ import https from "node:https";
 import { BlockList, isIP } from "node:net";
 import type { HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
-import { withHttpDeadline } from "../httpDeadline.ts";
+import { withHttpDeadline } from "../../core/host.ts";
 
 const globalV6 = new BlockList();
 globalV6.addSubnet("2000::", 3, "ipv6");

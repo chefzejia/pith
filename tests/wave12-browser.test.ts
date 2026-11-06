@@ -23,31 +23,31 @@ test("Web keeps EPUB host-named IDs separate from host controls", { skip: !proce
     await post("/api/materials", { topicId: topic.id, title: "Host IDs", kind: "book", files: [{ name: "ids.epub", data: Buffer.from(linkedEpub(true)).toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
-    await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click();
+    await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     const chapter = page.locator(".pith-epub-chapter-0");
     for (const id of ["training", "article", "message", "preview", "toast", "settings", "toggle-navigation", "import-material", "detect-agents", "transcribe-audio", "toggle-side"]) {
       assert.equal(await chapter.locator(`p[id="${id}"]`).textContent(), `Book target ${id}`);
       assert.ok(await chapter.locator(`p[id="${id}"]`).evaluate((node: HTMLElement) => node.getBoundingClientRect().height) > 0, id);
     }
-    assert.equal(await page.locator(".reader-wrap > #training #read-aloud").count(), 0);
-    assert.equal(await page.locator("#reader-tools #read-aloud").count(), 1);
+    assert.equal(await page.locator('.pith-article [data-command="read"]').count(), 0);
+    assert.equal(await page.locator('.pith-view-header [data-command="read"]').count(), 1);
     const click = async (name: string, chapterIndex: number, id: string, text: string) => {
       await page.locator(".pith-epub-chapter a").filter({ hasText: name }).first().click();
       const target = page.locator(`.pith-epub-chapter-${chapterIndex} p[id="${id}"]`);
       assert.equal(await target.textContent(), text);
-      assert.equal(await target.evaluate((node: HTMLElement) => { const a = node.getBoundingClientRect(), r = node.closest(".reader")!.getBoundingClientRect(); return a.left < r.right && a.right > r.left && a.top < r.bottom && a.bottom > r.top; }), true, name);
+      assert.equal(await target.evaluate((node: HTMLElement) => { const a = node.getBoundingClientRect(), r = node.closest(".pith-reader")!.getBoundingClientRect(); return a.left < r.right && a.right > r.left && a.top < r.bottom && a.bottom > r.top; }), true, name);
     };
     await click("Training target", 0, "training", "Book target training");
     await click("Settings link", 0, "article", "Book target article");
     await click("Import ancestor link", 0, "message", "Book target message");
     await click("Cross host target", 1, "training", "Second training target");
     await click("Host target back", 0, "training", "Book target training");
-    assert.equal(await page.locator("#drawer").isHidden(), true);
-    await page.locator("header button#home").click();
-    await page.locator("header button#settings").click();
-    assert.equal(await page.locator("#drawer #simple-mode").count(), 1);
-    await page.locator("#drawer #close-drawer").click();
-    await page.locator(`[data-open="${topic.id}"]`).first().click();
+    assert.equal(await page.locator(".pith-left-drawer").isHidden(), true);
+    await page.locator('[data-command="home"]').click();
+    await page.locator('[data-home-settings]').click();
+    assert.equal(await page.locator("#simple-mode").count(), 1);
+    await page.locator("#close-drawer").click();
+    await page.locator(`[data-topic="${topic.id}"]`).first().click();
     assert.equal(await chapter.locator('p[id="training"]').textContent(), "Book target training");
   } finally {
     if (browser) await browser.close();
@@ -83,10 +83,10 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
     };
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") {
-        await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click();
+        await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
         assert.equal(await page.locator("#open-dojo").isHidden(), true);
       } else {
-        await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
+        await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.evaluate((doc: unknown) => {
           const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(doc: object): void; setToolkits(ids: string[]): void; openDojo(dojos: object[]): void } } }).PithView;
           let view: InstanceType<typeof pith.PithObsidianView>;
@@ -97,7 +97,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
         }, documentView);
         assert.equal(await page.locator("#open-dojo").isHidden(), true);
       }
-      const reader = shell === "web" ? ".reader" : ".pith-reader";
+      const reader = ".pith-reader";
       const link = (name: string) => page.locator(".pith-epub-chapter a").filter({ hasText: name }).first();
       await link("Same").click(); await assertTarget(0, "One target", reader);
       await link("Cross").click(); await assertTarget(1, "Two target", reader);
@@ -119,7 +119,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
       await link("Unicode Cross").click(); await assertSvg(1, "漢字");
       await link("Unicode Same").click(); await assertSvg(1, "漢字");
       await link("Percent Cross").click(); await assertSvg(1, "rate%done");
-      const navButton = shell === "web" ? "#toggle-navigation" : ".pith-nav-toggle";
+      const navButton = ".pith-nav-toggle";
       await page.locator(navButton).click();
       await page.locator("[data-toc-locator]").filter({ hasText: "Two" }).click();
       await assertTarget(1, "Two target", reader);
@@ -131,15 +131,15 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
       assert.equal(chapterVisible, true);
       for (const name of ["Missing", "Blocked", "Escape", "External", "Danger", "Forged ID"]) {
         const item = link(name); assert.equal(await item.getAttribute("href"), null); await item.click();
-        const notice = shell === "web" ? ".pith-toast-tip" : ".pith-toast-tip";
+        const notice = ".pith-stage > .pith-toast-tip";
         assert.match((await page.locator(notice).textContent()) || "", /无法定位书内目标/);
       }
       if (shell === "web") {
         await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman", "shadowing"] });
-        await page.locator("#home").click(); await page.locator(`[data-open="${topic.id}"]`).first().click();
+        await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
       } else await page.evaluate(() => (window as unknown as { testView: { setToolkits(ids: string[]): void } }).testView.setToolkits(["feynman", "shadowing"]));
       await page.locator("#open-dojo").click();
-      const chooser = shell === "web" ? "[data-choose-dojo]" : "[data-dojo-choose]";
+      const chooser = "[data-dojo-choose]";
       assert.equal(await page.locator(chooser).count(), 2);
       await page.locator(chooser).first().click();
       assert.equal(await page.locator("#dojo-toolkit, [data-dojo-tool]").count(), 0);

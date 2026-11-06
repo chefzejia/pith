@@ -19,6 +19,12 @@ test("retired shell fragments and unused runtime parts stay removed", () => {
   }
 });
 
+test("shell root contains only the four shell directories", () => {
+  const entries = readdirSync(join(SRC, "shells"), { withFileTypes: true });
+  assert.deepEqual(entries.map(entry => entry.name).sort(), ["dsh", "obsidian", "speech", "web"]);
+  assert.ok(entries.every(entry => entry.isDirectory()));
+});
+
 test("managed speech uses native multilingual models and ACP never reads dsh private configuration", () => {
   const forbiddenSpeech = /python3|\bpip\b|pypi\.org|vits-piper-en_US|whisper-tiny\.en/i;
   assert.match("python3 -m pip install", forbiddenSpeech);
@@ -70,12 +76,18 @@ test("source does not retain Base aliases for function wrappers", () => {
 });
 
 test("Web reader entry points have one definition and are never reassigned", () => {
-  const content = readFileSync(join(SRC, "shells/web/server.ts"), "utf8");
-  for (const name of ["renderTraining", "home", "workspace", "openTopic", "startSpeech"]) {
+  const content = readFileSync(join(SRC, "shells/web/client.ts"), "utf8");
+  for (const name of ["home", "openTopic"]) {
     assert.equal([...content.matchAll(new RegExp(`\\b(?:async\\s+)?function\\s+${name}\\s*\\(`, "g"))].length, 1, name);
     assert.doesNotMatch(content, new RegExp(`\\b${name}\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>)`), name);
   }
   assert.doesNotMatch(content, /stopImmediatePropagation\s*\(/);
+  assert.match(content, /new WebWorkbench\(/);
+  assert.match(readFileSync(join(SRC, "shells/web/workbench.ts"), "utf8"), /mountPithWorkbench\(/);
+  assert.doesNotMatch(content, /class="(?:workspace|reader-wrap|training-panel)\b/);
+  const server = readFileSync(join(SRC, "shells/web/server.ts"), "utf8");
+  assert.doesNotMatch(server, /\.toString\s*\(/);
+  assert.doesNotMatch(server, /<script\s*>/i);
 });
 
 function extractsSourceIntoVm(content: string): boolean {
@@ -128,15 +140,19 @@ test("PluginsImportOnlyCore: core never imports plugins/shells, and plugins neve
 
       // Rule 1: src/core/** never imports src/plugins/** or src/shells/**
       if (rel.startsWith("src/core/")) {
-        if (target.startsWith("src/plugins/") || target.startsWith("src/shells/")) {
+        if (target.startsWith("src/plugins/") || target.startsWith("src/workbench/") || target.startsWith("src/shells/")) {
           violations.push(`${rel} imports ${target}: core must never import plugins or shells`);
         }
+      }
+
+      if (rel === "src/plugins/all.ts" && (target.startsWith("src/workbench/") || target.startsWith("src/shells/"))) {
+        violations.push(`${rel} imports ${target}: plugin registration must not import outer layers`);
       }
 
       // Rule 2: src/plugins/<id>/** never imports another plugin or any shell
       if (rel.startsWith("src/plugins/") && rel !== "src/plugins/all.ts") {
         const ownPlugin = rel.split("/")[2];
-        if (target.startsWith("src/shells/")) {
+        if (target.startsWith("src/shells/") || target.startsWith("src/workbench/")) {
           violations.push(`${rel} imports ${target}: a plugin must never import a shell`);
         }
         if (target === "src/plugins/all.ts") {
@@ -148,6 +164,10 @@ test("PluginsImportOnlyCore: core never imports plugins/shells, and plugins neve
             violations.push(`${rel} imports ${target}: a plugin never imports another plugin`);
           }
         }
+      }
+
+      if (rel.startsWith("src/workbench/") && !["src/core/", "src/plugins/", "src/workbench/"].some(layer => target.startsWith(layer))) {
+        violations.push(`${rel} imports ${target}: workbench imports only its own layer, core or plugins`);
       }
 
       // Rule 3: Host leakage gate — only src/shells/obsidian/** may import "obsidian"

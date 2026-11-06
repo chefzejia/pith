@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -12,20 +12,17 @@ test("real browser keeps delayed figure, caption and following text in separate 
   let browser: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
   try {
     browser = await chromium.launchPersistentContext(profile, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1500, height: 800 }, args: ["--no-first-run", "--no-default-browser-check"] });
-    const web = await readFile(new URL("../src/shells/web/server.ts", import.meta.url), "utf8");
-    const webStyles = web.match(/<style>([\s\S]*?)<\/style>/)?.[1];
-    assert.ok(webStyles);
     for (const shell of ["web", "obsidian"] as const) {
       for (const mode of ["single", "double"] as const) {
         const page = await browser.newPage();
         let release!: () => void;
         const gate = new Promise<void>(resolve => { release = resolve; });
         await page.route("https://pith.invalid/tall.svg", async (route: { fulfill(options: unknown): Promise<void> }) => { await gate; await route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="2400"><rect width="800" height="2400" fill="teal"/></svg>' }); });
-        const readerClass = shell === "web" ? "reader paged" : "pith-reader pith-paged";
-        const article = shell === "web" ? 'id="article"' : 'class="pith-article"';
+        const readerClass = "pith-reader pith-paged";
+        const article = 'class="pith-article"';
         const width = mode === "single" ? 656 : 1332;
-        await page.setContent(`<style>${shell === "web" ? webStyles : obsidianStyles}\nbody{margin:0}.fixture{width:${width}px;height:634px}.fixture .reader,.fixture .pith-reader{width:100%;height:100%}figure{margin:20px 40px;padding:8px;border:2px solid}figcaption{max-width:180px}</style><div class="${shell === "web" ? "fixture" : "fixture pith-view"}"><div class="${readerClass}"><article ${article}><figure><img src="https://pith.invalid/tall.svg"><figcaption>TEST IMAGE CAPTION with a second line for measurement</figcaption></figure><p>TEXT AFTER IMAGE</p></article></div></div>`, { waitUntil: "domcontentloaded" });
-        await page.evaluate(`window.computePagination=${computePagination.toString()};window.applyPaginationStyles=${applyPaginationStyles.toString()};window.repaginate=()=>window.applyPaginationStyles(document.querySelector('.${shell === "web" ? "reader" : "pith-reader"}'),document.querySelector('${shell === "web" ? "#article" : ".pith-article"}'),'${mode}',window.repaginate);window.repaginate()`);
+        await page.setContent(`<style>${obsidianStyles}\nbody{margin:0}.fixture{width:${width}px;height:634px}.fixture .pith-reader{width:100%;height:100%}figure{margin:20px 40px;padding:8px;border:2px solid}figcaption{max-width:180px}</style><div class="fixture pith-view"><div class="${readerClass}"><article ${article}><figure><img src="https://pith.invalid/tall.svg"><figcaption>TEST IMAGE CAPTION with a second line for measurement</figcaption></figure><p>TEXT AFTER IMAGE</p></article></div></div>`, { waitUntil: "domcontentloaded" });
+        await page.evaluate(`window.computePagination=${computePagination.toString()};window.applyPaginationStyles=${applyPaginationStyles.toString()};window.repaginate=()=>window.applyPaginationStyles(document.querySelector('.pith-reader'),document.querySelector('.pith-article'),'${mode}',window.repaginate);window.repaginate()`);
         assert.equal(await page.locator("img").evaluate((image: HTMLImageElement) => image.complete), false);
         release();
         await page.locator("img").evaluate((image: HTMLImageElement) => image.decode());

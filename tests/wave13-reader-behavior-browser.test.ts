@@ -30,18 +30,18 @@ test("reader speech checks visible words across chapters in both rendered shells
     await page.route("**/api/speech/synthesize", async (route: any) => { spoken.push(JSON.parse(route.request().postData()).text); heard(); await route.fulfill({ status: 503, body: "unavailable" }); });
     for (const shell of ["web", "obsidian"] as const) {
       spoken.length = 0;
-      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
       else {
-        await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
+        await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.exposeFunction("recordSpeech", (text: string) => { spoken.push(text); heard(); throw new Error("unavailable"); });
         await page.evaluate((value: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, synthesizeSpeech: (text: string) => (window as any).recordSpeech(text) }); view.render({ ...(value as object), currentFile: "book.epub", files: [], title: "Speech" }); }, doc);
       }
-      const article = page.locator(shell === "web" ? ".reader > #article" : ".pith-article");
-      const button = page.locator(shell === "web" ? "#read-aloud" : '[data-command="read"]');
+      const article = page.locator(".pith-article");
+      const button = page.locator('[data-command="read"]');
       await article.evaluate((node: HTMLElement) => { node.innerHTML = '<section class="pith-epub-chapter"><p data-prose="true"><span>。</span><span style="position:fixed;left:3000px">Later words</span></p></section>'; });
       await button.click();
-      assert.match((await page.locator(".pith-toast-tip").textContent()) || "", /当前页面没有可朗读的正文段落/);
+      assert.match((await page.locator(".pith-stage .pith-toast-tip").textContent()) || "", /当前页面没有可朗读的正文段落/);
       assert.deepEqual(spoken, []);
       await article.evaluate((node: HTMLElement) => { node.insertAdjacentHTML("beforeend", '<section class="pith-epub-chapter" style="break-before:auto"><p data-prose="true">Visible words.</p></section>'); });
       const request = new Promise<void>(resolve => { heard = resolve; });
@@ -49,7 +49,7 @@ test("reader speech checks visible words across chapters in both rendered shells
       await Promise.race([request, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${shell}: speech request missing`)), 3000))]);
       assert.deepEqual(spoken, ["Visible words."]);
       if (shell === "web") {
-        await page.locator("#speech-settings").click();
+        await page.locator(".pith-speech-controls button").getByText("配置语音").click();
         assert.equal(await page.locator("#drawer #simple-mode").count(), 1);
       }
     }
@@ -77,22 +77,22 @@ test("Web clears quoted text between topics and retains per-topic guide visibili
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
     await page.goto(base);
-    const open = async (id: string) => { await page.locator(`[data-open="${id}"]`).first().click(); await page.locator(".reader #article p").waitFor(); };
+    const open = async (id: string) => { await page.locator(`[data-topic="${id}"]`).first().click(); await page.locator(".pith-article p").waitFor(); };
     await open(first.id);
-    assert.equal(await page.locator("#toggle-side").getAttribute("aria-pressed"), "false");
-    await page.locator(".reader #article p").evaluate((paragraph: HTMLElement) => { const selection = window.getSelection()!, range = document.createRange(); range.selectNodeContents(paragraph); selection.removeAllRanges(); selection.addRange(range); paragraph.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
-    await page.locator('#toolbar [data-action="ask"]').click();
-    await page.waitForFunction(() => document.querySelector("#preview")?.textContent?.includes("Quoted text"));
-    assert.match(await page.locator("#preview").textContent(), /Quoted text/);
-    assert.equal(await page.locator("#toggle-side").getAttribute("aria-pressed"), "true");
-    await page.locator("#home").click(); await open(second.id);
-    assert.equal(await page.locator("#preview").textContent(), "");
-    assert.equal(await page.locator("#toggle-side").getAttribute("aria-pressed"), "false");
-    await page.locator("#home").click(); await open(first.id);
-    assert.equal(await page.locator("#preview").textContent(), "");
-    assert.equal(await page.locator("#toggle-side").getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator(".pith-guide-toggle").getAttribute("aria-pressed"), "false");
+    await page.locator(".pith-article p").evaluate((paragraph: HTMLElement) => { const selection = window.getSelection()!, range = document.createRange(); range.selectNodeContents(paragraph); selection.removeAllRanges(); selection.addRange(range); paragraph.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
+    await page.locator('.pith-selection [data-selection="ask"]').click();
+    await page.waitForFunction(() => document.querySelector(".pith-guide blockquote")?.textContent?.includes("Quoted text"));
+    assert.match(await page.locator(".pith-guide blockquote").textContent(), /Quoted text/);
+    assert.equal(await page.locator(".pith-guide-toggle").getAttribute("aria-pressed"), "true");
+    await page.locator('[data-command="home"]').click(); await open(second.id);
+    assert.equal(await page.locator(".pith-guide blockquote").textContent(), "");
+    assert.equal(await page.locator(".pith-guide-toggle").getAttribute("aria-pressed"), "false");
+    await page.locator('[data-command="home"]').click(); await open(first.id);
+    assert.equal(await page.locator(".pith-guide blockquote").textContent(), "");
+    assert.equal(await page.locator(".pith-guide-toggle").getAttribute("aria-pressed"), "true");
 
-    await page.locator("#home").click();
+    await page.locator('[data-command="home"]').click();
     let releaseSecond!: () => void, secondRequested!: () => void;
     const gate = new Promise<void>(resolve => { releaseSecond = resolve; });
     const pending = new Promise<void>(resolve => { secondRequested = resolve; });
@@ -101,15 +101,16 @@ test("Web clears quoted text between topics and retains per-topic guide visibili
       await route.continue();
     });
     try {
-      await page.locator(`[data-open="${second.id}"]`).first().click();
+      await page.locator(`[data-topic="${second.id}"]`).first().click();
       await pending;
+      await page.locator('[data-command="home"]').click();
       await open(first.id);
       const response = page.waitForResponse((item: any) => new URL(item.url()).pathname === "/api/chat" && new URL(item.url()).searchParams.get("topicId") === second.id);
       releaseSecond();
       await (await response).finished();
-      assert.equal(await page.locator("#crumb").textContent(), "First topic");
-      assert.match(await page.locator(".reader #article").textContent(), /First topic/);
-      assert.equal(await page.locator("#preview").textContent(), "");
+      assert.equal(await page.locator(".pith-title").textContent(), "First topic");
+      assert.match(await page.locator(".pith-article").textContent(), /First topic/);
+      assert.equal(await page.locator(".pith-guide blockquote").textContent(), "");
     } finally { releaseSecond(); await page.unroute("**/api/chat?**"); }
   } finally {
     if (browser) await browser.close();
@@ -135,19 +136,17 @@ test("Web subtitle cues anchor the mounted practice toolkit without mounting ano
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
     await page.goto(base);
-    const open = async () => { await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator(".pith-cue").first().waitFor(); };
+    const open = async () => { await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-cue").first().waitFor(); };
     await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator("#submit-practice").waitFor();
-    assert.match(await page.locator("#scaffold").textContent(), /A spoken sentence/);
+    await page.locator("[data-dojo-submit]").waitFor();
+    assert.match(await page.locator(".pith-dojo-panel pre").textContent(), /A spoken sentence/);
     assert.equal((await (await fetch(`${base}/api/state`)).json()).compass.exploring.find((item: { id: string }) => item.id === topic.id).toolkits.includes("shadowing"), false);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
-    await page.locator("#home").click(); await open();
-    const transformed = page.waitForResponse((response: any) => new URL(response.url()).pathname === "/api/dojo/transform" && response.request().method() === "POST");
+    await page.locator('[data-command="home"]').click(); await open();
     await page.locator(".pith-cue").first().click();
-    assert.equal((await transformed).ok(), true);
-    await page.locator(".training-panel #diagnose").waitFor();
-    await page.waitForFunction(() => document.querySelector("#scaffold")?.textContent?.includes("A spoken sentence."));
+    await page.locator(".pith-dojo-panel [data-dojo-diagnose]").waitFor();
+    await page.waitForFunction(() => document.querySelector(".pith-dojo-panel pre")?.textContent?.includes("A spoken sentence."));
   } finally {
     if (browser) await browser.close();
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));

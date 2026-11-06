@@ -122,8 +122,17 @@ test("web stage styles and image policy support the same reader output", async (
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const response = await fetch(`http://127.0.0.1:${address.port}/`);
     assert.match(response.headers.get("content-security-policy")!, /img-src 'self' data:/);
+    assert.match(response.headers.get("content-security-policy")!, /script-src 'self'/);
+    assert.doesNotMatch(response.headers.get("content-security-policy")!, /script-src[^;]*unsafe-inline/);
     const html = await response.text();
-    for (const selector of [".pith-teaching-block", ".pith-fixed-page", ".pith-fixed-page img"]) assert.ok(html.includes(selector), selector);
+    assert.match(html, /<script src="\/app\.js" defer><\/script>/);
+    assert.doesNotMatch(html, /<script\s*>/);
+    const script = await fetch(`http://127.0.0.1:${address.port}/app.js`);
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get("content-type")!, /text\/javascript/);
+    const javascript = await script.text();
+    assert.match(javascript, /\/api\/state/);
+    for (const selector of [".pith-teaching-block", ".pith-fixed-page", ".pith-fixed-page img"]) assert.ok(javascript.includes(selector), selector);
     assert.doesNotMatch(html, /#f3ede1/i);
   } finally {
     await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()));

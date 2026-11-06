@@ -7,12 +7,13 @@ import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType } from "../speech/mediaAssets.ts";
+import { audioContentType } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
-import { topicUsesToolkit } from "../toolkitSlot.ts";
-import { agentInterlineTranslator } from "../interline.ts";
+import { topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
+import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
-import { renderAcpSelect } from "../acpSettings.ts";
+import { renderAcpSelect } from "../../workbench/acpSettings.ts";
+import { renderCompass } from "../../workbench/compass.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 
 interface ObsidianLeaf {
@@ -341,18 +342,14 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const generation = ++this.generation;
     if (this.view) { this.controller.releaseView(this.view); this.view = null; }
     const root = this.contentEl, doc = root.ownerDocument;
-    const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-    root.classList.add("pith-view");
-    root.innerHTML = `<style>${obsidianStyles}</style><header class="pith-view-header"><strong>Pith</strong></header><div class="pith-home-scroll"><main class="pith-home"><h1>注意力罗盘</h1><div class="pith-home-actions"><button data-home-new>新建课题</button><button data-home-import>导入材料</button><input type="file" accept=".epub,.pdf,.cbz,.md,.markdown" multiple hidden></div><form class="pith-home-form" hidden><label>课题名称<input name="title" required></label><label>探索目标<input name="target"></label><label>下一步行动<input name="nextAction"></label><button>创建课题</button></form><div class="pith-home-status" role="status"></div><section class="pith-focus">${compass.focusRecommendation ? `<div><span class="pith-topic-status">下一步 · 15 分钟</span><br><strong>${escape(compass.focusRecommendation.nextAction)}</strong><br>${escape(compass.focusRecommendation.title)}</div><button data-topic="${escape(compass.focusRecommendation.topicId)}">继续探索</button>` : "选择一个课题，开始今天的探索。"}</section>${[["探索中", compass.exploring], ["已沉淀", compass.settled]].map(([label, topics]) => `<section><div class="pith-home-heading"><h2>${label}</h2><span>${(topics as typeof compass.exploring).length}</span></div><div class="pith-topic-grid">${(topics as typeof compass.exploring).map(topic => `<button class="pith-topic-card" data-topic="${escape(topic.id)}"><span class="pith-topic-status ${topic.status === "settled" ? "settled" : ""}">${label}</span><strong>${escape(topic.title)}</strong><span>${escape(topic.nextAction || topic.target || "尚未设置下一步")}</span></button>`).join("")}</div></section>`).join("")}</main></div>`;
-    const input = root.querySelector<HTMLInputElement>('input[type="file"]');
-    const form = root.querySelector<HTMLFormElement>("form");
-    const status = root.querySelector<HTMLElement>(".pith-home-status");
-    if (!input || !form || !status) throw new Error("首页初始化失败");
+    const input = doc.createElement("input"); input.type = "file"; input.accept = ".epub,.pdf,.cbz,.md,.markdown"; input.multiple = true; input.hidden = true;
     let importTopic: string | undefined;
-    root.querySelector<HTMLButtonElement>("[data-home-new]")!.onclick = () => { form.hidden = !form.hidden; };
-    root.querySelector<HTMLButtonElement>("[data-home-import]")!.onclick = () => { importTopic = undefined; input.click(); };
-    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-topic]")) button.onclick = () => { const id = button.dataset.topic; if (!id) return; void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); };
-    form.onsubmit = event => { event.preventDefault(); void (async () => { const data = new FormData(form); const title = String(data.get("title") || "").trim(); if (!title) throw new Error("请输入课题名称"); await this.controller.store.createTopic({ title, target: String(data.get("target") || ""), nextAction: String(data.get("nextAction") || "") }); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); };
+    renderCompass(root, compass, {
+      import: () => { importTopic = undefined; input.click(); },
+      open: id => { void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; const status = root.querySelector<HTMLElement>(".pith-home-status"); if (status) status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); },
+      create: data => { void (async () => { await this.controller.store.createTopic(data); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); },
+    });
+    root.append(input);
     input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|cbz|md|markdown)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF、CBZ 和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = files[0]!; const kind = files.some(file => /\.(epub|pdf|cbz)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title: first.name, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title: first.name.replace(/\.[^.]+$/, ""), materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
   }
 

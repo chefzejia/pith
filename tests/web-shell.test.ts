@@ -18,7 +18,8 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     const base = `http://127.0.0.1:${address.port}`;
     const get = async (path: string) => { const res = await fetch(base + path); assert.equal(res.status, 200); return res.json() as Promise<any>; };
     const post = async (path: string, value: unknown) => { const res = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(res.ok, await res.clone().text()); return res.json() as Promise<any>; };
-    assert.match(await (await fetch(base)).text(), /注意力罗盘/);
+    assert.match(await (await fetch(base)).text(), /<script src="\/app\.js" defer>/);
+    assert.match(await (await fetch(`${base}/app.js`)).text(), /pith-home-scroll/);
     const state = await get("/api/state");
     const topic = state.compass.exploring[0]; assert.equal(topic.id, "topic-001-architecture-foundations");
     const lesson = await get(`/api/materials/${topic.materialId}/file?name=00-course-outline.md`);

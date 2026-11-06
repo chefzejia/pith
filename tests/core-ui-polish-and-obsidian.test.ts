@@ -21,7 +21,9 @@ test("web serves the real WOFF2 with an explicit font policy and reader styling"
     const bytes = new Uint8Array(await font.arrayBuffer());
     assert.equal(Buffer.from(bytes.subarray(0, 4)).toString(), "wOF2");
     assert.ok(bytes.length > 1_000_000);
-    for (const css of [html, obsidianStyles]) {
+    assert.match(html, /Garden LXGW WenKai/);
+    const script = await (await fetch(`${base}/app.js`)).text();
+    for (const css of [script, obsidianStyles]) {
       assert.match(css, /Garden LXGW WenKai/);
       assert.match(css, /line-height:1\.95/);
       assert.match(css, /rgba\(235,\s*204,\s*102,\s*\.38\)/);

@@ -22,11 +22,11 @@ test("wide pagination centers each screen without visible scrollbars in both she
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 2200, height: 900 } });
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
-      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
-      else { await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="start">Start</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Wide" }); }); }
-      const reader = page.locator(shell === "web" ? ".reader" : ".pith-reader"), article = page.locator(shell === "web" ? "#article" : ".pith-article");
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
+      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="start">Start</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Wide" }); }); }
+      const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader"), article = page.locator(shell === "web" ? ".pith-article" : ".pith-article");
       await article.evaluate((node: HTMLElement) => { node.innerHTML = Array.from({ length: 600 }, (_, i) => `<p data-locator="p:${i}">${`Line ${i} reading words and text. `.repeat(12)}</p>`).join(""); });
-      const menu = page.locator(shell === "web" ? "#typography-toggle" : '[data-command="typography"]');
+      const menu = page.locator(shell === "web" ? `[data-command="typography"]` : '[data-command="typography"]');
       await menu.click();
       for (const [mode, columns, max] of [["single", 1, 820], ["double", 2, 680], ["triple", 3, 580]] as const) {
         await page.locator(`[data-mode="${mode}"]`).click();
@@ -57,15 +57,15 @@ test("Web page buttons advance with fractional zoom and an audio deck", { timeou
     await post("/api/materials", { topicId: topic.id, title: "Pagination", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(linkedEpub()).toString("base64") }, { name: "sound.wav", mimeType: "audio/wav", data: wav.toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1801, height: 900 } });
     const page = await browser.newPage();
-    await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click();
+    await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(".pith-media-deck").waitFor({ state: "visible" });
     await page.evaluate(() => {
       document.body.style.zoom = "0.8";
-      const article = document.querySelector("#article")!;
+      const article = document.querySelector(".pith-article")!;
       for (let i = 0; i < 450; i++) { const p = document.createElement("p"); p.dataset.locator = `p:${i}`; p.textContent = `第${i}段：` + "阅读内容与分页位置。".repeat(25); article.append(p); }
     });
-    await page.locator("#typography-toggle").click(); await page.locator('[data-size="17"]').click();
-    const reader = page.locator(".reader"), counter = page.locator("[data-page-count]");
+    await page.locator(`[data-command="typography"]`).click(); await page.locator('[data-size="17"]').click();
+    const reader = page.locator(".pith-reader"), counter = page.locator("[data-page-count]");
     await reader.evaluate((node: HTMLElement) => new Promise<void>(resolve => { node.addEventListener("scroll", () => resolve(), { once: true }); node.scrollLeft = node.clientWidth * 14; }));
     const initial = await reader.evaluate((node: HTMLElement) => ({ left: node.scrollLeft, width: node.clientWidth }));
     assert.equal(Number((await counter.textContent())!.split("/")[0]), 15, JSON.stringify(initial));
@@ -162,16 +162,16 @@ test("continuous resizes keep the original visible Chinese character in both she
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
       await page.setViewportSize({ width: 1600, height: 900 });
-      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
       else {
-        await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
+        await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Book" }); });
       }
-      const reader = page.locator(shell === "web" ? ".reader" : ".pith-reader");
+      const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
       if (shell === "web") {
-        await page.locator("#article").evaluate((article: HTMLElement) => { article.innerHTML = '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>'; });
-        await page.locator("#typography-toggle").click(); await page.locator('[data-size="17"]').click();
+        await page.locator(".pith-article").evaluate((article: HTMLElement) => { article.innerHTML = '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>'; });
+        await page.locator(`[data-command="typography"]`).click(); await page.locator('[data-size="17"]').click();
       }
       await reader.evaluate((node: HTMLElement) => new Promise<void>(resolve => { node.addEventListener("scroll", () => resolve(), { once: true }); node.scrollLeft = node.clientWidth * 4; }));
       await reader.evaluate((node: HTMLElement) => { const text = node.querySelector('[data-locator="chapter"]')!.firstChild as Text, range = document.createRange(), box = node.getBoundingClientRect(); for (let i = 0; i < text.length; i++) { range.setStart(text, i); range.setEnd(text, i + 1); const rect = range.getBoundingClientRect(); if (rect.right > box.left && rect.left < box.right && rect.bottom > box.top && rect.top < box.bottom) { (window as any).resizeAnchor = { text, offset: i }; return; } } throw new Error("No visible character"); });
@@ -210,15 +210,15 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
     const page = await browser.newPage();
     page.setDefaultTimeout(5000);
     for (const shell of ["web", "obsidian"] as const) {
-      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
       else {
-        await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
+        await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.evaluate((doc: unknown) => { const ctor = (window as any).PithView.PithObsidianView; const view = new ctor(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, loadAudio: async () => new Uint8Array([82, 73, 70, 70]) }); view.render({ ...(doc as object), currentFile: "pages.epub", files: [{ name: "sound.wav", mimeType: "audio/wav" }], title: "Pagination" }); }, rendered);
       }
-      const reader = page.locator(shell === "web" ? ".reader" : ".pith-reader");
-      const article = page.locator(shell === "web" ? ".reader > #article" : ".pith-article");
-      const toggle = page.locator(shell === "web" ? "#typography-toggle" : '[data-command="typography"]');
+      const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
+      const article = page.locator(shell === "web" ? ".pith-reader > .pith-article" : ".pith-article");
+      const toggle = page.locator(shell === "web" ? `[data-command="typography"]` : '[data-command="typography"]');
       const widthFor = async (columns: number) => article.evaluate((node: HTMLElement, columns: number) => { const viewport = node.parentElement!; return Math.abs(parseFloat(node.style.columnWidth) * columns + parseFloat(node.style.columnGap) * columns - viewport.clientWidth) < 2; }, columns);
       assert.equal(await widthFor(1), true);
       await page.locator(".pith-epub-chapter-0 a").filter({ hasText: "Same" }).first().click();
@@ -233,8 +233,8 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
       }
       await remember(); await page.locator('[data-size="20"]').click(); assert.equal(await rememberedVisible(), true, `${shell}: font change`);
       if (shell === "web") {
-        await remember(); await page.locator("#toggle-side").click();
-        await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
+        await remember(); await page.locator(".pith-guide-toggle").click();
+        await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
         assert.equal(await rememberedVisible(), true, `${shell}: guide toggle`);
       }
       await page.setViewportSize({ width: 1300, height: 610 });
@@ -261,7 +261,7 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
       await page.waitForFunction(() => { const reader = document.querySelector<HTMLElement>(".reader,.pith-reader")!, body = reader.firstElementChild as HTMLElement; return parseFloat(body.style.height) === reader.clientHeight; });
       await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".reader,.pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
       assert.equal(await rememberedVisible(), true, `${shell}: audio deck closed`);
-      await remember(); await page.locator(shell === "web" ? "#read-aloud" : '[data-command="read"]').click();
+      await remember(); await page.locator(shell === "web" ? `[data-command="read"]` : '[data-command="read"]').click();
       await deck.waitFor({ state: "visible" });
       await page.waitForFunction(() => { const reader = document.querySelector<HTMLElement>(".reader,.pith-reader")!, body = reader.firstElementChild as HTMLElement; return parseFloat(body.style.height) === reader.clientHeight; });
       await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".reader,.pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
@@ -278,7 +278,7 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
       assert.notEqual(lastPage.max % lastPage.width, 0, `${shell}: final page is truncated`);
       assert.equal(await page.locator("[data-page-count]").textContent(), `${lastPage.total} / ${lastPage.total}`);
       await page.locator('[data-page="previous"]').click();
-      await page.waitForFunction(({ selector, left }: { selector: string; left: number }) => Math.abs(document.querySelector<HTMLElement>(selector)!.scrollLeft - left) < 1, { selector: shell === "web" ? ".reader" : ".pith-reader", left: (lastPage.total - 2) * lastPage.width });
+      await page.waitForFunction(({ selector, left }: { selector: string; left: number }) => Math.abs(document.querySelector<HTMLElement>(selector)!.scrollLeft - left) < 1, { selector: shell === "web" ? ".pith-reader" : ".pith-reader", left: (lastPage.total - 2) * lastPage.width });
       await page.waitForFunction((count: string) => document.querySelector("[data-page-count]")!.textContent === count, `${lastPage.total - 1} / ${lastPage.total}`);
       assert.equal(await page.locator("[data-page-count]").textContent(), `${lastPage.total - 1} / ${lastPage.total}`);
     }
@@ -314,13 +314,13 @@ test("CBZ image page remains visible across repagination in both renderers", { t
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1500, height: 700 } });
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
-      if (shell === "web") { await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); }
-      else { await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate((doc: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ ...(doc as object), currentFile: "images.cbz", files: [], title: "Images" }); }, rendered); }
+      if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
+      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate((doc: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ ...(doc as object), currentFile: "images.cbz", files: [], title: "Images" }); }, rendered); }
       const image = page.locator('[data-locator="page:4"] img'); await image.evaluate((node: HTMLImageElement) => node.decode());
       await image.evaluate((node: HTMLElement) => { const reader = node.closest<HTMLElement>(".reader,.pith-reader")!; const x = reader.scrollLeft + node.getBoundingClientRect().left - reader.getBoundingClientRect().left; reader.scrollLeft = Math.floor(x / reader.clientWidth) * reader.clientWidth; });
       const visible = () => image.evaluate((node: HTMLElement) => { const a = node.getBoundingClientRect(), b = node.closest(".reader,.pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
       assert.equal(await visible(), true, `${shell}: initial`);
-      await page.locator(shell === "web" ? "#typography-toggle" : '[data-command="typography"]').click();
+      await page.locator(shell === "web" ? `[data-command="typography"]` : '[data-command="typography"]').click();
       for (const mode of ["double", "triple"]) {
         await image.evaluate((node: HTMLElement) => { const reader = node.closest<HTMLElement>(".reader,.pith-reader")!; const x = reader.scrollLeft + node.getBoundingClientRect().left - reader.getBoundingClientRect().left; reader.scrollLeft = Math.floor(x / reader.clientWidth) * reader.clientWidth; });
         await page.locator(`[data-mode="${mode}"]`).click(); assert.equal(await visible(), true, `${shell}: ${mode}`);

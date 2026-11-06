@@ -5,7 +5,8 @@ import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type Http
 import { normalizeToolkits } from "../../plugins/guide-acp/acpSession.ts";
 import { createGuideWorkspaceTools } from "../../plugins/guide-acp/tools.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
-import { withHttpDeadline } from "../httpDeadline.ts";
+import { withHttpDeadline } from "../../core/host.ts";
+export { mountPithWorkbench, PithWorkbenchView, renderCompass, workbenchStyles } from "../../workbench/index.ts";
 
 export interface DshTool {
   readonly name: string;

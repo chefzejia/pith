@@ -39,10 +39,10 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
       const topic = await post("/api/topics", { title: "Three chapters" });
       await post("/api/materials", { topicId: topic.id, title: "Three chapters", kind: "book", files: [{ name: "book.epub", data: Buffer.from(bytes).toString("base64") }] });
       await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
-      await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click();
-      if (startMode !== "single") { await page.locator("#typography-toggle").click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
+      await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+      if (startMode !== "single") { await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
       if (startMode === "resize") { await page.setViewportSize({ width: 600, height: 900 }); await page.waitForFunction(() => (document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
-      await page.locator("#open-dojo").click(); await page.locator('.training-panel [data-interline-mode="bilingual"]').click();
+      await page.locator("#open-dojo").click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     } else {
       const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
       const rendered = await renderEpub(bytes), storage = new NodeWorkspaceStorage(join(dir, "workspace")); let session: InterlineSession | undefined;
@@ -53,14 +53,14 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
       if (startMode === "resize") { await page.setViewportSize({ width: 600, height: 900 }); await page.waitForFunction(() => (document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
       await page.locator('[data-command="dojo"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     }
-    const article = host === "web" ? "#article" : ".pith-article", reader = host === "web" ? ".reader" : ".pith-reader";
+    const article = ".pith-article", reader = ".pith-reader";
     const first = page.locator(`${article} > .pith-epub-chapter`).nth(0), second = page.locator(`${article} > .pith-epub-chapter`).nth(1);
     await first.locator(".pith-interline-subtitle").first().waitFor();
     await neighbor;
     if (startMode !== "triple") {
       const initiallyVisible = await second.evaluate((chapter: HTMLElement, selector: string) => { const viewport = document.querySelector(selector)!.getBoundingClientRect(); return Array.from(chapter.getClientRects()).some(rect => rect.left < viewport.right && rect.right > viewport.left && rect.top < viewport.bottom && rect.bottom > viewport.top); }, reader);
       assert.equal(initiallyVisible, false, "second chapter starts outside the single-column viewport");
-      if (startMode === "single") { await page.locator(host === "web" ? "#typography-toggle" : '[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
+      if (startMode === "single") { await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
       else { await page.setViewportSize({ width: 1500, height: 900 }); await page.waitForFunction(() => !(document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
     }
     const visible = await second.evaluate((chapter: HTMLElement, selector: string) => { const viewport = document.querySelector(selector)!.getBoundingClientRect(); return Array.from(chapter.getClientRects()).some(rect => rect.left < viewport.right && rect.right > viewport.left && rect.top < viewport.bottom && rect.bottom > viewport.top); }, reader);

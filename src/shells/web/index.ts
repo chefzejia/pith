@@ -7,7 +7,7 @@ import { PluginRuntime, type AttentionEngine, type GuideProvider, type HostPort,
 import { builtinRegistry } from "../../plugins/all.ts";
 import { readerInUse } from "../../plugins/stage-reader/index.ts";
 import { timelineInUse } from "../../plugins/stage-timeline/index.ts";
-import { topicUsesToolkit } from "../toolkitSlot.ts";
+import { topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 
 export interface WorkspaceSnapshot { topics: readonly Topic[]; materials: readonly Material[]; known: boolean }
 

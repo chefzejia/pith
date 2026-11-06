@@ -59,10 +59,9 @@ test("Obsidian build and web reader script expose production controls", async t 
   const server = await createPithWebServer({ workspaceDir: workspace });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string");
-    const html = await (await fetch(`http://127.0.0.1:${address.port}`)).text();
-    const script = html.split("<script>")[1]!.split("</script>")[0]!;
+    const script = await (await fetch(`http://127.0.0.1:${address.port}/app.js`)).text();
     assert.doesNotThrow(() => new Script(script));
-    for (const token of ["page-mode", "columnWidth", "data-stage", "toolkit,saveNote", "n.anchor.prefix"]) assert.ok(script.includes(token), token);
+    for (const token of ["pith-page-mode", "columnWidth", "data-dojo-stage", "data-dojo-save", "prefix"]) assert.ok(script.includes(token), token);
   } finally { await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await rm(workspace, { recursive: true, force: true }); }
 });
 

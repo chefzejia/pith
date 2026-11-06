@@ -101,13 +101,13 @@ test("hiding a guide only detaches Pith leaves and never collapses other sidebar
 test("Obsidian import accepts CBZ and sends it as a book", async () => {
   let finish!: (input: { kind: string; files: { name: string }[] }) => void;
   const imported = new Promise<{ kind: string; files: { name: string }[] }>(resolve => { finish = resolve; });
-  const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], value: "", onchange: () => {}, click() {} };
+  const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], value: "", accept: "", onchange: () => {}, click() {} };
   const form = {}, status = {}, button = {};
-  const root = { ownerDocument: {}, classList: { add() {} }, innerHTML: "", querySelector: (s: string) => s === 'input[type="file"]' ? input : s === "form" ? form : s === ".pith-home-status" ? status : button, querySelectorAll: () => [] };
+  const root = { ownerDocument: { createElement: () => input }, classList: { add() {} }, innerHTML: "", append() {}, querySelector: (s: string) => s === ".pith-home-form" ? form : s === ".pith-home-status" ? status : button, querySelectorAll: () => [] };
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
   Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
   await (workspace.onOpen as () => Promise<void>)();
-  assert.match(root.innerHTML, /accept="[^"]*\.cbz/);
+  assert.match(input.accept, /\.cbz/);
   input.onchange(); const value = await imported;
   assert.equal(value.kind, "book"); assert.equal(value.files[0]!.name, "comic.CBZ");
 });
@@ -147,7 +147,7 @@ test("Obsidian maps a TTS connection failure to the configuration guidance", asy
 });
 
 test("both shells remove single-click speech and expose the four selection actions", async () => {
-  for (const path of ["../src/shells/obsidian/plugin.ts", "../src/shells/web/server.ts"]) {
+  for (const path of ["../src/workbench/view.ts"]) {
     const source = await readFile(new URL(path, import.meta.url), "utf8");
     assert.doesNotMatch(source, /从此句朗读|caretRangeFromPoint|data-(?:action|selection)="speak"/);
     for (const action of ["highlight", "note", "ask", "copy"]) assert.match(source, new RegExp(`data-(?:action|selection)="${action}"`));

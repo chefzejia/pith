@@ -15,13 +15,13 @@ test("Web agent options show groups and save selected model and effort", { timeo
     const page = await browser.newPage();
     await page.route("**/api/agents?**", (route: any) => route.fulfill({ json: [{ id: "dsh", available: true }] }));
     await page.route("**/api/agents/options?**", (route: any) => route.fulfill({ json: [{ id: "model", name: "Model", type: "select", currentValue: "first", options: [{ value: "first", name: "First", group: "magpie", groupLabel: "Magpie" }, { value: "second", name: "Second", group: "magpie", groupLabel: "Magpie" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }] }));
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.locator("#simple-agent").selectOption("dsh");
     await page.locator('#simple-model optgroup[label="Magpie"]').waitFor({ state: "attached" });
     assert.match((await page.locator('#simple-model option[value=""]').textContent())!, /First/);
     await page.locator("#simple-model").selectOption("second"); await page.locator("#simple-effort").selectOption("high");
     await page.waitForFunction(async () => { const response = await fetch("/api/state"); const data = await response.json(); return data.settings.model === "second" && data.settings.effort === "high"; });
-    await page.locator("#close-drawer").click(); await page.locator("#settings").click();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
     await page.locator('#simple-model optgroup[label="Magpie"]').waitFor({ state: "attached" });
     assert.equal(await page.locator("#simple-model").inputValue(), "second"); assert.equal(await page.locator("#simple-effort").inputValue(), "high");
   } finally { if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }

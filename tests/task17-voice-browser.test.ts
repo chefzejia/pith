@@ -26,17 +26,18 @@ test("both shells record and transcribe guide and dojo input, and release tracks
       navigator.mediaDevices.getUserMedia = async () => { const context = new AudioContext(); const source = context.createOscillator(); const destination = context.createMediaStreamDestination(); source.connect(destination); source.start(); await context.resume(); state.streams.push(destination.stream); return destination.stream; };
     });
     await page.route("**/api/speech/transcribe", async (route: any) => { const body = route.request().postDataJSON(); assert.equal(body.mimeType, "audio/webm"); assert.ok(Buffer.from(body.audio, "base64").length > 0); await route.fulfill({ json: { text: "recognized" } }); });
-    await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator("#toggle-side").click();
+    await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     for (const target of ["guide", "dojo"]) {
       if (target === "dojo") await page.locator("#open-dojo").click();
       const button = page.locator(`[data-voice="${target}"]`); await button.click(); await page.waitForFunction((value: string) => document.querySelector(`[data-voice="${value}"]`)?.getAttribute("aria-pressed") === "true", target);
-      await page.waitForTimeout(300); await button.click(); await page.locator(target === "guide" ? "#message" : "#dojo-produced").evaluate((input: HTMLTextAreaElement) => new Promise<void>(resolve => { if (input.value.includes("recognized")) resolve(); else input.addEventListener("input", () => resolve(), { once: true }); }));
+      await page.waitForTimeout(300); await button.click(); await page.locator(target === "guide" ? ".pith-guide textarea" : "[data-dojo-produced]").evaluate((input: HTMLTextAreaElement) => new Promise<void>(resolve => { if (input.value.includes("recognized")) resolve(); else input.addEventListener("input", () => resolve(), { once: true }); }));
       assert.equal(await page.evaluate(() => (window as any).voiceTest.streams.at(-1).getTracks().every((track: MediaStreamTrack) => track.readyState === "ended")), true);
     }
     assert.equal(await page.locator("#asr-audio").count(), 0);
     await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new Error("麦克风权限被拒绝"); }; });
-    await page.locator('[data-voice="guide"]').click(); await page.waitForFunction(() => document.querySelector("#toast")?.textContent?.includes("麦克风权限被拒绝"));
-    await page.goto(base); await page.setContent('<div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
+    await page.locator('[data-voice="guide"]').click(); await page.waitForFunction(() => document.querySelector(".pith-stage .pith-toast-tip")?.textContent?.includes("麦克风权限被拒绝"));
+    await page.route("**/obsidian-fixture", async (route: any) => route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }));
+    await page.goto(`${base}/obsidian-fixture`); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(() => {
       const state: any = (window as any).voiceTest;
       const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async (bytes: Uint8Array, mime: string, signal: AbortSignal) => { state.calls.push({ size: bytes.length, mime }); if (state.defer) return new Promise(resolve => { state.signal = signal; state.finish = resolve; }); return { text: "recognized" }; } });
@@ -81,14 +82,14 @@ test("Web recorded WebM reaches the isolated native ASR", { timeout: 90000, skip
     await post("/api/materials", { topicId: topic.id, title: "Native ASR", kind: "article", files: [{ name: "voice.md", data: Buffer.from("Voice input test.").toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true });
-    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator("#toggle-side").click();
+    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     await page.evaluate(async (data: number[]) => {
       const state: any = (window as any).nativeVoice = {}; const context = new AudioContext(); const buffer = await context.decodeAudioData(new Uint8Array(data).buffer);
       navigator.mediaDevices.getUserMedia = async () => { const destination = context.createMediaStreamDestination(); const source = context.createBufferSource(); source.buffer = buffer; source.connect(destination); state.source = source; state.done = new Promise<void>(resolve => { source.onended = () => resolve(); }); await context.resume(); return destination.stream; };
     }, [...audio]);
     const button = page.locator('[data-voice="guide"]'); await button.click(); await page.waitForFunction(() => document.querySelector('[data-voice="guide"]')?.getAttribute("aria-pressed") === "true");
     await page.evaluate(async () => { const state: any = (window as any).nativeVoice; state.source.start(); await state.done; }); await button.click();
-    await page.waitForFunction(() => Boolean((document.querySelector("#message") as HTMLTextAreaElement).value), null, { timeout: 60000 });
-    assert.match((await page.locator("#message").inputValue()).toLowerCase(), /reading a book together/);
+    await page.waitForFunction(() => Boolean((document.querySelector(".pith-guide textarea") as HTMLTextAreaElement).value), null, { timeout: 60000 });
+    assert.match((await page.locator(".pith-guide textarea").inputValue()).toLowerCase(), /reading a book together/);
   } finally { if (browser) await browser.close(); await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); if (previous === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previous; await rm(dir, { recursive: true, force: true }); }
 });

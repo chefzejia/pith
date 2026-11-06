@@ -4,9 +4,9 @@ import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveResponsiveLayout } from "../src/plugins/stage-reader/pagination.ts";
-import { audioContentType } from "../src/shells/speech/mediaAssets.ts";
+import { audioContentType } from "../src/workbench/mediaAssets.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
-import { toolkitSlot } from "../src/shells/toolkitSlot.ts";
+import { toolkitSlot } from "../src/workbench/toolkitSlot.ts";
 import { PithObsidianView } from "../src/shells/obsidian/plugin.ts";
 import { renderTimelineView } from "../src/plugins/stage-timeline/index.ts";
 import { bootStandaloneShell } from "../src/shells/web/index.ts";

@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import https from "node:https";
 import test from "node:test";
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
-import { effectiveToolkits, topicUsesToolkit } from "../src/shells/toolkitSlot.ts";
+import { effectiveToolkits, topicUsesToolkit } from "../src/workbench/toolkitSlot.ts";
 import { createNeuralSpeech, type NeuralSpeechConfig } from "../src/plugins/speech-service/neuralSpeech.ts";
 import type { HostPort, HttpRequestSpec } from "../src/core/index.ts";
 

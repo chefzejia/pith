@@ -1,4 +1,4 @@
-import type { MaterialFileEntry } from "../../core/index.ts";
+import type { MaterialFileEntry } from "../core/index.ts";
 
 const AUDIO_TYPES: Readonly<Record<string, string>> = {
   mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", ogg: "audio/ogg", aac: "audio/aac", flac: "audio/flac",
