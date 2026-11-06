@@ -86,14 +86,17 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
       return store.updateTopic(text(input, "topicId", 200), { toolkits: normalizeToolkits(input.toolkits) });
     } },
-    { name: "pith_settle_topic", description: "Settle an exploring topic after recording a verification summary and requiring an existing learner note.", inputSchema: schema({ topicId: field, verificationSummary: field }, ["topicId", "verificationSummary"]), async execute(input) {
-      keys(input, ["topicId", "verificationSummary"]);
+    { name: "pith_settle_topic", description: "Settle an exploring topic after recording a verification summary and requiring an existing learner note; optionally replace the learner profile.", inputSchema: schema({ topicId: field, verificationSummary: field, profilePatchMarkdown: { type: "string", minLength: 1, maxLength: 100000 } }, ["topicId", "verificationSummary"]), async execute(input) {
+      keys(input, ["topicId", "verificationSummary", "profilePatchMarkdown"]);
       const topicId = text(input, "topicId", 200);
       const summary = text(input, "verificationSummary");
+      const profile = input.profilePatchMarkdown === undefined ? undefined : text(input, "profilePatchMarkdown", 100000);
+      if (/^<!-- pith-note:(?:v1|quote|body|remark|no-remark|end) -->$/m.test(summary)) throw new Error("Reserved note marker");
       const topic = await store.getTopic(topicId);
       if (!topic) throw new Error("Topic not found");
       if (topic.status !== "exploring") throw new Error("Topic is not exploring");
       if (topic.notes.length === 0) throw new Error("Settlement requires a learner note");
+      if (profile !== undefined) await store.writeProfile(profile);
       await store.appendNote(topicId, { kind: "note", body: `## 核心认知总结\n\n${summary}` });
       return store.updateTopic(topicId, { status: "settled" });
     } },
