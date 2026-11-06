@@ -1,6 +1,6 @@
 # Architecture Overview
 
-本文是 Pith 三层单向架构、子系统边界、数据所有权与关键架构决策的唯一总纲（Thin Reference）。产品定位与领域概念见 [`PRODUCT.md`](PRODUCT.md)，活跃任务队列见 [`TASKS.md`](TASKS.md)。
+本文是 Pith 三层单向架构、五大垂直子系统边界与数据所有权的唯一总纲（Thin Reference）。产品定位与领域概念见 [`PRODUCT.md`](PRODUCT.md)，活跃任务队列见 [`TASKS.md`](TASKS.md)。
 
 ---
 
@@ -10,8 +10,8 @@ Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多
 
 | 层级（自外向内单向依赖） | 目录与包含模块 | 架构角色与硬性边界 |
 | :--- | :--- | :--- |
-| **1. 多态原生宿主壳**<br>*(Shells · [`src/shells/`](../src/shells/))* | `obsidian/` · `web/` · `dsh/`<br>`speechRuntime.ts` · `interline.ts` | **唯一允许导入 `node:*` / `"obsidian"` / `@deepseek-ai/*` 的外层**。实现 [`HostPort`](../src/core/host.ts)，在入口组装环境并驱动 [`src/plugins/all.ts`](../src/plugins/all.ts)。 |
-| **2. 平级内置插件**<br>*(Plugins · [`src/plugins/`](../src/plugins/))* | • **主视觉舞台 (`stage-*`)**：`stage-reader` · `stage-timeline`<br>• **按课题注入工具 (`dojo-*`)**：`dojo-interline` · `dojo-shadowing` · `dojo-feynman`<br>• **AI 向导协同 (`guide-*`)**：`guide-acp`<br>• **无界面公共底座 (`*-service`)**：`speech-service` | **插件间 100% 物理隔离互不 `import`**，仅通过 [`src/core/seams.ts`](../src/core/seams.ts) 服务栈通信，且严禁导入任何宿主包。 |
+| **1. 多态原生宿主壳**<br>*(Shells · [`src/shells/`](../src/shells/))* | `obsidian/` · `web/` · `dsh/`<br>`speechRuntime.ts` · `voiceInput.ts` · `interlineView.ts` · `dojoView.ts` | **唯一允许导入 `node:*` / `"obsidian"` / `@deepseek-ai/*` 的外层**。实现 [`HostPort`](../src/core/host.ts)，组装宿主运行环境并渲染各平台界面。 |
+| **2. 平级内置插件**<br>*(Plugins · [`src/plugins/`](../src/plugins/))* | • **主视觉舞台 (`stage-*`)**：`stage-reader` · `stage-timeline`<br>• **按课题注入工具 (`dojo-*`)**：`dojo-interline` · `dojo-shadowing` · `dojo-feynman`<br>• **AI 向导协同 (`guide-*`)**：`guide-acp`<br>• **语音基础设施 (`speech-*`)**：`speech-service` | **插件间 100% 物理隔离互不 `import`**，仅在 [`src/plugins/all.ts`](../src/plugins/all.ts) 汇总并经由 [`src/core/seams.ts`](../src/core/seams.ts) 服务栈通信，严禁导入任何宿主包。 |
 | **3. 零依赖领域内核**<br>*(Core · [`src/core/`](../src/core/))* | `types.ts` · `host.ts` · `seams.ts`<br>`pluginrt/` · `store/` · `engine/` | **零宿主依赖、零 UI 框架依赖、零特定隐喻污染**。定义领域实体、纯文本账本协议、去 Session 化注意力引擎与插件运行时。 |
 
 ---
@@ -38,22 +38,4 @@ Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多
 | `<workspace>/topics/topic-<id>/topic.md` | 探索课题元数据与高亮/笔记/实训诊断账本 | [`DefaultWorkspaceStore`](../src/core/store/WorkspaceStore.ts) | **否** |
 | `<workspace>/materials/material-<id>/` | 材料元数据（`material.md`）与 100% 只读原始文件包（`files/`） | [`DefaultWorkspaceStore`](../src/core/store/WorkspaceStore.ts) | **否** |
 | `<workspace>/_cache/` | 向导对话历史（`conversations/`）、副作用队列（`effects.json`）与双语缓存（`interline/`） | [`DefaultAttentionEngine`](../src/core/engine/AttentionEngine.ts) / [`InterlinePreparationCoordinator`](../src/plugins/dojo-interline/coordinator.ts) | **是**（删除后自动重建） |
-| `~/Library/Application Support/pith/speech/` | Vault 外本机 `sherpa-onnx` 语音引擎与模型资产（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speechRuntime.ts) | **是**（通过设置面板重装） |
-
----
-
-## 四、关键架构决策（已落地现状）
-
-### 1. 直接重构原函数，严禁重赋值包装链与源码字符串 VM 假测试
-- **当前决定**：修改宿主或插件函数时直接编辑唯一函数定义；测试直接导入真实模块或驱动真实浏览器/客户端 DOM。
-- **淘汰的替代方案**：
-  - **`const fnBase = fn; fn = ...` 同名重赋值套娃**：外层套娃会让旧死代码残留，导致单测测旧分支而生产环境跑外层补丁。
-  - **`readFile("src/...") + vm.runInContext`**：抠取源码行塞入 VM 会反向绑架代码排版，且无法暴露真实 DOM 与事件传播缺陷。
-- **守卫门禁**：[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 中的 `source does not retain Base aliases for function wrappers`、`Web reader entry points have one definition and are never reassigned` 与 `tests do not execute extracted source in a VM`。
-
-### 2. 标准 ACP 协议发现与 Vault 外零 Python 原生语音守护进程
-- **当前决定**：向导模型与推理强度列表 100% 通过标准 ACP `session/new` 的 `configOptions` 与 `session/set_config_option` 交互；本机语音采用零 Python 依赖的原生推理运行时与按需守护进程（空闲自动退出释放内存，具体模型与空闲配置见 [`NodeManagedSpeechRuntime`](../src/shells/speechRuntime.ts)）。
-- **淘汰的替代方案**：
-  - **解析 `~/.dsh/` 等特定 Agent 私有配置文件**：破坏宿主无关性，无法通用于不同 ACP Agent。
-  - **系统 `speechSynthesis` 或运行时 `python3 -m venv` + `pip`**：系统内置 TTS 机械劣质，而运行时调 `pip` 依赖宿主机 Python 环境且极易因网络或编译失败崩溃。
-- **守卫门禁**：[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 中的 `managed speech uses native multilingual models and ACP never reads dsh private configuration` 与 `Zero OS-TTS & External Repo Coupling`。
+| `~/Library/Application Support/pith/speech/` | Vault 外本机语音引擎与模型资产（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speechRuntime.ts) | **是**（通过设置面板重装） |
