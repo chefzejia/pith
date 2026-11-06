@@ -73,7 +73,6 @@ registerPlugin({
   essential: true,
   name: "Guide Collaborator (ACP/MCP)",
   description: "Sessionless attention & curriculum collaborator grounded in ME.md and Topic ledgers",
-  parts: [{ slot: "guide", key: "guide-panel" }],
   settings: {
     persona: {
       type: "string",

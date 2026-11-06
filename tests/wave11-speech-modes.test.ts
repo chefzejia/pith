@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { HttpRequestSpec, SpeechAsrService, SpeechTtsService } from "../src/core/index.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";
-import { switchSpeechMode } from "../src/shells/speechSettings.ts";
+import { switchSpeechMode } from "../src/shells/speech/speechSettings.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";

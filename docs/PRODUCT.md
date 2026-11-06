@@ -29,7 +29,7 @@
 | **行间双语伴读** | [`src/plugins/dojo-interline/`](../src/plugins/dojo-interline/) | 为外文原著提供 `原文 / 行间双语 / 译文主显` 舞台内嵌字幕，按滑动窗口（`activeUnit -> neighborhood`）静默预热并持久化至 `_cache/interline/` |
 | **外语跟读与费曼实训** | [`src/plugins/dojo-shadowing/`](../src/plugins/dojo-shadowing/) & [`src/plugins/dojo-feynman/`](../src/plugins/dojo-feynman/) | 按 `意群拆解 -> 原文跟练 -> 骨干词挖空 -> 盲产诊断` 渐进撤除拐杖，诊断漏词与复述盲区 |
 | **ACP 向导协同** | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/) | 通过标准 ACP 协议接入本机 Agent，结合 `ME.md` 因人施教并按用户意图动态挂载 `topic.toolkits` |
-| **外部/按需语音服务** | [`src/plugins/speech-service/`](../src/plugins/speech-service/) & [`src/shells/speechRuntime.ts`](../src/shells/speechRuntime.ts) | 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关，空闲自动退出释放内存 |
+| **外部/按需语音服务** | [`src/plugins/speech-service/`](../src/plugins/speech-service/) & [`src/shells/speech/speechRuntime.ts`](../src/shells/speech/speechRuntime.ts) | 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关，空闲自动退出释放内存 |
 
 ### 空间与交互铁律（完整契约见 [subsystems/5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md)）
 

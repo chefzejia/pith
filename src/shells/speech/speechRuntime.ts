@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import type { ManagedSpeechRuntimePort, ManagedSpeechState } from "../core/index.ts";
+import type { ManagedSpeechRuntimePort, ManagedSpeechState } from "../../core/index.ts";
 import { SPEECH_GATEWAY } from "./speechGateway.ts";
 
 const assets = [

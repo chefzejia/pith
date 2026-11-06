@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { createNeuralSpeech } from "../src/plugins/speech-service/neuralSpeech.ts";
 import { isLoopbackSafe } from "../src/plugins/speech-service/index.ts";
-import { NodeManagedSpeechRuntime } from "../src/shells/speechRuntime.ts";
+import { NodeManagedSpeechRuntime } from "../src/shells/speech/speechRuntime.ts";
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";

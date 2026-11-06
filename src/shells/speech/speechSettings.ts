@@ -26,4 +26,4 @@ export function validSpeechProfiles(value: unknown): value is SpeechProfiles {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([mode, profile]) =>
     (mode === "local" || mode === "cloud" || mode === "legacy") && !!profile && typeof profile === "object" && !Array.isArray(profile) && Object.entries(profile).every(([key, item]) => keys.includes(key) && typeof item === "string"));
 }
-import { isLoopbackSafe } from "../plugins/speech-service/index.ts";
+import { isLoopbackSafe } from "../../plugins/speech-service/index.ts";

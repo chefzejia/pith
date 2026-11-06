@@ -42,6 +42,22 @@ registerPlugin({
   name: "4-Stage Feynman Recall Dojo",
   description: "Concept decomposition, guided comparison, cloze recall, and blind explanation",
   oneInUse: "1 topic using feynman", manyInUse: "{n} topics using feynman",
-  parts: [{ slot: "dojo", key: "feynman" }],
   apply(ctx) { ctx.provide("dojo.feynman", feynmanToolkit); },
 });
+
+
+export function practiceMessage(text: string, label: string, rubric: string): string {
+  return `PITH_PRACTICE:${JSON.stringify({ id: "feynman", label, rubric, text })}`;
+}
+
+export function displayPracticeMessage(text: string): string {
+  if (!text.startsWith("PITH_PRACTICE:")) return text;
+  try {
+    const value: unknown = JSON.parse(text.slice("PITH_PRACTICE:".length));
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      if (record.id === "feynman" && typeof record.text === "string") return record.text;
+    }
+  } catch { return text; }
+  return text;
+}

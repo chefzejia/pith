@@ -74,7 +74,6 @@ registerPlugin({
   essential: false,
   name: "Speech Read-Aloud & ASR",
   description: "Chapter-level continuous read-aloud (TTS) and loopback Whisper transcription (ASR)",
-  parts: [{ slot: "toolbar", key: "read-aloud" }],
   settings: {
     ttsProvider: { type: "string", title: "TTS provider", default: "kokoro-local", enum: ["openai-compatible-local", "kokoro-local", "openai-tts", "azure-neural"] },
     ttsEndpoint: { type: "string", title: "TTS endpoint", default: "" },

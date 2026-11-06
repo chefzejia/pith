@@ -5,7 +5,10 @@ export function shadowingInUse(topics: readonly Topic[]): number {
 }
 
 const functionWords = /\b(?:a|an|the|and|or|but|to|of|in|on|at|for|by|with|is|are|was|were|am|be|been|have|has|had|do|does|did|as|that|it)\b(?!['’][\p{L}\p{N}])/giu;
-const wordPattern = /[\p{Script=Latin}0-9][\p{Script=Latin}\p{M}0-9]*(?:['’][\p{Script=Latin}0-9][\p{Script=Latin}\p{M}0-9]*)*/gu;
+export function shadowingTokens(text: string): { text: string; start: number; end: number }[] {
+  const pattern = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Arabic}\p{N}][\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Arabic}\p{M}\p{N}]*(?:['’][\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Arabic}\p{N}][\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Arabic}\p{M}\p{N}]*)*|[\p{L}\p{N}]\p{M}*/gu;
+  return Array.from(text.matchAll(pattern), match => ({ text: match[0], start: match.index, end: match.index + match[0].length }));
+}
 
 export function transformCue(text: string, stage: DojoScaffoldStage): string {
   if (stage === "guided-follow") return text;
@@ -23,8 +26,10 @@ export function transformCue(text: string, stage: DojoScaffoldStage): string {
 }
 
 export function diagnose(targetText: string, producedText: string): DojoDiagnosisResult {
-  const target = targetText.match(wordPattern) ?? [];
-  const produced = producedText.match(wordPattern) ?? [];
+  const targetParts = shadowingTokens(targetText);
+  const target = targetParts.map(part => part.text);
+  const produced = shadowingTokens(producedText).map(part => part.text);
+  if (!target.length && targetText.trim()) throw new Error("原文没有可对齐的文字或数字");
   if ((target.length + 1) * (produced.length + 1) > 2_000_000) throw new Error("Text is too long to compare");
   const normalize = (word: string): string => word.normalize("NFC").toLowerCase().replace(/[’']/g, "'");
   const left = target.map(normalize); const right = produced.map(normalize);
@@ -42,11 +47,11 @@ export function diagnose(targetText: string, producedText: string): DojoDiagnosi
   const accuracyScore = target.length ? matchedTokens.length / target.length : 0;
   const escape = (value: string): string => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
   let cursor = 0, matchedIndex = 0, aligned = "";
-  for (const match of targetText.matchAll(wordPattern)) {
-    aligned += escape(targetText.slice(cursor, match.index));
-    if (match[0] === matchedTokens[matchedIndex]) { aligned += escape(match[0]); matchedIndex++; }
-    else aligned += `<mark>${escape(match[0])}</mark>`;
-    cursor = match.index + match[0].length;
+  for (const part of targetParts) {
+    aligned += escape(targetText.slice(cursor, part.start));
+    if (part.text === matchedTokens[matchedIndex]) { aligned += escape(part.text); matchedIndex++; }
+    else aligned += `<mark>${escape(part.text)}</mark>`;
+    cursor = part.end;
   }
   aligned += escape(targetText.slice(cursor));
   const summaryMarkdown = `跟读对照\n\n原文：${aligned}\n\n复述：${escape(producedText)}\n\n漏词：${missedTokens.length ? missedTokens.map(escape).join("、") : "无"}`;
@@ -70,8 +75,20 @@ registerPlugin({
   description: "Progressive language shadowing: prosody decomposition, guided follow, cloze skeleton, and blind recall",
   oneInUse: "1 topic using shadowing",
   manyInUse: "{n} topics using shadowing",
-  parts: [{ slot: "dojo", key: "shadowing" }],
   apply(ctx) {
     ctx.provide("dojo.shadowing", shadowingToolkit);
   },
 });
+
+export function renderDojoAlignment(target: string, matched: readonly string[]): string {
+  const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  let offset = 0, index = 0, html = "";
+  for (const part of shadowingTokens(target)) {
+    html += escape(target.slice(offset, part.start));
+    const token = part.text;
+    if (index < matched.length && token === matched[index]) { html += escape(token); index++; }
+    else html += `<mark>${escape(token)}</mark>`;
+    offset = part.end;
+  }
+  return html + escape(target.slice(offset));
+}

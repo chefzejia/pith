@@ -32,11 +32,6 @@ export type PluginState = "off" | "pending" | "active" | "failed" | "disposed";
 
 export type ConfigSource = "default" | "preset" | "user" | "in-use";
 
-export interface PluginPart {
-  readonly slot: "stage" | "dojo" | "guide" | "toolbar" | "nav.page" | "settings.section";
-  readonly key: string;
-}
-
 export interface PluginManifest {
   readonly id: string;
   /** Caret range of the host API this plugin targets, e.g. "^1" or "^1.0". */
@@ -55,7 +50,6 @@ export interface PluginManifest {
    * depend on this plugin. If > 0 (or if it throws), the plugin stays on.
    */
   readonly inUse?: () => number;
-  readonly parts?: readonly PluginPart[];
   readonly settings?: SettingsSchema;
   readonly apply?: (ctx: PluginContext) => void;
 }
@@ -64,7 +58,6 @@ export interface PluginStatus {
   readonly id: string;
   readonly state: PluginState;
   readonly why?: string;
-  readonly parts: readonly PluginPart[];
   readonly source?: ConfigSource;
   readonly inUseCount?: number;
 }
@@ -96,27 +89,20 @@ export class PluginContext {
   readonly config: Readonly<Record<string, boolean | number | string>>;
   private readonly rt: PluginRuntime;
   private readonly disposes: Array<() => void> = [];
-  private readonly contributedParts: PluginPart[] = [];
   private readonly providedServices: string[] = [];
 
   constructor(
     id: string,
     config: Readonly<Record<string, boolean | number | string>>,
     rt: PluginRuntime,
-    initialParts: readonly PluginPart[] = [],
   ) {
     this.id = id;
     this.config = { ...config };
     this.rt = rt;
-    this.contributedParts.push(...initialParts);
   }
 
   onDispose(fn: () => void): void {
     this.disposes.push(fn);
-  }
-
-  contribute(slot: PluginPart["slot"], key: string): void {
-    this.contributedParts.push({ slot, key });
   }
 
   provide<T>(name: string, service: T): void {
@@ -132,10 +118,6 @@ export class PluginContext {
   }
 
   /** Internal runtime accessors */
-  getParts(): readonly PluginPart[] {
-    return [...this.contributedParts];
-  }
-
   getProvidedServices(): readonly string[] {
     return [...this.providedServices];
   }
@@ -456,7 +438,6 @@ export class PluginRuntime {
         id: p.manifest.id,
         state: p.state,
         ...(p.why ? { why: p.why } : {}),
-        parts: p.ctx ? p.ctx.getParts() : [],
         source: p.source,
         inUseCount: p.inUseCount,
       }))
@@ -549,7 +530,7 @@ export class PluginRuntime {
     p: RunningPlugin,
     config: Readonly<Record<string, boolean | number | string>>,
   ): boolean {
-    const ctx = new PluginContext(p.manifest.id, config, this, p.manifest.parts ?? []);
+    const ctx = new PluginContext(p.manifest.id, config, this);
     p.attemptedConfig = { ...config };
     if (p.activationRank === null) p.activationRank = this.nextActivationRank++;
     try {

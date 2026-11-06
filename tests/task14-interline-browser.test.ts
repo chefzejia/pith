@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import type { InterlineTranslator } from "../src/core/index.ts";
 import { interlineToolkit } from "../src/plugins/dojo-interline/index.ts";
 import { renderEpub } from "../src/plugins/stage-reader/epub.ts";
-import { InterlineSession, type InterlineUnitInput } from "../src/shells/interline.ts";
+import { InterlineSession, type InterlineUnitInput } from "../src/plugins/dojo-interline/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";

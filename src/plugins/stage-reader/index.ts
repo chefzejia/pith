@@ -132,7 +132,6 @@ export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Pr
 registerPlugin({
   id: "stage-reader", api: "^1", requires: ["host", "store", "window"], provides: ["stage.reader"], essential: true,
   name: "Document & Book Stage", description: "Paginated EPUB, fixed-page PDF, and reflowable Markdown reading stage with intrinsic locators",
-  parts: [{ slot: "stage", key: "reader" }],
   settings: {
     fontScale: { type: "number", title: "Font scale", description: "Relative reading typography scale", default: 1, minimum: 0.75, maximum: 1.75 },
     columns: { type: "string", title: "Column mode", default: "auto", enum: ["auto", "single", "double"] },
@@ -142,3 +141,5 @@ registerPlugin({
     ctx.provide("stage.reader", service);
   },
 });
+
+export { proseTextNodes, visibleDojoTarget } from "./pagination.ts";

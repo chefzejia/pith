@@ -80,15 +80,15 @@ src/
    - 用户在听读期间手动翻页浏览前后文时，听读不中断，底部播客甲板提供 **`[跳回朗读处]`** 按钮一键将视口拉回当前朗读句。
 3. **双缓冲预取队列（[`PrefetchSpeechQueue`](../../src/plugins/speech-service/neuralSpeech.ts)）**：播放当前句时后台并发预取后续句子的音频字节，消除句间停顿；暂停或停止时通过 `AbortSignal` 立即取消在途请求，且在 `play()` 异步启动尚未落定前锁定暂停按钮防止竞态报错。
 
-### 3.2 零 Python 依赖的 Vault 外本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speechRuntime.ts)）
+### 3.2 零 Python 依赖的 Vault 外本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）
 
 1. **安装位置与安全隔离**：
-   - 模型与运行时安装在 Vault 之外的系统应用目录（默认路径与 `PITH_SPEECH_HOME` 环境变量规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speechRuntime.ts)）；
-   - [`checkPath`](../../src/shells/speechRuntime.ts) 强制校验安装路径不在 Vault 或工作区内部且非符号链接，卸载（`remove`）前校验 `.owner` 标记文件，防止误删用户目录。
+   - 模型与运行时安装在 Vault 之外的系统应用目录（默认路径与 `PITH_SPEECH_HOME` 环境变量规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）；
+   - [`checkPath`](../../src/shells/speech/speechRuntime.ts) 强制校验安装路径不在 Vault 或工作区内部且非符号链接，卸载（`remove`）前校验 `.owner` 标记文件，防止误删用户目录。
 2. **原生模型资产（SHA-256 强校验，零 Python / 零 `pip`）**：
-   - 预编译原生推理运行时与多语种 TTS/ASR 模型资产清单、下载地址及哈希校验值由 [`speechRuntime.ts`](../../src/shells/speechRuntime.ts) 中的 `assets` 统一定义，严禁在运行时调用宿主机 `python3` 或 `pip`。
+   - 预编译原生推理运行时与多语种 TTS/ASR 模型资产清单、下载地址及哈希校验值由 [`speechRuntime.ts`](../../src/shells/speech/speechRuntime.ts) 中的 `assets` 统一定义，严禁在运行时调用宿主机 `python3` 或 `pip`。
 3. **按需拉起与空闲回收**：
-   - 在 `local` 语音模式下点击听读或录音转写时，自动调用 `ensureRunning()` 拉起 [`SPEECH_GATEWAY`](../../src/shells/speechGateway.ts) 本机回环 HTTP 服务（监听 `127.0.0.1` 随机端口，暴露 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions`）；
+   - 在 `local` 语音模式下点击听读或录音转写时，自动调用 `ensureRunning()` 拉起 [`SPEECH_GATEWAY`](../../src/shells/speech/speechGateway.ts) 本机回环 HTTP 服务（监听 `127.0.0.1` 随机端口，暴露 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions`）；
    - 超过空闲阈值（`idleTimeoutSec`）无请求或宿主关闭时，子进程自动退出释放内存。
 
 ---

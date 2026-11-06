@@ -38,4 +38,4 @@ Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多
 | `<workspace>/topics/topic-<id>/topic.md` | 探索课题元数据与高亮/笔记/实训诊断账本 | [`DefaultWorkspaceStore`](../src/core/store/WorkspaceStore.ts) | **否** |
 | `<workspace>/materials/material-<id>/` | 材料元数据（`material.md`）与 100% 只读原始文件包（`files/`） | [`DefaultWorkspaceStore`](../src/core/store/WorkspaceStore.ts) | **否** |
 | `<workspace>/_cache/` | 向导对话历史（`conversations/`）、副作用队列（`effects.json`）与双语缓存（`interline/`） | [`DefaultAttentionEngine`](../src/core/engine/AttentionEngine.ts) / [`InterlinePreparationCoordinator`](../src/plugins/dojo-interline/coordinator.ts) | **是**（删除后自动重建） |
-| `~/Library/Application Support/pith/speech/` | Vault 外本机语音引擎与模型资产（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speechRuntime.ts) | **是**（通过设置面板重装） |
+| `~/Library/Application Support/pith/speech/` | Vault 外本机语音引擎与模型资产（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speech/speechRuntime.ts) | **是**（通过设置面板重装） |

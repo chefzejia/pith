@@ -1,17 +1,8 @@
-import type { InterlineDisplayMode, InterlineSourceSegment } from "../core/index.ts";
-import { captureReaderPosition, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
+type InterlinePosition = { node: Text; locator: string; block: HTMLElement; offset: number; textOffset: number } | { node: Element; locator: string; block: HTMLElement };
+import type { InterlineDisplayMode, InterlineSourceSegment } from "../../core/index.ts";
 
-export function proseTextNodes(block: Element): Text[] {
-  const result: Text[] = [], walker = block.ownerDocument.createTreeWalker(block, 4);
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const excluded = node.parentElement && node.parentElement.closest('[data-prose="false"]');
-    if (!excluded || !block.contains(excluded)) result.push(node as Text);
-  }
-  return result;
-}
 
-export function preserveInterlinePosition(reader: HTMLElement, article: HTMLElement, paged: boolean, change: () => void, repaginate: (position: ReaderPosition | null) => void): void {
+export function preserveInterlinePosition(reader: HTMLElement, article: HTMLElement, paged: boolean, change: () => void, repaginate: (position: InterlinePosition | null) => void, captureReaderPosition: (reader: HTMLElement, article: HTMLElement) => InterlinePosition | null, proseTextNodes: (block: Element) => Text[]): void {
   const position = captureReaderPosition(reader, article);
   let top = 0;
   if (!paged && position) {
@@ -47,7 +38,7 @@ export class InterlineView {
   private processingVersion: number | null = null;
   private readonly requested = new Set<string>();
   private disposed = false;
-  constructor(reader: HTMLElement, article: HTMLElement, prepare: InterlineViewPrepare, update: (change: () => void) => void, report: (message: string) => void) {
+  constructor(reader: HTMLElement, article: HTMLElement, prepare: InterlineViewPrepare, update: (change: () => void) => void, report: (message: string) => void, proseTextNodes: (block: Element) => Text[]) {
     this.reader = reader; this.article = article; this.prepare = prepare; this.update = update; this.report = report;
     const chapters = Array.from(article.children).filter(element => element.matches(".pith-epub-chapter")) as HTMLElement[];
     this.elements = chapters.length ? chapters : [article];

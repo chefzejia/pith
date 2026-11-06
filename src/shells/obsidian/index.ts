@@ -3,16 +3,17 @@ import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
-import { practiceMessage } from "../dojoView.ts";
+import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType } from "../mediaAssets.ts";
-import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speechSettings.ts";
+import { audioContentType } from "../speech/mediaAssets.ts";
+import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { topicUsesToolkit } from "../toolkitSlot.ts";
-import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../interline.ts";
+import { agentInterlineTranslator } from "../interline.ts";
+import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
 import { renderAcpSelect } from "../acpSettings.ts";
-import { NodeManagedSpeechRuntime } from "../speechRuntime.ts";
+import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 
 interface ObsidianLeaf {
   view?: ObsidianItemViewBase;

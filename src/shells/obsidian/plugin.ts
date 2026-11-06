@@ -1,12 +1,13 @@
 import type { DojoDiagnosisResult, DojoScaffoldStage, DojoToolkitDescriptor, GuideConversationEntry, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, TopicNote } from "../../core/index.ts";
-import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, type ReaderPosition } from "../../plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleDojoTarget, type ReaderPosition } from "../../plugins/stage-reader/pagination.ts";
 import { matchTextAnchor } from "../../plugins/stage-reader/textAnchor.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
-import { audioContentType } from "../mediaAssets.ts";
+import { audioContentType } from "../speech/mediaAssets.ts";
 import { effectiveToolkits, toolkitSlot } from "../toolkitSlot.ts";
-import { InterlineView, preserveInterlinePosition, proseTextNodes, type InterlineViewPrepare } from "../interlineView.ts";
-import { VoiceInput } from "../voiceInput.ts";
-import { displayPracticeMessage, renderDojoAlignment, visibleDojoTarget } from "../dojoView.ts";
+import { InterlineView, preserveInterlinePosition, type InterlineViewPrepare } from "../../plugins/dojo-interline/index.ts";
+import { VoiceInput } from "../speech/voiceInput.ts";
+import { renderDojoAlignment } from "../../plugins/dojo-shadowing/index.ts";
+import { displayPracticeMessage } from "../../plugins/dojo-feynman/index.ts";
 
 export interface ObsidianAgentConfig {
   readonly agentId: "" | "dsh" | "claude" | "codex";
@@ -252,7 +253,7 @@ export class PithObsidianView {
     this.clearAudioAsset();
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
     this.article.innerHTML = document.html;
-    if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position)); }, message => this.tip(message));
+    if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
     this.navigation.replaceChildren();
     const group = (label: string): void => { const heading = this.doc.createElement("h2"); heading.textContent = label; this.navigation.append(heading); };
     group("材料"); for (const file of document.files) { const button = this.doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.setAttribute("aria-current", String(file.name === document.currentFile)); this.navigation.append(button); }

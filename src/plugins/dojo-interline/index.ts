@@ -88,6 +88,8 @@ registerPlugin({
   id: "dojo-interline", api: "^1", requires: ["stage.reader"], provides: ["dojo.interline"], essential: false,
   name: "Interline bilingual reading", description: "Aligned translations for original-language reading",
   oneInUse: "1 topic using interline", manyInUse: "{n} topics using interline",
-  parts: [{ slot: "dojo", key: "interline" }],
   apply(ctx) { ctx.provide("dojo.interline", interlineToolkit); },
 });
+
+export * from "./view.ts";
+export * from "./session.ts";

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   PluginRuntime,
-  ViewKernel,
   isApiCompatible,
   type HostPort,
   type PluginManifest,
@@ -137,8 +136,7 @@ test("Reconcile: topological order, failed plugin rollback, reverse cascading di
     {
       id: "ui-only",
       name: "UI",
-      description: "Contributes slot part only",
-      parts: [{ slot: "nav.page", key: "compass" }],
+      description: "Plugin without services",
     },
   ];
 
@@ -164,7 +162,6 @@ test("Reconcile: topological order, failed plugin rollback, reverse cascading di
   assert.equal(byId.get("waiting")?.state, "pending");
   assert.match(byId.get("waiting")?.why ?? "", /svc\.missing/);
   assert.equal(byId.get("ui-only")?.state, "active");
-  assert.deepEqual(byId.get("ui-only")?.parts, [{ slot: "nav.page", key: "compass" }]);
 
   // Turn off provider-b while consumer-a still wants to be on:
   // consumer-a must dispose first (newest first: a.2 -> a.1), then provider-b ("b").
@@ -245,50 +242,6 @@ test("Compose & InUse guard: active Topic keeps plugin on under essentials prese
     plugins: { "dojo-shadowing": { enabled: false } },
   });
   assert.equal(rt.active("dojo-shadowing"), false);
-});
-
-test("ViewKernel error boundary: broken slot isolates failure and recovers on retry()", async () => {
-  const kernel = new ViewKernel();
-  let shouldThrow = true;
-  const rendered: string[] = [];
-
-  kernel.add("plugin-broken", {
-    key: "broken-stage",
-    slot: "stage",
-    title: "Broken Stage",
-    render(state: string) {
-      if (shouldThrow) throw new Error("render exploded");
-      rendered.push(`recovered:${state}`);
-    },
-  });
-
-  kernel.add("plugin-healthy", {
-    key: "healthy-guide",
-    slot: "guide",
-    title: "Healthy Guide",
-    render(state: string) {
-      rendered.push(`guide:${state}`);
-    },
-  });
-
-  await kernel.start();
-  await kernel.call("broken-stage", "render", "topic-1");
-  await kernel.call("healthy-guide", "render", "topic-1");
-
-  // Healthy slot kept working; broken slot captured error and ignores further calls until retried
-  assert.deepEqual(rendered, ["guide:topic-1"]);
-  const broken = kernel.status("broken-stage");
-  assert.notEqual(broken, null);
-  assert.equal(broken!.message, "render exploded");
-
-  await kernel.call("broken-stage", "render", "ignored-while-broken");
-  assert.deepEqual(rendered, ["guide:topic-1"]);
-
-  // Fix underlying issue and invoke retry()
-  shouldThrow = false;
-  await broken!.retry();
-  assert.equal(kernel.status("broken-stage"), null);
-  assert.deepEqual(rendered, ["guide:topic-1", "recovered:topic-1"]);
 });
 
 test("Standalone shell boots all built-in plugins cleanly without Obsidian", () => {

@@ -6,16 +6,17 @@ import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
-import { applyPaginationStyles, captureReaderPosition, computePagination, navigateReaderTarget, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation } from "../../plugins/stage-reader/pagination.ts";
-import { audioContentType } from "../mediaAssets.ts";
+import { applyPaginationStyles, captureReaderPosition, computePagination, navigateReaderTarget, proseTextNodes, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleDojoTarget } from "../../plugins/stage-reader/pagination.ts";
+import { audioContentType } from "../speech/mediaAssets.ts";
 import { effectiveToolkits, toolkitSlot } from "../toolkitSlot.ts";
-import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speechSettings.ts";
-import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../interline.ts";
-import { InterlineView, preserveInterlinePosition, proseTextNodes } from "../interlineView.ts";
+import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
+import { agentInterlineTranslator } from "../interline.ts";
+import { InterlineSession, InterlineView, preserveInterlinePosition, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
 import { renderAcpSelect } from "../acpSettings.ts";
-import { NodeManagedSpeechRuntime } from "../speechRuntime.ts";
-import { VoiceInput } from "../voiceInput.ts";
-import { displayPracticeMessage, practiceMessage, renderDojoAlignment, visibleDojoTarget } from "../dojoView.ts";
+import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
+import { VoiceInput } from "../speech/voiceInput.ts";
+import { renderDojoAlignment, shadowingTokens } from "../../plugins/dojo-shadowing/index.ts";
+import { displayPracticeMessage, practiceMessage } from "../../plugins/dojo-feynman/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }
 export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator }
@@ -440,6 +441,7 @@ const preserveInterlinePosition = ${preserveInterlinePosition.toString()};
 const InterlineView = ${InterlineView.toString()};
 const renderAcpSelect = ${renderAcpSelect.toString()};
 const VoiceInput = ${VoiceInput.toString()};
+const shadowingTokens = ${shadowingTokens.toString()};
 const renderDojoAlignment = ${renderDojoAlignment.toString()};
 const visibleDojoTarget = ${visibleDojoTarget.toString()};
 const displayPracticeMessage = ${displayPracticeMessage.toString()};
@@ -495,7 +497,7 @@ function updatePageCount(){const reader=$('.reader'),counter=$('[data-page-count
 let readerPosition=null;
 let restoredScrollLeft=null;
 let interlineView=null,interlineArticle=null,interlineMode='original';
-function ensureInterline(){const reader=$('.reader'),article=$('#article');if(!reader||!article||!topic)return null;if(interlineView&&interlineArticle===article)return interlineView;if(interlineView)interlineView.dispose();interlineArticle=article;interlineMode='original';const topicId=topic.id,currentFile=file;interlineView=new InterlineView(reader,article,(units,index,mode)=>api('/api/interline',{topicId,file:currentFile,units,index,mode}),change=>{if(speechActive)stopSpeech();preserveInterlinePosition(reader,article,isPagedBook(),()=>{change();markExisting()},position=>applyPageMode(position))},message=>notify(message));return interlineView}
+function ensureInterline(){const reader=$('.reader'),article=$('#article');if(!reader||!article||!topic)return null;if(interlineView&&interlineArticle===article)return interlineView;if(interlineView)interlineView.dispose();interlineArticle=article;interlineMode='original';const topicId=topic.id,currentFile=file;interlineView=new InterlineView(reader,article,(units,index,mode)=>api('/api/interline',{topicId,file:currentFile,units,index,mode}),change=>{if(speechActive)stopSpeech();preserveInterlinePosition(reader,article,isPagedBook(),()=>{change();markExisting()},position=>applyPageMode(position),captureReaderPosition,proseTextNodes)},message=>notify(message),proseTextNodes);return interlineView}
 const mediaLoaded=()=>applyPageMode(readerPosition);
 function applyPageMode(position=null){const reader=$('.reader'),article=$('#article'),workspace=$('.workspace');if(!reader||!article||!workspace)return;const paged=isPagedBook(),decision=resolveResponsiveLayout({width:workspace.clientWidth,height:workspace.clientHeight,readerWidthPx:reader.clientWidth,guideOpen:sideVisible,preferredColumns:pageMode,coarsePointer:window.matchMedia('(pointer: coarse)').matches});workspace.dataset.formFactor=decision.formFactor;workspace.dataset.sheetMode=decision.sheetMode;document.body.dataset.sheetMode=decision.sheetMode;document.body.dataset.hitTarget=String(decision.hitTargetPx);const double=typography.querySelector('[data-mode="double"]'),triple=typography.querySelector('[data-mode="triple"]');if(double)double.disabled=decision.maxColumns<2;if(triple)triple.disabled=decision.maxColumns<3;typography.querySelector('[data-page-modes]').hidden=!paged;pageControls.hidden=!paged;reader.classList.toggle('paged',paged);article.removeAttribute('style');if(paged){applyPaginationStyles(reader,article,decision.effectiveColumns===3?'triple':decision.effectiveColumns===2?'double':'single',mediaLoaded);restoreReaderPosition(reader,article,position);restoredScrollLeft=position?reader.scrollLeft:null;readerPosition=position??captureReaderPosition(reader,article);updatePageCount()}if(interlineView&&interlineArticle===article)interlineView.activate()}
 function turnPage(direction){const reader=$('.reader');if(reader&&isPagedBook()){if(speechResult)stopSpeech();reader.scrollTo({left:Math.max(0,readerPageIndex(reader)+direction)*reader.clientWidth,behavior:'instant'});readerPosition=captureReaderPosition(reader,$('#article'));updatePageCount()}}

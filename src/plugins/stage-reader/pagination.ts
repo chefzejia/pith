@@ -80,7 +80,6 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
   viewport.style.setProperty("--pith-page-scroll-extent", `${Math.max(0, result.totalScreens * width - 1)}px`);
   return result;
 }
-
 export type ReaderPosition = { readonly node: Text; readonly offset: number; readonly locator: string; readonly block: HTMLElement; readonly textOffset: number } | { readonly node: Element; readonly locator: string; readonly block: HTMLElement };
 
 export function captureReaderPosition(reader: HTMLElement, article: HTMLElement): ReaderPosition | null {
@@ -213,4 +212,34 @@ export function updateTocLocation(container: HTMLElement, article: HTMLElement, 
   current.setAttribute("aria-current", "location");
   let list = current.closest("ul");
   while (list && list.className !== "pith-toc-tree") { list.hidden = false; const parent: HTMLElement | null = list.parentElement; const toggle = parent?.querySelector<HTMLButtonElement>(":scope > div > [data-toc-toggle]"); if (toggle) { toggle.setAttribute("aria-expanded", "true"); toggle.textContent = "▾"; } list = parent?.closest("ul") ?? null; }
+}
+
+export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, file: string): { file: string; locator: string; quote: string } | null {
+  const chapters = Array.from(article.querySelectorAll<HTMLElement>(":scope > .pith-epub-chapter"));
+  const candidates = chapters.length ? chapters : [article];
+  const viewport = reader.getBoundingClientRect();
+  for (const chapter of candidates) {
+    const blocks = Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"]'));
+    const visible = blocks.some(block => Array.from(block.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
+    if (!visible || !blocks.length) continue;
+    const block = blocks[0]!;
+    const copy = block.cloneNode(true) as HTMLElement;
+    for (const child of copy.querySelectorAll(".pith-interline-subtitle,time")) child.remove();
+    const quote = (copy.textContent ?? "").trim();
+    if (!quote) continue;
+    const range = article.ownerDocument.createRange(); range.selectNodeContents(article); range.setEndBefore(block);
+    return { file, locator: block.dataset.locator || `text:offset:${range.toString().length}`, quote };
+  }
+  return null;
+}
+
+
+export function proseTextNodes(block: Element): Text[] {
+  const result: Text[] = [], walker = block.ownerDocument.createTreeWalker(block, 4);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const excluded = node.parentElement && node.parentElement.closest('[data-prose="false"]');
+    if (!excluded || !block.contains(excluded)) result.push(node as Text);
+  }
+  return result;
 }

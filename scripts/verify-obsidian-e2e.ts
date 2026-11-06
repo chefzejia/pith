@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { migrateLegacySpeech, switchSpeechMode } from "../src/shells/speechSettings.ts";
+import { migrateLegacySpeech, switchSpeechMode } from "../src/shells/speech/speechSettings.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const devVault = resolve(root, ".dev-vault");

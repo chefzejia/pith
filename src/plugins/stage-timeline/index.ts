@@ -84,7 +84,6 @@ registerPlugin({
   description: "Synchronized video/podcast playback with selectable transcript cues and keyframe anchors",
   oneInUse: "1 media material in workspace",
   manyInUse: "{n} media materials in workspace",
-  parts: [{ slot: "stage", key: "timeline" }],
   apply(ctx) {
     const service: StageTimelineService = {
       formats: ["audio", "video"],

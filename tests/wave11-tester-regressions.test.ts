@@ -10,7 +10,7 @@ import { createNeuralSpeech } from "../src/plugins/speech-service/neuralSpeech.t
 import { isLoopbackSafe } from "../src/plugins/speech-service/index.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";
 import { createObsidianSecretAccess } from "../src/shells/obsidian/index.ts";
-import { migrateLegacySpeech } from "../src/shells/speechSettings.ts";
+import { migrateLegacySpeech } from "../src/shells/speech/speechSettings.ts";
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
