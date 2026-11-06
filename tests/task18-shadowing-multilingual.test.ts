@@ -5,6 +5,7 @@ import test from "node:test";
 import { renderDojoAlignment, shadowingToolkit } from "../src/plugins/dojo-shadowing/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
+import { linkedEpub } from "./wave12-epub-fixture.ts";
 
 test("shadowing aligns multilingual text and rejects non-lexical source", () => {
   const chinese = shadowingToolkit.diagnose("清晨阳光照进窗户", "清晨阳光");
@@ -21,33 +22,73 @@ test("shadowing aligns multilingual text and rejects non-lexical source", () => 
   assert.throws(() => shadowingToolkit.diagnose("…… 🟢", ""), /没有可对齐/);
 });
 
+test("practice notes do not create persistent marks across EPUB pages and chapters", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+  const dir = await testSandbox("pith-practice-pages-"); const server = await createPithWebServer({ workspaceDir: dir }); let browser: any;
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
+    const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
+    const topic = await post("/api/topics", { title: "Practice pages" });
+    await post("/api/materials", { topicId: topic.id, title: "Book", kind: "book", files: [{ name: "book.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
+    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "Keep", anchor: { file: "book.epub", locator: "text:offset:0", quote: "Decoy" } });
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 } });
+    const page = await browser.newPage(); page.setDefaultTimeout(5000); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    await page.locator(`.pith-article mark[data-pith-note="${highlight.id}"]`).waitFor();
+    await page.locator("#open-dojo").click(); await page.locator("[data-dojo-produced]").fill("other"); await page.locator("[data-dojo-diagnose]").click(); await page.locator("[data-dojo-save]").click();
+    await page.locator('.pith-inline-dojo [role="status"]').getByText("已记入实训账本").waitFor(); await page.locator("[data-dojo-close]").click();
+    const marks = async () => page.locator('.pith-article mark[data-pith-note]').evaluateAll((nodes: HTMLElement[]) => nodes.map(node => ({ id: node.dataset.pithNote, text: node.textContent })));
+    assert.deepEqual(await marks(), [{ id: highlight.id, text: "Decoy" }]);
+    const reader = page.locator(".pith-reader"); const initial = await reader.evaluate((node: HTMLElement) => node.scrollLeft);
+    await page.locator('[data-page="next"]').click(); await page.waitForFunction((left: number) => (document.querySelector('.pith-reader') as HTMLElement).scrollLeft > left, initial);
+    await page.locator('[data-page="previous"]').click(); await page.waitForFunction((left: number) => Math.abs((document.querySelector('.pith-reader') as HTMLElement).scrollLeft - left) < 1, initial);
+    await page.locator('.pith-nav-toggle').click(); await page.locator('[data-toc-locator]').filter({ hasText: 'Two' }).click();
+    await page.locator('.pith-nav-toggle').click(); await page.locator('[data-toc-locator]').filter({ hasText: 'One' }).click();
+    assert.deepEqual(await marks(), [{ id: highlight.id, text: "Decoy" }]);
+  } finally { if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
+});
+
 test("Web and Obsidian practice highlight and save Chinese omissions", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const dir = await testSandbox("pith-shadowing-cjk-"); const server = await createPithWebServer({ workspaceDir: dir }); let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
     const topic = await post("/api/topics", { title: "中文跟读" });
-    await post("/api/materials", { topicId: topic.id, title: "中文跟读", kind: "article", files: [{ name: "source.md", data: Buffer.from("清晨阳光照进窗户").toString("base64") }] });
-    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
+    await post("/api/materials", { topicId: topic.id, title: "中文跟读", kind: "article", files: [{ name: "source.md", data: Buffer.from("清晨阳光照进窗户\n\n这是另一段文字").toString("base64") }] });
+    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] });
+    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "用户高亮", anchor: { file: "source.md", locator: "text:line:0", quote: "清晨" } });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
-    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator("#open-dojo").click();
-    await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("清晨阳光")); await page.locator("[data-dojo-produced]").fill("清晨阳光"); await page.locator("[data-dojo-diagnose]").click();
-    await page.waitForFunction(() => document.querySelectorAll("[data-dojo-display] mark").length === 4, null, { timeout: 4000 }); assert.equal((await page.locator("[data-dojo-display] mark").allTextContents()).join(""), "照进窗户");
+    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click();
+    await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("清晨阳光")); await page.locator("[data-dojo-produced]").fill("清晨阳光照进"); await page.locator("[data-dojo-diagnose]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-dojo-display] mark").length === 2, null, { timeout: 4000 }); assert.equal((await page.locator("[data-dojo-display] mark").allTextContents()).join(""), "窗户");
     await page.locator("[data-dojo-save]").click(); await page.waitForFunction(() => document.querySelector(".pith-inline-dojo [role=status]")?.textContent?.includes("已记入"));
     const state = await (await fetch(`${base}/api/state`)).json(); const note = state.compass.exploring.find((item: any) => item.id === topic.id).notes.find((item: any) => item.kind === "practice");
-    assert.match(note.body, /清晨阳光<mark>照<\/mark><mark>进<\/mark><mark>窗<\/mark><mark>户<\/mark>/); assert.doesNotMatch(note.body, /漏词：无/);
+    assert.match(note.body, /清晨阳光照进<mark>窗<\/mark><mark>户<\/mark>/); assert.doesNotMatch(note.body, /漏词：无/);
     await page.locator('[data-dojo-close]').click();
     assert.equal(await page.locator('.pith-inline-dojo').count(), 0);
     assert.equal(await page.locator('.pith-article [data-prose="true"]').first().textContent(), "清晨阳光照进窗户");
+    assert.deepEqual(await page.locator('.pith-article mark').evaluateAll((marks: HTMLElement[]) => marks.map(mark => ({ id: mark.dataset.pithNote, text: mark.textContent }))), [{ id: highlight.id, text: "清晨" }]);
+    assert.equal(await page.evaluate(() => window.getSelection()!.toString()), "");
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click();
+    await page.locator('.pith-article [data-prose="true"]').filter({ hasText: "这是另一段文字" }).click();
+    await page.locator('[data-dojo-choose="shadowing"]').click();
+    assert.equal(await page.locator('[data-dojo-display]').textContent(), "这是另一段文字");
+    assert.deepEqual(await page.locator('.pith-article mark[data-pith-note]').evaluateAll((marks: HTMLElement[]) => marks.map(mark => ({ id: mark.dataset.pithNote, text: mark.textContent }))), [{ id: highlight.id, text: "清晨" }]);
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.deepEqual(await page.locator('.pith-article mark[data-pith-note]').evaluateAll((marks: HTMLElement[]) => marks.map(mark => ({ id: mark.dataset.pithNote, text: mark.textContent }))), [{ id: highlight.id, text: "清晨" }]);
+    await page.locator('[data-dojo-close]').click();
+    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    await page.locator(`.pith-article mark[data-pith-note="${highlight.id}"]`).waitFor();
+    assert.deepEqual(await page.locator('.pith-article mark').evaluateAll((marks: HTMLElement[]) => marks.map(mark => ({ id: mark.dataset.pithNote, text: mark.textContent }))), [{ id: highlight.id, text: "清晨" }]);
     const viewBundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     const dojoBundle = await build({ entryPoints: ["src/plugins/dojo-shadowing/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Shadow" });
     await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: viewBundle.outputFiles[0]!.text }); await page.addScriptTag({ content: dojoBundle.outputFiles[0]!.text });
-    await page.evaluate(() => { const state: any = (window as any).cjkTest = { saved: "" }; const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, savePractice: async (body: string) => { state.saved = body; } }); state.view = view; view.render({ title: "中文跟读", currentFile: "source.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">清晨阳光照进窗户</p>' }); view.setToolkits(["shadowing"]); view.openDojo([(window as any).Shadow.shadowingToolkit]); });
-    await page.locator("[data-dojo-produced]").fill("清晨阳光"); await page.locator("[data-dojo-diagnose]").click(); assert.equal((await page.locator("[data-dojo-display] mark").allTextContents()).join(""), "照进窗户");
+    await page.evaluate(async () => { const state: any = (window as any).cjkTest = { saved: "", notes: [{ id: "existing", kind: "highlight", body: "用户高亮", anchor: { file: "source.md", locator: "text:line:0", quote: "清晨" } }] }; const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes: state.notes, conversation: [], actions: [], toolkits: ["shadowing"] }), savePractice: async (body: string, anchor: unknown) => { state.saved = body; state.notes.push({ id: "practice", kind: "practice", body, anchor }); } }); state.view = view; view.render({ title: "中文跟读", currentFile: "source.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">清晨阳光照进窗户</p>' }); await view.refreshGuide(); view.setToolkits(["shadowing"]); view.openDojo([(window as any).Shadow.shadowingToolkit]); });
+    await page.locator("[data-dojo-produced]").fill("清晨阳光照进"); await page.locator("[data-dojo-diagnose]").click(); assert.equal((await page.locator("[data-dojo-display] mark").allTextContents()).join(""), "窗户");
     await page.locator("[data-dojo-save]").click(); await page.waitForFunction(() => Boolean((window as any).cjkTest.saved)); assert.doesNotMatch(await page.evaluate(() => (window as any).cjkTest.saved), /漏词：无/);
-    assert.match(await page.evaluate(() => (window as any).cjkTest.saved), /<mark>照<\/mark><mark>进<\/mark><mark>窗<\/mark><mark>户<\/mark>/);
+    assert.match(await page.evaluate(() => (window as any).cjkTest.saved), /照进<mark>窗<\/mark><mark>户<\/mark>/);
     await page.locator('[data-dojo-close]').click();
     assert.equal(await page.locator('.pith-inline-dojo').count(), 0);
     assert.equal(await page.locator('.pith-article [data-prose="true"]').first().textContent(), "清晨阳光照进窗户");
+    assert.deepEqual(await page.locator('.pith-article mark').evaluateAll((marks: HTMLElement[]) => marks.map(mark => ({ id: mark.dataset.pithNote, text: mark.textContent }))), [{ id: "existing", text: "清晨" }]);
   } finally { if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });
