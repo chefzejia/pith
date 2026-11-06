@@ -2,7 +2,7 @@
   "name": "pith",
   "version": "0.1.0",
   "private": true,
-  "description": "Pith: Agents automate your output. Pith grows your core.",
+  "description": "Pith: We used all human wisdom to train AI. Pith uses AI's training pipeline to train you.",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit --typeRoots ./node_modules/@types",

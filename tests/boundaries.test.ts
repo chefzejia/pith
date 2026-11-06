@@ -233,8 +233,14 @@ test("Documentation links in README.md, AGENTS.md, and docs/ resolve cleanly", (
     }
   };
   checkLinksIn(join(ROOT, "README.md"));
+  checkLinksIn(join(ROOT, "README.zh-CN.md"));
   checkLinksIn(join(ROOT, "AGENTS.md"));
-  for (const file of readdirSync(docsDir).filter(f => f.endsWith(".md"))) {
-    checkLinksIn(join(docsDir, file));
+  const walkMdFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+      const full = join(dir, entry.name);
+      return entry.isDirectory() ? walkMdFiles(full) : entry.isFile() && full.endsWith(".md") ? [full] : [];
+    });
+  for (const file of walkMdFiles(docsDir)) {
+    checkLinksIn(file);
   }
 });
