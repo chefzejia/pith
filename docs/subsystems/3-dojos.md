@@ -1,24 +1,28 @@
-# 子系统 3：后训练实训道场与行间双语（`dojo-*`）
+# 子系统 3：正交认知工具与后训练实训道场（`dojo-*`）
 
 > 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md)
 
 ---
 
-## 1. 为什么有这一层（职责与边界）
+## 1. 为什么有这一层（三大正交维度与动态注入）
 
-对应人类认知训练管线的 **预训练伴读脚手架（`dojo-interline`）** 与 **第 3 阶段：强化学习后训练（Post-training RL · `dojo-feynman` / `dojo-shadowing`）**。
+`src/plugins/dojo-*` 下并非平铺的同质插件，而是由向导（Guide）根据课题（`Topic`）的真实意图，按需注入 `topic.toolkits` 的**三个正交认知维度**——它们可以单独挂载，也可以在一个课题中自由组合（如啃外文哲学原著时同时挂载 `["interline", "feynman"]`）：
 
-只用眼睛看书会产生“我看懂了”的流畅性错觉，大脑的底层参数并未改变。道场子系统提供一套**默认隐藏、由向导按课题意图动态注入（`topic.toolkits`）**的实训工具包，逼迫学习者经历「结构拆解 → 带稿跟练 → 骨架挖空 → 脱稿盲产与客观误差对齐」的前向生成（Rollout）闭环。
+| 正交维度 | 代表插件 | 介入训练阶段 | 物理动作与反馈机制 |
+| :--- | :--- | :--- | :--- |
+| **维度 A · 输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
+| **维度 B · 程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）标出吞音与漏词。 |
+| **维度 C · 生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，配合向导教练规程（Coach Rubric）检验盲区。 |
 
 ```text
 src/plugins/
-├── dojo-interline/           # 行间双语伴读（提供服务 "dojo.interline"）
+├── dojo-interline/           # 维度 A：行间双语输入脚手架（提供服务 "dojo.interline"）
 │   ├── index.ts              # FNV-1a 段落哈希、邻域调度顺序与双语 HTML 嵌入（renderInterlineHtml）
 │   └── coordinator.ts        # InterlinePreparationCoordinator（滑动窗口异步预热与 _cache/interline/ 持久化）
-├── dojo-feynman/             # 费曼复述四阶道场（提供服务 "dojo.feynman"）
-│   └── index.ts              # 中英概念词提取、四阶提示词变换（transformCue）与概念覆盖率诊断（diagnoseFeynman）
-└── dojo-shadowing/           # 影子跟读四阶道场（提供服务 "dojo.shadowing"）
-    └── index.ts              # 意群斜杠切分、功能词挖空与 LCS 词级对齐漏词诊断（diagnose）
+├── dojo-shadowing/           # 维度 B：程序性影子跟读道场（提供服务 "dojo.shadowing"）
+│   └── index.ts              # 意群斜杠切分、功能词挖空与 LCS 词级对齐漏词诊断（diagnose）
+└── dojo-feynman/             # 维度 C：生成式费曼复述道场（提供服务 "dojo.feynman"）
+    └── index.ts              # 四阶提示词变换（transformCue）、概念盲区检测与向导深水区追问动作
 ```
 
 ---

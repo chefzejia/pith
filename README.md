@@ -22,15 +22,22 @@ Meanwhile, as agents evolve into Super Agents, **the ultimate bottleneck returns
 
 ## The Human Training Pipeline
 
-Knowledge that never passes through your own forward generation (rollout), error exposure, and feedback never updates your intuition. Pith engineers the five stages of model training into a daily loop for human evolution:
+Knowledge that never passes through your own forward generation (rollout), error exposure, and feedback never updates your intuition. Pith engineers the five longitudinal stages of model training into a daily loop, while the Guide dynamically injects orthogonal cognitive toolkits (`topic.toolkits`) per topic:
 
-| Stage | Model Training | Human Evolution (Theory + Practice) | Pith Implementation |
+| Stage | Model Training | Human Evolution (Theory + Practice) | Pith Collaboration (Core + Stage + Guide + Injected Toolkits) |
 | :--- | :--- | :--- | :--- |
-| **0. Compute & Base Weights** | Allocate finite compute budget; maintain current model weights | **Attention defense & cognitive baseline**: Attention is your only compute. Block out feed noise, focus on a few active topics and a 15-minute next step | **Attention Compass** + **`ME.md` (cognitive baseline snapshot)** |
-| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject neutered second-hand summaries. Read original books, papers, repos, and podcasts directly | **Stage (`stage-reader` & `stage-timeline`)** + **Interline Bilingual warmup** + **Kokoro neural read-aloud** |
-| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & demonstration**: When hitting a wall, an agent grounded in your `ME.md` breaks down causal chains and writes tailored lessons | **ACP Guide (`guide-acp`)**: Connects to local `dsh` / `claude` / `codex` via standard ACP and orchestrates toolkits |
-| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied practice with progressive scaffolding**: Reading alone doesn't update human weights. Speak, shadow, and explain from memory to expose blind spots | **Dojo (`dojo-feynman` & `dojo-shadowing`)**: `listen-decompose` → `guided-follow` → `scaffold-cloze` → `blind-produce` |
-| **4. Eval & Merge** | Run benchmarks to verify generalization, then merge checkpoint | **Settlement gate & weight consolidation**: Close the book and explain it clearly. Settlement is blocked without your own practice and notes | **`pith_settle_topic` (hard gate)** → Settles the topic and updates `ME.md` |
+| **0. Compute & Base Weights** | Allocate finite compute budget; maintain current model weights | **Attention defense & cognitive baseline**: Attention is your only compute. Block out feed noise, focus on a few active topics and a 15-minute next step | **Attention Compass (`AttentionEngine`)** + **`ME.md` (cognitive baseline snapshot)** |
+| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject neutered second-hand summaries. Read original books, papers, repos, and podcasts directly | **Reading & Timeline Stages (`stage-reader` / `stage-timeline`)** + **Kokoro neural read-aloud** + on-demand **input scaffolding (`dojo-interline` bilingual subtitles)** |
+| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & lesson generation**: When hitting a hard book or codebase, an agent grounded in your `ME.md` breaks down causal chains, writes lessons, and configures topic toolkits | **ACP Guide (`guide-acp`)**: Connects to local `dsh` / `claude` / `codex` via standard ACP to generate lessons (`pith_write_lesson`) and orchestrate `topic.toolkits` |
+| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied & generative practice with progressive scaffolding**: Reading alone doesn't update human weights. Speak, shadow, and explain from memory against feedback | **Orthogonal Output Dojos injected per topic**:<br>• **Procedural reproduction (`dojo-shadowing`)**: prosody chunking → spoken shadowing → LCS missed-word alignment;<br>• **Generative recall (`dojo-feynman`)**: hide source → explain in your own words → gap diagnosis & coach questioning |
+| **4. Eval & Merge** | Run benchmarks to verify generalization, then merge checkpoint | **Settlement gate & weight consolidation**: Close the book, defend against counterexamples and transfer questions; settlement is blocked without your own practice and notes | **Hard Settlement Gate (`pith_settle_topic`)** → Archives the topic and updates `ME.md` |
+
+### Why Toolkits (`dojo-*`) Are Orthogonal and Agent-Injected
+
+Instead of cluttering the UI with fixed buttons for every learning method, the Guide inspects your `Topic` intent and injects combinations from three orthogonal toolkit dimensions into `topic.toolkits`:
+- **Dimension A · Input Scaffolding (`dojo-interline`)**: Serves Stage 1 (Pre-training) by embedding sliding-window bilingual subtitles below foreign-language prose to lower startup friction;
+- **Dimension B · Procedural Drill (`dojo-shadowing`)**: Serves Stage 3 (RL) for 1:1 acoustic/spoken reproduction, using deterministic word-level alignment (LCS) to highlight missed words;
+- **Dimension C · Generative Recall & Coaching (`dojo-feynman`)**: Serves Stages 3 & 4 (RL & Eval) for conceptual mastery, progressively removing the source text so you reconstruct causal chains in your own words under Socratic coach questioning.
 
 ---
 
