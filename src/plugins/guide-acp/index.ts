@@ -43,7 +43,7 @@ export function quickActionsForTopic(topic: Topic, activeDojos: readonly DojoToo
   return actions;
 }
 
-export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic; userMessage: string; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[] }): string {
+export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic; userMessage: string; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[]; activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string } }): string {
   const { topic } = input;
   const available = input.availableToolkits ?? [
     { id: "shadowing", label: "4-Stage Language Shadowing", category: "language" },
@@ -59,6 +59,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
       : "# 当前选区\n无",
     `# 可用实训工具包（Dojo Toolkits）\n${available.map(toolkit => `- ${toolkit.id}: ${toolkit.label} (${toolkit.category})`).join("\n") || "无"}\n当前已挂载：${topic.toolkits.join(", ") || "无"}\n根据学习目标建议或调整实训工具；需要调整时，在回复末尾用 pith-toolkits 围栏输出完整的工具 ID JSON 数组。`,
     `# 学习者问题\n${input.userMessage}`,
+    ...(input.activeRubric ? [`# 当前实训评价规程\n${input.activeRubric.label} (${input.activeRubric.id})\n${input.activeRubric.rubric}`] : []),
     "# 毕业门控（Settlement Gate）\n提出一道针对课题目标的深水区问题，要求学习者独立解释或迁移应用。只有回答证明理解后，才建议将课题沉淀；不要替学习者回答或自行宣布毕业。",
     '# 工作区工具\n需要执行操作时，在回复末尾输出独立的 pith-tool 围栏，内容为单行 JSON，格式为 {"name":"pith_save_note","arguments":{"topicId":"课题ID","body":"笔记"}}。支持 pith_get_context、pith_read_material_section、pith_save_note、pith_write_lesson、pith_configure_toolkits、pith_settle_topic。毕业必须已有学习者笔记，且 pith_settle_topic 必须提供非空 verificationSummary。',
   ].join("\n\n");

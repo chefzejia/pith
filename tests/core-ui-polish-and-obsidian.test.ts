@@ -115,7 +115,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const view = Object.create(PithObsidianView.prototype) as FakeView;
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
-  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
+  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
   const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openDojo"]>[0];
   view.openDojo(descriptors);
   assert.equal(mounted.length, 0);
@@ -126,7 +126,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const choice = { dataset: { dojoChoose: "feynman" }, disabled: false };
   await view.click({ target: { closest: (selector: string) => selector === "button" ? choice : null } });
   assert.deepEqual(mounted, []); assert.equal(view.dojoId, "feynman");
-  view.mountedToolkits = ["feynman"];
+  view.mountedToolkits = [];
   await view.click({ target: { closest: (selector: string) => selector === ".pith-cue" ? {} : null } });
   assert.deepEqual(mounted, []);
 });

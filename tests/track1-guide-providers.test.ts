@@ -15,11 +15,13 @@ import { builtinRegistry } from "../src/plugins/all.ts";
 import {
   CachedAgentDetector,
   LocalAcpGuideProvider,
+  buildScenePrompt,
   buildReadOnlyAgentEnv,
   discoverLocalAgents,
   runOneShotAcpPrompt,
 } from "../src/plugins/guide-acp/index.ts";
 import { parseAcpConfigOptions } from "../src/plugins/guide-acp/acpSession.ts";
+import { practiceMessage } from "../src/shells/dojoView.ts";
 
 test("ACP options preserve groups, probe cache, and apply session selections", async () => {
   const raw = [{ id: "model", name: "Model", type: "select", currentValue: "m1", options: [{ group: "magpie", name: "Magpie", options: [{ value: "m1", name: "First" }, { value: "m2", name: "Second", description: "A model" }] }] }, { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }];
@@ -424,4 +426,16 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
 
   const updated = await store.getTopic(topic.id);
   assert.equal(updated?.nextAction, "用 15 分钟画一张 `setService` / `deleteService` 的栈顶切换时序图");
+});
+
+test("ACP practice prompt receives its anchor, explanation and rubric", async () => {
+  const storage = createMemoryStorage(), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Practice" }); let sent = "";
+  const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) {
+    server.onClientLine(line => { const request = JSON.parse(line); if (request.method === "session/prompt") sent = request.params.prompt[0].text; if (request.id !== undefined) server.sendToClient({ jsonrpc: "2.0", id: request.id, result: request.method === "session/new" ? { sessionId: "s" } : request.method === "session/prompt" ? { text: "追问" } : {} }); });
+  } });
+  const provider = new LocalAcpGuideProvider({ processPort: port, store, getAgentConfig: () => ({ agentId: "dsh" }), resolveDescriptor: async () => ({ id: "dsh", label: "DSH", command: "/sandbox/dsh", args: [], version: "1", note: "", available: true }), buildScenePrompt });
+  const anchor = { file: "test.md", locator: "text:offset:0", quote: "目标原文" };
+  await provider.reply({ topicId: topic.id, conversation: [{ id: "1", role: "user", text: practiceMessage("自己的复述", "费曼复述", "指出前提并给出反例"), anchor, createdAt: "" }] });
+  assert.match(sent, /目标原文/); assert.match(sent, /自己的复述/); assert.match(sent, /当前实训评价规程/); assert.match(sent, /指出前提并给出反例/); assert.doesNotMatch(sent, /PITH_PRACTICE:/);
 });

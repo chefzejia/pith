@@ -23,21 +23,16 @@ test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind 
   assert.throws(() => transformCue(text, "invalid" as never), /Invalid scaffold stage/);
 });
 
-test("diagnosis reports deduplicated mixed-language concepts and exact English coverage", () => {
-  const target = "因为缓存，所以 `SQLite WAL` 和 database；缓存和 database 使用索引。";
-  const produced = "DATABASE 使用索引，SQLITE WAL 和缓存也有作用。";
-  const result = diagnoseFeynman(target, produced);
-  assert.deepEqual(result.matchedTokens, ["缓存", "SQLite WAL", "database", "索引"]);
+test("Feynman uses a guide rubric and a non-scoring offline prompt", () => {
+  assert.equal(feynmanToolkit.evalMode, "guide-rubric");
+  assert.match(feynmanToolkit.evaluationRubric!, /因果链/);
+  assert.match(feynmanToolkit.evaluationRubric!, /反例/);
+  const result = diagnoseFeynman("缓存降低延迟", "解释缓存");
+  assert.deepEqual(result.matchedTokens, []);
   assert.deepEqual(result.missedTokens, []);
-  assert.equal(result.accuracyScore, 1);
-  assert.match(result.summaryMarkdown, /^费曼复述诊断\n\n概念覆盖率：100%/);
-  const partial = diagnoseFeynman(target, "database 索引");
-  assert.deepEqual(partial.matchedTokens, ["database", "索引"]);
-  assert.deepEqual(partial.missedTokens, ["缓存", "SQLite WAL"]);
-  assert.equal(partial.accuracyScore, 0.5);
-  assert.equal(diagnoseFeynman("cache", "cached").accuracyScore, 0);
-  assert.equal(diagnoseFeynman("the and 的", "anything").accuracyScore, 0);
-  assert.deepEqual(diagnoseFeynman("缓存降低延迟", "缓存").matchedTokens, ["缓存"]);
+  assert.match(result.summaryMarkdown, /向导未配置/);
+  assert.doesNotMatch(result.summaryMarkdown, /覆盖率|准确率/);
+  assert.equal(shadowingToolkit.evalMode, "deterministic");
 });
 
 test("registered Feynman plugin is kept active by injected topic usage and promotes its reader", () => {

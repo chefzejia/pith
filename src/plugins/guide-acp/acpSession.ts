@@ -417,6 +417,7 @@ export interface LocalAcpGuideProviderOptions {
     readonly topic: Topic;
     readonly userMessage: string;
     readonly anchor?: SelectionAnchor;
+    readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
   }) => string;
 }
 
@@ -453,12 +454,26 @@ export class LocalAcpGuideProvider implements GuideProvider {
     }
 
     const lastUserEntry = [...input.conversation].reverse().find((item) => item.role === "user");
-    const userMessage = lastUserEntry?.text ?? "请结合当前课题给出指导。";
+    let userMessage = lastUserEntry?.text ?? "请结合当前课题给出指导。";
+    let activeRubric: { id: string; label: string; rubric: string } | undefined;
+    if (userMessage.startsWith("PITH_PRACTICE:")) {
+      try {
+        const value: unknown = JSON.parse(userMessage.slice("PITH_PRACTICE:".length));
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          const record = value as Record<string, unknown>;
+          if (record.id === "feynman" && typeof record.text === "string" && typeof record.label === "string" && typeof record.rubric === "string") {
+            userMessage = record.text;
+            activeRubric = { id: record.id, label: record.label, rubric: record.rubric };
+          }
+        }
+      } catch { /* Treat malformed practice payload as an ordinary message. */ }
+    }
     const promptText = this.options.buildScenePrompt({
       profileMarkdown: profile.markdown,
       topic,
       userMessage,
       anchor: input.anchor ?? lastUserEntry?.anchor,
+      ...(activeRubric ? { activeRubric } : {}),
     });
 
     const result = await runOneShotAcpPrompt(

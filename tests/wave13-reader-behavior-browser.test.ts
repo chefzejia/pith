@@ -118,7 +118,7 @@ test("Web clears quoted text between topics and retains per-topic guide visibili
   }
 });
 
-test("Web subtitle cues open shadowing only when it is explicitly mounted", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+test("Web subtitle cues anchor the mounted practice toolkit without mounting another", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
   const dir = await testSandbox("pith-cue-behavior-");
   let browser: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
@@ -138,15 +138,16 @@ test("Web subtitle cues open shadowing only when it is explicitly mounted", { ti
     const open = async () => { await page.locator(`[data-open="${topic.id}"]`).first().click(); await page.locator(".pith-cue").first().waitFor(); };
     await open();
     await page.locator(".pith-cue").first().click();
-    assert.equal(await page.locator(".training-panel").count(), 0);
+    await page.locator("#submit-practice").waitFor();
+    assert.match(await page.locator("#scaffold").textContent(), /A spoken sentence/);
     assert.equal((await (await fetch(`${base}/api/state`)).json()).compass.exploring.find((item: { id: string }) => item.id === topic.id).toolkits.includes("shadowing"), false);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     await page.locator("#home").click(); await open();
     const transformed = page.waitForResponse((response: any) => new URL(response.url()).pathname === "/api/dojo/transform" && response.request().method() === "POST");
     await page.locator(".pith-cue").first().click();
     assert.equal((await transformed).ok(), true);
-    await page.locator(".training-panel #dojo-target").waitFor();
-    assert.equal(await page.locator(".training-panel #dojo-target").inputValue(), "A spoken sentence.");
+    await page.locator(".training-panel #diagnose").waitFor();
+    await page.waitForFunction(() => document.querySelector("#scaffold")?.textContent?.includes("A spoken sentence."));
   } finally {
     if (browser) await browser.close();
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));

@@ -40,12 +40,21 @@ export function diagnose(targetText: string, producedText: string): DojoDiagnosi
     else { missedTokens.push(target[i]!); i++; }
   }
   const accuracyScore = target.length ? matchedTokens.length / target.length : 0;
-  const summaryMarkdown = `跟读诊断\n\n目标：${targetText}\n\n复述：${producedText}\n\n准确率：${Math.round(accuracyScore * 100)}%\n\n漏词：${missedTokens.length ? missedTokens.join("、") : "无"}`;
+  const escape = (value: string): string => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  let cursor = 0, matchedIndex = 0, aligned = "";
+  for (const match of targetText.matchAll(wordPattern)) {
+    aligned += escape(targetText.slice(cursor, match.index));
+    if (match[0] === matchedTokens[matchedIndex]) { aligned += escape(match[0]); matchedIndex++; }
+    else aligned += `<mark>${escape(match[0])}</mark>`;
+    cursor = match.index + match[0].length;
+  }
+  aligned += escape(targetText.slice(cursor));
+  const summaryMarkdown = `跟读对照\n\n原文：${aligned}\n\n复述：${escape(producedText)}\n\n漏词：${missedTokens.length ? missedTokens.map(escape).join("、") : "无"}`;
   return { targetText, producedText, accuracyScore, missedTokens, matchedTokens, summaryMarkdown };
 }
 
 export const shadowingToolkit: DojoToolkitDescriptor = {
-  id: "shadowing", label: "影子跟读", category: "language",
+  id: "shadowing", label: "影子跟读", category: "language", evalMode: "deterministic",
   stages: ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"],
   transformCue, diagnose,
   quickActions: [{ id: "shadowing-coach", label: "分析跟读", prompt: "请分析我的跟读，指出节奏与漏词并给出下一步练习。" }],
