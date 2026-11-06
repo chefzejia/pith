@@ -230,6 +230,8 @@ export interface DojoToolkitDescriptor {
   readonly id: string;
   readonly label: string;
   readonly category: "language" | "comprehension" | "executable" | "music";
+  readonly evalMode?: "deterministic" | "guide-rubric";
+  readonly evaluationRubric?: string;
   readonly stages: readonly DojoScaffoldStage[];
   transformCue(text: string, stage: DojoScaffoldStage): string;
   diagnose(targetText: string, producedText: string): DojoDiagnosisResult;
@@ -329,6 +331,7 @@ export interface GuideAgentService {
     readonly userMessage: string;
     readonly anchor?: SelectionAnchor;
     readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[];
+    readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
   }): string;
 }
 
