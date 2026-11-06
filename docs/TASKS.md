@@ -78,10 +78,11 @@
 
 ## [Task #19] 课题毕业门禁与 `ME.md` 认知权重合并闭环（Eval & Checkpoint Merge）
 
-- **Status**: in_progress
+- **Status**: blocked
 - **Scope**: `src/plugins/guide-acp/**`, `src/shells/**`, `tests/**`
 - **Verified-Commit**: none
 - **Updated**: 2026-11-06
+- **阻塞**：冻结的 `WorkspaceStore` 仅提供各自独立的 `appendNote`、`updateTopic`、`writeProfile`，`WorkspaceStoragePort` 也无跨文件事务或崩溃恢复能力，无法保证 `topic.md` 与 `ME.md` 原子提交；逐项写入或补偿回写均不能满足该契约。需要上游定义并授权跨文件事务、失败及恢复语义；没有业务代码提交。
 - **授权范围**：允许修改 `src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/guide-acp/acpSession.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。只读依赖 `src/core/`。
 - **不在范围内**：严禁引入任何外部图数据库或非 Markdown 状态文件；`ME.md` 保持纯文本 Markdown 唯一事实源。
 - **接口与行为契约**：
