@@ -45,8 +45,8 @@ Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多
 | :--- | :--- | :--- | :--- |
 | **[1. 领域内核与工作区账本](subsystems/1-core-store-engine.md)** | **0. 算力调度与基座**<br>*(Compute & Base Weights)* | [`src/core/`](../src/core/)<br>（`store/` · `engine/` · `pluginrt/`） | 维护 `ME.md`、`topics/`、`materials/` 纯文本唯一事实源（[`MutationQueue`](../src/core/store/MutationQueue.ts) 串行写）；计算首页注意力罗盘与 `_cache/effects.json` 同键合并副作用队列；管理插件 4 层配置合成与 `inUse` 传递保活。 |
 | **[2. 预训练阅读与媒体舞台](subsystems/2-stages.md)** | **1. 预训练**<br>*(Pre-training)* | [`src/plugins/stage-reader/`](../src/plugins/stage-reader/)<br>[`src/plugins/stage-timeline/`](../src/plugins/stage-timeline/) | 渲染 EPUB / PDF / CBZ / Markdown 与音视频字幕流；维护跨字号/跨窗口稳定的内在位置坐标 [`IntrinsicLocator`](../src/core/types.ts)；执行 `1 / 2 / 3` 栏黄金版心分页恒等式与 EPUB 命名空间安全净化。 |
-| **[3. 正交认知工具与后训练道场](subsystems/3-dojos.md)** | **1. Pre-train (输入脚手架) & 3. RL (产出实训)** | [`src/plugins/dojo-interline/`](../src/plugins/dojo-interline/)<br>[`src/plugins/dojo-feynman/`](../src/plugins/dojo-feynman/)<br>[`src/plugins/dojo-shadowing/`](../src/plugins/dojo-shadowing/) | 由向导按课题意图从三个正交维度注入 `topic.toolkits`：维度 A 输入降噪（`dojo-interline` 行间双语预热）、维度 B 程序性复现（`dojo-shadowing` 跟读 + LCS 漏词对齐）、维度 C 生成式内化（`dojo-feynman` 撤拐杖阐述 + 教练追问）。 |
-| **[4. 标准 ACP 向导、按需语音与宿主壳](subsystems/4-guide-speech-shells.md)** | **2. SFT & 4. Eval**<br>*(Demonstration & Gate)* | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/)<br>[`src/plugins/speech-service/`](../src/plugins/speech-service/)<br>[`src/shells/`](../src/shells/) | 通过标准 ACP JSON-RPC stdio 接入本机 Agent（`dsh` / `claude` / `codex`）并守卫结题硬门禁（`pith_settle_topic`）；管理 Vault 外零 Python 依赖的 `Kokoro + SenseVoice` 按需语音守护进程；适配 Obsidian、Web 与 DSH 三种原生宿主壳。 |
+| **[3. 认知工具与后训练道场](subsystems/3-dojos.md)** | **1. Pre-train (输入脚手架) & 3. RL (产出实训)** | [`src/plugins/dojo-interline/`](../src/plugins/dojo-interline/)<br>[`src/plugins/dojo-feynman/`](../src/plugins/dojo-feynman/)<br>[`src/plugins/dojo-shadowing/`](../src/plugins/dojo-shadowing/) | 由向导按课题意图注入 `topic.toolkits`：输入降噪（行间双语滑动预热）、程序性复现（跟读与词级对齐）、生成式内化（撤拐杖阐述与教练追问）。 |
+| **[4. 标准 ACP 向导、按需语音与宿主壳](subsystems/4-guide-speech-shells.md)** | **2. SFT & 4. Eval**<br>*(Demonstration & Gate)* | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/)<br>[`src/plugins/speech-service/`](../src/plugins/speech-service/)<br>[`src/shells/`](../src/shells/) | 通过标准 ACP JSON-RPC stdio 接入本机 Agent 并守卫结题硬门禁（`pith_settle_topic`）；管理 Vault 外零 Python 依赖的本机按需神经语音守护进程；适配 Obsidian、Web 与 DSH 三种原生宿主壳。 |
 
 ---
 
@@ -67,13 +67,13 @@ Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多
 ### 1. 直接重构原函数，严禁重赋值包装链与源码字符串 VM 假测试
 - **当前决定**：修改宿主或插件函数时直接编辑唯一函数定义；测试直接导入真实模块或驱动真实浏览器/客户端 DOM。
 - **淘汰的替代方案**：
-  - **为什么不用 `const fnBase = fn; fn = ...` 同名重赋值套娃**：外层套娃会让旧死代码残留，导致单测测旧分支而生产环境跑外层补丁。
-  - **为什么不用 `readFile("src/...") + vm.runInContext`**：抠取源码行塞入 VM 会反向绑架代码排版，且无法暴露真实 DOM 与事件传播缺陷。
+  - **`const fnBase = fn; fn = ...` 同名重赋值套娃**：外层套娃会让旧死代码残留，导致单测测旧分支而生产环境跑外层补丁。
+  - **`readFile("src/...") + vm.runInContext`**：抠取源码行塞入 VM 会反向绑架代码排版，且无法暴露真实 DOM 与事件传播缺陷。
 - **守卫门禁**：[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 中的 `source does not retain Base aliases for function wrappers`、`Web reader entry points have one definition and are never reassigned` 与 `tests do not execute extracted source in a VM`。
 
 ### 2. 标准 ACP 协议发现与 Vault 外零 Python 原生语音守护进程
-- **当前决定**：向导模型与推理强度列表 100% 通过标准 ACP `session/new` 的 `configOptions` 与 `session/set_config_option` 交互；本机语音采用零 Python 依赖的 `sherpa-onnx` 原生运行时 + `Kokoro-82M v1.1-zh` / `SenseVoice` 按需守护进程（空闲 180 秒自动退出释放内存）。
+- **当前决定**：向导模型与推理强度列表 100% 通过标准 ACP `session/new` 的 `configOptions` 与 `session/set_config_option` 交互；本机语音采用零 Python 依赖的原生推理运行时与按需守护进程（空闲自动退出释放内存，具体模型与空闲配置见 [`NodeManagedSpeechRuntime`](../src/shells/speechRuntime.ts)）。
 - **淘汰的替代方案**：
-  - **为什么不解析 `~/.dsh/` 私有 YAML**：破坏宿主无关性，无法通用于 `claude-agent-acp` 与 `codex-acp`。
-  - **为什么不用系统 `speechSynthesis` 或运行时 `python3 -m venv` + `pip`**：系统内置 TTS 机械劣质，而运行时调 `pip` 依赖宿主机 Python 环境且极易因网络或编译失败崩溃。
+  - **解析 `~/.dsh/` 等特定 Agent 私有配置文件**：破坏宿主无关性，无法通用于不同 ACP Agent。
+  - **系统 `speechSynthesis` 或运行时 `python3 -m venv` + `pip`**：系统内置 TTS 机械劣质，而运行时调 `pip` 依赖宿主机 Python 环境且极易因网络或编译失败崩溃。
 - **守卫门禁**：[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 中的 `managed speech uses native multilingual models and ACP never reads dsh private configuration` 与 `Zero OS-TTS & External Repo Coupling`。

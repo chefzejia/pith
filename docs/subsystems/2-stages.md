@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 为什么有这一层（职责与边界）
+## 1. 职责与边界
 
 对应人类认知训练管线的 **第 1 阶段：预训练（Pre-training · 一手原始语料摄入）**。
 
@@ -45,7 +45,7 @@ src/plugins/
 
 ## 3. EPUB 净化与跨章链接解析（`epub.ts`）
 
-1. **容量与安全边界（Fail-Closed）**：单文件解压上限 `16 MiB`，整书解压上限 `64 MiB`（[`Zip`](../../src/plugins/stage-reader/epub.ts)），防止 ZIP 炸弹耗尽内存。
+1. **容量与安全边界（Fail-Closed）**：[`Zip`](../../src/plugins/stage-reader/epub.ts) 对单文件与整书解压字节数执行硬性上限检查，防止压缩包炸弹耗尽内存。
 2. **保留命名空间剥离**：净化原书 HTML 时，强制剥离原书中任何以 `pith-` 开头的伪造类名及宿主保留 `data-*` 属性，确保章节容器查询（`section.pith-epub-chapter[data-epub-chapter]`）100% 命中真实章节节点，绝不被原书脏标签劫持。
 3. **同章与跨章链接跳转**：[`resolveEpubTarget`](../../src/plugins/stage-reader/epub.ts) 将原书目录与正文内的相对路径、`#fragment` 锚点解析为目标章节下标与重写后的安全 DOM ID（`pith-epub-id-<chapter>-<id>`），支持点击目录或正文脚注直接翻至目标屏。
 
@@ -56,8 +56,8 @@ src/plugins/
 电子书（`epub / pdf / cbz`）采用**零横向滚动条的按屏分页模式**（`overflow: hidden`，通过滚轮、方向键或顶栏 `< 1/N >` 翻页）：
 
 1. **栏数自适应与黄金行宽**：
-   - [`resolveResponsiveLayout`](../../src/plugins/stage-reader/pagination.ts) 根据阅读容器实时净宽判定最大可读栏数（每栏净宽至少 $\ge 320\text{px}$）；
-   - [`computePagination`](../../src/plugins/stage-reader/pagination.ts) 将单栏、双栏、三栏的最大舒适列宽分别约束为 `820px`、`680px`、`580px`。在超宽屏下选择单栏时，多余宽度自动均分至两侧水平留白 `horizontalInsetPx`，使版心像摊在桌面中央的书卷一样水平居中。
+   - [`resolveResponsiveLayout`](../../src/plugins/stage-reader/pagination.ts) 根据阅读容器实时净宽判定最大可读栏数；
+   - [`computePagination`](../../src/plugins/stage-reader/pagination.ts) 按栏数约束最大舒适列宽。在超宽屏下选择单栏或多栏时，多余宽度自动均分至两侧水平留白 `horizontalInsetPx`，使版心在视口内水平居中。
 2. **多屏翻页步长恒等式**：
    - 为确保每次向右滚动一个 `viewportWidth`（`scrollLeft = pageIndex * viewportWidth`）都能像素级对齐下一屏的首列，列宽 `columnWidthPx`、列间距 `columnGapPx` 与水平内边距 `horizontalInsetPx` 恒满足：
      $$\text{columnGapPx} = 2 \times \text{horizontalInsetPx}$$

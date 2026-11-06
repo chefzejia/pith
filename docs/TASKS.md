@@ -13,7 +13,7 @@
 - **Scope**: `src/core/seams.ts`, `src/core/host.ts`, `src/plugins/guide-acp/**`, `src/plugins/speech-service/**`, `src/shells/**`, `tests/**`
 - **Verified-Commit**: 8aee0fba8d7d426c3047d716e4f76dbf88ec961f
 - **Updated**: 2026-11-05
-- **验收摘要**：通过标准 ACP `session/new` 的 `configOptions` 与 `session/set_config_option` 动态发现并切换本机 Agent 模型与推理强度；通过 `NodeManagedSpeechRuntime` 管理 Vault 外 `sherpa-onnx` + `Kokoro-82M v1.1-zh` / `SenseVoice` 按需语音网关（契约见 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md)）。
+- **验收摘要**：通过标准 ACP `session/new` 的 `configOptions` 与 `session/set_config_option` 动态发现并切换本机 Agent 模型与推理强度；通过 `NodeManagedSpeechRuntime` 管理 Vault 外零 Python 依赖的本机按需语音网关（契约见 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md)）。
 
 ---
 
@@ -23,4 +23,4 @@
 - **Scope**: `src/plugins/stage-reader/pagination.ts`, `src/shells/obsidian/plugin.ts`, `src/shells/web/server.ts`, `tests/**`
 - **Verified-Commit**: 3441c988aab6e1cfe80fdd5c4b516df557bde80d
 - **Updated**: 2026-11-05
-- **验收摘要**：分页视口隐藏原生横向滚动条并将 `::after` 撑宽伪元素改为绝对定位；`computePagination` 按 `1 / 2 / 3` 栏黄金最大列宽（`820 / 680 / 580px`）自动扩大两侧水平留白并保持多屏翻页步长恒等式（契约见 [2-stages.md](subsystems/2-stages.md)）。
+- **验收摘要**：分页视口隐藏原生横向滚动条并将 `::after` 撑宽伪元素改为绝对定位；`computePagination` 按 `1 / 2 / 3` 栏最大舒适列宽自动扩大两侧水平留白并保持多屏翻页步长恒等式（契约见 [2-stages.md](subsystems/2-stages.md)）。

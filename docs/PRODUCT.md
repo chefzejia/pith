@@ -8,9 +8,9 @@
 - **时代背景与核心痛点**：在 Super Agent 时代，外部产出的边际成本趋近于零，信息噪音与营销焦虑呈指数级爆炸，撕裂人类恒定且稀缺的生物注意力带宽。与此同时，系统的最终瓶颈正回到人类自己身上——如果人停止进化，整天只靠向 AI「许愿」来跳过思考，或满足于“看懂 AI 总结即掌握”的流畅性错觉，大脑的底层参数就从未更新，最终将丧失领导 AI 的判断力并沦为硅基智能的附庸。
 - **核心范式（Human Training Pipeline）**：人类学习与大模型训练本质上是同一件事。Pith 将训练顶尖大模型的科学管线逆向工程为「理论 + 具身实践」的人类自我进化闭环：
   1. **算力调度与基座权重（`Compass` & `ME.md`）**：注意力是你唯一的算力。屏蔽信息流噪音，聚焦活跃课题（`Topic`）与 15 分钟微动作（`nextAction`），维护纯文本个人认知基座 `ME.md`；
-  2. **预训练（`Pre-training` · 一手语料摄入）**：拒绝二手摘要阉割，通过多栏书卷舞台（`stage-reader`）、时间轴舞台（`stage-timeline`）、原生神经语音伴读及按需注入的输入脚手架（`dojo-interline` 行间双语）降低精读一手原著/论文/源码的启动摩擦；
-  3. **监督微调（`SFT` · 向导因人施教與工具编排）**：通过标准 ACP 协议接入本机 Agent（`guide-acp`），结合 `ME.md` 拆解难点、编写循序渐进的课程讲义（`pith_write_lesson`），并根据课题意图从三个正交维度（输入脚手架 `interline` / 程序性跟练 `shadowing` / 生成式内化 `feynman`）动态注入 `topic.toolkits`；
-  4. **强化学习后训练（`Post-training RL` · 正交产出实训道场 `Dojo`）**：只读文本不更新人类参数。通过程序性语音跟读（`dojo-shadowing`：意群拆解 $\rightarrow$ 开口跟读 $\rightarrow$ 确定性 LCS 漏词对齐）与生成式概念重构（`dojo-feynman`：撤除原文 $\rightarrow$ 自我阐述 $\rightarrow$ 盲区诊断与向导教练追问）逼迫大脑前向生成（Rollout）并根据误差信号更新认知权重；
+  2. **预训练（`Pre-training` · 一手语料摄入）**：拒绝二手摘要阉割，通过多栏书卷舞台、时间轴舞台、行间双语伴读与神经语音听读降低精读一手原著/论文/源码的启动摩擦；
+  3. **监督微调（`SFT` · 向导因人施教与工具编排）**：通过标准 ACP 协议接入本机 Agent，结合 `ME.md` 拆解难点、编写循序渐进的课程讲义，并按课题意图动态挂载认知工具（`topic.toolkits`）；
+  4. **强化学习后训练（`Post-training RL` · 实训道场 `Dojo`）**：只读文本不更新人类参数。通过语音跟读（意群拆解 $\rightarrow$ 开口跟读 $\rightarrow$ 词级对齐）与概念重构（撤除原文 $\rightarrow$ 自我阐述 $\rightarrow$ 盲区诊断与向导追问）逼迫大脑前向生成（Rollout）并根据误差信号更新认知权重；
   5. **评测与权重合并（`Eval` · 结题沉淀）**：没有自己的思考与实训记录严禁结题（`pith_settle_topic`）；通过向导反例与迁移追问检验后沉淀归档并反哺更新 `ME.md`。
 - **一句话定位**：以可观测原始材料（`Material`）为锚点、将大模型训练管线（Pre-train / SFT / RL / Eval）映射为人类认知内化闭环的个人注意力与自我训练系统。
 - **明确不做什么（Non-goals & 红线）**：
@@ -28,8 +28,8 @@
 | **时间轴媒体舞台** | [`src/plugins/stage-timeline/`](../src/plugins/stage-timeline/) | 渲染音视频与 `.vtt/.srt` 字幕时间轴，联动底部停靠播客甲板（`.pith-media-deck`）同步高亮 |
 | **行间双语伴读** | [`src/plugins/dojo-interline/`](../src/plugins/dojo-interline/) | 为外文原著提供 `原文 / 行间双语 / 译文主显` 舞台内嵌字幕，按滑动窗口（`activeUnit -> neighborhood`）静默预热并持久化至 `_cache/interline/` |
 | **外语跟读与费曼实训** | [`src/plugins/dojo-shadowing/`](../src/plugins/dojo-shadowing/) & [`src/plugins/dojo-feynman/`](../src/plugins/dojo-feynman/) | 按 `意群拆解 -> 原文跟练 -> 骨干词挖空 -> 盲产诊断` 渐进撤除拐杖，诊断漏词与复述盲区 |
-| **ACP 向导协同** | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/) | 通过标准 ACP 协议接入本机 Agent（`dsh` / `claude` / `codex`），结合 `ME.md` 因人施教并按用户意图动态挂载 `topic.toolkits` |
-| **外部/按需语音服务** | [`src/plugins/speech-service/`](../src/plugins/speech-service/) & [`src/shells/speechRuntime.ts`](../src/shells/speechRuntime.ts) | 通过 OpenAI 兼容 HTTP 协议对接云端或本机按需语音网关（`Kokoro-82M v1.1-zh` + `SenseVoice`），空闲自动退出释放内存 |
+| **ACP 向导协同** | [`src/plugins/guide-acp/`](../src/plugins/guide-acp/) | 通过标准 ACP 协议接入本机 Agent，结合 `ME.md` 因人施教并按用户意图动态挂载 `topic.toolkits` |
+| **外部/按需语音服务** | [`src/plugins/speech-service/`](../src/plugins/speech-service/) & [`src/shells/speechRuntime.ts`](../src/shells/speechRuntime.ts) | 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关，空闲自动退出释放内存 |
 
 ### 空间与交互铁律
 

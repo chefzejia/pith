@@ -4,15 +4,15 @@
 
 ---
 
-## 1. 为什么有这一层（三大正交维度与动态注入）
+## 1. 职责与正交维度
 
-`src/plugins/dojo-*` 下并非平铺的同质插件，而是由向导（Guide）根据课题（`Topic`）的真实意图，按需注入 `topic.toolkits` 的**三个正交认知维度**——它们可以单独挂载，也可以在一个课题中自由组合（如啃外文哲学原著时同时挂载 `["interline", "feynman"]`）：
+`src/plugins/dojo-*` 下是由向导（Guide）根据课题（`Topic`）的真实意图、按需注入 `topic.toolkits` 的**三个正交认知维度**——它们可以单独挂载，也可以在同一课题中自由组合：
 
 | 正交维度 | 代表插件 | 介入训练阶段 | 物理动作与反馈机制 |
 | :--- | :--- | :--- | :--- |
-| **维度 A · 输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
-| **维度 B · 程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）标出吞音与漏词。 |
-| **维度 C · 生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，配合向导教练规程（Coach Rubric）检验盲区。 |
+| **输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
+| **程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）标出吞音与漏词。 |
+| **生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，配合向导教练规程（Coach Rubric）检验盲区。 |
 
 ```text
 src/plugins/

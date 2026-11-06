@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 为什么有这一层（职责与边界）
+## 1. 职责与边界
 
 对应人类认知训练管线的 **第 2 阶段：SFT（因人施教向导）**、**第 4 阶段：Eval（结题门禁）**、**篇幅级神经语音伴读基础设施**，以及将这些能力适配到不同原生运行环境的**多态宿主壳**。
 
@@ -13,7 +13,7 @@ src/
 ├── plugins/
 │   ├── guide-acp/                # 标准 ACP 向导插件（提供服务 "guide.agent"）
 │   │   ├── index.ts              # 场景提示词拼装（buildScenePrompt）、快捷动作与插件注册
-│   │   ├── discovery.ts          # 本机 ACP Agent（dsh / claude / codex）可执行文件发现与版本探测
+│   │   ├── discovery.ts          # 本机 ACP Agent 可执行文件发现与版本探测
 │   │   ├── acpSession.ts         # 标准 JSON-RPC 2.0 stdio 会话、configOptions 探测与工具调用循环
 │   │   ├── tools.ts              # 7 个受控工作区工具（pith_get_context ... pith_settle_topic）
 │   │   └── externalIngest.ts     # SSRF 防护公网 URL 抓取与文章/讨论/媒体打包导入
@@ -24,8 +24,8 @@ src/
     ├── obsidian/                 # Obsidian 桌面插件壳（index.ts 宿主桥接 + plugin.ts 视图渲染）
     ├── web/                      # 独立 Web 桌面壳（cli.ts / server.ts / nodeStorage.ts / nodeProcess.ts）
     ├── dsh/                      # DeepSeek Harness 工具包壳（index.ts 导出 DshTool[] 与公网 DNS 校验器）
-    ├── speechRuntime.ts          # NodeManagedSpeechRuntime（Vault 外本机 sherpa-onnx 按需守护进程管理）
-    ├── speechGateway.ts          # 内嵌回环 HTTP 语音网关脚本（Kokoro-82M v1.1-zh + SenseVoice）
+    ├── speechRuntime.ts          # NodeManagedSpeechRuntime（Vault 外本机按需语音守护进程管理）
+    ├── speechGateway.ts          # 内嵌回环 HTTP 语音网关脚本（SPEECH_GATEWAY）
     └── interline.ts / interlineView.ts / toolkitSlot.ts / speechSettings.ts / acpSettings.ts
 ```
 
@@ -58,15 +58,13 @@ src/
 ### 3.2 零 Python 依赖的 Vault 外本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speechRuntime.ts)）
 
 1. **安装位置与安全隔离**：
-   - 模型与运行时安装在 Vault 之外的系统应用目录（macOS 默认为 `~/Library/Application Support/pith/speech/managed-v2`，可通过环境变量 `PITH_SPEECH_HOME` 指定绝对路径）；
-   - [`checkPath`](../../src/shells/speechRuntime.ts) 强制校验安装路径不在 Vault 或工作区内部且非符号链接，卸载（`remove`）前校验 `.owner === "pith-managed-speech-v2"` 标记文件，防止误删用户目录。
+   - 模型与运行时安装在 Vault 之外的系统应用目录（默认路径与 `PITH_SPEECH_HOME` 环境变量规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speechRuntime.ts)）；
+   - [`checkPath`](../../src/shells/speechRuntime.ts) 强制校验安装路径不在 Vault 或工作区内部且非符号链接，卸载（`remove`）前校验 `.owner` 标记文件，防止误删用户目录。
 2. **原生模型资产（SHA-256 强校验，零 Python / 零 `pip`）**：
-   - **运行时**：预编译 `node` + `sherpa-onnx-node` 原生绑定；
-   - **TTS 模型**：`kokoro-int8-multi-lang-v1_1.tar.bz2`（`Kokoro-82M v1.1-zh` 中英双语 int8 量化模型，含中英词典与中文日期/数字/电话 `.fst` 规则）；
-   - **ASR 模型**：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2`（`SenseVoice` 中英日韩粤多语种 int8 模型）。
+   - 预编译原生推理运行时与多语种 TTS/ASR 模型资产清单、下载地址及哈希校验值由 [`speechRuntime.ts`](../../src/shells/speechRuntime.ts) 中的 `assets` 统一定义，严禁在运行时调用宿主机 `python3` 或 `pip`。
 3. **按需拉起与空闲回收**：
    - 在 `local` 语音模式下点击听读或录音转写时，自动调用 `ensureRunning()` 拉起 [`SPEECH_GATEWAY`](../../src/shells/speechGateway.ts) 本机回环 HTTP 服务（监听 `127.0.0.1` 随机端口，暴露 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions`）；
-   - 连续 `180 秒`（`idleTimeoutSec`）无请求或宿主关闭时，子进程自动退出释放内存。
+   - 超过空闲阈值（`idleTimeoutSec`）无请求或宿主关闭时，子进程自动退出释放内存。
 
 ---
 
