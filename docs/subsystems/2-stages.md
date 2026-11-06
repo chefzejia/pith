@@ -78,5 +78,5 @@ src/plugins/
 ## 6. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/stage-reader.test.ts tests/stage-timeline.test.ts tests/wave13-pagination-browser.test.ts
+node --experimental-strip-types --test tests/core-epub-and-typography.test.ts tests/wave3-track1-reader-formats.test.ts tests/wave13-pagination-browser.test.ts
 ```

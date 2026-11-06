@@ -83,5 +83,5 @@ src/
 ## 5. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/guide-acp.test.ts tests/track1-guide-providers.test.ts tests/speech.test.ts tests/task15-speech-runtime.test.ts tests/shells.test.ts
+node --experimental-strip-types --test tests/wave3-track2-guide-tools.test.ts tests/track1-guide-providers.test.ts tests/task15-speech-runtime.test.ts tests/wave2-trackB-shells.test.ts
 ```

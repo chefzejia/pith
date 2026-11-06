@@ -65,5 +65,5 @@ src/plugins/
 ## 4. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/dojo.test.ts tests/dojo-interline.test.ts tests/task14-shell-interline.test.ts
+node --experimental-strip-types --test tests/wave2-trackA-plugins.test.ts tests/wave5-trackA-dojo-feynman.test.ts tests/dojo-interline.test.ts
 ```
