@@ -33,6 +33,15 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator('[data-command="typography"]').click(); await page.locator('[data-mode="double"]').click();
     assert.equal(await page.locator('[data-mode="double"]').getAttribute("aria-pressed"), "true");
     await page.locator(".pith-guide-toggle").click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('[data-command="settings"]').click();
+    await page.locator("#close-drawer").click();
+    await page.locator(".pith-guide-toggle").click();
+    await page.locator(".pith-guide-toggle").click();
+    const mobileBounds = await page.evaluate(() => ({ left: document.querySelector(".pith-view")!.getBoundingClientRect().left, width: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+    assert.equal(mobileBounds.left, 0);
+    assert.equal(mobileBounds.width, mobileBounds.viewport);
+    await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('.pith-guide [data-voice="guide"]').click();
     await page.waitForFunction(() => document.querySelector('.pith-guide [data-voice="guide"]')?.getAttribute("aria-pressed") === "true");
     await page.waitForTimeout(300);
