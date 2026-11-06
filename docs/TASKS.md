@@ -29,10 +29,11 @@
 
 ## [Task #19] 课题毕业门禁与 `ME.md` 认知权重合并闭环（Eval & Checkpoint Merge）
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/plugins/guide-acp/**`, `src/shells/dsh/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: f1f76a4607e5d8d19dd610ff966798f96e54aad0
 - **Updated**: 2026-11-06
+- **验收**：Worker 通过 typecheck、215 项测试、Obsidian 构建及手动破壁；38 项环境相关测试跳过。Tester 在真实沙盒存储中验证结题、画像更新及不更新、空笔记拒绝和画像写入失败。未验证真实模型调用；跨文件写入按契约顺序执行，并非事务。
 - **授权范围**：允许修改 `src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/guide-acp/acpSession.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。只读依赖 `src/core/`。
 - **不在范围内**：严禁引入任何外部图数据库或非 Markdown 状态文件；`ME.md` 保持纯文本 Markdown 唯一事实源。
 - **接口与行为契约**：
