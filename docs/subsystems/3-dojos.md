@@ -52,17 +52,6 @@ src/plugins/
      - **🎯 深水区一问**：提出 1 个具体的反例或跨场景迁移问题，引导学习者补齐缺口。
    - 学习者提交复述后，系统将目标锚点 `anchor`、学习者复述正文与 `evaluationRubric` 注入向导上下文（[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts)），在右侧向导栏展开追问并落盘 `practice` 笔记（仅当向导离线未配置时回退至本地关键词盲区提示）。
 
-### 2.3 跨领域具身扩展同构性（Text-as-Seed → Embodied Dojo）
-
-同一套「纯文本种子 $\rightarrow$ 四阶渐进脚手架（`DojoScaffoldStage`）$\rightarrow$ 传感器/外部工具捕获产出 $\rightarrow$ 结构化误差落盘 `practice` 笔记」协议天然支持跨领域扩展：
-
-| 认知阶梯 | 语言与声学表达（外语 / 演讲） | 器乐与视唱练耳（WebMIDI / WebAudio） | 形式系统与编程（代码沙箱） | 空间博弈与案例推演 |
-| :--- | :--- | :--- | :--- | :--- |
-| **`listen-decompose`** | 意群斜杠（`/`）与重音连读拆解 | 乐谱/指板全显 + 和弦级数（`II-V-I`）与分句呼吸标注 | 源码与状态图全显 + 关键不变量标注 | 棋谱/案例关键节点拆解 |
-| **`guided-follow`** | 聚光灯游标同步领读跟练 | 节拍器游标引导真琴（MIDI/麦克风测音高）同步跟奏 | 跟随引导微调参数观察沙箱输出 | 跟随名局逐手摆子或步骤推演 |
-| **`scaffold-cloze`** | 保留句式骨架，挖空虚词/核心语块 | Lead Sheet 节奏骨架模式（只给和弦级数或首拍提示音） | 保留函数签名与控制流，挖空核心分支 | 残局关键一手填空 / 隐藏案例结局推演 |
-| **`blind-produce`** | 遮蔽原文盲听跟读 $\rightarrow$ ASR 词级对齐标亮漏词 | 盲弹背谱/听音扒谱 $\rightarrow$ 音准（Pitch）与时值（Rhythm）偏差对齐 | 空白环境从零实现跑通断言 $\rightarrow$ 报错回流向导诊断 | 独立完成决策 $\rightarrow$ 对照真实结果做二阶复盘 |
-
 ---
 
 ## 3. 行间双语伴读与滑动窗口预热（`dojo-interline`）

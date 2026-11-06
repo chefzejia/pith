@@ -8,32 +8,11 @@
 
 Pith 将「纯文本领域内核」、「按需挂载的内置插件」与「多态原生宿主壳」严格解耦。所有模块依赖遵循自外向内的单向无环图，并由 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 在每次测试时静态锁死：
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. 多态原生宿主壳 (Shells · src/shells/)                                     │
-│    obsidian/ · web/ · dsh/ · speechRuntime.ts · interline.ts                │
-│    [唯一允许导入 node:* / "obsidian" / @deepseek-ai/* 的外层，实现 HostPort] │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ 组装并调用
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. 平级内置插件 (Plugins · src/plugins/) — 仅在 src/plugins/all.ts 汇总注册 │
-│    ┌──────────────────┬───────────────────────┬──────────────────────────┐  │
-│    │ 舞台 (Stages)    │ 实训道场 (Dojos)      │ 向导与语音底座           │  │
-│    │ • stage-reader   │ • dojo-interline      │ • guide-acp              │  │
-│    │ • stage-timeline │ • dojo-feynman        │ • speech-service         │  │
-│    │                  │ • dojo-shadowing      │                          │  │
-│    └──────────────────┴───────────────────────┴──────────────────────────┘  │
-│    [插件间 100% 物理隔离互不 import，仅通过 src/core/seams.ts 服务栈通信]   │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ 仅导入 src/core/
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 3. 零依赖领域内核 (Core · src/core/)                                         │
-│    types.ts · host.ts · seams.ts · pluginrt/ · store/ · engine/             │
-│    [零宿主依赖、零 UI 框架依赖、零特定隐喻污染]                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| 层级（自外向内单向依赖） | 目录与包含模块 | 架构角色与硬性边界 |
+| :--- | :--- | :--- |
+| **1. 多态原生宿主壳**<br>*(Shells · [`src/shells/`](../src/shells/))* | `obsidian/` · `web/` · `dsh/`<br>`speechRuntime.ts` · `interline.ts` | **唯一允许导入 `node:*` / `"obsidian"` / `@deepseek-ai/*` 的外层**。实现 [`HostPort`](../src/core/host.ts)，在入口组装环境并驱动 [`src/plugins/all.ts`](../src/plugins/all.ts)。 |
+| **2. 平级内置插件**<br>*(Plugins · [`src/plugins/`](../src/plugins/))* | • **主视觉舞台 (`stage-*`)**：`stage-reader` · `stage-timeline`<br>• **按课题注入工具 (`dojo-*`)**：`dojo-interline` · `dojo-shadowing` · `dojo-feynman`<br>• **AI 向导协同 (`guide-*`)**：`guide-acp`<br>• **无界面公共底座 (`*-service`)**：`speech-service` | **插件间 100% 物理隔离互不 `import`**，仅通过 [`src/core/seams.ts`](../src/core/seams.ts) 服务栈通信，且严禁导入任何宿主包。 |
+| **3. 零依赖领域内核**<br>*(Core · [`src/core/`](../src/core/))* | `types.ts` · `host.ts` · `seams.ts`<br>`pluginrt/` · `store/` · `engine/` | **零宿主依赖、零 UI 框架依赖、零特定隐喻污染**。定义领域实体、纯文本账本协议、去 Session 化注意力引擎与插件运行时。 |
 
 ---
 
