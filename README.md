@@ -48,11 +48,12 @@ npm run build:obsidian     # Build dist/obsidian/ and sync to .dev-vault/.obsidi
 
 - [`src/core/`](src/core/): Zero-dependency domain kernel (`PluginRuntime`, `WorkspaceStore`, `AttentionEngine`, [`HostPort`](src/core/host.ts), and capability contracts in [`seams.ts`](src/core/seams.ts)).
 - [`src/plugins/`](src/plugins/): Isolated sibling plugins for presentation stages, practice dojos, standard ACP guide, and speech services, registered in [`src/plugins/all.ts`](src/plugins/all.ts).
-- [`src/shells/`](src/shells/): Polymorphic native host adapters (`obsidian`, `web`, `dsh`) and local runtime adapters.
+- `src/workbench/`: Single shared graphical workbench UI and interaction state machine consumed across every shell (`obsidian`, `web`, `dsh`).
+- [`src/shells/`](src/shells/): Thin native host adapters (`obsidian`, `web`, `dsh`, `speech`).
 - [`tests/`](tests/): Architecture boundary guards and subsystem verification suites.
 
 ## Documentation
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md): Product positioning, core modules, spatial interaction laws, and domain glossary.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 3-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), data ownership, and architectural decisions.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 4-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), and data ownership.
 - [`AGENTS.md`](AGENTS.md): Agent collaboration boundaries, verification commands, and routing.

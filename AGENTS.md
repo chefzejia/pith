@@ -3,12 +3,12 @@
 > **We used all human wisdom to train AI. Pith uses AI's training pipeline to train you.**
 > **全人类都在拿智慧训练大模型；Pith 借大模型的方法，训练你自己。**
 
-Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Personal Attention & Human Training System）**，采用「纯文本与状态机内核（`src/core`）+ 按需挂载的内置插件（`src/plugins`）+ 多态原生宿主壳（`src/shells`）」三层单向架构。
+Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Personal Attention & Human Training System）**，采用「零依赖领域内核（`src/core`）+ 按需挂载的内置插件（`src/plugins`）+ 全平台统一图形工作台（`src/workbench`）+ 多态原生宿主薄壳（`src/shells`）」四层单向架构（全 Shell 100% 统一 UI 与交互）。
 
 ## 核心约束
 
-1. **单向依赖与插件隔离（`PluginsImportOnlyCore`）**：`src/core/` 绝不导入 `src/plugins/` 或 `src/shells/`；`src/plugins/<id>/` 之间绝不互相导入（仅通过 `ctx.provide` / `ctx.service` 通信），仅由 `src/plugins/all.ts` 汇总注册。
-2. **宿主零泄漏（`Host-Agnostic Core & Plugins`）**：`src/core/**` 与 `src/plugins/**` 严禁导入 `node:*`、`"obsidian"` 或 `@deepseek-ai/*`；所有存储、网络、密钥与子进程能力统一经由 `HostPort`（`src/core/host.ts`）注入，且 ACP 插件只走标准协议，严禁硬编码读取特定 Agent 的私有配置文件。
+1. **四层单向依赖与插件隔离（`Concentric 4-Layer DAG`）**：`src/core/` 绝不导入上层；`src/plugins/<id>/` 仅导入 `src/core/` 且插件之间绝不互相导入（仅由 `src/plugins/all.ts` 汇总注册）；`src/workbench/` 仅导入 `src/core/` 与 `src/plugins/` 并提供全 Shell 唯一一份共享工作台 UI（严禁各 Shell 各自复制维护第二套 DOM/CSS）；`src/shells/` 根目录下严禁散落未归类的 `.ts` 文件。
+2. **宿主零泄漏（`Host-Agnostic Core, Plugins & Workbench`）**：`src/core/**`、`src/plugins/**` 与 `src/workbench/**` 严禁导入 `node:*`、`"obsidian"` 或 `@deepseek-ai/*`；所有存储、网络、密钥与子进程能力统一经由 `HostPort`（`src/core/host.ts`）注入，且 ACP 插件只走标准协议，严禁硬编码读取特定 Agent 的私有配置文件。
 3. **内核去隐喻化与 Agent 编排原则**：内核仅使用中性领域词（`Workspace`, `Profile`, `Topic`, `Material`, `Note`, `Anchor`, `Guide`）；插件由内核与向导 Agent 按需编排（`topic.toolkits`），严禁在 UI 设置中向用户暴露底层插件开关列表。
 4. **标准外部/按需语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件解耦；实时 TTS/ASR 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关（原生零 Python 依赖运行时），严禁回退系统低劣语音 API（`speechSynthesis`）或运行时调 `pip`，不可达时直接 Fail-Closed。
 5. **双环四角色验证切分、手动破壁与多 Worktree 流水线**：

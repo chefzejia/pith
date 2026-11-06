@@ -48,11 +48,12 @@ npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault
 
 - [`src/core/`](src/core/)：零宿主与 UI 框架依赖的领域内核（`PluginRuntime`、`WorkspaceStore`、`AttentionEngine`、[`HostPort`](src/core/host.ts) 与能力契约 [`seams.ts`](src/core/seams.ts)）。
 - [`src/plugins/`](src/plugins/)：平级隔离的阅读/媒体舞台、实训道场、标准 ACP 向导与语音服务插件，统一在 [`src/plugins/all.ts`](src/plugins/all.ts) 注册。
-- [`src/shells/`](src/shells/)：多态原生宿主适配器（`obsidian`、`web`、`dsh`）与本机运行时适配层。
+- `src/workbench/`：全 Shell（`obsidian`、`web`、`dsh`）共用的唯一一份五区图形工作台 UI 与交互状态机。
+- [`src/shells/`](src/shells/)：多态原生宿主薄壳适配器（`obsidian`、`web`、`dsh`、`speech`）。
 - [`tests/`](tests/)：架构边界守卫单测与各子系统验证套件。
 
 ## 文档入口
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)：产品定位、核心模块、空间交互铁律与领域词表。
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：三层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、数据所有权与架构决策。
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：四层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）与数据所有权。
 - [`AGENTS.md`](AGENTS.md)：Agent 协作边界、验证命令与按需路由。
