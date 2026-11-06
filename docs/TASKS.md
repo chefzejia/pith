@@ -29,7 +29,7 @@
 
 ## [Task #17] 全局麦克风录音与语音转写输入底座（移除 `<input type="file">` 音频上传）
 
-- **Status**: pending
+- **Status**: in_progress
 - **Scope**: `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
 - **Verified-Commit**: none
 - **Updated**: 2026-11-06
