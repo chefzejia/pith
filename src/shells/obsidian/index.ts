@@ -345,6 +345,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const input = doc.createElement("input"); input.type = "file"; input.accept = ".epub,.pdf,.cbz,.md,.markdown"; input.multiple = true; input.hidden = true;
     let importTopic: string | undefined;
     renderCompass(root, compass, {
+      ...(this.openSettings ? { settings: this.openSettings } : {}),
       import: () => { importTopic = undefined; input.click(); },
       open: id => { void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; const status = root.querySelector<HTMLElement>(".pith-home-status"); if (status) status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); },
       create: data => { void (async () => { await this.controller.store.createTopic(data); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); },
