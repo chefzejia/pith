@@ -70,7 +70,7 @@ export function renderTimelineView(input: Parameters<NonNullable<StageTimelineSe
   if (loop) sliceLoopRange(input.cues, loop.startSec, loop.endSec);
   const media = input.mediaFile ? `<${kind} controls src="${escapeHtml(input.mediaFile)}"></${kind}>` : "";
   const status = loop ? `A ${formatTimestamp(loop.startSec)} - B ${formatTimestamp(loop.endSec)}` : "A-B 循环未设置";
-  const cues = input.cues.map(cue => `<div class="pith-cue${cue.id === input.activeCueId ? " pith-cue-active" : ""}" data-cue-id="${escapeHtml(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true" data-end-sec="${cue.endSec}"><time>${formatTimestamp(cue.startSec)}</time> ${escapeHtml(cue.text)}</div>`).join("");
+  const cues = input.cues.map(cue => `<div class="pith-cue${cue.id === input.activeCueId ? " pith-cue-active" : ""}" data-cue-id="${escapeHtml(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true" data-end-sec="${cue.endSec}"><time data-prose="false">${formatTimestamp(cue.startSec)}</time> ${escapeHtml(cue.text)}</div>`).join("");
   return `<section class="pith-timeline-stage" data-media-kind="${kind}"><h2>${escapeHtml(input.title)}</h2>${media}<div class="pith-loop-status" role="status">${status}</div><div class="pith-timeline-cues">${cues}</div></section>`;
 }
 

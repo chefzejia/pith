@@ -312,7 +312,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const media = /^(audio|video)\//.test(entry.mimeType) ? entry : material.files.find(item => /^(audio|video)\//.test(item.mimeType));
           const mediaKind = media && media.mimeType.startsWith("video/") ? "video" : "audio";
           const mediaFile = media ? `/api/materials/${encodeURIComponent(material.id)}/file?name=${encodeURIComponent(media.name)}&raw=1` : undefined;
-          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaFile ? `<${mediaKind} controls src="${escape(mediaFile)}"></${mediaKind}>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time>${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
+          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaFile ? `<${mediaKind} controls src="${escape(mediaFile)}"></${mediaKind}>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
           return send(res, 200, { text, html, sections: [] });
         }
         const reader = runtime.getService<StageReaderService>("stage.reader");
