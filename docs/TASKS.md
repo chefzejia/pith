@@ -29,10 +29,11 @@
 
 ## [Task #25] 课题看板（Topic Board）视觉打磨、时间轴 `.pith-cue` 时间戳原位保留与右上角轻菜单收口
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/workbench/**`, `src/plugins/stage-timeline/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: 2daebd8
 - **Updated**: 2026-11-07
+- **验收摘要**：Worker 通过类型检查、全仓测试（218 通过、44 跳过）、构建与手动破壁；Tester 在 Web 与隔离 Obsidian 复验看板、悬停对比、设置入口、工具菜单及字幕时间戳，截图归档于 `.tmp/evidence/task-25/`。未重测实际语音或设置项持久化。
 - **授权范围**：允许修改 `src/workbench/compass.ts`、`src/workbench/view.ts`、`src/plugins/stage-timeline/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁在 `.tmp/evidence/` 中将 JPEG 字节保存为 `.png` 后缀（截图文件扩展名必须与真实图像编码格式严格一致）。
 - **接口与行为契约**：
