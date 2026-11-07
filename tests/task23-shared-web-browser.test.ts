@@ -23,8 +23,13 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     page.on("pageerror", (error: Error) => errors.push(error.message));
     page.on("request", (request: { method(): string; url(): string }) => { if (request.method() === "POST" && request.url().endsWith("/api/chat")) sends++; });
     await browser.grantPermissions(["microphone"], { origin: base });
+    await page.addInitScript(() => {
+      const state: { streams: MediaStream[] } = { streams: [] };
+      (window as unknown as { syntheticVoice: typeof state }).syntheticVoice = state;
+      navigator.mediaDevices.getUserMedia = async () => { const context = new AudioContext(); const source = context.createOscillator(); const destination = context.createMediaStreamDestination(); source.connect(destination); source.start(); await context.resume(); state.streams.push(destination.stream); return destination.stream; };
+    });
     await page.route("**/api/agents?force=true", (route: { fulfill(options: object): Promise<void> }) => route.fulfill({ json: [] }));
-    await page.route("**/api/speech/transcribe", (route: { fulfill(options: object): Promise<void> }) => route.fulfill({ json: { text: "受控转写" } }));
+    await page.route("**/api/speech/transcribe", (route: { request(): { postDataJSON(): { audio: string; mimeType: string } }; fulfill(options: object): Promise<void> }) => { const body = route.request().postDataJSON(); assert.equal(body.mimeType, "audio/webm"); assert.ok(Buffer.from(body.audio, "base64").length > 0); return route.fulfill({ json: { text: "受控转写" } }); });
     await page.goto(base);
     assert.equal(await page.locator(".pith-home h1").textContent(), "课题看板");
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
@@ -50,6 +55,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator('.pith-guide [data-voice="guide"]').click();
     await page.locator(".pith-guide textarea").waitFor({ state: "visible" });
     await page.waitForFunction(() => (document.querySelector(".pith-guide textarea") as HTMLTextAreaElement).value.includes("受控转写"));
+    assert.equal(await page.evaluate(() => { const streams = (window as unknown as { syntheticVoice: { streams: MediaStream[] } }).syntheticVoice.streams; return streams.length === 1 && streams[0]!.getTracks().every(track => track.readyState === "ended"); }), true);
     await page.locator(".pith-guide textarea").fill("受控问题");
     await page.locator("[data-guide-send]").click();
     await page.getByText("受控向导回复").last().waitFor();
