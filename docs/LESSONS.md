@@ -1,7 +1,11 @@
-<!-- reviewed-through: 183c625 (2026-11-05 18:10 +0800) -->
+<!-- reviewed-through: ba4e746 (2026-11-07 12:35 +0800) -->
 # Lessons from Merged Work
 
 ## Active Lessons
+
+**浏览器麦克风录制测试必须注入合成 WebAudio `MediaStream`（`createMediaStreamDestination`），不得仅依赖 `--use-fake-device-for-media-stream` 启动标志。**
+- `[Audit]` 在无硬件音频输入设备的无头环境或沙盒中，仅传 Chromium 启动标志仍可能导致 `navigator.mediaDevices.getUserMedia({ audio: true })` 抛 `NotFoundError: Requested device not found`（`tests/task23-shared-web-browser.test.ts:47` 因缺少 `tests/task17-voice-browser.test.ts:26` 的 `AudioContext` 流替身而超时）。
+- Seen 1× (2026-11-07).
 
 **共享界面的主操作应检查悬停状态的文字与背景对比度，不能只检查默认态。**
 - `[Task #25]` 双宿主验收发现新建课题按钮悬停后白字落在浅色背景上，工程自检截图与样式检查未覆盖悬停态。

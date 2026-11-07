@@ -47,3 +47,17 @@
      - 移除 `workbenchStyles` 中 `.pith-dojo-panel` 旧时代的 `width: min(480px, calc(100% - 32px))`、`.pith-dojo-panel textarea`、`.pith-dojo-panel label`、`.pith-dojo-panel pre` 残留规则，使其作为顶栏右下方近源多工具/行间模式切换气泡紧凑自适应（`width: max-content; max-width: calc(100% - 16px); display: flex; align-items: center; gap: 6px; padding: 8px 10px`）。
 - **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；新增/更新浏览器回归测试验证：1) 课题看板首页设置按钮靠右且操作按钮具备非默认边框/内边距样式；2) 点击 `.pith-cue` 展开原位跟读切换四阶镜头时 `<time>` 始终可见（`offsetWidth > 0`）且收起后 DOM 完整恢复；3) 完成手动破壁验证（`Broken by hand`）并将真实 PNG 截图存入 `.tmp/evidence/task-25/` 调用 `view_image / read_image` 自检。
 - **Tester 模拟用户终验要求**：在真实 Web 桌面壳与 `.dev-vault` Obsidian 中检查课题看板首页排版质感、多工具近源菜单宽度以及时间轴字幕展开原位跟读时左侧时间戳常驻显示，截图（扩展名与真实编码一致）归档至 `.tmp/evidence/task-25/`。
+
+---
+
+## [Task #Audit] 修复 `tests/task23-shared-web-browser.test.ts` 无硬件麦克风环境下的 `getUserMedia` 假阴性超时
+
+- **Status**: pending
+- **Scope**: `tests/task23-shared-web-browser.test.ts`
+- **Verified-Commit**: none
+- **Updated**: 2026-11-07
+- **授权范围**：仅允许修改 `tests/task23-shared-web-browser.test.ts`。
+- **不在范围内**：严禁修改 `src/**` 业务代码。
+- **实证与重构契约**：
+  - **实证（行号 `tests/task23-shared-web-browser.test.ts:17, 25, 47-52`）**：该测试仅依赖 Chromium `--use-fake-device-for-media-stream` 启动参数而未像 `tests/task17-voice-browser.test.ts:24-27` 那样通过 `page.addInitScript` 注入基于 `AudioContext.createMediaStreamDestination()` 的合成 `MediaStream`，导致在无实体音频输入设备的无头环境中点击 `.pith-guide [data-voice="guide"]` 时 `getUserMedia({ audio: true })` 直接失败回退为 `idle`，第 48 行 `waitForFunction` 5000ms 超时报错。
+  - **修复要求**：参照 `tests/task17-voice-browser.test.ts:24-27`，在 `tests/task23-shared-web-browser.test.ts` 的 `page.goto(base)` 之前通过 `page.addInitScript` 注入合成振荡器 `MediaStream`，确保 `PITH_PLAYWRIGHT_MODULE` + `PITH_CHROME_PATH` 下 `tests/task23-shared-web-browser.test.ts` 100% 稳定通过；同时通过手动破壁验证（临时移除 `addInitScript` 或破坏转写路由确认断言报红后恢复）。
