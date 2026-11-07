@@ -52,10 +52,11 @@
 
 ## [Task #Audit] 修复 `tests/task23-shared-web-browser.test.ts` 无硬件麦克风环境下的 `getUserMedia` 假阴性超时
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `tests/task23-shared-web-browser.test.ts`
-- **Verified-Commit**: none
+- **Verified-Commit**: ce4727a69791a97c9983663deefc0c3e6f2e1978
 - **Updated**: 2026-11-07
+- **验收摘要**：指定 Chromium 测试实际运行通过；Worker 完成全仓检查与转写断言破壁，Tester 独立观察合成录音、受控转写回填及音轨释放。证据见 `.tmp/evidence/task-Audit/`；未验证实体麦克风或真实 ASR。
 - **授权范围**：仅允许修改 `tests/task23-shared-web-browser.test.ts`。
 - **不在范围内**：严禁修改 `src/**` 业务代码。
 - **实证与重构契约**：
