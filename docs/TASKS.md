@@ -29,12 +29,13 @@
 
 ## [Task #26] 设置面板重构（Agent 右侧对齐与单键刷新、云端语音平铺显隐、本机语音单主按钮与安装修复）
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/shells/obsidian/**`, `src/shells/web/**`, `src/shells/speech/**`, `src/workbench/**`, `scripts/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: 1f6b821e4603539504dbac2af9b4dc4475c2776d
 - **Updated**: 2026-11-08
+- **验收摘要**：Worker 完成类型检查、全仓测试（223 通过、46 跳过）、构建、手动破壁和沙盒已有 Kokoro/SenseVoice 的真实 TTS/ASR 检查，三个授权插件文件已同步至 ganfan-media。Tester 在 Web 与隔离 Obsidian 实际点按并看图，通过 Agent 对齐刷新、语音模式互斥、安装中重开与失败反馈、已安装操作；安装状态与云端检测使用受控边界，不宣称全新下载安装或真实云端连接通过。终验截图为 `.tmp/evidence/task-26/final-1f6b821-*.png`。model / effort 保持原有行为。
 - **授权范围**：允许修改 `src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts`、`src/shells/speech/speechRuntime.ts`、`src/workbench/**`、`scripts/build-obsidian.mjs` 及 `tests/**`。
-- **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁在 `src/plugins/` 或 `src/workbench/` 中引入宿主包。
+- **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁在 `src/plugins/` 或 `src/workbench/` 中引入宿主包；按用户最新要求，`model` / `effort` 保持原有显示、选择与配置行为。
 - **背景与参考代码**：执行环在开工前请主动阅读 `src/shells/obsidian/index.ts`（`PithSettingTab.display`、`createObsidianHostPort`）、`src/shells/web/client.ts`（`openSimpleSettings`）、`src/shells/speech/speechRuntime.ts`（`NodeManagedSpeechRuntime`），以及母本仓库 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/settings.ts` 中关于设置行右侧控件组布局的细节。
 - **接口与行为契约**：
   1. **「本机 Agent」行右侧对齐与轻量刷新图标按钮（`src/shells/obsidian/index.ts` & `src/shells/web/client.ts`）**：
