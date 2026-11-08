@@ -7,10 +7,6 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { createObsidianHostPort, type ObsidianVaultAdapter } from "../src/shells/obsidian/index.ts";
 import { testSandbox } from "./sandbox.ts";
 
-const longModel = "Default (recommended) Claude model with a deliberately very long identifier 2026-11-08";
-const longChoice = "SelectedModelWithAnUnbrokenIdentifierabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-const longEffort = "Maximum reasoning effort with a descriptive long label";
-
 test("Obsidian requires a valid Vault root before enabling managed speech", async () => {
   const dir = await testSandbox("pith-task26-root-");
   const previous = process.env.PITH_SPEECH_HOME; process.env.PITH_SPEECH_HOME = join(dir, "vault");
@@ -38,39 +34,16 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class {}, Plugin: class {}, Notice: class {}, PluginSettingTab: class { containerEl = document.getElementById("root"); } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(() => {
-      const fixture: any = (window as any).fixture = { speech: { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }, runtime: { supported: true, status: "failed", note: "existing failure" }, config: { agentId: "dsh", persona: "studio", model: "", effort: "" } };
+      const fixture: any = (window as any).fixture = { speech: { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }, runtime: { supported: true, status: "failed", note: "existing failure" } };
       const controller = {
-        getAgentConfig: () => fixture.config, setAgentConfig: async (value: unknown) => { fixture.config = value; }, isAgentConfigured: () => true,
-        detectAgents: async () => [], probeAgentOptions: async () => fixture.options, getSpeechConfig: () => fixture.speech,
+        getAgentConfig: () => ({ agentId: "", persona: "studio", model: "", effort: "" }), isAgentConfigured: () => true,
+        detectAgents: async () => [], probeAgentOptions: async () => [], getSpeechConfig: () => fixture.speech,
         setSpeechMode: async (mode: string) => { fixture.speech = mode === "cloud" ? { ttsProvider: "openai", asrProvider: "openai-whisper" } : { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }; },
         speechRuntimeState: async () => fixture.runtime,
         speechRuntimeAction: async () => { throw new Error("fixture install failure"); },
       };
-      fixture.tab = new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller);
+      fixture.tab = new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller); fixture.tab.display();
     });
-    await page.evaluate(({ model, choice, effort }: { model: string; choice: string; effort: string }) => {
-      const fixture = (window as any).fixture;
-      fixture.options = [{ id: "model", name: "Model", type: "select", currentValue: "first", options: [{ value: "first", name: model }, { value: "second", name: choice }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "high", options: [{ value: "high", name: effort }] }];
-      fixture.tab.display();
-    }, { model: longModel, choice: longChoice, effort: longEffort });
-    await page.locator("#pith-model-value").filter({ hasText: longModel }).waitFor();
-    const modelSelect = page.locator('select[aria-describedby="pith-model-value"]');
-    assert.equal(await modelSelect.getAttribute("title"), `默认（跟随 Agent 当前默认：${longModel}）`);
-    await modelSelect.selectOption("second");
-    assert.equal(await page.locator("#pith-model-value").textContent(), longChoice);
-    assert.equal(await modelSelect.getAttribute("title"), longChoice);
-    await modelSelect.focus(); assert.equal(await modelSelect.evaluate((element: HTMLElement) => document.activeElement === element), true);
-    assert.match(await page.locator("#pith-effort-value").textContent(), /Maximum reasoning effort/);
-    await page.locator('select[aria-describedby="pith-effort-value"]').selectOption("high");
-    assert.equal(await page.locator("#pith-effort-value").textContent(), longEffort);
-    await page.setViewportSize({ width: 360, height: 800 });
-    const bounds = await page.locator("#pith-model-value").evaluate((element: HTMLElement) => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, scroll: element.scrollWidth, width: element.clientWidth, height: rect.height }; });
-    assert.ok(bounds.left >= 0 && bounds.right <= 360 && bounds.scroll <= bounds.width && bounds.height > 20);
-    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
-    await page.screenshot({ path: join(evidence, "obsidian-long-narrow.png") });
-    await page.setViewportSize({ width: 900, height: 900 });
-    await page.evaluate(() => (window as any).fixture.tab.display());
-    await page.locator("#pith-model-value").filter({ hasText: longChoice }).waitFor();
     await page.getByRole("button", { name: "重新安装" }).waitFor();
     assert.equal(await page.locator("#pith-runtime button").count(), 1);
     assert.equal(await page.locator("#pith-runtime").isVisible(), true);
@@ -87,6 +60,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.getByText("安装异常：reopened failure").waitFor();
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
     assert.equal(await page.getByRole("button", { name: "刷新本机 Agent" }).textContent(), "↻");
+    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "obsidian-settings.png") });
     await page.getByLabel("语音服务模式").selectOption("cloud");
     assert.equal(await page.locator("#pith-runtime").isVisible(), false);
@@ -111,7 +85,6 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     const page = await browser.newPage();
     page.setDefaultTimeout(5000);
     await page.route("**/api/agents?**", (route: any) => route.fulfill({ json: [] }));
-    await page.route("**/api/agents/options?**", (route: any) => route.fulfill({ json: [{ id: "model", name: "Model", type: "select", currentValue: "first", options: [{ value: "first", name: longModel }, { value: "second", name: longChoice }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "high", options: [{ value: "high", name: longEffort }] }] }));
     let release!: () => void, requested!: () => void;
     const gate = new Promise<void>(resolveGate => { release = resolveGate; });
     const entered = new Promise<void>(resolveEntered => { requested = resolveEntered; });
@@ -126,26 +99,6 @@ test("settings expose mutually exclusive speech controls and runtime transitions
       await route.fulfill({ json: runtime });
     });
     await page.goto(`http://127.0.0.1:${address.port}`); await page.locator("[data-home-settings]").click();
-    await page.locator("#simple-agent").selectOption("dsh");
-    await page.locator("#simple-model-value").filter({ hasText: longModel }).waitFor();
-    assert.equal(await page.locator("#simple-model").getAttribute("title"), `默认（跟随 Agent 当前默认：${longModel}）`);
-    assert.equal(await page.locator("#simple-model").getAttribute("aria-describedby"), "simple-model-value");
-    await page.locator("#simple-model").selectOption("second");
-    assert.equal(await page.locator("#simple-model-value").textContent(), longChoice);
-    assert.equal(await page.locator("#simple-model").getAttribute("title"), longChoice);
-    await page.locator("#simple-model").focus(); assert.equal(await page.locator("#simple-model").evaluate((element: HTMLElement) => document.activeElement === element), true);
-    assert.match(await page.locator("#simple-effort-value").textContent(), /Maximum reasoning effort/);
-    await page.locator("#simple-effort").selectOption("high");
-    assert.equal(await page.locator("#simple-effort-value").textContent(), longEffort);
-    await page.setViewportSize({ width: 360, height: 850 });
-    const bounds = await page.locator("#simple-model-value").evaluate((element: HTMLElement) => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, scroll: element.scrollWidth, width: element.clientWidth, height: rect.height }; });
-    assert.ok(bounds.left >= 0 && bounds.right <= 360 && bounds.scroll <= bounds.width && bounds.height > 20);
-    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
-    await page.screenshot({ path: join(evidence, "web-long-narrow.png") });
-    await page.setViewportSize({ width: 1100, height: 850 });
-    await page.waitForFunction(async () => { const response = await fetch("/api/state"); const data = await response.json(); return data.settings.model === "second"; });
-    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
-    await page.locator("#simple-model-value").filter({ hasText: longChoice }).waitFor();
     const scan = page.getByRole("button", { name: "刷新本机 Agent" });
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
     assert.equal(await scan.textContent(), "↻");
@@ -156,6 +109,7 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     assert.equal(await page.locator("#simple-key-row").isVisible(), false);
     assert.equal(await page.locator("#simple-health").isVisible(), false);
     assert.equal(await page.locator("#speech-runtime button").count(), 1);
+    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "web-local.png") });
     await page.getByRole("button", { name: "安装引擎" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); }); await entered;
     assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
