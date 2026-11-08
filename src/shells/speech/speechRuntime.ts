@@ -83,7 +83,11 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     await this.checkPath();
     const nativeHash = nodePackages[`${process.platform}-${process.arch}`];
     if (!nativeHash) throw new Error("当前平台暂不支持托管本机语音");
-    if ((await this.getState()).status !== "not-installed") return this.getState();
+    const current = await this.getState();
+    if (current.status === "failed") {
+      if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖");
+      await this.checkPath(); await rm(this.home, { recursive: true });
+    } else if (current.status !== "not-installed") return current;
     await mkdir(dirname(this.home), { recursive: true }); await this.checkPath();
     try { await mkdir(this.home); await writeFile(join(this.home, ".owner"), owner, { flag: "wx" }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖"); }

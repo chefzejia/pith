@@ -1,5 +1,6 @@
 import { WebWorkbench } from "./workbench.ts";
 import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
+import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { speechMode } from "../speech/speechSettings.ts";
 import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
 
@@ -62,7 +63,7 @@ document.addEventListener("change", event => {
 let settingsPending = Promise.resolve(), agentIntent: string | undefined;
 function openSimpleSettings() {
   drawer.hidden = false;
-  drawer.innerHTML = '<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <select id="simple-agent"><option value="">\u79BB\u7EBF</option><option value="dsh">dsh</option><option value="claude">claude</option><option value="codex">codex</option></select><button type="button" id="simple-scan">\u91CD\u65B0\u68C0\u6D4B</button></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><label>\u672F\u8BED\u98CE\u683C <select id="simple-persona"><option value="sanctuary">\u82B1\u56ED / \u56ED\u4E01</option><option value="studio">\u5DE5\u4F5C\u533A / \u5411\u5BFC</option></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"><p id="speech-runtime-status" role="status"></p><button type="button" data-runtime="install">\u5B89\u88C5/\u542F\u7528\u672C\u673A\u8BED\u97F3\u5F15\u64CE</button> <button type="button" data-runtime="ensureRunning">\u542F\u52A8/\u68C0\u6D4B</button> <button type="button" data-runtime="stop">\u91CA\u653E</button> <button type="button" data-runtime="remove">\u5378\u8F7D\u5F15\u64CE</button></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><details><summary>\u9AD8\u7EA7\u81EA\u5B9A\u4E49\u7AEF\u70B9\u4E0E\u6A21\u578B\uFF08\u53EF\u9009\uFF09</summary><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></details><div id="simple-status" role="status"></div></div>';
+  drawer.innerHTML = '<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <span class="pith-setting-control"><select id="simple-agent"><option value="">\u79BB\u7EBF</option><option value="dsh">dsh</option><option value="claude">claude</option><option value="codex">codex</option></select><button type="button" id="simple-scan" aria-label="刷新本机 Agent" title="刷新本机 Agent">↻</button></span></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><label>\u672F\u8BED\u98CE\u683C <select id="simple-persona"><option value="sanctuary">\u82B1\u56ED / \u56ED\u4E01</option><option value="studio">\u5DE5\u4F5C\u533A / \u5411\u5BFC</option></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><div id="simple-cloud-fields"><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></div><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><div id="simple-status" role="status"></div></div>';
   const agent = requiredSelect("#simple-agent"), model = requiredSelect("#simple-model"), effort = requiredSelect("#simple-effort"), persona = requiredSelect("#simple-persona"), mode = requiredSelect("#simple-mode"), status = requiredHost("#simple-status"), speech = state.settings.speech || {};
   if (!state.settings.agentConfigured) {
     const option = document.createElement("option");
@@ -95,30 +96,12 @@ function openSimpleSettings() {
     state.settings = result.settings;
     status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
   });
-  const runtimePanel = requiredHost("#speech-runtime"), runtimeStatus = requiredHost("#speech-runtime-status");
-  const runtimeState = () => api<ManagedSpeechState>("/api/speech/runtime").then((info) => {
-    if (runtimePanel.isConnected) {
-      runtimeStatus.textContent = info.note;
-      runtimePanel.querySelectorAll("button").forEach((button) => button.disabled = !info.supported);
-    }
-  }).catch((error) => {
-    if (runtimePanel.isConnected) runtimeStatus.textContent = error.message || String(error);
-  });
-  runtimePanel.querySelectorAll<HTMLButtonElement>("button[data-runtime]").forEach((button) => button.onclick = () => {
-    runtimePanel.querySelectorAll("button").forEach((item) => item.disabled = true);
-    runtimeStatus.textContent = button.dataset.runtime === "install" ? "\u6B63\u5728\u5B89\u88C5\u672C\u673A\u8BED\u97F3\u5F15\u64CE" : "\u5904\u7406\u4E2D";
-    api<ManagedSpeechState>("/api/speech/runtime", { action: button.dataset.runtime }).then((info) => {
-      if (runtimePanel.isConnected) runtimeStatus.textContent = info.note;
-    }).catch((error) => {
-      if (runtimePanel.isConnected) runtimeStatus.textContent = error.message || String(error);
-    }).finally(() => {
-      if (runtimePanel.isConnected) runtimePanel.querySelectorAll("button").forEach((item) => item.disabled = false);
-    });
-  });
-  runtimeState();
+  const runtimePanel = requiredHost("#speech-runtime");
+  renderSpeechRuntimeSettings(runtimePanel, () => api<ManagedSpeechState>("/api/speech/runtime"), action => api<ManagedSpeechState>("/api/speech/runtime", { action }), () => runtimePanel.isConnected);
   const visibility = () => {
     runtimePanel.hidden = mode.value !== "local";
     requiredHost("#simple-key-row").hidden = mode.value !== "cloud";
+    requiredHost("#simple-cloud-fields").hidden = mode.value !== "cloud";
     requiredHost("#simple-health").hidden = mode.value !== "cloud";
   };
   visibility();
@@ -181,6 +164,7 @@ function openSimpleSettings() {
   const scan = () => {
     const button = requiredButton("#simple-scan");
     button.disabled = true;
+    button.textContent = "…";
     api<readonly DiscoveredAgentDescriptor[]>("/api/agents?force=true").then((agents) => {
       const available = ["dsh", "claude", "codex"].map((id) => agents.find((item) => item.id === id && item.available)).find(Boolean);
       if (agentIntent === void 0 && agent.isConnected && !drawer.hidden && !state.settings.agentConfigured && available) {
@@ -192,6 +176,7 @@ function openSimpleSettings() {
       status.textContent = error.message || String(error);
     }).finally(() => {
       button.disabled = false;
+      button.textContent = "↻";
     });
   };
   requiredButton("#simple-scan").onclick = () => {
