@@ -62,10 +62,11 @@
 
 ## [Task #27] 阅读舞台键盘翻页焦点自动接管 & EPUB 深色模式字色可读性修复（对齐 `ganfan-garden` 渲染演进）
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/workbench/**`, `src/plugins/stage-reader/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: 779c063ae931b5157db06a41b05b5e569b8d954d
 - **Updated**: 2026-11-08
+- **验收摘要**：Worker 完成类型检查、变基组合全仓测试（222 通过、52 跳过）、15 项相关 Chromium 回归、手动破壁、构建与自拍审视。Tester 在 Web 与隔离 Obsidian 实际导入《女人的性爱动机》沙盒副本，从看板进书后首次方向键由第 1 页进入第 2 页，四个翻页键及向导输入焦点保护均通过；原书三个问题章节黄底生效，正文配色清晰。局部背景继承复验双端对比度最低 4.54:1；Web 抽查前 20 章的纯色背景文字未发现低于 4.5:1。终验截图存于 `.tmp/evidence/task-27/final-*.png`。原书图片内容及部分段落较紧行高保留，图片内嵌文字不属于纯色文字对比度测量。
 - **授权范围**：允许修改 `src/workbench/view.ts`、`src/plugins/stage-reader/epub.ts`、`src/plugins/stage-reader/epubResources.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/` 冻结契约。
 - **背景与参考代码**：执行环在开工前请主动阅读 `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden` 中经过多轮迭代的成熟实现：
