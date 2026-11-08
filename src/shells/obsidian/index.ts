@@ -441,6 +441,7 @@ export class PithSettingTab extends SettingTabBase {
   constructor(app: ObsidianPluginBase["app"], plugin: PithObsidianPlugin, controller: PithObsidianController) { super(app, plugin); this.plugin = plugin; this.controller = controller; }
   display(): void {
     const root = this.containerEl; root.replaceChildren(); const doc = root.ownerDocument;
+    const hiddenStyles = doc.createElement("style"); hiddenStyles.textContent = ".pith-cloud-health[hidden]{display:none!important}"; root.append(hiddenStyles);
     const styles = doc.createElement("style"); styles.textContent = ".pith-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--background-modifier-border)}.pith-setting-row[hidden]{display:none}.pith-setting-row input,.pith-setting-row select{max-width:55%}.pith-setting-control{display:inline-flex;align-items:center;justify-content:flex-end;gap:8px}.pith-setting-control select{max-width:100%}.pith-runtime-title{display:flex;flex-direction:column;gap:4px}.pith-runtime-title small{color:var(--text-muted)}#pith-runtime{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 0}#pith-runtime[hidden]{display:none}"; root.append(styles);
     const heading = (text: string) => { const node = doc.createElement("h3"); node.textContent = text; root.append(node); };
     const row = (parent: HTMLElement, label: string, control: HTMLElement) => { const node = doc.createElement("label"); node.className = "pith-setting-row"; node.textContent = label; node.append(control); parent.append(node); return node; };
@@ -471,7 +472,7 @@ export class PithSettingTab extends SettingTabBase {
     renderSpeechRuntimeSettings(runtimePanel, () => this.controller.speechRuntimeState(), action => this.controller.speechRuntimeAction(action), () => root.contains(runtimePanel));
     if (currentMode === "legacy") { const legacy = mode.querySelector<HTMLOptionElement>('option[value="legacy"]'); if (legacy) legacy.disabled = true; status.textContent = "现有语音配置保持不变；选择模式可切换标准协议"; }
     const key = input(root, "API Key", ""); key.type = "password"; key.autocomplete = "new-password"; const keyRow = key.parentElement!;
-    const health = doc.createElement("button"); health.textContent = "检测连接"; health.type = "button";
+    const health = doc.createElement("button"); health.textContent = "检测连接"; health.type = "button"; health.className = "pith-cloud-health";
     const cloudFields = doc.createElement("div"); root.append(cloudFields);
     const fields = [["ttsEndpoint", "TTS 端点 URL"], ["ttsModel", "TTS 模型"], ["ttsVoice", "音色"], ["asrLoopbackUrl", "ASR 端点 URL"], ["asrModel", "ASR 模型"]] as const;
     const controls = new Map<string, HTMLInputElement>();

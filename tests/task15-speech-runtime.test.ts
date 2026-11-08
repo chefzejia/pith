@@ -25,6 +25,28 @@ test("managed speech rejects Vault paths and preserves unowned directories", asy
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test("managed speech reports a single pending install and retains its failure", async () => {
+  const dir = await testSandbox("pith-speech-pending-");
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolveGate => { release = resolveGate; });
+  const started = new Promise<void>(resolveStarted => { entered = resolveStarted; });
+  let calls = 0;
+  const runtime = new NodeManagedSpeechRuntime({ home: join(dir, "speech"), protectedRoot: join(dir, "vault"), runInstallCommand: async () => { calls++; entered(); await gate; throw new Error("受控下载失败"); } });
+  const results = Promise.allSettled([runtime.install(), runtime.install()]);
+  try {
+    await started;
+    const pending = await runtime.getState();
+    assert.equal(pending.status, "installing"); assert.match(pending.note, /正在下载 Node 运行时/);
+    assert.equal(calls, 1);
+    release();
+    assert.deepEqual((await results).map(result => result.status), ["rejected", "rejected"]);
+    const state = await runtime.getState();
+    assert.equal(state.status, "failed"); assert.match(state.note, /受控下载失败/);
+    assert.equal(calls, 1);
+    assert.equal((await runtime.remove()).status, "not-installed");
+  } finally { release(); await results; await rm(dir, { recursive: true, force: true }); }
+});
+
 test("managed speech serves real TTS and ASR and stops only its own process", { timeout: 120000, skip: !process.env.PITH_SPEECH_TEST_HOME }, async () => {
   const root = resolve(process.env.PITH_SPEECH_TEST_HOME!);
   assert.ok(root.startsWith(resolve(".tmp") + sep), "real engine test must use .tmp");

@@ -29,27 +29,35 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 900 } });
     const page = await browser.newPage();
-    await page.setContent('<style>body{font:14px Arial;--background-modifier-border:#ddd;--text-muted:#666}#root{max-width:700px;margin:auto}</style><div id="root"></div>');
+    page.setDefaultTimeout(5000);
+    await page.setContent('<style>body{font:14px Arial;--background-modifier-border:#ddd;--text-muted:#666}button{display:inline-flex}#root{max-width:700px;margin:auto}</style><div id="root"></div>');
     await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class {}, Plugin: class {}, Notice: class {}, PluginSettingTab: class { containerEl = document.getElementById("root"); } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(() => {
-      const fixture: any = (window as any).fixture = { speech: { ttsProvider: "kokoro-local", asrProvider: "whisper-local" } };
+      const fixture: any = (window as any).fixture = { speech: { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }, runtime: { supported: true, status: "failed", note: "existing failure" } };
       const controller = {
         getAgentConfig: () => ({ agentId: "", persona: "studio", model: "", effort: "" }), isAgentConfigured: () => true,
         detectAgents: async () => [], probeAgentOptions: async () => [], getSpeechConfig: () => fixture.speech,
         setSpeechMode: async (mode: string) => { fixture.speech = mode === "cloud" ? { ttsProvider: "openai", asrProvider: "openai-whisper" } : { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }; },
-        speechRuntimeState: async () => ({ supported: true, status: "failed", note: "fixture" }),
+        speechRuntimeState: async () => fixture.runtime,
         speechRuntimeAction: async () => { throw new Error("fixture install failure"); },
       };
-      new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller).display();
+      fixture.tab = new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller); fixture.tab.display();
     });
     await page.getByRole("button", { name: "重新安装" }).waitFor();
     assert.equal(await page.locator("#pith-runtime button").count(), 1);
     assert.equal(await page.locator("#pith-runtime").isVisible(), true);
     assert.equal(await page.getByLabel("API Key").isVisible(), false);
+    assert.equal(await page.getByRole("button", { name: "检测连接", includeHidden: true }).isVisible(), false);
+    await page.getByText("安装异常：existing failure").waitFor();
     await page.getByRole("button", { name: "重新安装" }).click();
     await page.getByText("安装异常：fixture install failure").waitFor();
     assert.equal(await page.getByRole("button", { name: "重新安装" }).isEnabled(), true);
+    await page.evaluate(() => { (window as any).fixture.runtime = { supported: true, status: "installing", note: "正在下载 Node 运行时" }; (window as any).fixture.tab.display(); });
+    assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
+    await page.getByText("安装中…：正在下载 Node 运行时").waitFor();
+    await page.evaluate(() => { (window as any).fixture.runtime = { supported: true, status: "failed", note: "reopened failure" }; });
+    await page.getByText("安装异常：reopened failure").waitFor();
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
     assert.equal(await page.getByRole("button", { name: "刷新本机 Agent" }).textContent(), "↻");
     const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
@@ -58,6 +66,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     assert.equal(await page.locator("#pith-runtime").isVisible(), false);
     assert.equal(await page.getByLabel("API Key").isVisible(), true);
     assert.equal(await page.getByLabel("ASR 模型").isVisible(), true);
+    assert.equal(await page.getByRole("button", { name: "检测连接" }).isVisible(), true);
     assert.equal(await page.locator("details").count(), 0);
     assert.equal(await page.getByRole("button", { name: "检测连接" }).evaluate((el: HTMLElement) => el.previousElementSibling?.querySelectorAll("input").length), 5);
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
@@ -66,21 +75,24 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
 test("settings expose mutually exclusive speech controls and runtime transitions", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
   const dir = await testSandbox("pith-task26-settings-");
-  const server = await createPithWebServer({ workspaceDir: dir });
+  const previousHome = process.env.PITH_SPEECH_HOME; process.env.PITH_SPEECH_HOME = join(dir, "speech");
+  await mkdir(join(dir, "workspace"));
+  const server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
   let browser: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string");
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 850 } });
     const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
     await page.route("**/api/agents?**", (route: any) => route.fulfill({ json: [] }));
     let release!: () => void, requested!: () => void;
     const gate = new Promise<void>(resolveGate => { release = resolveGate; });
     const entered = new Promise<void>(resolveEntered => { requested = resolveEntered; });
-    let runtime = { supported: true, status: "not-installed", note: "fixture" };
+    let runtime = { supported: true, status: "not-installed", note: "fixture" }, installs = 0;
     await page.route("**/api/speech/runtime", async (route: any) => {
       if (route.request().method() === "POST") {
         const action = route.request().postDataJSON().action;
-        if (action === "install") { requested(); await gate; runtime = { supported: true, status: "stopped", note: "fixture" }; }
+        if (action === "install") { installs++; runtime = { supported: true, status: "installing", note: "正在下载 Node 运行时" }; requested(); await gate; runtime = { supported: true, status: "failed", note: "controlled failure" }; }
         else if (action === "remove") runtime = { supported: true, status: "not-installed", note: "fixture" };
         else runtime = { supported: true, status: "running", note: "fixture" };
       }
@@ -99,10 +111,22 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     assert.equal(await page.locator("#speech-runtime button").count(), 1);
     const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "web-local.png") });
-    await page.getByRole("button", { name: "安装引擎" }).click(); await entered;
+    await page.getByRole("button", { name: "安装引擎" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); }); await entered;
     assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
     assert.match(await page.locator("#speech-runtime [role=status]").textContent(), /安装中/);
-    release(); await page.getByRole("button", { name: "检测语音" }).waitFor();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
+    assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
+    await page.getByText("安装中…：正在下载 Node 运行时").waitFor();
+    assert.equal(installs, 1);
+    await page.screenshot({ path: join(evidence, "web-installing.png") });
+    release(); await page.getByText("安装异常：controlled failure").waitFor();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
+    await page.getByText("安装异常：controlled failure").waitFor();
+    assert.equal(await page.getByRole("button", { name: "重新安装" }).isEnabled(), true);
+    await page.screenshot({ path: join(evidence, "web-failed.png") });
+    runtime = { supported: true, status: "stopped", note: "fixture" };
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
+    await page.getByRole("button", { name: "检测语音" }).waitFor();
     assert.equal(await page.getByRole("button", { name: "卸载" }).isVisible(), true);
     await page.getByRole("button", { name: "检测语音" }).click();
     await page.getByText("运行中", { exact: true }).waitFor();
@@ -116,5 +140,5 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     assert.equal(await page.locator("#drawer details").count(), 0);
     assert.equal(await page.locator("#simple-health").evaluate((el: HTMLElement) => el.previousElementSibling?.id), "simple-cloud-fields");
     await page.screenshot({ path: join(evidence, "web-cloud.png") });
-  } finally { if (browser) await browser.close(); await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await rm(dir, { recursive: true, force: true }); }
+  } finally { if (browser) await browser.close(); await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); if (previousHome === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previousHome; await rm(dir, { recursive: true, force: true }); }
 });
