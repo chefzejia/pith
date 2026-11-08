@@ -346,7 +346,6 @@ export class PithWorkbenchView {
     for (const element of this.article.querySelectorAll<HTMLElement>("[data-pith-readable]")) { element.removeAttribute("data-pith-readable"); element.style.removeProperty("--pith-readable-color"); }
     const body = this.doc.body;
     const dark = body.classList.contains("theme-dark") || (!body.classList.contains("theme-light") && typeof this.win.matchMedia === "function" && this.win.matchMedia("(prefers-color-scheme: dark)").matches);
-    if (!dark) return;
     const backgrounds = new Map<Element, Rgb>();
     const background = (element: Element | null): Rgb => {
       if (!element) return [255, 255, 255];
@@ -354,17 +353,22 @@ export class PithWorkbenchView {
       const parent = background(element.parentElement), value = rgba(this.win.getComputedStyle(element).backgroundColor);
       const result = value ? composite(value, parent) : parent; backgrounds.set(element, result); return result;
     };
-    const changes: { element: HTMLElement; color: Rgb }[] = [];
     for (const chapter of chapters) {
+      const painted = new Map<Element, boolean>();
+      // Descendants must inherit the corrected color before their own contrast is measured.
       for (const element of [chapter, ...chapter.querySelectorAll<HTMLElement>("*")]) {
-        if (["STYLE", "SVG", "PATH"].includes(element.tagName)) continue;
-        const color = rgba(this.win.getComputedStyle(element).color);
+        if (element.tagName === "STYLE" || element.closest("svg")) continue;
+        const style = this.win.getComputedStyle(element);
+        const layer = rgba(style.backgroundColor);
+        const localBackground = Boolean(layer && layer[3] > 0) || (element !== chapter && painted.get(element.parentElement!) === true);
+        painted.set(element, localBackground);
+        if (!dark && !localBackground) continue;
+        const color = rgba(style.color);
         if (!color) continue;
         const adjusted = readableColor(color, background(element));
-        if (adjusted) changes.push({ element, color: adjusted });
+        if (adjusted) { element.style.setProperty("--pith-readable-color", `rgb(${adjusted.join(", ")})`); element.setAttribute("data-pith-readable", ""); }
       }
     }
-    for (const { element, color } of changes) { element.style.setProperty("--pith-readable-color", `rgb(${color.join(", ")})`); element.setAttribute("data-pith-readable", ""); }
   }
   dispose(): void { this.disposed = true; this.voice.cancel(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
