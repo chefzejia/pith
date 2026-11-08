@@ -1,7 +1,23 @@
-<!-- reviewed-through: ba4e746 (2026-11-07 12:35 +0800) -->
+<!-- reviewed-through: 751ec7d21a6be770d92c2f19bd249b57062eac59 (2026-11-08 18:00 +0800) -->
 # Lessons from Merged Work
 
 ## Active Lessons
+
+**界面验收发现相邻控件问题时，修复仍受当前任务与用户最新范围约束，不能自动扩大到其他配置项。**
+- `[Task #26]` 模型名称截断被扩展为 model/effort 说明与联动改造，用户明确否决；这两个配置项保持原有行为。
+- Seen 1× (2026-11-08).
+
+**阅读器对比度修正必须逐层考虑前景继承与局部背景，明暗主题均需验证。**
+- `[Task #27]` 双宿主验收发现暗色主题下浅底块继承提亮文字，浅色主题下深底块仍呈深字；前一轮自检未覆盖这些继承组合。
+- Seen 1× (2026-11-08).
+
+**设置面板的模式显隐必须在各宿主检查实际可见性，包括独立按钮，不能只检查参数行。**
+- `[Task #26]` 原生验收中本机模式仍显示云端“检测连接”；原有回归没有覆盖该按钮的实际显示状态。
+- Seen 1× (2026-11-08).
+
+**长时间操作的状态应由运行时持有并在界面重开时恢复，同时显示既有失败原因及匹配当前状态的操作文案。**
+- `[Task #26]` 受控安装未完成时重开设置，界面退回未安装；已有失败原因和安装中按钮文案也未正确呈现。
+- Seen 1× (2026-11-08).
 
 **浏览器麦克风录制测试必须注入合成 WebAudio `MediaStream`（`createMediaStreamDestination`），不得仅依赖 `--use-fake-device-for-media-stream` 启动标志。**
 - `[Audit]` 在无硬件音频输入设备的无头环境或沙盒中，仅传 Chromium 启动标志仍可能导致 `navigator.mediaDevices.getUserMedia({ audio: true })` 抛 `NotFoundError: Requested device not found`（`tests/task23-shared-web-browser.test.ts:47` 因缺少 `tests/task17-voice-browser.test.ts:26` 的 `AudioContext` 流替身而超时）。
