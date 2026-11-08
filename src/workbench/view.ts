@@ -21,6 +21,7 @@ export const workbenchStyles = `
 .pith-view{position:relative;height:100%;display:flex;flex-direction:column;background:var(--background-primary);color:var(--text-normal);font-family:var(--font-interface)}
 .pith-view *{box-sizing:border-box}.pith-view [hidden]{display:none!important}
 .pith-epub-chapter a[data-epub-target]{cursor:pointer;text-decoration:underline}
+.pith-epub-chapter [data-pith-readable],.pith-epub-chapter[data-pith-readable]{color:var(--pith-readable-color)!important}
 .pith-view-header{display:flex;align-items:center;gap:12px;padding:8px;border-bottom:1px solid var(--background-modifier-border)}
 .pith-view-header .pith-guide-toggle{margin-left:auto}.pith-view button{color:var(--text-normal);font:inherit;cursor:pointer}.pith-icon{border:0;background:none;padding:8px}.pith-icon:hover{background:var(--background-modifier-hover)}.pith-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7}
 .pith-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;flex:1;min-height:0}.pith-layout.pith-guide-closed{grid-template-columns:minmax(0,1fr)}.pith-stage{position:relative;min-width:0;min-height:0}.pith-reader{height:100%;overflow:auto;overscroll-behavior:contain}.pith-article{max-width:850px;margin:auto;padding:32px 48px 120px;line-height:1.9;overflow-wrap:anywhere}.pith-article>:first-child{margin-top:0}.pith-article pre{overflow:auto;background:var(--background-secondary);padding:16px}
@@ -139,12 +140,41 @@ export class WheelPageGate {
   }
 }
 
+type Rgb = readonly [number, number, number];
+const activeReader = new WeakMap<Document, PithWorkbenchView>();
+
+function rgba(value: string): readonly [number, number, number, number] | null {
+  const match = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i.exec(value);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])] : null;
+}
+function composite(front: readonly [number, number, number, number], back: Rgb): Rgb {
+  return [0, 1, 2].map(i => front[i]! * front[3] + back[i]! * (1 - front[3])) as unknown as Rgb;
+}
+function luminance(color: Rgb): number {
+  const linear = color.map(channel => { const value = channel / 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+}
+function contrast(a: Rgb, b: Rgb): number { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+function readableColor(foreground: readonly [number, number, number, number], background: Rgb): Rgb | null {
+  const original = composite(foreground, background);
+  if (contrast(original, background) >= 4.5) return null;
+  const target = contrast([255, 255, 255], background) >= contrast([0, 0, 0], background) ? 255 : 0;
+  let low = 0, high = 1;
+  for (let i = 0; i < 16; i++) {
+    const amount = (low + high) / 2;
+    const color = original.map(channel => channel + (target - channel) * amount) as unknown as Rgb;
+    if (contrast(color, background) >= 4.55) high = amount; else low = amount;
+  }
+  return original.map(channel => Math.round(channel + (target - channel) * high)) as unknown as Rgb;
+}
+
 export class PithWorkbenchView {
   private readonly root: HTMLElement;
   private readonly actions: ObsidianViewActions;
   private readonly events = new AbortController();
   private readonly doc: Document;
   private readonly win: Window;
+  private themeObserver: MutationObserver | null = null;
   private readonly reader: HTMLElement;
   private readonly article: HTMLElement;
   private readonly navigation: HTMLElement;
@@ -246,6 +276,15 @@ export class PithWorkbenchView {
     this.dojo = this.doc.createElement("section"); this.dojo.className = "pith-dojo-panel"; this.dojo.hidden = true; this.dock.append(this.dojo);
     const Resize = (this.win as Window & typeof globalThis).ResizeObserver; this.resizeObserver = Resize ? new Resize(() => this.applyPageMode(this.readerPosition)) : null; if (this.resizeObserver) this.resizeObserver.observe(this.reader);
     const options = { signal: this.events.signal };
+    root.addEventListener("focusin", () => activeReader.set(this.doc, this), options);
+    root.addEventListener("pointerdown", () => activeReader.set(this.doc, this), options);
+    const Mutation = (this.win as Window & typeof globalThis).MutationObserver;
+    if (Mutation) {
+      this.themeObserver = new Mutation(() => this.adaptEpubColors());
+      this.themeObserver.observe(this.doc.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+      if (this.doc.body) this.themeObserver.observe(this.doc.body, { attributes: true, attributeFilter: ["class", "style"] });
+    }
+    if (typeof this.win.matchMedia === "function") this.win.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => this.adaptEpubColors(), options);
     root.addEventListener("pointerdown", event => {
       const target = event.target;
       this.pendingDojoSelection = null;
@@ -259,7 +298,8 @@ export class PithWorkbenchView {
     this.doc.addEventListener("keydown", event => { if (event.key === "Escape") { required<HTMLElement>(".pith-typography-popover").hidden = true; required<HTMLButtonElement>('[data-command="typography"]').setAttribute("aria-expanded", "false"); this.closeNavigation(); } }, options);
     this.reader.addEventListener("wheel", event => { if (!this.paged || event.ctrlKey || Math.abs(event.deltaY) < 2) return; event.preventDefault(); const direction = this.wheelGate.accept(event.deltaY, this.win.performance.now()); if (direction) this.turnPage(direction); }, { ...options, passive: false });
     this.reader.addEventListener("scroll", () => { this.updatePageCount(); const restored = this.restoredScrollLeft === this.reader.scrollLeft; this.restoredScrollLeft = null; if (this.paged && !restored) this.readerPosition = captureReaderPosition(this.reader, this.article); if (this.interline) this.interline.activate(); }, options);
-    root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); return; } if (!this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable=true],.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
+    root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); } }, options);
+    this.doc.addEventListener("keydown", event => { const target = event.target as Element | null; if (!this.root.isConnected || !this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return; if (!this.root.contains(target) && (target !== this.doc.body || activeReader.get(this.doc) !== this)) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
     this.article.addEventListener("mouseup", event => { const target = event.target; if (target instanceof (this.win as Window & typeof globalThis).Element && target.closest(".pith-inline-dojo")) return; this.showSelection(); }, options);
     this.assetControls.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.classList.contains("pith-media-seek") && this.assetAudio) this.assetAudio.currentTime = Number(input.value); }, options);
     this.mediaDeck.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.hasAttribute("data-speech-seek") && this.speechAudio) this.speechAudio.currentTime = Number(input.value); }, options);
@@ -278,6 +318,7 @@ export class PithWorkbenchView {
     this.clearAudioAsset();
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
     this.article.innerHTML = document.html;
+    this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
     this.navigation.replaceChildren();
     const group = (label: string): void => { const heading = this.doc.createElement("h2"); heading.textContent = label; this.navigation.append(heading); };
@@ -285,6 +326,8 @@ export class PithWorkbenchView {
     group("目录"); renderTocTree(this.navigation, document.sections, locator => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); });
     this.closeNavigation();
     this.markExisting(); this.applyPageMode();
+    const active = this.doc.activeElement;
+    if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const asset = document.files.find(file => audioContentType({ name: file.name, mimeType: file.mimeType ?? "" }));
     if (asset && this.actions.loadAudio) { const generation = this.assetGeneration; const load = this.actions.loadAudio; void load(asset.name).then(bytes => { if (this.disposed || generation !== this.assetGeneration) return; const type = audioContentType({ name: asset.name, mimeType: asset.mimeType ?? "" }); if (!type) return; this.assetUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type })); const audio = this.doc.createElement("audio"); this.assetAudio = audio; audio.src = this.assetUrl; audio.playbackRate = this.speechRate; audio.addEventListener("timeupdate", () => this.updateAssetControls()); audio.addEventListener("loadedmetadata", () => this.updateAssetControls()); audio.addEventListener("play", () => this.updateAssetControls()); audio.addEventListener("pause", () => this.updateAssetControls()); audio.addEventListener("error", () => this.tip("音频播放失败")); this.assetControls.hidden = false; this.mediaDeck.hidden = false; this.updateAssetControls(); }).catch(error => { if (!this.disposed && generation === this.assetGeneration) this.tip(error instanceof Error ? error.message : String(error)); }); }
   }
@@ -297,7 +340,33 @@ export class PithWorkbenchView {
   setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = toolkits; const previous = this.dojoId; const slot = toolkitSlot(effectiveToolkits(toolkits, this.currentFile), previous, Object.fromEntries(this.dojos.map(item => [item.id, item.label]))); if (!slot.ids.includes("interline") && this.interline && this.interlineMode !== "original") { this.interlineMode = "original"; this.interline.setMode("original"); } this.mountedToolkits = slot.ids; this.dojoId = slot.active; if (previous && !slot.ids.includes(previous)) { this.closeInlineDojo(); this.dojo.hidden = true; } const button = this.dock.querySelector<HTMLButtonElement>("#open-dojo"); if (!button) return; button.hidden = !slot.ids.length; button.textContent = slot.text; button.classList.toggle("pith-dojo-add", !slot.ids.length); button.title = "打开实训工具"; button.setAttribute("aria-label", button.title); }
   turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); }
   private updatePageCount(): void { const counter = this.root.querySelector<HTMLElement>("[data-page-count]"); if (!counter) return; const width = Math.max(1, this.reader.clientWidth); const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)); counter.textContent = `${readerPageIndex(this.reader) + 1} / ${total}`; }
-  dispose(): void { this.disposed = true; this.voice.cancel(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
+  private adaptEpubColors(): void {
+    const chapters = this.article.querySelectorAll<HTMLElement>(".pith-epub-chapter[data-epub-chapter]");
+    if (!chapters.length) return;
+    for (const element of this.article.querySelectorAll<HTMLElement>("[data-pith-readable]")) { element.removeAttribute("data-pith-readable"); element.style.removeProperty("--pith-readable-color"); }
+    const body = this.doc.body;
+    const dark = body.classList.contains("theme-dark") || (!body.classList.contains("theme-light") && typeof this.win.matchMedia === "function" && this.win.matchMedia("(prefers-color-scheme: dark)").matches);
+    if (!dark) return;
+    const backgrounds = new Map<Element, Rgb>();
+    const background = (element: Element | null): Rgb => {
+      if (!element) return [255, 255, 255];
+      const cached = backgrounds.get(element); if (cached) return cached;
+      const parent = background(element.parentElement), value = rgba(this.win.getComputedStyle(element).backgroundColor);
+      const result = value ? composite(value, parent) : parent; backgrounds.set(element, result); return result;
+    };
+    const changes: { element: HTMLElement; color: Rgb }[] = [];
+    for (const chapter of chapters) {
+      for (const element of [chapter, ...chapter.querySelectorAll<HTMLElement>("*")]) {
+        if (["STYLE", "SVG", "PATH"].includes(element.tagName)) continue;
+        const color = rgba(this.win.getComputedStyle(element).color);
+        if (!color) continue;
+        const adjusted = readableColor(color, background(element));
+        if (adjusted) changes.push({ element, color: adjusted });
+      }
+    }
+    for (const { element, color } of changes) { element.style.setProperty("--pith-readable-color", `rgb(${color.join(", ")})`); element.setAttribute("data-pith-readable", ""); }
+  }
+  dispose(): void { this.disposed = true; this.voice.cancel(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
   private clearAudioAsset(): void { this.assetGeneration++; if (this.assetAudio) { this.assetAudio.pause(); this.assetAudio.removeAttribute("src"); this.assetAudio.load(); this.assetAudio = null; } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.loopStart = null; this.loopEnd = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; }
   private updateAssetControls(): void { const audio = this.assetAudio; if (!audio) return; if (this.loopStart !== null && this.loopEnd !== null && audio.currentTime >= this.loopEnd) audio.currentTime = this.loopStart; const format = (value: number): string => { const n = Number.isFinite(value) ? Math.floor(value) : 0; return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; }; const time = this.assetControls.querySelector<HTMLElement>("[data-media-time]"); if (time) time.textContent = `${format(audio.currentTime)} / ${format(audio.duration)}`; const seek = this.assetControls.querySelector<HTMLInputElement>(".pith-media-seek"); if (seek) { seek.max = String(Number.isFinite(audio.duration) ? audio.duration : 0); seek.value = String(audio.currentTime); } const play = this.assetControls.querySelector<HTMLButtonElement>('[data-media="play"]'); if (play) { play.textContent = audio.paused ? "▶" : "⏸"; play.setAttribute("aria-label", audio.paused ? "播放" : "暂停"); } const cues = Array.from(this.article.querySelectorAll<HTMLElement>('.pith-cue[data-locator^="time:"]')); for (let i = 0; i < cues.length; i++) { const cue = cues[i]!; const start = Number(cue.dataset.locator!.slice(5)), end = cue.dataset.endSec !== undefined ? Number(cue.dataset.endSec) : cues[i + 1] ? Number(cues[i + 1]!.dataset.locator!.slice(5)) : Infinity; cue.classList.toggle("pith-speech-active", audio.currentTime >= start && audio.currentTime < end); } }

@@ -293,7 +293,7 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
       if (!locations.has(path)) locations.set(path, value);
       return ` data-locator="${value}" data-prose="${prose}"`;
     };
-    const allowed = new Set(["body", "div", "section", "article", "aside", "header", "footer", "p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "figure", "figcaption", "img", "svg", "image", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "title", "desc", "pre", "code", "math", "span", "strong", "em", "b", "i", "u", "s", "sup", "sub", "a", "br", "hr"]);
+    const allowed = new Set(["body", "div", "section", "article", "aside", "header", "footer", "p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "figure", "figcaption", "img", "svg", "image", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "title", "desc", "pre", "code", "math", "span", "font", "strong", "em", "b", "i", "u", "s", "sup", "sub", "a", "br", "hr"]);
     const blockTags = /^(div|section|article|aside|header|footer|p|h[1-6]|blockquote|ul|ol|li|dl|dt|dd|table|figure|figcaption|pre|math|hr)$/;
     const nonProse = /^(pre|code|table|math|img|svg|hr)$/;
     const proseTags = /^(p|h[1-6]|li|blockquote|figcaption|dt|dd)$/;
@@ -342,6 +342,8 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
         } else if (key === "style") {
           const style = sanitizeDeclarations(value);
           if (style) attribute("style", style);
+        } else if (tag === "font" && key === "color" && sanitizeDeclarations(`color: ${value}`)) {
+          attribute("color", value);
         } else if (key === "href" && tag === "a") {
           const target = linkTarget(path, value);
           attribute("data-epub-target", target ? JSON.stringify(target) : "");

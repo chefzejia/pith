@@ -27,7 +27,7 @@ export async function imageDataUrl(path: string, read: (path: string) => Promise
   return `${prefix}${btoa(binary)}`;
 }
 
-const cssProperties = new Set(["color", "background-color", "font-family", "font-size", "font-style", "font-weight", "line-height", "text-align", "text-decoration", "text-indent", "vertical-align", "white-space", "margin", "margin-top", "margin-bottom", "margin-left", "margin-right", "padding", "padding-top", "padding-bottom", "padding-left", "padding-right", "width", "height", "max-width", "max-height", "display", "border", "border-color", "border-style", "border-width", "border-collapse", "page-break-before", "page-break-after", "break-before", "break-after"]);
+const cssProperties = new Set(["color", "background", "background-color", "font-family", "font-size", "font-style", "font-weight", "line-height", "text-align", "text-decoration", "text-indent", "vertical-align", "white-space", "margin", "margin-top", "margin-bottom", "margin-left", "margin-right", "padding", "padding-top", "padding-bottom", "padding-left", "padding-right", "width", "height", "max-width", "max-height", "display", "border", "border-color", "border-style", "border-width", "border-collapse", "page-break-before", "page-break-after", "break-before", "break-after"]);
 export function sanitizeDeclarations(css: string): string {
   return css.split(";").flatMap(declaration => {
     const colon = declaration.indexOf(":");
@@ -55,10 +55,12 @@ export function sanitizeStylesheet(css: string, chapter: number, limit = Number.
       const body = /^(?:html(?:\s*>\s*|\s+))?body(?=$|[\s.#>+~])/.exec(value);
       const rest = body ? value.slice(body[0].length) : "";
       if (body && /^(?:[.#][\w-]+)*\s*[+~]/.test(rest)) continue;
-      const scopedSelector = body ? `${root}${rest}` : `${root} ${value}`;
-      selectorLength += scopedSelector.length + (scopedSelectors.length ? 2 : 0);
-      if (selectorLength > limit - length) throw new Error("EPUB output budget exceeded");
-      scopedSelectors.push(scopedSelector);
+      const candidates = body ? [`${root}${rest}`] : value.startsWith(".") ? [`${root}${value}`, `${root} ${value}`] : [`${root} ${value}`];
+      for (const scopedSelector of candidates) {
+        selectorLength += scopedSelector.length + (scopedSelectors.length ? 2 : 0);
+        if (selectorLength > limit - length) throw new Error("EPUB output budget exceeded");
+        scopedSelectors.push(scopedSelector);
+      }
     }
     if (!scopedSelectors.length) continue;
     length += selectorLength + declarations.length + 5 + (rules.length ? 1 : 0);
