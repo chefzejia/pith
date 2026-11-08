@@ -27,7 +27,7 @@ test("Obsidian build runs without a neighboring repository", async () => {
       await cp(join(root, path), join(dir, path), { recursive: true });
     }
     await symlink(join(root, "node_modules"), join(dir, "node_modules"), "dir");
-    await exec("npm", ["run", "build:obsidian"], { cwd: dir });
+    await exec("npm", ["run", "build:obsidian"], { cwd: dir, env: { ...process.env, HOME: dir } });
     for (const name of ["main.js", "manifest.json", "styles.css"]) {
       assert.ok((await readFile(join(dir, "dist/obsidian", name))).length > 0, name);
     }

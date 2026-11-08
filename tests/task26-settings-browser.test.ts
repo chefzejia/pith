@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -7,19 +7,33 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { createObsidianHostPort, type ObsidianVaultAdapter } from "../src/shells/obsidian/index.ts";
 import { testSandbox } from "./sandbox.ts";
 
-test("Obsidian requires a valid Vault root before enabling managed speech", async () => {
+test("Obsidian enables managed speech without adapter paths and rejects invalid reported roots", async () => {
   const dir = await testSandbox("pith-task26-root-");
+  const previousHome = process.env.HOME; process.env.HOME = join(dir, "home");
   const previous = process.env.PITH_SPEECH_HOME; process.env.PITH_SPEECH_HOME = join(dir, "vault");
   try {
-    for (const adapter of [{}, { getFullPath: () => "" }, { getFullPath: () => "relative" }, { getFullPath: () => { throw new Error("unavailable"); } }]) {
-      assert.equal(createObsidianHostPort(adapter as ObsidianVaultAdapter).speechRuntime, undefined);
+    await mkdir(process.env.HOME);
+    const fallback = createObsidianHostPort({} as ObsidianVaultAdapter).speechRuntime;
+    assert.ok(fallback && fallback.install);
+    const fallbackState = await fallback.getState();
+    assert.equal(fallbackState.supported, true);
+    assert.equal(fallbackState.installDir, join(dir, "home/Library/Application Support/pith/speech/managed-v2"));
+    for (const adapter of [{ getFullPath: () => "" }, { getFullPath: () => "relative" }, { getFullPath: () => { throw new Error("unavailable"); } }]) {
+      const runtime = createObsidianHostPort(adapter as unknown as ObsidianVaultAdapter).speechRuntime;
+      assert.ok(runtime); const state = await runtime.getState();
+      assert.equal(state.supported, false); assert.match(state.note, /无法确认 Vault 路径/);
+      assert.equal(runtime.install, undefined);
     }
-    const vault = join(dir, "vault"); await mkdir(vault);
+    await mkdir(join(dir, "home/Library/Application Support/pith/speech"), { recursive: true });
+    await mkdir(join(dir, "vault"));
+    await symlink(join(dir, "vault"), fallbackState.installDir!, "dir");
+    await assert.rejects(fallback.getState(), /符号链接/);
+    const vault = join(dir, "vault");
     const adapter = { getFullPath: () => vault } as unknown as ObsidianVaultAdapter;
     const runtime = createObsidianHostPort(adapter).speechRuntime;
     assert.ok(runtime && runtime.install);
     await assert.rejects(runtime.install(), /Vault/);
-  } finally { if (previous === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previous; await rm(dir, { recursive: true, force: true }); }
+  } finally { if (previous === undefined) delete process.env.PITH_SPEECH_HOME; else process.env.PITH_SPEECH_HOME = previous; if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome; await rm(dir, { recursive: true, force: true }); }
 });
 
 test("Obsidian settings render the same protected runtime states", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {

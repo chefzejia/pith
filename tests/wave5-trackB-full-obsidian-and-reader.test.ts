@@ -50,7 +50,7 @@ test("Obsidian build and web reader script expose production controls", async t 
   t.after(() => rm(buildRoot, { recursive: true, force: true }));
   for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(buildRoot, path), { recursive: true });
   await symlink(resolve("node_modules"), join(buildRoot, "node_modules"), "dir");
-  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot });
+  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot, env: { ...process.env, HOME: buildRoot } });
   const [main, manifest, styles] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css"].map(path => readFile(join(buildRoot, path), "utf8")));
   assert.ok(main && styles); assert.equal(JSON.parse(manifest!).id, "pith");
   assert.doesNotMatch(main!, /此视图尚未提供/);

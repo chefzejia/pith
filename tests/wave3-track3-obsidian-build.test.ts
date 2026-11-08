@@ -17,7 +17,7 @@ test("Obsidian production bundle loads and manages its controller", async t => {
   t.after(() => rm(buildRoot, { recursive: true, force: true }));
   for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(buildRoot, path), { recursive: true });
   await symlink(resolve("node_modules"), join(buildRoot, "node_modules"), "dir");
-  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot });
+  await exec(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: buildRoot, env: { ...process.env, HOME: buildRoot } });
   const output = join(buildRoot, "dist/obsidian");
   const [main, manifest, styles] = await Promise.all(["main.js", "manifest.json", "styles.css"].map(name => readFile(join(output, name), "utf8")));
   assert.ok(main && manifest && styles);

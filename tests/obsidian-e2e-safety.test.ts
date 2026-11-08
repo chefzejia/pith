@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -42,10 +42,40 @@ for (const vault of [false, true]) test(`isolated build ${vault ? "synchronizes 
     for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(root, path), { recursive: true });
     await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
     if (vault) { await mkdir(join(root, ".dev-vault/.obsidian/plugins/pith"), { recursive: true }); await writeFile(join(root, ".dev-vault/.obsidian/plugins/pith/main.js"), "old plugin"); }
-    await promisify(execFile)(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: root });
+    await promisify(execFile)(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: root, env: { ...process.env, HOME: root } });
     const built = await readFile(join(root, "dist/obsidian/main.js"));
     if (vault) assert.deepEqual(await readFile(join(root, ".dev-vault/.obsidian/plugins/pith/main.js")), built);
     else await assert.rejects(readFile(join(root, ".dev-vault/.obsidian/plugins/pith/main.js")), { code: "ENOENT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const exists of [false, true]) test(`user plugin sync ${exists ? "updates only the three plugin files" : "does not create a missing destination"}`, async () => {
+  const root = await testSandbox("pith-user-build-");
+  const destination = join(root, "Library/Mobile Documents/iCloud~md~obsidian/Documents/ganfan-media/.obsidian/plugins/pith");
+  try {
+    for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(root, path), { recursive: true });
+    await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
+    if (exists) { await mkdir(destination, { recursive: true }); await writeFile(join(destination, "data.json"), "untouched settings"); await writeFile(join(destination, "main.js"), "old plugin"); }
+    await promisify(execFile)(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: root, env: { ...process.env, HOME: root } });
+    if (exists) {
+      for (const name of ["main.js", "styles.css", "manifest.json"]) assert.ok((await readFile(join(destination, name))).equals(await readFile(join(root, "dist/obsidian", name))), `${name} differs from build`);
+      assert.equal(await readFile(join(destination, "data.json"), "utf8"), "untouched settings");
+    } else await assert.rejects(lstat(destination), { code: "ENOENT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("user plugin sync rejects linked plugin files before writing", async () => {
+  const root = await testSandbox("pith-user-build-link-");
+  const destination = join(root, "Library/Mobile Documents/iCloud~md~obsidian/Documents/ganfan-media/.obsidian/plugins/pith");
+  try {
+    for (const path of ["package.json", "manifest.json", "scripts", "src"]) await cp(resolve(path), join(root, path), { recursive: true });
+    await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
+    await mkdir(destination, { recursive: true });
+    await writeFile(join(destination, "data.json"), "preserved");
+    await symlink(join(destination, "data.json"), join(destination, "styles.css"));
+    await assert.rejects(promisify(execFile)(process.execPath, ["scripts/build-obsidian.mjs"], { cwd: root, env: { ...process.env, HOME: root } }));
+    assert.equal(await readFile(join(destination, "data.json"), "utf8"), "preserved");
+    await assert.rejects(lstat(join(destination, "main.js")), { code: "ENOENT" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

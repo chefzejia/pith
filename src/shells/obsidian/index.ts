@@ -1,6 +1,7 @@
 import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
@@ -155,8 +156,13 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
   };
   const access = secretAccess ?? createObsidianSecretAccess(() => secrets);
   let protectedRoot: string | undefined;
-  try { if (vault.getFullPath) { const path = vault.getFullPath(""); if (path && isAbsolute(path)) protectedRoot = path; } } catch { /* The runtime stays unavailable when the Vault root cannot be verified. */ }
-  const speechRuntime = protectedRoot ? new NodeManagedSpeechRuntime({ protectedRoot }) : undefined;
+  let rootError: string | undefined;
+  if (vault.getFullPath) {
+    try { const path = vault.getFullPath(""); if (!path || !isAbsolute(path)) throw new Error("Vault 路径不是绝对路径"); protectedRoot = path; }
+    catch (error) { rootError = `无法确认 Vault 路径：${error instanceof Error ? error.message : String(error)}`; }
+  }
+  const unavailable = rootError;
+  const speechRuntime = unavailable ? { getState: async () => ({ supported: false, status: "not-installed" as const, note: unavailable }) } : new NodeManagedSpeechRuntime(protectedRoot ? { protectedRoot } : { home: join(homedir(), "Library", "Application Support", "pith", "speech") });
   return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
 }
 
