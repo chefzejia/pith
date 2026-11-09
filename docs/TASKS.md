@@ -90,3 +90,17 @@
      - **云端语音模式（`cloud`）**：保留自定义音色能力（支持常用预设选项或输入音色名）。
 - **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（自动同步至 `.dev-vault` 与 `ganfan-media`）；新增单测与浏览器回归测试覆盖：1) 动态解析 `model.int8.onnx` 元数据提取出 `af_maple`、`zf_001`、`zm_100` 等 103 个音色映射；2) 切换不同音色（如 `zf_001` vs `zm_010`）调用 `/v1/audio/speech` 时网关使用对应 `sid` 合成出不同音频；3) 设置面板在本机模式下展示分组音色下拉框并持久化；完成手动破壁验证并截屏存入 `.tmp/evidence/task-30/` 自检。
 - **Tester 模拟用户终验要求**：在 Web 与真实隔离 Obsidian 中验证本机语音设置下的动态分组音色下拉框（含中文女声、中文男声、英文音色）、切换音色后持久化及实际听读请求携带所选 `voice`，终验截图归档至 `.tmp/evidence/task-30/`。
+
+
+---
+
+## [Task #31] 语音下载协议容错加固与 Agent 环境探针轻量化
+
+- **Status**: verified
+- **Scope**: `src/shells/speech/speechDownload.ts`, `src/plugins/guide-acp/discovery.ts`, `src/shells/web/nodeProcess.ts`, `tests/**`
+- **Verified-Commit**: d5ee65f63477bbf71693c810e33bd1086e9f7e59
+- **Updated**: 2026-11-09
+- **验收摘要**：Worker 类型检查、全仓测试（244 通过、56 跳过）、构建及手动破壁通过；独立 Tester 使用小型有效归档，经 Web 安装 UI 和真实 curl 验证 Range 请求收到 200 完整体后 SHA 匹配并安装完成；504 两次后恢复、四次耗尽，取消/坏哈希/超限均保留原分片。沙盒 HOME 与配置环境依赖 CLI 经真实发现入口识别并完成标准 ACP 初始化，非 ACP 输出被拒绝，超时约 4 秒返回失败。证据：`.tmp/evidence/task-31/final-observations.json`、`.tmp/evidence/task-31/final-web-install-200.png`、`.tmp/evidence/task-31/final-web-agent-discovery.png`、`.tmp/evidence/task-31/final-web-agent-timeout.png`。
+- **接口与行为契约**：续传请求收到 HTTP 200 完整体时，SHA 校验通过后可成功；不得将完整体追加到旧分片或接受未通过校验的数据。HTTP 504 自动有限重试，保留取消、大小限制和分片保护。Agent 版本/能力探针继承合法 HOME 与 Agent 配置环境，不再强制空配置目录；保留超时和标准 ACP 能力验证，不读取私有配置、不改 model/effort。
+- **Worker 工程内环门禁**：类型检查、全仓测试、Obsidian 构建通过；覆盖 200 完整体/错误哈希/大小限制、504 重试/耗尽/取消与配置环境继承，完成手动破壁并在业务提交记录证据。
+- **Tester 独立验收**：通过真实下载入口验证受控 HTTP 200 与 504；通过用户可见 Agent 探测入口验证配置可读的 CLI 被识别及超时失败保持明确。UI 证据归档 `.tmp/evidence/task-31/`，仅使用专用沙盒。
