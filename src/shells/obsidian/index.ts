@@ -15,6 +15,8 @@ import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { renderCompass } from "../../workbench/compass.ts";
+import { boardMaterials } from "../../workbench/boardMaterials.ts";
+import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 
@@ -249,6 +251,7 @@ export class PithObsidianController {
     });
   }
   async openCompass() { await this.refresh(); return this.engine.compass(); }
+  async openBoardMaterials() { return boardMaterials(this.host.storage, await this.store.listMaterials()); }
   async openTopic(id: string) { return this.store.getTopic(id); }
   createInterlineSession(materialId: string, file: string, units: readonly InterlineUnitInput[]): InterlineSession {
     const service = this.runtime.getService<InterlineService>("dojo.interline");
@@ -347,20 +350,22 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (this.workspace && this.workspace.leftSplit) this.workspace.leftSplit.collapse();
     const previousGeneration = this.generation, request = ++this.homeRequest;
     const compass = await this.controller.openCompass();
+    const materials = await this.controller.openBoardMaterials();
     if (previousGeneration !== this.generation || request !== this.homeRequest) return;
     const generation = ++this.generation;
     if (this.view) { this.controller.releaseView(this.view); this.view = null; }
     const root = this.contentEl, doc = root.ownerDocument;
-    const input = doc.createElement("input"); input.type = "file"; input.accept = ".epub,.pdf,.cbz,.md,.markdown"; input.multiple = true; input.hidden = true;
+    const input = doc.createElement("input"); input.type = "file"; input.accept = ".epub,.pdf,.cbz,.md,.markdown,.png,.jpg,.jpeg,.gif,.webp,.avif"; input.multiple = true; input.hidden = true;
     let importTopic: string | undefined;
     renderCompass(root, compass, {
+      materials,
       ...(this.openSettings ? { settings: this.openSettings } : {}),
       import: () => { importTopic = undefined; input.click(); },
       open: id => { void (async () => { const topic = await this.controller.openTopic(id); if (generation !== this.generation) return; if (!topic) throw new Error("课题不存在"); if (!topic.materialId) { importTopic = id; const status = root.querySelector<HTMLElement>(".pith-home-status"); if (status) status.textContent = "选择材料以打开此课题"; input.click(); return; } await this.openTopic(id); })().catch(error => this.report(error)); },
       create: data => { void (async () => { await this.controller.store.createTopic(data); if (generation === this.generation) await this.onOpen(); })().catch(error => this.report(error)); },
     });
     root.append(input);
-    input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|cbz|md|markdown)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF、CBZ 和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = files[0]!; const kind = files.some(file => /\.(epub|pdf|cbz)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title: first.name, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title: first.name.replace(/\.[^.]+$/, ""), materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
+    input.onchange = () => { void (async () => { const files = Array.from(input.files || []); if (!files.length) return; if (files.some(file => !/\.(epub|pdf|cbz|md|markdown|png|jpe?g|gif|webp|avif)$/i.test(file.name))) throw new Error("仅支持 EPUB、PDF、CBZ、图片和 Markdown 文件"); const entries = await Promise.all(files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) }))); if (generation !== this.generation) return; const first = entries[0]!; const metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {}; const title = metadata.title || cleanMaterialTitle(first.name); const kind = files.some(file => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(file.name)) ? "book" : "article"; const material = await this.controller.importMaterial({ title, kind, files: entries }, importTopic); if (!importTopic) { const topic = await this.controller.store.createTopic({ title, materialId: material.id }); importTopic = topic.id; } if (generation === this.generation) await this.openTopic(importTopic); })().catch(error => this.report(error)).finally(() => { input.value = ""; }); };
   }
 
   async onClose(): Promise<void> { this.generation++; if (this.view) { this.controller.releaseView(this.view); this.view = null; } }

@@ -2,10 +2,12 @@ import { WebWorkbench } from "./workbench.ts";
 import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { speechMode } from "../speech/speechSettings.ts";
+import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
+import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
 import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
-interface WebState { compass: AttentionCompassSnapshot; materials: readonly Material[]; settings: WebSettings; plugins: readonly PluginStatus[] }
+interface WebState { compass: AttentionCompassSnapshot; materials: readonly Material[]; boardMaterials: readonly BoardMaterial[]; settings: WebSettings; plugins: readonly PluginStatus[] }
 const requiredElement = (selector: string): HTMLElement => { const node = Array.from(document.querySelectorAll(selector)).find(item => !item.closest(".pith-article")); if (!(node instanceof HTMLElement)) throw new Error(`Missing ${selector}`); return node; };
 const requiredHost = requiredElement;
 const requiredSelect = (selector: string): HTMLSelectElement => { const node = requiredElement(selector); if (!(node instanceof HTMLSelectElement)) throw new Error(`Expected select ${selector}`); return node; };
@@ -22,7 +24,7 @@ function home(): void {
   navigation++; if (workbench) workbench.dispose(); workbench = null; topic = null;
   main.style.height = "100vh";
   renderCompass(main, state.compass, {
-    materials: state.materials,
+    materials: state.boardMaterials,
     open: id => { void openTopic(id).catch(notify); },
     create: data => { void api<Topic>("/api/topics", data).then(item => openTopic(item.id)).catch(notify); },
     import: () => requiredElement("#material-files").click(),
@@ -49,14 +51,17 @@ document.addEventListener("click", event => {
   if (!button || button.closest(".pith-view")) return;
   if (button.id === "close-drawer") drawer.hidden = true;
 });
-document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" accept=".md,.markdown,.epub,.pdf,.cbz,.vtt,.srt,audio/*,video/*" multiple hidden>');
+document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" accept=".md,.markdown,.epub,.pdf,.cbz,.vtt,.srt,image/png,image/jpeg,image/gif,image/webp,image/avif,audio/*,video/*" multiple hidden>');
 document.addEventListener("change", event => {
   if (!(event.target instanceof HTMLInputElement) || event.target.id !== "material-files" || !event.target.files?.length) return;
   const input = event.target, fileList = input.files; if (!fileList) return;
   const files = Array.from(fileList), topicId = topic?.id;
-  void Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary) }; })).then(async entries => {
-    const kind = entries.some(f => /\.(vtt|srt)$/i.test(f.name) || /^(audio|video)\//.test(f.mimeType)) ? "media" : entries.some(f => /\.(epub|pdf|cbz)$/i.test(f.name)) ? "book" : "article";
-    await api("/api/materials", { title: entries[0]!.name, kind, files: entries, topicId });
+  void Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary), bytes }; })).then(async entries => {
+    const kind = entries.some(f => /\.(vtt|srt)$/i.test(f.name) || /^(audio|video)\//.test(f.mimeType)) ? "media" : entries.some(f => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(f.name)) ? "book" : "article";
+    const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
+    const title = metadata.title || cleanMaterialTitle(first.name);
+    const material = await api<Material>("/api/materials", { title, kind, files: entries.map(({ bytes: _bytes, ...entry }) => entry), topicId });
+    if (!topicId) await api("/api/topics", { title, materialId: material.id });
     if (topicId && topic?.id === topicId) await openTopic(topicId); else { await refresh(); if (!topic) home(); }
   }).catch(notify).finally(() => { input.value = ""; });
 });

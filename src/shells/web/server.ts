@@ -10,6 +10,7 @@ import { NodeHttpPort } from "./nodeHttp.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType } from "../../workbench/mediaAssets.ts";
 import { effectiveToolkits } from "../../workbench/toolkitSlot.ts";
+import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
@@ -124,7 +125,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         res.end(Buffer.from(readerFont[("LXGW_WENKAI_" + "WOFF2") as keyof typeof readerFont], "base64")); return;
       }
       if (method === "GET" && url.pathname === "/api/state") {
-        await refresh(); const dojos = ["shadowing", "feynman", "interline"].flatMap(id => { const service = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [{ id, evalMode: service.evalMode }] : []; }); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, settings, plugins: runtime.statuses(), dojos: dojos.map(item => item.id), dojoModes: Object.fromEntries(dojos.map(item => [item.id, item.evalMode])) });
+        await refresh(); const dojos = ["shadowing", "feynman", "interline"].flatMap(id => { const service = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [{ id, evalMode: service.evalMode }] : []; }); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, plugins: runtime.statuses(), dojos: dojos.map(item => item.id), dojoModes: Object.fromEntries(dojos.map(item => [item.id, item.evalMode])) });
       }
       if (method === "GET" && url.pathname === "/api/agents") {
         const guide = runtime.getService<GuideAgentService>("guide.agent");

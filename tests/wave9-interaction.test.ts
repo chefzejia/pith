@@ -105,7 +105,7 @@ test("Obsidian import accepts CBZ and sends it as a book", async () => {
   const form = {}, status = {}, button = {};
   const root = { ownerDocument: { createElement: () => input }, classList: { add() {} }, innerHTML: "", append() {}, querySelector: (s: string) => s === ".pith-home-form" ? form : s === ".pith-home-status" ? status : button, querySelectorAll: () => [] };
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
-  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
+  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
   await (workspace.onOpen as () => Promise<void>)();
   assert.match(input.accept, /\.cbz/);
   input.onchange(); const value = await imported;

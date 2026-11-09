@@ -7,6 +7,16 @@ import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./fron
 const notePattern = /^## \[(highlight|note|practice)\] ([^\n]+)\n<!-- pith-note:v1 -->\n([\s\S]*?)<!-- pith-note:end -->/gm;
 const encoder = new TextEncoder();
 
+function readableId(prefix: string, title: string, date: Date): string {
+  const clean = title.replace(/\.(?:epub|cbz|pdf|md|markdown|png|jpe?g|gif|webp)$/i, "").replace(/\s*[\[(][^\])]*(?:z[- ]?lib|1lib)[^\])]*[\])]\s*$/i, "").split(/\s+=\s+/)[0]!.trim();
+  const slug = clean.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24).replace(/-+$/, "");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < clean.length; i++) hash = Math.imul(hash ^ clean.charCodeAt(i), 0x01000193) >>> 0;
+  const day = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+  const nonLatin = /(?=\p{L})\P{Script=Latin}/u.test(clean);
+  return `${prefix}-${day}-${!nonLatin && slug ? slug : hash.toString(36).padStart(7, "0")}`;
+}
+
 function name(value: string): string {
   if (!value || value === "." || value === ".." || /[/\\\0]/.test(value)) throw new Error("Invalid path component");
   return value;
@@ -153,6 +163,13 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   private readonly storage: WorkspaceStoragePort;
   constructor(storage: WorkspaceStoragePort) { this.storage = storage; this.queue = MutationQueue.forStorage(storage); }
 
+  private async uniqueId(prefix: "topic" | "material", title: string): Promise<string> {
+    const base = readableId(prefix, title, new Date()), directory = prefix === "topic" ? "topics" : "materials";
+    let id = base, suffix = 2;
+    while (await this.storage.exists(`${directory}/${id}`)) id = `${base}-${suffix++}`;
+    return id;
+  }
+
   private async scaffold(): Promise<void> {
     for (const dir of ["topics", "materials", "_cache"]) await this.storage.mkdir(dir);
     if (!await this.storage.exists("ME.md")) await this.storage.createText("ME.md", "# 学习者画像（ME.md）\n");
@@ -180,7 +197,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   createTopic(input: CreateTopicInput): Promise<Topic> {
     return this.queue.run(async () => {
       await this.scaffold();
-      const id = name(input.id ?? `topic-${crypto.randomUUID()}`);
+      const id = name(input.id ?? await this.uniqueId("topic", input.title));
       const path = `topics/${id}/topic.md`;
       if (await this.storage.exists(path)) throw new Error("Topic already exists");
       const now = new Date().toISOString();
@@ -243,7 +260,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   importMaterial(input: ImportMaterialInput): Promise<Material> {
     return this.queue.run(async () => {
       await this.scaffold();
-      const id = name(input.id ?? `material-${crypto.randomUUID()}`);
+      const id = name(input.id ?? await this.uniqueId("material", input.title));
       const dir = `materials/${id}`;
       if (await this.storage.exists(dir)) throw new Error("Material already exists");
       const filenames = input.files.map(file => name(file.name));

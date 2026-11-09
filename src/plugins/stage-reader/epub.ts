@@ -153,6 +153,73 @@ function rawContent(node: XmlNode): string {
 }
 function content(node: XmlNode): string { return rawContent(node).replace(/\s+/g, " ").trim(); }
 
+export function cleanMaterialTitle(value: string): string {
+  const cleaned = value.replace(/\.(?:epub|cbz|pdf|md|markdown|png|jpe?g|gif|webp)$/i, "")
+    .replace(/\s*[\[(][^\])]*(?:z[- ]?lib|1lib)[^\])]*[\])]\s*$/i, "")
+    .split(/\s+=\s+/)[0]!.trim();
+  return cleaned || value.trim();
+}
+
+function rasterType(path: string): string | undefined {
+  const types: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif" };
+  return types[path.split(".").at(-1)!.toLowerCase()];
+}
+
+function coverUrl(bytes: Uint8Array): string | undefined {
+  const signature = Array.from(bytes.subarray(0, 12));
+  const type = signature[0] === 0xff && signature[1] === 0xd8 && signature[2] === 0xff ? "image/jpeg"
+    : signature.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10" ? "image/png"
+    : String.fromCharCode(...signature.slice(0, 3)) === "GIF" ? "image/gif"
+    : String.fromCharCode(...signature.slice(0, 4)) === "RIFF" && String.fromCharCode(...signature.slice(8, 12)) === "WEBP" ? "image/webp"
+    : String.fromCharCode(...signature.slice(4, 8)) === "ftyp" && /^(?:avif|avis)$/.test(String.fromCharCode(...signature.slice(8, 12))) ? "image/avif" : undefined;
+  if (!type) return undefined;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  return `data:${type};base64,${btoa(binary)}`;
+}
+
+export async function inspectEpubPackage(bytes: Uint8Array): Promise<{ title?: string; author?: string; coverDataUrl?: string }> {
+  const zip = new Zip(bytes), container = xml(await zip.text("META-INF/container.xml"));
+  const opfPath = descendants(container, "rootfile")[0]?.attrs["full-path"];
+  if (!opfPath) throw new Error("EPUB rootfile missing");
+  const opf = xml(await zip.text(opfPath));
+  const title = content(descendants(opf, "title")[0] ?? { name: "", attrs: {}, children: [] });
+  const author = content(descendants(opf, "creator")[0] ?? { name: "", attrs: {}, children: [] });
+  const manifest = descendants(opf, "item").flatMap(item => item.attrs["href"] ? [{ id: item.attrs["id"] ?? "", path: resolve(dir(opfPath), item.attrs["href"]), properties: item.attrs["properties"] ?? "" }] : []);
+  const coverId = descendants(opf, "meta").find(item => item.attrs["name"]?.toLowerCase() === "cover")?.attrs["content"];
+  const candidates = [manifest.find(item => item.id === coverId)?.path, manifest.find(item => item.properties.split(/\s+/).includes("cover-image"))?.path];
+  const guide = descendants(opf, "reference").find(item => item.attrs["type"]?.toLowerCase() === "cover")?.attrs["href"];
+  if (guide) candidates.push(resolve(dir(opfPath), guide));
+  const firstSpine = descendants(opf, "itemref")[0]?.attrs["idref"];
+  candidates.push(manifest.find(item => item.id === firstSpine)?.path);
+  candidates.push(...manifest.filter(item => rasterType(item.path)).map(item => item.path));
+  for (let path of candidates) {
+    if (!path || !zip.has(path)) continue;
+    if (!rasterType(path) && /\.(?:xhtml|html|htm)$/i.test(path)) {
+      const page = xml(await zip.text(path));
+      const image = descendants(page, "img")[0]?.attrs["src"] ?? descendants(page, "image")[0]?.attrs["href"] ?? descendants(page, "image")[0]?.attrs["xlink:href"];
+      if (!image) continue;
+      path = resolve(dir(path), image);
+    }
+    const type = rasterType(path);
+    if (type && zip.has(path) && zip.size(path) <= 4 * 1024 * 1024) {
+      const coverDataUrl = coverUrl(await zip.read(path));
+      if (coverDataUrl) return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}), coverDataUrl };
+    }
+  }
+  return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}) };
+}
+
+export async function inspectMaterialCover(name: string, bytes: Uint8Array): Promise<string | undefined> {
+  if (/\.epub$/i.test(name)) return (await inspectEpubPackage(bytes)).coverDataUrl;
+  if (/\.cbz$/i.test(name)) {
+    const zip = new Zip(bytes), first = zip.names().filter(path => rasterType(path)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))[0];
+    return first && zip.size(first) <= 4 * 1024 * 1024 ? coverUrl(await zip.read(first)) : undefined;
+  }
+  const type = rasterType(name);
+  return type && bytes.length <= 4 * 1024 * 1024 ? coverUrl(bytes) : undefined;
+}
+
 function safeFragmentId(id: string): boolean { return !!id && !/[\u0000-\u0020\u007f]/.test(id); }
 
 function safeSvgValue(key: string, value: string): boolean {
