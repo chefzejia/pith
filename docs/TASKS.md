@@ -65,10 +65,11 @@
 
 ## [Task #30] Kokoro v1.1-zh 内置 103 个多语种音色动态发现与本机/云端音色选择器
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/shells/speech/**`, `src/plugins/speech-service/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: f470ec896c13b916c3c3ce16ee374f5365d1ac23
 - **Updated**: 2026-11-09
+- **验收摘要**：Worker 类型检查、全仓测试（237 通过、56 跳过）与构建通过；独立 Tester 在 Web 与真实隔离 Obsidian 读取 103 个音色及三分组，验证本机/云端音色分别持久化、重开恢复及真实阅读页听读。`zf_001` / `zm_010` 两端均收到真实 Kokoro HTTP 200，Web 音频 49,768 / 52,298 字节，原生 49,876 / 52,294 字节；明暗窄幅及未安装/损坏状态已看图审视，未独立评价音色声学质量。截图：`.tmp/evidence/task-30/final-web-zm.png`、`.tmp/evidence/task-30/final-native-zm.png`、`.tmp/evidence/task-30/final-native-listen-zf.png`、`.tmp/evidence/task-30/final-web-dark-narrow.png`、`.tmp/evidence/task-30/final-native-error.png`。
 - **授权范围**：允许修改 `src/shells/speech/speechGateway.ts`、`src/shells/speech/speechRuntime.ts`、`src/plugins/speech-service/neuralSpeech.ts`、`src/workbench/**`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁硬编码死板的固定 sid=48 而不允许切换。
 - **背景与实证根因**：
