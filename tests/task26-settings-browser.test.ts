@@ -68,7 +68,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.getByText("安装异常：fixture install failure").waitFor();
     assert.equal(await page.getByRole("button", { name: "重新安装" }).isEnabled(), true);
     await page.evaluate(() => { (window as any).fixture.runtime = { supported: true, status: "installing", note: "正在下载 Node 运行时" }; (window as any).fixture.tab.display(); });
-    assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "取消安装" }).isEnabled(), true);
     await page.getByText("安装中…：正在下载 Node 运行时").waitFor();
     await page.evaluate(() => { (window as any).fixture.runtime = { supported: true, status: "failed", note: "reopened failure" }; });
     await page.getByText("安装异常：reopened failure").waitFor();
@@ -126,10 +126,10 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "web-local.png") });
     await page.getByRole("button", { name: "安装引擎" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); }); await entered;
-    assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "取消安装" }).isEnabled(), true);
     assert.match(await page.locator("#speech-runtime [role=status]").textContent(), /安装中/);
     await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
-    assert.equal(await page.getByRole("button", { name: "正在安装…" }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "取消安装" }).isEnabled(), true);
     await page.getByText("安装中…：正在下载 Node 运行时").waitFor();
     assert.equal(installs, 1);
     await page.screenshot({ path: join(evidence, "web-installing.png") });

@@ -15,9 +15,10 @@ import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
+import type { ManagedSpeechRuntimePort } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }
-export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator }
+export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let raw = "";
@@ -77,7 +78,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   await loadSettings();
   const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona } } } });
   const processPort = new NodeAgentProcessPort();
-  const speechRuntime = new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
+  const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, speechRuntime, http: new NodeHttpPort(), secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
   localProvider = new LocalAcpGuideProvider({ processPort, store, getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
@@ -140,7 +141,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (url.pathname === "/api/speech/runtime" && method === "POST") {
         const data = await body(req), action = str(data, "action");
         if (action !== "install" && action !== "ensureRunning" && action !== "stop" && action !== "remove") return send(res, 400, { error: "Invalid runtime action" });
-        return send(res, 200, await speechRuntime[action]());
+        const operation = speechRuntime[action]; if (!operation) throw new Error("本宿主不支持该操作");
+        return send(res, 200, await operation.call(speechRuntime));
       }
       if (method === "POST" && url.pathname === "/api/topics") {
         const data = await body(req);
@@ -385,7 +387,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
     }
   });
   server.on("close", () => runtime.stop());
-  server.on("close", () => { void speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); });
+  server.on("close", () => { if (speechRuntime.stop) void speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(options.port ?? 0, "127.0.0.1", () => { server.off("error", reject); resolve(); }); });
   return server;
 }

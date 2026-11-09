@@ -9,6 +9,7 @@ import { NodeManagedSpeechRuntime } from "../src/shells/speech/speechRuntime.ts"
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";
+import { createSpeechDownloadFixture } from "./task28-speech-fixture.ts";
 
 test("managed speech rejects Vault paths and preserves unowned directories", async () => {
   const dir = await testSandbox("pith-speech-boundary-");
@@ -31,12 +32,13 @@ test("managed speech reports a single pending install and retains its failure", 
   const gate = new Promise<void>(resolveGate => { release = resolveGate; });
   const started = new Promise<void>(resolveStarted => { entered = resolveStarted; });
   let calls = 0;
-  const runtime = new NodeManagedSpeechRuntime({ home: join(dir, "speech"), protectedRoot: join(dir, "vault"), runInstallCommand: async () => { calls++; entered(); await gate; throw new Error("受控下载失败"); } });
+  const fixture = await createSpeechDownloadFixture(dir, { chunkMs: 0 });
+  const runtime = new NodeManagedSpeechRuntime({ home: join(dir, "speech"), protectedRoot: join(dir, "vault"), archives: fixture.overrides, runInstallCommand: async () => { calls++; entered(); await gate; throw new Error("受控下载失败"); } });
   const results = Promise.allSettled([runtime.install(), runtime.install()]);
   try {
     await started;
     const pending = await runtime.getState();
-    assert.equal(pending.status, "installing"); assert.match(pending.note, /正在下载 Node 运行时/);
+    assert.equal(pending.status, "installing"); assert.match(pending.note, /正在校验与解压 Node 运行时/);
     assert.equal(calls, 1);
     release();
     assert.deepEqual((await results).map(result => result.status), ["rejected", "rejected"]);
@@ -44,7 +46,7 @@ test("managed speech reports a single pending install and retains its failure", 
     assert.equal(state.status, "failed"); assert.match(state.note, /受控下载失败/);
     assert.equal(calls, 1);
     assert.equal((await runtime.remove()).status, "not-installed");
-  } finally { release(); await results; await rm(dir, { recursive: true, force: true }); }
+  } finally { release(); await results; await fixture.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test("managed speech serves real TTS and ASR and stops only its own process", { timeout: 120000, skip: !process.env.PITH_SPEECH_TEST_HOME }, async () => {

@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ManagedSpeechRuntimePort, ManagedSpeechState } from "../../core/index.ts";
 import { SPEECH_GATEWAY } from "./speechGateway.ts";
+import { downloadSpeechArchive, defaultDownloadPolicy, type DownloadPolicy, type SpeechArchive } from "./speechDownload.ts";
 
 const assets = [
   { name: "tts.tar.bz2", url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2", sha256: "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c" },
@@ -31,14 +31,15 @@ async function resolvedExisting(path: string): Promise<string> {
 function run(command: string, args: readonly string[], cwd: string, signal?: AbortSignal): Promise<void> {
   return new Promise((resolveRun, reject) => {
     const proxy = Object.fromEntries(["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy"].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
-    const child = spawn(command, [...args], { cwd, env: { ...proxy, PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", HOME: cwd }, stdio: "ignore", signal });
-    child.once("error", reject); child.once("exit", (code, sig) => code === 0 ? resolveRun() : reject(new Error(`安装进程失败 (${sig ?? code})`)));
+    if (signal) signal.throwIfAborted();
+    const child = spawn(command, [...args], { cwd, env: { ...proxy, PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", HOME: cwd }, stdio: "ignore" });
+    let failure: Error | undefined;
+    child.once("error", error => { failure = error; });
+    const abort = () => child.kill("SIGTERM");
+    if (signal) { signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort(); }
+    child.once("close", (code, sig) => { if (signal) signal.removeEventListener("abort", abort); if (signal && signal.aborted) reject(signal.reason); else if (failure) reject(failure); else if (code === 0) resolveRun(); else reject(new Error(`安装进程失败 (${sig ?? code})`)); });
   });
 }
-async function digest(path: string, algorithm: "sha256" | "sha512", encoding: "hex" | "base64"): Promise<string> {
-  const hash = createHash(algorithm); for await (const chunk of createReadStream(path)) hash.update(chunk); return hash.digest(encoding);
-}
-
 export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
   private readonly home: string;
   private readonly protectedRoot: string | undefined;
@@ -49,13 +50,20 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
   private installing = false;
   private installPhase = "正在准备安装";
   private installFailure: string | null = null;
+  private installProgress: { progressPercent?: number; downloadSizeMb?: number } = {};
   private readonly runInstallCommand: typeof run;
-  constructor(options: { home?: string; protectedRoot?: string; idleTimeoutSec?: number; runInstallCommand?: typeof run } = {}) {
+  private readonly archives: Readonly<Record<string, { url: string; hash: string }>>;
+  private readonly downloadPolicy: DownloadPolicy;
+  constructor(options: { home?: string; protectedRoot?: string; idleTimeoutSec?: number; runInstallCommand?: typeof run; archives?: Readonly<Record<string, { url: string; hash: string }>>; downloadPolicy?: DownloadPolicy } = {}) {
     const base = options.home ?? process.env.PITH_SPEECH_HOME ?? join(homedir(), "Library", "Application Support", "pith", "speech");
     if (!isAbsolute(base)) throw new Error("PITH_SPEECH_HOME 必须是绝对路径");
     this.home = join(resolve(base), "managed-v2"); this.protectedRoot = options.protectedRoot;
     this.idleTimeoutSec = options.idleTimeoutSec ?? 180;
     this.runInstallCommand = options.runInstallCommand ?? run;
+    this.archives = options.archives ?? {};
+    this.downloadPolicy = options.downloadPolicy ?? defaultDownloadPolicy;
+    if (Object.values(this.downloadPolicy).some(value => !Number.isInteger(value) || value < 1)) throw new Error("Invalid download policy");
+    for (const archive of Object.values(this.archives)) { const url = new URL(archive.url); if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("Injected speech archives must use loopback HTTP"); }
     if (!Number.isInteger(this.idleTimeoutSec) || this.idleTimeoutSec < 1) throw new Error("Invalid idle timeout");
   }
   private readonly idleTimeoutSec: number;
@@ -64,7 +72,7 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     if (this.protectedRoot) { const protectedRoot = await resolvedExisting(resolve(this.protectedRoot)); if (isWithin(path, protectedRoot) || isWithin(protectedRoot, path)) throw new Error("语音运行时不能放在 Vault 或工作区中"); }
     try { if ((await lstat(this.home)).isSymbolicLink()) throw new Error("语音运行时目录不能是符号链接"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
-  private state(status: ManagedSpeechState["status"], note: string): ManagedSpeechState { const modelName = "Kokoro-82M v1.1 (中英) + SenseVoice (多语种)"; return { supported: true, status, installDir: this.home, idleTimeoutSec: this.idleTimeoutSec, modelName, ...(this.endpoint ? { endpoint: `${this.endpoint}/v1/audio/speech`, asrEndpoint: `${this.endpoint}/v1/audio/transcriptions` } : {}), note: status === "installing" || status === "failed" ? note : `${note} · ${modelName}` }; }
+  private state(status: ManagedSpeechState["status"], note: string): ManagedSpeechState { const modelName = "Kokoro-82M v1.1 (中英) + SenseVoice (多语种)"; return { supported: true, status, installDir: this.home, idleTimeoutSec: this.idleTimeoutSec, modelName, ...(status === "installing" ? this.installProgress : {}), ...(this.endpoint ? { endpoint: `${this.endpoint}/v1/audio/speech`, asrEndpoint: `${this.endpoint}/v1/audio/transcriptions` } : {}), note: status === "installing" || status === "failed" ? note : `${note} · ${modelName}` }; }
   async getState(): Promise<ManagedSpeechState> {
     await this.checkPath();
     if (!nodePackages[`${process.platform}-${process.arch}`]) return { supported: false, status: "not-installed", note: "当前平台暂不支持托管本机语音" };
@@ -85,51 +93,59 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
   }
   async install(signal?: AbortSignal): Promise<ManagedSpeechState> {
     if (this.operation) return this.operation;
-    this.installing = true; this.installFailure = null; this.installPhase = "正在准备安装";
+    this.installing = true; this.installFailure = null; this.installPhase = "正在准备安装"; this.installProgress = {};
     const controller = new AbortController(); this.operationAbort = controller;
-    const task = this.installNow(signal ? AbortSignal.any([signal, controller.signal]) : controller.signal); this.operation = task;
-    try { return await task; } catch (error) { this.installFailure = error instanceof Error ? error.message : String(error); throw error; }
+    const effectiveSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const task = this.installNow(effectiveSignal); this.operation = task;
+    try { return await task; } catch (error) { if (!effectiveSignal.aborted) this.installFailure = error instanceof Error ? error.message : String(error); throw error; }
     finally { if (this.operation === task) { this.operation = null; this.operationAbort = null; this.installing = false; } }
   }
-  private async installNow(signal?: AbortSignal): Promise<ManagedSpeechState> {
-    await this.checkPath();
+  private async installNow(signal: AbortSignal): Promise<ManagedSpeechState> {
+    signal.throwIfAborted(); await this.checkPath();
     const nativeHash = nodePackages[`${process.platform}-${process.arch}`];
     if (!nativeHash) throw new Error("当前平台暂不支持托管本机语音");
     const current = await this.installedState();
     if (current.status === "failed") {
       if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖");
-      await this.checkPath(); await rm(this.home, { recursive: true });
+      await this.checkPath(); await rm(join(this.home, "installed"), { force: true });
     } else if (current.status !== "not-installed") return current;
     await mkdir(dirname(this.home), { recursive: true }); await this.checkPath();
     try { await mkdir(this.home); await writeFile(join(this.home, ".owner"), owner, { flag: "wx" }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖"); }
     await this.checkPath();
     const nodeName = `node-v22.19.0-${process.platform}-${process.arch}`, nodeArchive = join(this.home, "node.tar.gz");
-    this.installPhase = "正在下载 Node 运行时";
-    await this.runInstallCommand("curl", ["--disable", "--fail", "--silent", "--show-error", "--location", "--max-time", "600", "--max-filesize", "100000000", "--output", nodeArchive, `https://nodejs.org/dist/v22.19.0/${nodeName}.tar.gz`], this.home, signal);
-    this.installPhase = "正在校验 Node 运行时";
-    if (await digest(nodeArchive, "sha256", "hex") !== nodeRuntimeHashes[`${process.platform}-${process.arch}`]) throw new Error("Node 运行时校验失败");
-    await this.runInstallCommand("tar", ["-xzf", nodeArchive, "-C", this.home, "--strip-components=1", `${nodeName}/bin/node`], this.home, signal); await rm(nodeArchive);
+    await this.download(nodeArchive, { url: `https://nodejs.org/dist/v22.19.0/${nodeName}.tar.gz`, hash: nodeRuntimeHashes[`${process.platform}-${process.arch}`]!, algorithm: "sha256", encoding: "hex", maxBytes: 100000000 }, "步骤 1/5 · 正在下载 Node 运行时", signal);
+    this.installPhase = "步骤 1/5 · 正在校验与解压 Node 运行时"; this.installProgress = {};
+    await this.runInstallCommand("tar", ["-xzf", nodeArchive, "-C", this.home, "--strip-components=1", `${nodeName}/bin/node`], this.home, signal);
+    let step = 1;
     for (const [name, hash] of [["sherpa-onnx-node", "09SRixVSjsajxeCV8Hy9R5J4IHPtw7vNgaIcEokdh/LpU7sY+e12z9uHHIMMMgNiInyGEH74wIwjLXms+W7qRA=="], [`sherpa-onnx-${process.platform}-${process.arch}`, nativeHash]] as const) {
+      step++;
       const archive = join(this.home, `${name}.tgz`), target = join(this.home, "node_modules", name);
-      this.installPhase = `正在下载语音运行时 ${name}`;
-      await this.runInstallCommand("curl", ["--disable", "--fail", "--silent", "--show-error", "--location", "--max-time", "600", "--max-filesize", "300000000", "--output", archive, `https://registry.npmjs.org/${name}/-/${name}-1.12.23.tgz`], this.home, signal);
-      this.installPhase = `正在校验语音运行时 ${name}`;
-      if (await digest(archive, "sha512", "base64") !== hash) throw new Error("语音运行时校验失败");
-      await mkdir(target, { recursive: true }); await this.runInstallCommand("tar", ["-xzf", archive, "-C", target, "--strip-components=1"], this.home, signal); await rm(archive);
+      await this.download(archive, { url: `https://registry.npmjs.org/${name}/-/${name}-1.12.23.tgz`, hash, algorithm: "sha512", encoding: "base64", maxBytes: 300000000 }, `步骤 ${step}/5 · 正在下载语音运行时 ${name}`, signal);
+      this.installPhase = `步骤 ${step}/5 · 正在校验与解压语音运行时`; this.installProgress = {};
+      await mkdir(target, { recursive: true }); await this.runInstallCommand("tar", ["-xzf", archive, "-C", target, "--strip-components=1"], this.home, signal);
     }
     for (const asset of assets) {
       const archive = join(this.home, asset.name);
-      this.installPhase = asset.name === "tts.tar.bz2" ? "正在下载 TTS 模型" : "正在下载 ASR 模型";
-      await this.runInstallCommand("curl", ["--disable", "--fail", "--silent", "--show-error", "--location", "--max-time", "1200", "--max-filesize", "1200000000", "--output", archive, asset.url], this.home, signal);
-      this.installPhase = asset.name === "tts.tar.bz2" ? "正在校验 TTS 模型" : "正在校验 ASR 模型";
-      if (await digest(archive, "sha256", "hex") !== asset.sha256) throw new Error("模型校验失败");
+      step++; const label = asset.name === "tts.tar.bz2" ? "TTS" : "ASR";
+      await this.download(archive, { url: asset.url, hash: asset.sha256, algorithm: "sha256", encoding: "hex", maxBytes: 1200000000 }, `步骤 ${step}/5 · 正在下载 ${label} 模型`, signal);
+      this.installPhase = `步骤 ${step}/5 · 正在校验与解压 ${label} 模型`; this.installProgress = {};
       await this.runInstallCommand("tar", ["-xjf", archive, "--exclude", "*/model.onnx", "--exclude", "*.py", "-C", this.home], this.home, signal);
-      await rm(archive);
     }
+    signal.throwIfAborted();
     await writeFile(join(this.home, "gateway.cjs"), SPEECH_GATEWAY);
+    signal.throwIfAborted();
     await writeFile(join(this.home, "installed"), marker);
     return this.installedState();
+  }
+  private async download(path: string, asset: SpeechArchive, phase: string, signal: AbortSignal): Promise<void> {
+    const override = this.archives[path.slice(this.home.length + 1)];
+    this.installPhase = phase; this.installProgress = {};
+    await downloadSpeechArchive(path, override ? { ...asset, ...override } : asset, signal, ({ bytes, total }) => {
+      const done = (bytes / 1048576).toFixed(1), whole = total === undefined ? "未知" : (total / 1048576).toFixed(1);
+      this.installPhase = `${phase} · ${done} / ${whole} MB`;
+      this.installProgress = total === undefined ? {} : { downloadSizeMb: total / 1048576, progressPercent: Math.min(100, bytes / total * 100) };
+    }, this.downloadPolicy);
   }
   async ensureRunning(signal?: AbortSignal): Promise<ManagedSpeechState> {
     if (this.operation) { await this.operation; return this.ensureRunning(signal); }
