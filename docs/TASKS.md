@@ -29,10 +29,11 @@
 
 ## [Task #29] 工作区可读短 ID、EPUB OPF 元数据标题净化、书籍封面提取与课题看板（Topic Board）书卷卡片重构
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/core/store/**`, `src/plugins/stage-reader/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: 1727939ab10a1d8770ac5cb0354053306defa517
 - **Updated**: 2026-11-09
+- **验收摘要**：Worker 类型检查、全仓测试与构建通过；独立 Tester 在 Web 与真实隔离 Obsidian 验证 OPF 净化标题、真实封面、短 ID 冲突与旧 UUID 兼容、工具标签和笔记计数、已沉淀书目行及三种封面回退；实际原生窗口 550×850 明暗主题通过。截图：`.tmp/evidence/task-29/final-web-populated.png`、`.tmp/evidence/task-29/final-native-populated-narrow-light.png`、`.tmp/evidence/task-29/final-native-populated-narrow-dark.png`、`.tmp/evidence/task-29/final-web-cover-variants.png`、`.tmp/evidence/task-29/final-native-cover-variants.png`。
 - **授权范围**：允许修改 `src/core/store/WorkspaceStore.ts`、`src/plugins/stage-reader/epub.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。
 - **不在范围内**：严禁添加“SVG 进度圆环（progress ring） / 成就徽章 / 打卡纹理”等任务系统噪音；保持对已有旧长 UUID 目录（如 `topic-8bdc0803...`）的 100% 向后兼容读取。
 - **背景与参考代码**：执行环开工前请主动阅读：
