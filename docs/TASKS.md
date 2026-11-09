@@ -29,10 +29,12 @@
 
 ## [Task #28] 本机语音引擎下载实时进度可视化、断点续传抗超时与取消控制
 
-- **Status**: pending
+- **Status**: verified
 - **Scope**: `src/shells/speech/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
-- **Verified-Commit**: none
+- **Verified-Commit**: 852bb9cda7913749f1af9d7a64456fb6d9339aca
 - **Updated**: 2026-11-09
+- **验收摘要**：Worker 类型检查、全仓测试（232 通过、53 环境跳过）、最终相关 HTTP/浏览器回归（15 通过）、手动破壁与构建同步通过。独立 Tester 在 Web 与真实隔离 Obsidian（`.dev-vault`）中验证进度多次增长、重开保持、取消后保留 917,504 字节并从 `Range: bytes=917504-` 续传、五个归档校验解压完成，以及错误哈希显性失败且无安装标记。终验使用本地受控小型归档，未验证真实公网全量下载或启动模型；本轮测试资源已关闭。
+- **Evidence**: `.tmp/evidence/task-28/final-web-{reopened,ready,bad-hash}.png`、`.tmp/evidence/task-28/final-native-{reopened,ready,bad-hash}.png`（均为真实 PNG，已亲眼审视）。
 - **授权范围**：允许修改 `src/shells/speech/speechRuntime.ts`、`src/workbench/speechRuntimeSettings.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。只读消费 `src/core/seams.ts` 已有的 `ManagedSpeechState.progressPercent`、`downloadSizeMb` 与 `ManagedSpeechRuntimePort.stop()`。
 - **不在范围内**：严禁修改 `src/core/` 冻结契约（`ManagedSpeechState` 已定义 `progressPercent?: number` 与 `downloadSizeMb?: number`，`ManagedSpeechRuntimePort` 已定义 `stop?(): Promise<ManagedSpeechState>`，无需改动核心接口）；严禁修改 `model` / `effort` 既有行为。
 - **背景与实证根因**：
