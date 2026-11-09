@@ -6,6 +6,7 @@ import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
+import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
 import { audioContentType } from "../../workbench/mediaAssets.ts";
@@ -166,7 +167,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
   }
   const unavailable = rootError;
   const speechRuntime = unavailable ? { getState: async () => ({ supported: false, status: "not-installed" as const, note: unavailable }) } : new NodeManagedSpeechRuntime(protectedRoot ? { protectedRoot } : { home: join(homedir(), "Library", "Application Support", "pith", "speech") });
-  return { id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
+  return { id: "obsidian", storage, repository: new NodeRepositoryPort(), http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -211,7 +212,7 @@ export class PithObsidianController {
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
-    if (host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
@@ -423,7 +424,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
-      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, dojos()) : [] }; },
+      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, dojos()) : [] }; },
       sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => {

@@ -21,7 +21,9 @@ test("workspace tools bound reads, protect imports and gate settlement", async (
     const topic = await store.createTopic({ id: "topic-one", title: "Topic", materialId: "material-one" });
     const engine = new DefaultAttentionEngine(store, storage);
     const tools = createGuideWorkspaceTools(store, engine, storage);
-    assert.equal(tools.length, 6);
+    assert.equal(tools.length, 8);
+    assert.ok(tools.some(tool => tool.name === "pith_list_repository_files"));
+    assert.ok(tools.some(tool => tool.name === "pith_read_repository_file"));
     const call = (name: string, input: Record<string, unknown>) => {
       const tool = tools.find(item => item.name === name);
       assert.ok(tool);
@@ -61,7 +63,7 @@ test("workspace tools bound reads, protect imports and gate settlement", async (
     await assert.rejects(dshSettle.execute({ topicId: other.id, verificationSummary: "verified" }), /learner note/);
     const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage }, store, engine, window: {} });
     runtime.reconcile({});
-    try { assert.equal(runtime.getService<GuideAgentService>("guide.agent")!.listWorkspaceTools!().length, 6); } finally { runtime.stop(); }
+    try { assert.equal(runtime.getService<GuideAgentService>("guide.agent")!.listWorkspaceTools!().length, 8); } finally { runtime.stop(); }
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

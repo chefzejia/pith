@@ -60,6 +60,7 @@ export function diagnose(targetText: string, producedText: string): DojoDiagnosi
 
 export const shadowingToolkit: DojoToolkitDescriptor = {
   id: "shadowing", label: "影子跟读", category: "language", evalMode: "deterministic",
+  whenToUse: "外语听力、口语发音、演讲台词或音视频字幕需要四阶跟读与漏词诊断时挂载", compatibleStages: ["timeline", "reader"], uiProtocol: "inline-stage-lens",
   stages: ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"],
   transformCue, diagnose,
   quickActions: [{ id: "shadowing-coach", label: "分析跟读", prompt: "请分析我的跟读，指出节奏与漏词并给出下一步练习。" }],

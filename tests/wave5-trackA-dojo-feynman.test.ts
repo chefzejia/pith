@@ -64,9 +64,9 @@ test("registered Feynman plugin is kept active by injected topic usage and promo
 test("Guide merges only mounted dojo actions and defaults to both toolkit descriptions", () => {
   const current = topic(["dojo-feynman", "shadowing"]);
   const actions = quickActionsForTopic(current, [feynmanToolkit, shadowingToolkit]);
-  assert.deepEqual(actions.map(action => action.id), ["orient", "quiz", "feynman-coach", "shadowing-coach"]);
-  assert.deepEqual(actions[2], feynmanToolkit.quickActions[0]);
-  assert.deepEqual(quickActionsForTopic(topic([]), [feynmanToolkit]).map(action => action.id), ["orient", "quiz"]);
+  assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "feynman-coach", "shadowing-coach"]);
+  assert.deepEqual(actions[1], feynmanToolkit.quickActions[0]);
+  assert.deepEqual(quickActionsForTopic(topic([]), [feynmanToolkit]).map(action => action.id), ["plan-curriculum"]);
   const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain" });
   assert.match(prompt, /shadowing: 4-Stage Language Shadowing \(language\)/);
   assert.match(prompt, /feynman: 4-Stage Feynman Recall \(comprehension\)/);

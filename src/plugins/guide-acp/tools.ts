@@ -1,4 +1,4 @@
-import type { AttentionEngine, GuideMcpToolSpec, HttpPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
+import type { AttentionEngine, GuideMcpToolSpec, HttpPort, RepositoryPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
@@ -26,7 +26,19 @@ function anchorValue(value: unknown): SelectionAnchor {
   return { file: text(anchor, "file", 500), locator: text(anchor, "locator", 300), ...(anchor.quote === undefined ? {} : { quote: text(anchor, "quote") }) };
 }
 
-export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort): readonly GuideMcpToolSpec[] {
+export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort): readonly GuideMcpToolSpec[] {
+  const binding = async (input: Readonly<Record<string, unknown>>) => {
+    const material = await store.getMaterial(text(input, "materialId", 200));
+    if (!material || material.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository material is not bound to a commit");
+    if (!repository) throw new Error("Repository service unavailable");
+    return { material, repository };
+  };
+  const integer = (input: Readonly<Record<string, unknown>>, name: string): number | undefined => {
+    const value = input[name];
+    if (value === undefined) return undefined;
+    if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`Invalid ${name}`);
+    return value;
+  };
   return [
     ...(http ? [{ name: "pith_ingest_external", description: "Import a public external document or media into the workspace.", inputSchema: schema({ url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
       keys(input, ["url", "kind", "transcriptMarkdown", "topicId"]);
@@ -45,6 +57,16 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       const topic = input.topicId === undefined ? null : await store.getTopic(text(input, "topicId", 200));
       if (input.topicId !== undefined && !topic) throw new Error("Topic not found");
       return { profile: await store.readProfile(), compass: await engine.compass(), topic };
+    } },
+    { name: "pith_list_repository_files", description: "List ordinary files in a bound repository commit.", inputSchema: schema({ materialId: field, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 1000 } }, ["materialId"]), async execute(input) {
+      keys(input, ["materialId", "offset", "limit"]);
+      const { material, repository } = await binding(input);
+      return repository.listFiles(material.externalPath!, material.commitSha!, integer(input, "offset"), integer(input, "limit"));
+    } },
+    { name: "pith_read_repository_file", description: "Read a bounded UTF-8 file excerpt from a bound repository commit.", inputSchema: schema({ materialId: field, path: field, startLine: { type: "integer", minimum: 1 }, maxLines: { type: "integer", minimum: 1, maximum: 1000 } }, ["materialId", "path"]), async execute(input) {
+      keys(input, ["materialId", "path", "startLine", "maxLines"]);
+      const { material, repository } = await binding(input);
+      return repository.readFile(material.externalPath!, material.commitSha!, text(input, "path", 4096), integer(input, "startLine"), integer(input, "maxLines"));
     } },
     { name: "pith_read_material_section", description: "Read a bounded excerpt of a text material, optionally around text:line:N (zero-based).", inputSchema: schema({ materialId: field, file: field, locator: field }, ["materialId", "file"]), async execute(input) {
       keys(input, ["materialId", "file", "locator"]);
@@ -77,9 +99,20 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (kind !== "note" && kind !== "highlight" && kind !== "practice") throw new Error("Invalid note kind");
       return store.appendNote(text(input, "topicId", 200), { kind, body: text(input, "body"), ...(input.guideRemark === undefined ? {} : { guideRemark: text(input, "guideRemark", 1000) }), ...(input.anchor === undefined ? {} : { anchor: anchorValue(input.anchor) }) });
     } },
-    { name: "pith_write_lesson", description: "Write a generated Markdown lesson without overwriting imported material.", inputSchema: schema({ materialId: field, fileName: field, markdown: field }, ["materialId", "fileName", "markdown"]), async execute(input) {
-      keys(input, ["materialId", "fileName", "markdown"]);
-      return store.writeGeneratedFile(text(input, "materialId", 200), text(input, "fileName", 200), text(input, "markdown", 100000));
+    { name: "pith_write_lesson", description: "Write a generated Markdown lesson; create a material for a topic without one.", inputSchema: schema({ topicId: field, materialId: field, fileName: field, markdown: field }, ["fileName", "markdown"]), async execute(input) {
+      keys(input, ["topicId", "materialId", "fileName", "markdown"]);
+      const fileName = text(input, "fileName", 200), markdown = text(input, "markdown", 100000);
+      if (!fileName.endsWith(".md") || /[/\\\0]/.test(fileName)) throw new Error("Invalid lesson file name");
+      let materialId = input.materialId === undefined ? undefined : text(input, "materialId", 200);
+      if (input.topicId !== undefined) {
+        const topic = await store.getTopic(text(input, "topicId", 200));
+        if (!topic) throw new Error("Topic not found");
+        if (materialId && topic.materialId !== materialId) throw new Error("Material does not belong to topic");
+        materialId = topic.materialId;
+        if (!materialId) { const material = await store.importMaterial({ title: topic.title, kind: "article", files: [] }); await store.updateTopic(topic.id, { materialId: material.id }); materialId = material.id; }
+      }
+      if (!materialId) throw new Error("Topic or material required");
+      return store.writeGeneratedFile(materialId, fileName, markdown);
     } },
     { name: "pith_configure_toolkits", description: "Configure topic toolkits.", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), async execute(input) {
       keys(input, ["topicId", "toolkits"]);

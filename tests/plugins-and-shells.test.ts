@@ -58,7 +58,7 @@ test("four-stage scaffolding, Unicode LCS, and contextual guide actions", () => 
   assert.match(result.summaryMarkdown, /漏词/);
   assert.throws(() => diagnose("× ÷ !", ""), /没有可对齐/);
   const topic: Topic = { id: "t", title: "Title", target: "Understand", status: "exploring", toolkits: ["shadowing"], notes: [{ id: "n", kind: "note", body: "reflection", createdAt: "today" }], createdAt: "today", updatedAt: "today" };
-  assert.deepEqual(quickActionsForTopic(topic, [shadowingToolkit]).map(action => action.label), ["导读这一节", "考考我 / 下一步", "总结沉淀", "分析跟读"]);
+  assert.deepEqual(quickActionsForTopic(topic, [shadowingToolkit]).map(action => action.label), ["规划课程大纲与第一讲", "总结沉淀", "分析跟读"]);
   const prompt = buildScenePrompt({ profileMarkdown: "# Profile", topic, userMessage: "Why?", anchor: { file: "lesson.md", locator: "page:2", quote: "Example" } });
   for (const item of ["# Profile", "Understand", "reflection", "Example", "Why?", "Settlement Gate", "深水区"]) assert.ok(prompt.includes(item));
 });

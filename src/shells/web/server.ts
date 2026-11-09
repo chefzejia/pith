@@ -5,6 +5,7 @@ import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type Dojo
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
+import { NodeRepositoryPort } from "./nodeRepository.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
@@ -79,10 +80,12 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   await loadSettings();
   const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona } } } });
   const processPort = new NodeAgentProcessPort();
+  const repository = new NodeRepositoryPort();
+  const http = new NodeHttpPort();
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
-  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, speechRuntime, http: new NodeHttpPort(), secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
-  localProvider = new LocalAcpGuideProvider({ processPort, store, getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
+  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;
@@ -170,7 +173,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const guide = runtime.getService<GuideAgentService>("guide.agent");
         if (!guide || !guide.quickActionsForTopic) return send(res, 503, { error: "Guide service unavailable" });
         const dojos = ["shadowing", "feynman", "interline"].flatMap(id => { const dojo = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return dojo ? [dojo] : []; });
-        return send(res, 200, guide.quickActionsForTopic(topic, dojos));
+        const material = topic.materialId ? await store.getMaterial(topic.materialId) : null;
+        const topicWithMaterial = { ...topic, material };
+        return send(res, 200, guide.quickActionsForTopic(topicWithMaterial, dojos));
       }
       if (method === "POST" && url.pathname === "/api/interline") {
         const data = await body(req), topicId = str(data, "topicId"), file = str(data, "file"), mode = str(data, "mode");
