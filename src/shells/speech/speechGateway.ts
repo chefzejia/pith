@@ -1,4 +1,4 @@
-import { readSpeechVoices } from "./speechVoices.ts";
+import { ZIPVOICE_DIRECTORY, ZIPVOICE_PRESETS } from "./speechVoices.ts";
 
 export const SPEECH_GATEWAY = String.raw`'use strict';
 const http = require('node:http');
@@ -6,23 +6,30 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const sherpa = require('sherpa-onnx-node');
 const root = __dirname;
-const ttsDir = path.join(root, 'kokoro-int8-multi-lang-v1_1');
+const ttsDir = path.join(root, '${ZIPVOICE_DIRECTORY}');
 const asrDir = path.join(root, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17');
-const readSpeechVoices = ${readSpeechVoices.toString()};
-let voiceData;
-async function getVoices() { if (!voiceData) voiceData = await readSpeechVoices(path.join(ttsDir, 'model.int8.onnx'), require('node:fs/promises').open); return voiceData; }
-function voiceId(value, voices) { const name = typeof value === 'string' ? value : ''; const found = voices.find(item => item.id === name || (/^\d+$/.test(name) && item.sid === Number(name))); return found ? found.sid : 48; }
+const presets = ${JSON.stringify(ZIPVOICE_PRESETS)};
+function getVoices() { return { voices: presets.map(({id, sid, group}) => ({id, sid, group})), defaultVoice: presets[0].id }; }
+function voicePreset(value) { const name = typeof value === 'string' ? value : ''; return presets.find(item => item.id === name || (/^\d+$/.test(name) && item.sid === Number(name))) || presets[0]; }
+const references = new Map();
 let tts, asr, timer, active = 0;
 const converters = new Set();
 const idle = Number(process.env.PITH_SPEECH_IDLE_SECONDS || '180') * 1000;
 function resetIdle() { clearTimeout(timer); if (!active) timer = setTimeout(() => server.close(), idle); }
-function synthesize(text, speed, sid) {
-  if (!tts) tts = new sherpa.OfflineTts({ model: { kokoro: { model: path.join(ttsDir, 'model.int8.onnx'), voices: path.join(ttsDir, 'voices.bin'), tokens: path.join(ttsDir, 'tokens.txt'), dataDir: path.join(ttsDir, 'espeak-ng-data'), lexicon: [path.join(ttsDir, 'lexicon-us-en.txt'), path.join(ttsDir, 'lexicon-zh.txt')].join(',') }, numThreads: 2, provider: 'cpu' }, ruleFsts: [path.join(ttsDir, 'date-zh.fst'), path.join(ttsDir, 'number-zh.fst'), path.join(ttsDir, 'phone-zh.fst')].join(','), maxNumSentences: 1 });
-  const audio = tts.generate({ text, speed, sid });
+function synthesize(text, speed, voice) {
+  if (!tts) tts = new sherpa.OfflineTts({ model: { zipvoice: { encoder: path.join(ttsDir, 'encoder.int8.onnx'), decoder: path.join(ttsDir, 'decoder.int8.onnx'), tokens: path.join(ttsDir, 'tokens.txt'), dataDir: path.join(ttsDir, 'espeak-ng-data'), lexicon: path.join(ttsDir, 'lexicon.txt'), vocoder: path.join(ttsDir, 'vocos_24khz.onnx') }, numThreads: 4, provider: 'cpu' }, maxNumSentences: 1 });
+  const preset = voicePreset(voice);
+  let reference = references.get(preset.id);
+  if (!reference) { reference = sherpa.readWave(path.join(ttsDir, 'test_wavs', preset.file)); references.set(preset.id, reference); }
+  const generationConfig = new sherpa.GenerationConfig({ speed, numSteps: 8, referenceAudio: reference.samples, referenceSampleRate: reference.sampleRate, referenceText: preset.text, extra: { min_char_in_sentence: 10 } });
+  const audio = tts.generate({ text, generationConfig });
   if (!audio.samples.length) throw Error('Empty generated audio');
+  let peak = 0;
+  for (const sample of audio.samples) { if (!Number.isFinite(sample)) throw Error('Invalid generated audio'); peak = Math.max(peak, Math.abs(sample)); }
+  const gain = peak > 0.95 ? 0.95 / peak : 1;
   const output = Buffer.alloc(44 + audio.samples.length * 2);
   output.write('RIFF', 0); output.writeUInt32LE(output.length - 8, 4); output.write('WAVEfmt ', 8); output.writeUInt32LE(16, 16); output.writeUInt16LE(1, 20); output.writeUInt16LE(1, 22); output.writeUInt32LE(audio.sampleRate, 24); output.writeUInt32LE(audio.sampleRate * 2, 28); output.writeUInt16LE(2, 32); output.writeUInt16LE(16, 34); output.write('data', 36); output.writeUInt32LE(output.length - 44, 40);
-  for (let i = 0; i < audio.samples.length; i++) output.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(audio.samples[i] * 32767))), 44 + i * 2);
+  for (let i = 0; i < audio.samples.length; i++) output.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(audio.samples[i] * gain * 32767))), 44 + i * 2);
   return output;
 }
 async function transcribe(bytes) {
@@ -54,7 +61,7 @@ const server = http.createServer(async (req, res) => {
       if (!type.startsWith('application/json')) throw Error('Expected JSON');
       const input = JSON.parse(data.toString('utf8')), speed = Number(input.speed || 1);
       if (typeof input.input !== 'string' || !input.input.trim() || input.input.length > 10000 || speed < 0.5 || speed > 2 || !Number.isFinite(speed)) throw Error('Invalid speech request');
-      respond(res, 200, 'audio/wav', synthesize(input.input, speed, voiceId(input.voice, (await getVoices()).voices)));
+      respond(res, 200, 'audio/wav', synthesize(input.input, speed, input.voice));
     } else if (req.url === '/v1/audio/transcriptions' || req.url === '/transcribe') {
       let audio = data;
       if (req.url === '/v1/audio/transcriptions') { if (!type.startsWith('multipart/form-data;')) throw Error('Expected multipart audio'); const form = await new Request('http://127.0.0.1/', { method: 'POST', headers: { 'content-type': type }, body: data }).formData(); const files = form.getAll('file'); if (files.length !== 1 || typeof files[0] === 'string') throw Error('Expected one audio file'); audio = Buffer.from(await files[0].arrayBuffer()); }

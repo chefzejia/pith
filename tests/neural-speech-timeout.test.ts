@@ -42,12 +42,12 @@ test("an unavailable local speech engine fails closed without trying another pro
     throw Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" });
   } } };
   const speech = createNeuralSpeech(host, { ttsProvider: "kokoro-local", ttsEndpoint: "", ttsVoice: "", azureRegion: "", asrProvider: "whisper-local", asrLoopbackUrl: "http://localhost:8765", rate: 1 }, isLoopbackSafe);
-  await assert.rejects(speech.synthesizeSpeech("Test sentence."), /connection refused.*Kokoro/i);
+  await assert.rejects(speech.synthesizeSpeech("Test sentence."), /connection refused.*ZipVoice/i);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, "http://127.0.0.1:8880/v1/audio/speech");
   const health = await speech.checkTtsHealth();
   assert.equal(health.ok, false);
-  assert.match(health.note, /connection refused.*Kokoro/i);
+  assert.match(health.note, /connection refused.*ZipVoice/i);
   assert.equal(calls.length, 2);
   assert.equal(calls[1]!.url, "http://127.0.0.1:8880/health");
 });

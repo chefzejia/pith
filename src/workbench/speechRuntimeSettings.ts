@@ -6,7 +6,7 @@ export function renderSpeechRuntimeSettings(panel: HTMLElement, getState: () => 
   const doc = panel.ownerDocument;
   const title = doc.createElement("div"); title.className = "pith-runtime-title";
   const name = doc.createElement("strong"); name.textContent = "本机语音引擎";
-  const description = doc.createElement("small"); description.textContent = "Kokoro 中英 TTS · SenseVoice 多语种 ASR";
+  const description = doc.createElement("small"); description.textContent = "ZipVoice 中英 TTS · SenseVoice 多语种 ASR";
   title.append(name, description);
   const status = doc.createElement("div"); status.setAttribute("role", "status"); status.setAttribute("style", "min-width:0;max-width:100%;overflow-wrap:anywhere");
   const progressArea = doc.createElement("div"); progressArea.setAttribute("style", "flex-basis:100%;width:100%");

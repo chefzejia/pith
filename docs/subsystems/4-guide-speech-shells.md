@@ -65,7 +65,7 @@
    - 模型与运行时安装在 Vault 之外的系统应用目录（默认路径与 `PITH_SPEECH_HOME` 环境变量规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）；
    - [`checkPath`](../../src/shells/speech/speechRuntime.ts) 强制校验安装路径不在 Vault 或工作区内部且非符号链接，卸载（`remove`）前校验 `.owner` 标记文件，防止误删用户目录。
 2. **原生模型资产（SHA-256 强校验，零 Python / 零 `pip`）**：
-   - 预编译原生推理运行时与多语种 TTS/ASR 模型资产清单、下载地址及哈希校验值由 [`speechRuntime.ts`](../../src/shells/speech/speechRuntime.ts) 中的 `assets` 统一定义，严禁在运行时调用宿主机 `python3` 或 `pip`。
+   - 默认 TTS 为 ZipVoice INT8，使用预置参考音色与 8 步生成；ASR 为 SenseVoice INT8。原生运行时、模型下载地址及哈希由 [`SPEECH_MODEL_ASSETS`](../../src/shells/speech/speechRuntime.ts) 定义，参考音色由 [`ZIPVOICE_PRESETS`](../../src/shells/speech/speechVoices.ts) 定义，严禁在运行时调用宿主机 `python3` 或 `pip`。
 3. **按需拉起与空闲回收**：
    - 在 `local` 语音模式下点击听读或录音转写时，自动调用 `ensureRunning()` 拉起 [`SPEECH_GATEWAY`](../../src/shells/speech/speechGateway.ts) 本机回环 HTTP 服务（监听 `127.0.0.1` 随机端口，暴露 `/health`、`POST /v1/audio/speech`、`POST /v1/audio/transcriptions`）；
    - 超过空闲阈值（`idleTimeoutSec`）无请求或宿主关闭时，子进程自动退出释放内存。

@@ -6,18 +6,19 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ManagedSpeechRuntimePort, ManagedSpeechState } from "../../core/index.ts";
 import { SPEECH_GATEWAY } from "./speechGateway.ts";
 import { downloadSpeechArchive, defaultDownloadPolicy, type DownloadPolicy, type SpeechArchive } from "./speechDownload.ts";
-import { readSpeechVoices, type SpeechVoices } from "./speechVoices.ts";
+import { getSpeechVoices, ZIPVOICE_DIRECTORY, ZIPVOICE_PRESETS, type SpeechVoices } from "./speechVoices.ts";
 
-const assets = [
-  { name: "tts.tar.bz2", url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2", sha256: "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c" },
-  { name: "asr.tar.bz2", url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2", sha256: "f6b2a72ebcb1ac7a764d4cfccd886e6bcb2a95c4657c2199d0ba95ed4b9ea71a" },
+export const SPEECH_MODEL_ASSETS = [
+  { name: "tts.tar.bz2", directory: ZIPVOICE_DIRECTORY, url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2", sha256: "77219c8b40f4ee8d73a7f902305ff6c1128ef9b54461c41b4ca6ed890b6c2803" },
+  { name: "vocos_24khz.onnx", directory: ZIPVOICE_DIRECTORY, url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx", sha256: "bcb3b970e384161c4d634f0bb9e999ff1c471b34c9bc0b1049a5014065ed3cc0" },
+  { name: "asr.tar.bz2", directory: "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2", sha256: "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e" },
 ] as const;
-const marker = "pith-sherpa-1.12.23-kokoro-sensevoice-v2";
+const marker = "pith-sherpa-1.13.8-zipvoice-sensevoice-v3";
 const owner = "pith-managed-speech-v2";
 const nodePackages: Record<string, string> = {
-  "darwin-arm64": "zbjNUUH/IXhjRyRJ9mpcWVOGIVr31a/qXBPsfOYc7U8cgwcq33Vmj2OzoLYWQF6T+puqCAE4nMxFAxJvdZekhg==",
-  "darwin-x64": "hgPhBG85bgULJo5xS5xvh1A9+D6GBPwhZ8QCvWvh7YP1kF9UZTF1r5hWBOzZiR2Ax0gQMbxVvw1t/NpR2N7HWA==",
-  "linux-x64": "pUZIdDvPtyRXQDGo9R9MIBf2AFUzfgcGmutoulsEdH3hpK6JteR7Z/5pfrZIIqe/O99djAjEHK4AlwLHC2jiZw==",
+  "darwin-arm64": "FPNgJMgnWVl/KhRTIhG3KL3A4Om63Rn4YKXc9/uHY7SzLcvqLJLc/h7UBWJwduXvv7K18t5NpxHR6XgXn4sjWw==",
+  "darwin-x64": "7BLRpjM6w4f9W46/nmkmq8lEKUayhebvcpslCVQ+6QN2uReYlZEMDZlSpXMjme+hUFrPfRz8P3UNq8ep/4d19g==",
+  "linux-x64": "6plnhjagsSeTntCgnlag86hWbs/uZE9Crms1LgOb68/1nKsIQjMd+WG519m+aPwT6TrsBOiEMzrx41t8sL5L5g==",
 };
 const nodeRuntimeHashes: Record<string, string> = {
   "darwin-arm64": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d",
@@ -73,7 +74,7 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     if (this.protectedRoot) { const protectedRoot = await resolvedExisting(resolve(this.protectedRoot)); if (isWithin(path, protectedRoot) || isWithin(protectedRoot, path)) throw new Error("语音运行时不能放在 Vault 或工作区中"); }
     try { if ((await lstat(this.home)).isSymbolicLink()) throw new Error("语音运行时目录不能是符号链接"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
-  private state(status: ManagedSpeechState["status"], note: string): ManagedSpeechState { const modelName = "Kokoro-82M v1.1 (中英) + SenseVoice (多语种)"; return { supported: true, status, installDir: this.home, idleTimeoutSec: this.idleTimeoutSec, modelName, ...(status === "installing" ? this.installProgress : {}), ...(this.endpoint ? { endpoint: `${this.endpoint}/v1/audio/speech`, asrEndpoint: `${this.endpoint}/v1/audio/transcriptions` } : {}), note: status === "installing" || status === "failed" ? note : `${note} · ${modelName}` }; }
+  private state(status: ManagedSpeechState["status"], note: string): ManagedSpeechState { const modelName = "ZipVoice INT8 (中英) + SenseVoice INT8 (多语种)"; return { supported: true, status, installDir: this.home, idleTimeoutSec: this.idleTimeoutSec, modelName, ...(status === "installing" ? this.installProgress : {}), ...(this.endpoint ? { endpoint: `${this.endpoint}/v1/audio/speech`, asrEndpoint: `${this.endpoint}/v1/audio/transcriptions` } : {}), note: status === "installing" || status === "failed" ? note : `${note} · ${modelName}` }; }
   async getState(): Promise<ManagedSpeechState> {
     await this.checkPath();
     if (!nodePackages[`${process.platform}-${process.arch}`]) return { supported: false, status: "not-installed", note: "当前平台暂不支持托管本机语音" };
@@ -85,16 +86,19 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     await this.checkPath();
     const state = await this.installedState();
     if (this.installing || (state.status !== "stopped" && state.status !== "running")) throw new Error("本机语音引擎尚未安装");
-    const model = join(this.home, "kokoro-int8-multi-lang-v1_1", "model.int8.onnx");
+    const model = join(this.home, ZIPVOICE_DIRECTORY, "encoder.int8.onnx");
     const info = await lstat(model);
     if (!info.isFile() || info.isSymbolicLink() || !isWithin(await realpath(model), await realpath(this.home))) throw new Error("语音模型路径不安全");
-    return readSpeechVoices(model);
+    return getSpeechVoices();
   }
   private async installedState(): Promise<ManagedSpeechState> {
     if (this.child && this.endpoint) return this.state("running", "本机语音运行中");
     try {
       if ((await readFile(join(this.home, ".owner"), "utf8")).trim() === owner && (await readFile(join(this.home, "installed"), "utf8")) === marker) {
-        try { for (const path of ["bin/node", "node_modules/sherpa-onnx-node/sherpa-onnx.js", `node_modules/sherpa-onnx-${process.platform}-${process.arch}/sherpa-onnx.node`, "kokoro-int8-multi-lang-v1_1/model.int8.onnx", "kokoro-int8-multi-lang-v1_1/voices.bin", "kokoro-int8-multi-lang-v1_1/tokens.txt", "kokoro-int8-multi-lang-v1_1/espeak-ng-data", "kokoro-int8-multi-lang-v1_1/dict", "kokoro-int8-multi-lang-v1_1/lexicon-us-en.txt", "kokoro-int8-multi-lang-v1_1/lexicon-zh.txt", "kokoro-int8-multi-lang-v1_1/date-zh.fst", "kokoro-int8-multi-lang-v1_1/number-zh.fst", "kokoro-int8-multi-lang-v1_1/phone-zh.fst", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt"]) await access(join(this.home, path)); }
+        try {
+          const files = ["bin/node", "node_modules/sherpa-onnx-node/sherpa-onnx.js", `node_modules/sherpa-onnx-${process.platform}-${process.arch}/sherpa-onnx.node`, ...["encoder.int8.onnx", "decoder.int8.onnx", "vocos_24khz.onnx", "tokens.txt", "lexicon.txt", "espeak-ng-data", ...ZIPVOICE_PRESETS.map(preset => `test_wavs/${preset.file}`)].map(file => `${ZIPVOICE_DIRECTORY}/${file}`), "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt"];
+          for (const path of files) await access(join(this.home, path));
+        }
         catch { return this.state("failed", "本机语音安装不完整，请卸载后重新安装"); }
         return this.state("stopped", "已安装，按需启动");
       }
@@ -118,35 +122,48 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     if (current.status === "failed") {
       if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖");
       await this.checkPath(); await rm(join(this.home, "installed"), { force: true });
-    } else if (current.status !== "not-installed") return current;
+    } else if (current.status !== "not-installed") { await this.clearDownloadCache(); return current; }
     await mkdir(dirname(this.home), { recursive: true }); await this.checkPath();
     try { await mkdir(this.home); await writeFile(join(this.home, ".owner"), owner, { flag: "wx" }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; if ((await readFile(join(this.home, ".owner"), "utf8")).trim() !== owner) throw new Error("语音目录不属于 Pith，拒绝覆盖"); }
     await this.checkPath();
     const nodeName = `node-v22.19.0-${process.platform}-${process.arch}`, nodeArchive = join(this.home, "node.tar.gz");
-    await this.download(nodeArchive, { url: `https://nodejs.org/dist/v22.19.0/${nodeName}.tar.gz`, hash: nodeRuntimeHashes[`${process.platform}-${process.arch}`]!, algorithm: "sha256", encoding: "hex", maxBytes: 100000000 }, "步骤 1/5 · 正在下载 Node 运行时", signal);
-    this.installPhase = "步骤 1/5 · 正在校验与解压 Node 运行时"; this.installProgress = {};
+    await this.download(nodeArchive, { url: `https://nodejs.org/dist/v22.19.0/${nodeName}.tar.gz`, hash: nodeRuntimeHashes[`${process.platform}-${process.arch}`]!, algorithm: "sha256", encoding: "hex", maxBytes: 100000000 }, "步骤 1/6 · 正在下载 Node 运行时", signal);
+    this.installPhase = "步骤 1/6 · 正在校验与解压 Node 运行时"; this.installProgress = {};
     await this.runInstallCommand("tar", ["-xzf", nodeArchive, "-C", this.home, "--strip-components=1", `${nodeName}/bin/node`], this.home, signal);
     let step = 1;
-    for (const [name, hash] of [["sherpa-onnx-node", "09SRixVSjsajxeCV8Hy9R5J4IHPtw7vNgaIcEokdh/LpU7sY+e12z9uHHIMMMgNiInyGEH74wIwjLXms+W7qRA=="], [`sherpa-onnx-${process.platform}-${process.arch}`, nativeHash]] as const) {
+    for (const [name, hash] of [["sherpa-onnx-node", "MsDMBdhLFTZ1GwvcGSSQhnS7g/EA8OMH6IYysCVUOM7j8Icty9KRc0E6YT1A5fWBsZwRfKOeh88QC95aRvS8ag=="], [`sherpa-onnx-${process.platform}-${process.arch}`, nativeHash]] as const) {
       step++;
       const archive = join(this.home, `${name}.tgz`), target = join(this.home, "node_modules", name);
-      await this.download(archive, { url: `https://registry.npmjs.org/${name}/-/${name}-1.12.23.tgz`, hash, algorithm: "sha512", encoding: "base64", maxBytes: 300000000 }, `步骤 ${step}/5 · 正在下载语音运行时 ${name}`, signal);
-      this.installPhase = `步骤 ${step}/5 · 正在校验与解压语音运行时`; this.installProgress = {};
+      await this.download(archive, { url: `https://registry.npmjs.org/${name}/-/${name}-1.13.8.tgz`, hash, algorithm: "sha512", encoding: "base64", maxBytes: 300000000 }, `步骤 ${step}/6 · 正在下载语音运行时 ${name}`, signal);
+      this.installPhase = `步骤 ${step}/6 · 正在校验与解压语音运行时`; this.installProgress = {};
       await mkdir(target, { recursive: true }); await this.runInstallCommand("tar", ["-xzf", archive, "-C", target, "--strip-components=1"], this.home, signal);
     }
-    for (const asset of assets) {
+    for (const asset of SPEECH_MODEL_ASSETS) {
       const archive = join(this.home, asset.name);
-      step++; const label = asset.name === "tts.tar.bz2" ? "TTS" : "ASR";
-      await this.download(archive, { url: asset.url, hash: asset.sha256, algorithm: "sha256", encoding: "hex", maxBytes: 1200000000 }, `步骤 ${step}/5 · 正在下载 ${label} 模型`, signal);
-      this.installPhase = `步骤 ${step}/5 · 正在校验与解压 ${label} 模型`; this.installProgress = {};
-      await this.runInstallCommand("tar", ["-xjf", archive, "--exclude", "*/model.onnx", "--exclude", "*.py", "-C", this.home], this.home, signal);
+      step++; const label = asset.name === "asr.tar.bz2" ? "ASR" : "TTS";
+      await this.download(archive, { url: asset.url, hash: asset.sha256, algorithm: "sha256", encoding: "hex", maxBytes: 1200000000 }, `步骤 ${step}/6 · 正在下载 ${label} 模型`, signal);
+      this.installPhase = `步骤 ${step}/6 · 正在校验与解压 ${label} 模型`; this.installProgress = {};
+      // Archive root names do not change the installed paths used by existing gateways.
+      const target = join(this.home, asset.directory); await mkdir(target, { recursive: true });
+      if (asset.name === "vocos_24khz.onnx") await rename(archive, join(target, asset.name));
+      else await this.runInstallCommand("tar", ["-xjf", archive, "--strip-components=1", "--exclude", "*/model.onnx", "--exclude", "*.py", "-C", target], this.home, signal);
     }
     signal.throwIfAborted();
     await writeFile(join(this.home, "gateway.cjs"), SPEECH_GATEWAY);
     signal.throwIfAborted();
     await writeFile(join(this.home, "installed"), marker);
-    return this.installedState();
+    const installed = await this.installedState();
+    if (installed.status === "stopped") {
+      await this.clearDownloadCache();
+      await rm(join(this.home, "kokoro-int8-multi-lang-v1_1"), { recursive: true, force: true });
+    }
+    return installed;
+  }
+  private async clearDownloadCache(): Promise<void> {
+    for (const name of ["node.tar.gz", "sherpa-onnx-node.tgz", `sherpa-onnx-${process.platform}-${process.arch}.tgz`, ...SPEECH_MODEL_ASSETS.map(asset => asset.name)]) {
+      for (const suffix of ["", ".headers", ".resume"]) await rm(join(this.home, name + suffix), { force: true });
+    }
   }
   private async download(path: string, asset: SpeechArchive, phase: string, signal: AbortSignal): Promise<void> {
     const override = this.archives[path.slice(this.home.length + 1)];

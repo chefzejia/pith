@@ -27,15 +27,15 @@ test("curated TTS requests, missing prerequisites, and no fallback", async () =>
     assert.equal((await client.synthesizeSpeech("A & B")).providerId, provider);
     const request = calls.at(-1)!;
     if (provider === "azure-neural") { assert.match(String(request.body), /A &amp; B/); assert.equal(request.headers!["Ocp-Apim-Subscription-Key"], "secret"); }
-    else { const body = JSON.parse(String(request.body)); assert.equal(body.input, "A & B"); assert.equal(body.model, provider === "kokoro-local" ? "kokoro" : "gpt-4o-mini-tts"); }
+    else { const body = JSON.parse(String(request.body)); assert.equal(body.input, "A & B"); assert.equal(body.model, provider === "kokoro-local" ? "zipvoice" : "gpt-4o-mini-tts"); }
   }
   const noKey = createNeuralSpeech({ ...host, secrets: undefined }, { ...config, ttsProvider: "openai-tts" }, isLoopbackSafe);
   await assert.rejects(noKey.synthesizeSpeech("hello"), /OPENAI_API_KEY/);
   const offline = createNeuralSpeech({ ...host, http: { request: async () => { throw new Error("offline"); } } }, config, isLoopbackSafe);
-  await assert.rejects(offline.synthesizeSpeech("hello"), /Kokoro/);
+  await assert.rejects(offline.synthesizeSpeech("hello"), /ZipVoice/);
   assert.equal((await offline.checkTtsHealth()).ok, false);
   const empty = createNeuralSpeech({ ...host, http: { request: async () => response("") } }, config, isLoopbackSafe);
-  await assert.rejects(empty.synthesizeSpeech("hello"), /Kokoro/);
+  await assert.rejects(empty.synthesizeSpeech("hello"), /ZipVoice/);
   await assert.rejects(createNeuralSpeech(host, { ...config, ttsEndpoint: "http://192.168.1.1/" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe local/);
   await assert.rejects(createNeuralSpeech(host, { ...config, ttsProvider: "openai-tts", ttsEndpoint: "http://evil.example/v1/audio/speech" }, isLoopbackSafe).synthesizeSpeech("hello"), /Unsafe cloud/);
   const customLocal = createNeuralSpeech(host, { ...config, ttsProvider: "openai-compatible-local", ttsModel: "custom-tts-v1", ttsVoice: "custom-voice" }, isLoopbackSafe);

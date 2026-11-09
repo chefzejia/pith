@@ -21,7 +21,7 @@ test("managed speech rejects Vault paths and preserves unowned directories", asy
     const runtime = new NodeManagedSpeechRuntime({ home: external, protectedRoot: vault });
     await assert.rejects(runtime.install()); await runtime.remove();
     assert.equal(await readFile(join(managed, "unrelated"), "utf8"), "preserve");
-    const broken = join(dir, "broken", "managed-v2"); await mkdir(broken, { recursive: true }); await writeFile(join(broken, ".owner"), "pith-managed-speech-v2"); await writeFile(join(broken, "installed"), "pith-sherpa-1.12.23-kokoro-sensevoice-v2");
+    const broken = join(dir, "broken", "managed-v2"); await mkdir(broken, { recursive: true }); await writeFile(join(broken, ".owner"), "pith-managed-speech-v2"); await writeFile(join(broken, "installed"), "pith-sherpa-1.13.8-zipvoice-sensevoice-v3");
     const incomplete = new NodeManagedSpeechRuntime({ home: join(dir, "broken") }); assert.equal((await incomplete.getState()).status, "failed"); await assert.rejects(incomplete.ensureRunning()); assert.equal((await incomplete.remove()).status, "not-installed");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
@@ -71,7 +71,7 @@ test("managed speech serves real TTS and ASR and stops only its own process", { 
     const samples = join(root, "managed-v2", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17", "test_wavs");
     assert.match((await speech.transcribeAudio(await readFile(join(samples, "zh.wav")), "audio/wav")).text, /[\u4e00-\u9fff]/u);
     assert.match((await speech.transcribeAudio(await readFile(join(samples, "en.wav")), "audio/wav")).text, /[a-z]{3}/i);
-    assert.match((await first.getState()).modelName!, /Kokoro-82M v1\.1.*SenseVoice/);
+    assert.match((await first.getState()).modelName!, /ZipVoice INT8.*SenseVoice INT8/);
     await first.stop(); assert.equal((await first.getState()).status, "stopped");
     assert.equal((await fetch(new URL("/health", other.endpoint!))).status, 200);
     await first.ensureRunning(); const deadline = Date.now() + 10000;

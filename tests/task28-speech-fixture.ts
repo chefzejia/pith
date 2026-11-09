@@ -15,7 +15,7 @@ export async function createSpeechDownloadFixture(root: string, options: { disco
   await mkdir(source, { recursive: true }); await mkdir(archives, { recursive: true });
   const nodeName = `node-v22.19.0-${process.platform}-${process.arch}`;
   const native = `sherpa-onnx-${process.platform}-${process.arch}`;
-  const tts = "kokoro-int8-multi-lang-v1_1", asr = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17";
+  const tts = "sherpa-onnx-zipvoice-distill-int8-zh-en-emilia", asr = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
   const file = async (path: string, bytes: string | Uint8Array) => { const target = join(source, path); await mkdir(join(target, ".."), { recursive: true }); await writeFile(target, bytes); };
   await file(`${nodeName}/bin/node`, "fixture only; never execute\n");
   await file(`${nodeName}/padding`, randomBytes(2 * 1024 * 1024));
@@ -24,12 +24,13 @@ export async function createSpeechDownloadFixture(root: string, options: { disco
     const dir = join(root, `source-${name}`); await mkdir(join(dir, "package"), { recursive: true }); await writeFile(join(dir, "package", entry), "fixture\n");
     await exec("tar", ["-czf", join(archives, `${name}.tgz`), "-C", dir, "package"]);
   }
-  for (const name of ["model.int8.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", "date-zh.fst", "number-zh.fst", "phone-zh.fst"]) await file(`${tts}/${name}`, "fixture\n");
-  await file(`${tts}/espeak-ng-data/fixture`, "fixture\n"); await file(`${tts}/dict/fixture`, "fixture\n");
+  for (const name of ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt", "lexicon.txt", "test_wavs/news-female.wav", "test_wavs/news-female-2.wav"]) await file(`${tts}/${name}`, "fixture\n");
+  await file(`${tts}/espeak-ng-data/fixture`, "fixture\n");
+  await writeFile(join(archives, "vocos_24khz.onnx"), "fixture vocoder\n");
   for (const name of ["model.int8.onnx", "tokens.txt"]) await file(`${asr}/${name}`, "fixture\n");
   await exec("tar", ["-cjf", join(archives, "tts.tar.bz2"), "-C", source, tts]);
   await exec("tar", ["-cjf", join(archives, "asr.tar.bz2"), "-C", source, asr]);
-  const names = ["node.tar.gz", "sherpa-onnx-node.tgz", `${native}.tgz`, "tts.tar.bz2", "asr.tar.bz2"];
+  const names = ["node.tar.gz", "sherpa-onnx-node.tgz", `${native}.tgz`, "tts.tar.bz2", "vocos_24khz.onnx", "asr.tar.bz2"];
   const data = new Map<string, Buffer>();
   for (const name of names) data.set(name, await readFile(join(archives, name)));
   const events = new EventEmitter();

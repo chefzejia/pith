@@ -1,7 +1,7 @@
 import type { AsrTranscriptionResult, CuratedAsrProviderId, CuratedTtsProviderId, HostPort, HttpRequestSpec, SpeechEnginePreset, SpeechHealthStatus, SpeechSynthesisAudio } from "../../core/index.ts";
 
 export const CURATED_TTS_PRESETS: readonly SpeechEnginePreset<CuratedTtsProviderId>[] = [
-  { id: "kokoro-local", label: "本机 OpenAI 兼容语音服务 (Local HTTP)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultModel: "tts-1", defaultVoice: "alloy", installHint: "在本机启动任意兼容 OpenAI /v1/audio/speech 协议的本地 TTS 服务（如 Kokoro / MLX-Audio，默认监听 127.0.0.1:8880）" },
+  { id: "kokoro-local", label: "本机 OpenAI 兼容语音服务 (Local HTTP)", kind: "local", defaultEndpoint: "http://127.0.0.1:8880/v1/audio/speech", defaultModel: "zipvoice", defaultVoice: "中文女声", installHint: "在本机启动任意兼容 OpenAI /v1/audio/speech 协议的本地 TTS 服务（Pith 默认使用 ZipVoice INT8）" },
   { id: "openai-tts", label: "OpenAI Audio Speech (云端或兼容网关)", kind: "cloud", defaultEndpoint: "https://api.openai.com/v1/audio/speech", defaultModel: "gpt-4o-mini-tts", defaultVoice: "alloy", installHint: "需配置 OPENAI_API_KEY" },
   { id: "azure-neural", label: "Azure Neural TTS (微软神经网络音色)", kind: "cloud", defaultEndpoint: "https://{region}.tts.speech.microsoft.com/cognitiveservices/v1", defaultVoice: "zh-CN-XiaoxiaoNeural", installHint: "需配置 AZURE_SPEECH_KEY 与区域" },
 ];
@@ -27,7 +27,7 @@ export function createNeuralSpeech(host: HostPort | undefined, config: NeuralSpe
   const ttsEndpoint = config.ttsEndpoint || (tts.id === "azure-neural" ? tts.defaultEndpoint.replace("{region}", config.azureRegion) : tts.defaultEndpoint);
   const asrEndpoint = config.asrLoopbackUrl || asr.defaultEndpoint;
   const openAiLocalAsr = asr.kind === "local" && /\/v1\/audio\/transcriptions\/?$/.test(asrEndpoint);
-  const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.id === "kokoro-local" ? "kokoro" : tts.defaultModel || "gpt-4o-mini-tts");
+  const ttsModel = (config.ttsModel && config.ttsModel.trim()) || (tts.defaultModel || "gpt-4o-mini-tts");
   const asrModel = (config.asrModel && config.asrModel.trim()) || asr.defaultModel || "whisper-1";
   const voice = config.ttsVoice || tts.defaultVoice!;
   function validateAsrConfig(openAi = openAiLocalAsr): void {

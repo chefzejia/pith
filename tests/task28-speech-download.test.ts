@@ -9,6 +9,7 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
 import { createSpeechDownloadFixture } from "./task28-speech-fixture.ts";
 import { downloadSpeechArchive, parseSystemProxy } from "../src/shells/speech/speechDownload.ts";
+import { SPEECH_MODEL_ASSETS } from "../src/shells/speech/speechRuntime.ts";
 
 async function waitUntil<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeout = 15000): Promise<T> {
   const deadline = Date.now() + timeout;
@@ -16,7 +17,38 @@ async function waitUntil<T>(read: () => Promise<T>, accept: (value: T) => boolea
   throw new Error("Timed out waiting for controlled download");
 }
 
-test("real managed download resumes after cancellation and reuses verified archives", { timeout: 60000 }, async () => {
+test("SenseVoice downloads the official int8-only artifact", () => {
+  const asr = SPEECH_MODEL_ASSETS.find(asset => asset.name === "asr.tar.bz2");
+  assert.ok(asr);
+  assert.equal(asr.url, "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2");
+  assert.equal(asr.sha256, "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e");
+});
+
+test("ZipVoice migration installs its vocoder and presets before retiring Kokoro", { timeout: 60000 }, async () => {
+  const root = await testSandbox("pith-zipvoice-migration-");
+  const managed = join(root, "speech/managed-v2"), legacy = join(managed, "kokoro-int8-multi-lang-v1_1");
+  const fixture = await createSpeechDownloadFixture(root, { chunkMs: 0 });
+  const runtime = new NodeManagedSpeechRuntime({ home: join(root, "speech"), archives: fixture.overrides });
+  try {
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "model.int8.onnx"), "old model");
+    await writeFile(join(managed, ".owner"), "pith-managed-speech-v2");
+    await writeFile(join(managed, "installed"), "pith-sherpa-1.12.23-kokoro-sensevoice-v2");
+    assert.equal((await runtime.getState()).status, "not-installed");
+    const bad = new NodeManagedSpeechRuntime({ home: join(root, "speech"), archives: { ...fixture.overrides, "node.tar.gz": { ...fixture.overrides["node.tar.gz"]!, hash: "0".repeat(64) } }, downloadPolicy: { connectTimeoutSec: 2, lowSpeedBytes: 1, lowSpeedSeconds: 1, backoffMs: 1 } });
+    await assert.rejects(bad.install(), /校验失败/);
+    assert.equal(await readFile(join(legacy, "model.int8.onnx"), "utf8"), "old model");
+    const state = await runtime.install();
+    assert.equal(state.status, "stopped"); assert.match(state.modelName!, /ZipVoice INT8/);
+    await assert.rejects(stat(legacy), { code: "ENOENT" });
+    const tts = SPEECH_MODEL_ASSETS.find(asset => asset.name === "tts.tar.bz2")!;
+    assert.match(tts.url, /zipvoice-distill-int8-zh-en-emilia/);
+    assert.equal(await readFile(join(managed, tts.directory, "vocos_24khz.onnx"), "utf8"), "fixture vocoder\n");
+    assert.equal((await runtime.getVoices()).defaultVoice, "中文女声");
+  } finally { await runtime.stop(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("real managed download resumes after cancellation and clears completed download caches", { timeout: 60000 }, async () => {
   const root = await testSandbox("pith-task28-download-");
   const fixture = await createSpeechDownloadFixture(root, { chunkMs: 35 });
   const runtime = new NodeManagedSpeechRuntime({ home: join(root, "speech"), protectedRoot: join(root, "vault"), archives: fixture.overrides });
@@ -32,10 +64,16 @@ test("real managed download resumes after cancellation and reuses verified archi
     assert.equal((await runtime.install()).status, "stopped");
     assert.equal(fixture.requests.filter(item => item.name === "node.tar.gz")[1]!.range, `bytes=${retained}-`);
     assert.match(await readFile(join(root, "speech/managed-v2/installed"), "utf8"), /^pith-sherpa/);
+    for (const name of Object.keys(fixture.overrides)) await assert.rejects(stat(join(root, "speech/managed-v2", name)), { code: "ENOENT" });
+    assert.equal(await readFile(join(root, "speech/managed-v2/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx"), "utf8"), "fixture\n");
     const count = fixture.requests.length;
-    await rm(join(root, "speech/managed-v2/installed"));
     assert.equal((await runtime.install()).status, "stopped");
-    assert.equal(fixture.requests.length, count, "verified archives must not be downloaded again");
+    assert.equal(fixture.requests.length, count, "a completed installation must not download again");
+    await writeFile(archive, "legacy download cache");
+    await writeFile(archive + ".resume", "legacy partial");
+    assert.equal((await runtime.install()).status, "stopped");
+    await assert.rejects(stat(archive), { code: "ENOENT" });
+    await assert.rejects(stat(archive + ".resume"), { code: "ENOENT" });
   } finally { await runtime.stop(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });
 
