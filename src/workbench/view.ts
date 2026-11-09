@@ -329,7 +329,7 @@ export class PithWorkbenchView {
 
   render(document: ObsidianReaderDocument): void {
     this.closeInlineDojo();
-    this.dojoVersion++; this.dojoTarget = ""; this.dojoAnchor = undefined; this.dojoResult = null; this.dojoStatus = ""; this.dojo.hidden = true; this.setDojoActive(false);
+    this.dojoVersion++; this.dojoTarget = ""; this.dojoAnchor = undefined; this.requestedDojoBlock = null; this.dojoResult = null; this.dojoStatus = ""; this.dojo.hidden = true; this.setDojoActive(false);
     this.voice.cancel();
     if (this.interline) this.interline.dispose(); this.interline = null; this.interlineMode = "original";
     this.readerPosition = null;
@@ -410,9 +410,10 @@ export class PithWorkbenchView {
     this.dojos = dojos;
     const mounted = dojos.filter(item => this.mountedToolkits.includes(item.id));
     if (text === undefined && this.actions.toggleToolkit) {
+      const explicit = this.requestedDojoBlock && this.article.contains(this.requestedDojoBlock) ? this.requestedDojoBlock : this.dojoBlock;
       if (this.inlineDojo) this.closeInlineDojo();
-      const current = visibleDojoTarget(this.article, this.reader, this.currentFile);
-      if (current) { this.dojoTarget = current.quote; this.dojoAnchor = current; }
+      if (explicit && this.article.contains(explicit) && this.dojoAnchor?.file === this.currentFile && this.dojoTarget) this.requestedDojoBlock = explicit;
+      else { this.requestedDojoBlock = null; const current = visibleDojoTarget(this.article, this.reader, this.currentFile); if (current) { this.dojoTarget = current.quote; this.dojoAnchor = current; } }
       this.popover.hidden = true; this.dojo.hidden = false; this.dojo.replaceChildren();
       for (const item of dojos) { const group = this.doc.createElement("div"), label = this.doc.createElement("label"), input = this.doc.createElement("input"); group.className = "pith-dojo-group"; input.type = "checkbox"; input.dataset.toolkitToggle = item.id; input.checked = this.mountedToolkits.includes(item.id); label.append(input, this.doc.createTextNode(item.label)); group.append(label); if (input.checked) { const button = this.doc.createElement("button"); button.dataset.dojoChoose = item.id; button.textContent = "打开"; group.append(button); } this.dojo.append(group); }
       return;
@@ -620,7 +621,7 @@ export class PithWorkbenchView {
     else if (button.dataset.selection && this.selectionRange) { if (button.dataset.selection === "copy") { try { await this.win.navigator.clipboard.writeText(this.selectionRange.toString()); } catch { this.tip("复制失败"); } } else if (button.dataset.selection === "highlight" || button.dataset.selection === "note" || button.dataset.selection === "ask") { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(this.selectionRange.startContainer, this.selectionRange.startOffset); this.actions.selection(button.dataset.selection, this.selectionRange.toString(), `text:offset:${prefix.toString().length}`); } this.popover.hidden = true; }
   }
   private showSelection(): void {
-    const selection = this.win.getSelection(); if (!selection || selection.isCollapsed || !selection.toString().trim() || !selection.anchorNode || !selection.focusNode || !this.article.contains(selection.anchorNode) || !this.article.contains(selection.focusNode)) { this.popover.hidden = true; return; }
+    const selection = this.win.getSelection(); if (!selection || selection.isCollapsed || !selection.toString().trim() || !selection.anchorNode || !selection.focusNode || !this.article.contains(selection.anchorNode) || !this.article.contains(selection.focusNode)) { this.selectionRange = null; this.popover.hidden = true; return; }
     this.selectionRange = selection.getRangeAt(0).cloneRange(); const rect = this.selectionRange.getBoundingClientRect(); this.popover.hidden = false; for (const item of this.popover.querySelectorAll<HTMLButtonElement>("button")) item.hidden = false; this.popover.style.left = `${Math.max(8, Math.min(this.win.innerWidth - this.popover.offsetWidth - 8, rect.left))}px`; this.popover.style.top = `${Math.max(8, rect.top - this.popover.offsetHeight - 8)}px`;
   }
   private clearSpeechMark(): void { for (const mark of this.article.querySelectorAll('[data-speech-active="true"]')) { const parent = mark.parentNode; mark.replaceWith(...mark.childNodes); if (parent) parent.normalize(); } }

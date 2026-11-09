@@ -218,12 +218,11 @@ export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, fil
   const chapters = Array.from(article.querySelectorAll<HTMLElement>(":scope > .pith-epub-chapter"));
   const candidates = chapters.length ? chapters : [article];
   const viewport = reader.getBoundingClientRect();
-  for (const chapter of candidates) {
-    const blocks = Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"]'));
-    const block = blocks.find(item => Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
-    if (!block) continue;
+  const blocks = candidates.flatMap(chapter => Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"]'))).filter(item => !item.closest('.pith-inline-dojo,.pith-interline-subtitle,[data-dojo-display],[data-prose="false"]') && Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
+  const isHeading = (item: HTMLElement): boolean => /^H[1-6]$/.test(item.tagName) || item.getAttribute("role") === "heading";
+  for (const block of [...blocks.filter(item => !isHeading(item)), ...blocks.filter(isHeading)]) {
     const copy = block.cloneNode(true) as HTMLElement;
-    for (const child of copy.querySelectorAll(".pith-interline-subtitle,time")) child.remove();
+    for (const child of copy.querySelectorAll('.pith-interline-subtitle,.pith-inline-dojo,[data-dojo-display],[data-prose="false"],time')) child.remove();
     const quote = (copy.textContent ?? "").trim();
     if (!quote) continue;
     const range = article.ownerDocument.createRange(); range.selectNodeContents(article); range.setEndBefore(block);
