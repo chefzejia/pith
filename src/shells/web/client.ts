@@ -1,5 +1,5 @@
 import { WebWorkbench } from "./workbench.ts";
-import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
+import { importedMaterialKind, renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 import { speechMode } from "../speech/speechSettings.ts";
@@ -62,7 +62,7 @@ document.addEventListener("click", event => {
 document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" multiple hidden>');
 async function importFiles(files: File[], topicId?: string): Promise<Material> {
   const entries = await Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary), bytes }; }));
-  const kind = entries.some(f => /\.(vtt|srt|mp3|m4a|wav|ogg|mp4|webm|mov)$/i.test(f.name) || /^(audio|video)\//.test(f.mimeType)) ? "media" : entries.some(f => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(f.name)) ? "book" : "article";
+  const kind = importedMaterialKind(entries);
   const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
   return api<Material>("/api/materials", { title: metadata.title || cleanMaterialTitle(first.name), kind, files: entries.map(({ bytes: _bytes, ...entry }) => entry), topicId });
 }

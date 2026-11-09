@@ -9,7 +9,7 @@ import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType } from "../../workbench/mediaAssets.ts";
+import { audioContentType, importedMaterialKind, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
@@ -282,7 +282,7 @@ export class PithObsidianController {
     const material = await this.store.getMaterial(materialId); const file = material && material.files.find(entry => entry.name === name);
     if (!material || !file) throw new Error("材料文件不存在");
     const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
-    if (/\.(vtt|srt)$/i.test(name) || audioContentType(file) || file.mimeType.startsWith("video/")) {
+    if (isMediaFile(file)) {
       const timeline = this.runtime.getService<StageTimelineService>("stage.timeline"); if (!timeline) throw new Error("时间轴不可用");
       const transcript = /\.(vtt|srt)$/i.test(name) ? bytes : await (async () => { const entry = material.files.find(item => /\.(vtt|srt)$/i.test(item.name)); return entry ? this.host.storage.readBinary(`materials/${material.id}/files/${entry.name}`) : new Uint8Array(); })();
       const cues = timeline.parseTranscript(new TextDecoder().decode(transcript));
@@ -291,7 +291,7 @@ export class PithObsidianController {
       return { title: material.title, html, sections: [] };
     }
     const reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
-    return reader.renderFile(file, bytes);
+    return reader.renderFile(isSourceTextFile(file.name) ? { ...file, mimeType: "text/plain" } : file, bytes);
   }
   async captureHighlight(topicId: string, body: string, anchor?: SelectionAnchor) { return this.engine.captureSelection({ topicId, kind: "highlight", body, anchor }); }
   async setPersona(persona: "sanctuary" | "studio"): Promise<void> { this.persona = persona; await this.refresh(); await this.save({ persona }); }
@@ -370,7 +370,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
         else if (data.files.length) {
           const entries = await Promise.all(data.files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) })));
           const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
-          const kind = entries.some(file => /\.(vtt|srt|mp3|m4a|wav|ogg|mp4|webm|mov)$/i.test(file.name) || /^(audio|video)\//.test(file.mimeType)) ? "media" : entries.some(file => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(file.name)) ? "book" : "article";
+          const kind = importedMaterialKind(entries);
           const title = metadata.title || cleanMaterialTitle(first.name);
           sampleText = title;
           if (kind === "article") try { const text = new TextDecoder("utf-8", { fatal: true }).decode(first.bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }

@@ -9,7 +9,7 @@ import { NodeRepositoryPort } from "./nodeRepository.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
-import { audioContentType } from "../../workbench/mediaAssets.ts";
+import { audioContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
@@ -159,7 +159,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (data.materialId && !material) throw new Error("Material not found");
         let sampleText = material?.title;
         const first = material?.files[0];
-        if (material && first && !/\.(?:epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(first.name) && !/^(?:audio|video|image)\//.test(first.mimeType)) {
+        if (material && first && !/\.(?:epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(first.name) && (isSourceTextFile(first.name) || !/^(?:audio|video|image)\//.test(first.mimeType))) {
           const bytes = await storage.readBinary(`materials/${material.id}/files/${first.name}`);
           try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
         }
@@ -328,15 +328,15 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const material = await store.getMaterial(id);
         const entry = material && material.files.find(item => item.name === file);
         if (!entry) return send(res, 404, { error: "File not found" });
-        if (url.searchParams.get("raw") === "1" && /^(audio|video)\//.test(entry.mimeType)) { const bytes = await storage.readBinary(`materials/${id}/files/${file}`); res.writeHead(200, { "content-type": entry.mimeType, "cache-control": "no-store", "x-content-type-options": "nosniff" }); res.end(Buffer.from(bytes)); return; }
-        if (material && (/\.(vtt|srt)$/i.test(file) || audioContentType(entry) || entry.mimeType.startsWith("video/"))) {
+        if (url.searchParams.get("raw") === "1" && isMediaFile(entry) && /^(audio|video)\//.test(entry.mimeType)) { const bytes = await storage.readBinary(`materials/${id}/files/${file}`); res.writeHead(200, { "content-type": entry.mimeType, "cache-control": "no-store", "x-content-type-options": "nosniff" }); res.end(Buffer.from(bytes)); return; }
+        if (material && isMediaFile(entry)) {
           const timeline = runtime.getService<StageTimelineService>("stage.timeline");
           if (!timeline) return send(res, 503, { error: "Timeline unavailable" });
           const transcript = /\.(vtt|srt)$/i.test(file) ? entry : material.files.find(item => /\.(vtt|srt)$/i.test(item.name));
           const text = transcript ? await storage.readText(`materials/${id}/files/${transcript.name}`) : "";
           const cues = timeline.parseTranscript(text);
           const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-          const media = /^(audio|video)\//.test(entry.mimeType) ? entry : material.files.find(item => /^(audio|video)\//.test(item.mimeType));
+          const media = isMediaFile(entry) && /^(audio|video)\//.test(entry.mimeType) ? entry : material.files.find(item => isMediaFile(item) && /^(audio|video)\//.test(item.mimeType));
           const mediaKind = media && media.mimeType.startsWith("video/") ? "video" : "audio";
           const mediaFile = media ? `/api/materials/${encodeURIComponent(material.id)}/file?name=${encodeURIComponent(media.name)}&raw=1` : undefined;
           const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaFile ? `<${mediaKind} controls src="${escape(mediaFile)}"></${mediaKind}>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
@@ -346,7 +346,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!reader) return send(res, 503, { error: "Reader unavailable" });
         if (reader.renderFile) {
           const bytes = await storage.readBinary(`materials/${id}/files/${file}`);
-          const document = await reader.renderFile(entry, bytes);
+          const document = await reader.renderFile(isSourceTextFile(entry.name) ? { ...entry, mimeType: "text/plain" } : entry, bytes);
           const text = document.format === "markdown" ? new TextDecoder().decode(bytes) : "";
           return send(res, 200, { text, html: document.html, sections: document.sections, format: document.format });
         }

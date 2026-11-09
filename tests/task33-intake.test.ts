@@ -11,6 +11,7 @@ import { renderFile } from "../src/plugins/stage-reader/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { defaultToolkitsForMaterial } from "../src/workbench/toolkitSlot.ts";
+import { importedMaterialKind, isMediaFile } from "../src/workbench/mediaAssets.ts";
 import { testSandbox } from "./sandbox.ts";
 
 test("material defaults count writing rather than extensions and respect media and repositories", () => {
@@ -24,6 +25,11 @@ test("material defaults count writing rather than extensions and respect media a
   assert.deepEqual(classify("混排.pdf", "ABC你好!!!"), ["feynman"]);
   assert.deepEqual(classify("混排.pdf", "ABC你好123"), ["feynman"]);
   assert.deepEqual(defaultToolkitsForMaterial({ kind: "article", files: [{ name: "字幕.srt" }] }), ["shadowing"]);
+  assert.deepEqual(defaultToolkitsForMaterial({ kind: "article", files: [{ name: "sample.ts", mimeType: "video/mp2t" }], sampleText: "这是中文代码" }), ["feynman"]);
+  assert.equal(importedMaterialKind([{ name: "sample.ts", mimeType: "video/mp2t" }]), "article");
+  assert.equal(importedMaterialKind([{ name: "sample.ts", mimeType: "video/mp2t" }, { name: "clip.mp4", mimeType: "video/mp4" }]), "media");
+  assert.equal(isMediaFile({ name: "recording.flac", mimeType: "application/octet-stream" }), true);
+  assert.equal(isMediaFile({ name: "film.bin", mimeType: "video/mp2t" }), true);
   assert.deepEqual(defaultToolkitsForMaterial({ kind: "repo", files: [] }), ["feynman"]);
 });
 
@@ -78,8 +84,9 @@ test("browser intake binds Git, opens guide, refreshes generated lesson and pers
     await page.locator("#open-dojo").click(); await page.locator('[data-toolkit-toggle="feynman"]').uncheck(); await page.locator('[data-toolkit-toggle="interline"]').check(); await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLInputElement>('[data-toolkit-toggle]')).every(item => !item.disabled));
     await page.screenshot({ path: join(evidence, "guide-toolkit.png") });
     const state = await (await fetch(base + "/api/state")).json() as any; assert.deepEqual(state.compass.exploring[0].toolkits, ["interline"]);
-    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(evidence, "guide-narrow.png") }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.locator('[data-command="home"]').click(); await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: "example.ts", mimeType: "text/plain", buffer: Buffer.from('const value = "<script>";\nsecond line') }); await page.locator('[data-intake-open]').click();
+    await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))); await page.screenshot({ path: join(evidence, "fix-web-narrow.png") }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await page.locator('.pith-dojo-panel').evaluate((panel: HTMLElement) => panel.scrollWidth <= panel.clientWidth && Array.from(panel.querySelectorAll('button')).every(button => getComputedStyle(button).whiteSpace === 'nowrap' && button.scrollWidth <= button.clientWidth)), true);
+    await page.locator('[data-command="home"]').click(); await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: "example.ts", mimeType: "video/mp2t", buffer: Buffer.from('const value = "<script>";\nsecond line') }); await page.locator('[data-intake-open]').click();
     await page.locator('.pith-article [data-locator="text:line:1"]').getByText("second line").waitFor(); assert.equal(await page.locator('.pith-article script').count(), 0); assert.match(await page.locator('.pith-article').textContent(), /<script>/);
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });
@@ -90,7 +97,7 @@ test("native shared surface opens empty topic and refreshes a generated lesson",
   try {
     const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } }); page.setDefaultTimeout(8000);
     const address = host.address(); assert.ok(address && typeof address !== "string"); await page.goto(`http://127.0.0.1:${address.port}`);
     await page.setContent('<style>html,body{height:100%;margin:0}#root{height:100%;width:75%}#side{position:absolute;right:0;top:0;width:25%;height:100%}body{--background-primary:#fff;--background-secondary:#f1f3ef;--background-modifier-border:#ccd5cd;--background-modifier-hover:#e1e9e2;--text-normal:#222;--text-muted:#666;--font-interface:Arial}</style><div id="root"></div><div id="side"></div>');
     await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl: HTMLElement | null; constructor(leaf: any) { this.contentEl = leaf?.container || document.getElementById("root"); } }, Plugin: class {}, Notice: class { constructor(message: string) { (window as any).notice = message; } } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
@@ -111,5 +118,16 @@ test("native shared surface opens empty topic and refreshes a generated lesson",
     await page.locator("#open-dojo").click(); await page.locator('[data-toolkit-toggle="feynman"]').uncheck(); await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLInputElement>('[data-toolkit-toggle]')).every(item => !item.disabled));
     assert.deepEqual(await page.evaluate(async () => (await (window as any).nativeController.store.listTopics())[0].toolkits), []);
     const evidence = resolve(".tmp/evidence/task-33"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "native-guide.png") });
+    await page.locator('[data-command="home"]').click(); await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: "sample.ts", mimeType: "video/mp2t", buffer: Buffer.from('const value = "<script>";\nsecond line') }); await page.locator('[data-intake-open]').click();
+    await page.locator('.pith-article [data-locator="text:line:1"]').getByText("second line").waitFor();
+    const imported = await page.evaluate(async () => { const controller = (window as any).nativeController; const topics = await controller.store.listTopics(); for (const topic of topics) { if (!topic.materialId) continue; const material = await controller.store.getMaterial(topic.materialId); if (material.files.some((file: any) => file.name === "sample.ts")) return { topic, material }; } throw new Error("imported topic not found"); });
+    assert.equal(imported.material.kind, "article"); assert.equal(imported.material.files[0].mimeType, "video/mp2t"); assert.deepEqual(imported.topic.toolkits, ["interline", "feynman"]); assert.equal(await page.locator('.pith-article script').count(), 0);
+    const binaryRejected = await page.evaluate(async () => { const c = (window as any).nativeController; const material = await c.importMaterial({ title: "binary", kind: "article", files: [{ name: "fake.ts", mimeType: "video/mp2t", bytes: new Uint8Array([65, 0, 66]) }] }); try { await c.renderMaterialFile(material.id, "fake.ts"); return false; } catch (error) { return String(error).includes("binary"); } }); assert.equal(binaryRejected, true);
+    await page.screenshot({ path: join(evidence, "fix-native-source.png") });
+    await page.setViewportSize({ width: 443, height: 850 }); await page.locator('#open-dojo').click();
+    assert.equal(await page.locator('.pith-dojo-panel').evaluate((panel: HTMLElement) => panel.scrollWidth <= panel.clientWidth && Array.from(panel.querySelectorAll('button')).every(button => getComputedStyle(button).whiteSpace === 'nowrap' && button.scrollWidth <= button.clientWidth)), true);
+    assert.equal(await page.locator('.pith-dojo-group').count(), 3); assert.equal(await page.locator('.pith-dojo-group').evaluateAll((groups: Element[]) => groups.every((group: Element) => { const rect = group.getBoundingClientRect(), panel = group.parentElement!.getBoundingClientRect(); return rect.left >= panel.left && rect.right <= panel.right && (!group.querySelector('button') || !!group.querySelector('label input:checked')); })), true);
+    await page.screenshot({ path: join(evidence, "fix-native-narrow.png") });
+    await page.evaluate(() => { const style = document.body.style; style.setProperty('--background-primary', '#1e1e1e'); style.setProperty('--background-secondary', '#282828'); style.setProperty('--background-modifier-border', '#454545'); style.setProperty('--background-modifier-hover', '#383838'); style.setProperty('--text-normal', '#eee'); style.setProperty('--text-muted', '#aaa'); }); await page.screenshot({ path: join(evidence, "fix-native-narrow-dark.png") });
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => host.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });
