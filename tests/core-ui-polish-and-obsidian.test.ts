@@ -117,7 +117,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const view = Object.create(PithObsidianView.prototype) as FakeView;
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
-  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {} }, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
+  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {}, clearRecording() {} }, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
   const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openDojo"]>[0];
   view.openDojo(descriptors);
   assert.equal(mounted.length, 0);
@@ -125,7 +125,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   view.mountedToolkits = ["shadowing", "feynman"];
   view.openDojo(descriptors);
   assert.deepEqual(added.map(item => item.dataset.dojoChoose), ["shadowing", "feynman"]);
-  const choice = { dataset: { dojoChoose: "feynman" }, disabled: false };
+  const choice = { dataset: { dojoChoose: "feynman" }, disabled: false, hasAttribute: () => false };
   await view.click({ target: { closest: (selector: string) => selector === "button" ? choice : null } });
   assert.deepEqual(mounted, []); assert.equal(view.dojoId, "feynman");
   view.mountedToolkits = [];
