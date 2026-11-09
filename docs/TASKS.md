@@ -99,7 +99,9 @@
 
 ## [Task #34] 影子跟读（`shadowing`）Stage 原位声学闭环升级：单句定点播放、0.75x 慢听、单句循环与个人录音回放对比
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: ae10fa7d27b0f86518b728d04a3ea26f46c7a3fd
+- **验收摘要**：独立 Tester 在 Web 与隔离 Obsidian 实测句段原声播放/停止/循环、0.75x 精听与用户倍速、切句切文件停止、开录同步领读、ASR pending/失败期间回放、成功自动漏词标记与重录 URL 释放。正文目标错位已修复；单击第二段、局部选区及可见正文兜底的显示文本与受控 HTTP 合成输入一致，费曼及行间锚点通过。Worker 全仓测试 253 通过、61 跳过，23 项定向检查、类型与构建通过，并有有效破壁。录音使用合成 MediaStream，不代表物理麦克风；完整 destroy 资源释放未单独实测。终验截图与报告：`.tmp/evidence/task-34/final-native-diagnosis.png`、`final-web-diagnosis.png`、`final-retest-native-second.png`、`final-retest-web-second.png`、`final-retest-report.md`。
 - **Scope**: `src/workbench/view.ts`, `src/workbench/voiceInput.ts`, `src/plugins/stage-timeline/index.ts`, `tests/**`
 - **授权范围**：允许修改 `src/workbench/view.ts`、`src/workbench/voiceInput.ts`、`src/plugins/stage-timeline/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁弹出脱离 Stage 目标句的独立模态对话框。
