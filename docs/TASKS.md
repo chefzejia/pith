@@ -29,7 +29,9 @@
 
 ## [Task #32] 认知管家课程拆解 Prompt、代码仓库只读工具与多步读取回路（对齐 `ganfan-garden` 拆课闭环）
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 9e9a0c0b876cab5a312a53cc4257ef0cb80133c2
+- **验收摘要**：独立 Tester 在真实临时 Git 仓库验证固定提交、分页/行号与脏文件隔离，拒绝符号链接、二进制、无效 UTF-8、超大文件和越界路径；受控标准 ACP 经目录→源码→上下文→写大纲/第一讲与工具配置，四拍上限及跨课题保护通过。空课题自动材料绑定、旧 materialId 写法及原始材料保护通过；Web 点按快捷动作/选择胶囊并打开第一讲，隔离 Obsidian 注入仓库端口可读固定提交。受控回复验证协议与存储链路，不评价真实模型教学质量。截图与记录：`.tmp/evidence/task-32/final-web-guide.png`、`final-web-lesson.png`、`final-native-sandbox.png`、`final-acp-four-turns.jsonl`、`final-acp-results.json`。
 - **Scope**: `src/plugins/guide-acp/**`, `src/plugins/dojo-*/index.ts`, `src/shells/web/nodeRepository.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
 - **授权范围**：允许新建 `src/shells/web/nodeRepository.ts`（实现 `RepositoryPort`，供 Web 与 Obsidian 壳共享），允许修改 `src/plugins/guide-acp/index.ts`、`src/plugins/guide-acp/acpSession.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/dojo-shadowing/index.ts`、`src/plugins/dojo-feynman/index.ts`、`src/plugins/dojo-interline/index.ts`、`src/shells/web/server.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁允许向导修改外部 Git 仓库或读取未提交工作区脏文件及符号链接。
