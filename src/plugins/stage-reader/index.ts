@@ -121,12 +121,16 @@ export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Pr
   if (/\.pdf$/i.test(file.name) || file.mimeType === "application/pdf") return renderPdf(file, bytes);
   if (/\.cbz$/i.test(file.name) || ["application/vnd.comicbook+zip", "application/x-cbz"].includes(file.mimeType)) return renderCbz(file, bytes);
   if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) || ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mimeType)) return renderImage(file, bytes);
-  if (/\.md$/i.test(file.name) || file.mimeType === "text/markdown") {
-    const markdown = new TextDecoder().decode(bytes);
+  let markdown: string;
+  try { markdown = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`Unsupported binary reader format: ${file.name}`); }
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(markdown)) throw new Error(`Unsupported binary reader format: ${file.name}`);
+  if (/\.(?:md|markdown)$/i.test(file.name) || file.mimeType === "text/markdown") {
     const sections = markdownSections(markdown);
     return { format: "markdown", title: sections[0]?.title ?? file.name, html: renderMarkdown(markdown), sections, blocks: extractProseBlocks(markdown), totalUnits: markdown.split(/\r?\n/).length };
   }
-  throw new Error(`Unsupported reader format: ${file.name}`);
+  const lines = markdown.split(/\r?\n/);
+  const blocks: ProseBlock[] = lines.map((text, index) => ({ index, locator: `text:line:${index}`, text, isProse: true }));
+  return { format: "markdown", title: file.name, html: `<pre><code>${blocks.map(block => `<span data-locator="${block.locator}" data-prose="true">${escape(block.text)}</span>`).join("\n")}</code></pre>`, sections: [], blocks, totalUnits: lines.length };
 }
 
 registerPlugin({

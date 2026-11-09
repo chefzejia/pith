@@ -34,7 +34,7 @@ test("practice notes do not create persistent marks across EPUB pages and chapte
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 } });
     const page = await browser.newPage(); page.setDefaultTimeout(5000); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(`.pith-article mark[data-pith-note="${highlight.id}"]`).waitFor();
-    await page.locator("#open-dojo").click(); await page.locator("[data-dojo-produced]").fill("other"); await page.locator("[data-dojo-diagnose]").click(); await page.locator("[data-dojo-save]").click();
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click(); await page.locator("[data-dojo-produced]").fill("other"); await page.locator("[data-dojo-diagnose]").click(); await page.locator("[data-dojo-save]").click();
     await page.locator('.pith-inline-dojo [role="status"]').getByText("已记入实训账本").waitFor(); await page.locator("[data-dojo-close]").click();
     const marks = async () => page.locator('.pith-article mark[data-pith-note]').evaluateAll((nodes: HTMLElement[]) => nodes.map(node => ({ id: node.dataset.pithNote, text: node.textContent })));
     assert.deepEqual(await marks(), [{ id: highlight.id, text: "Decoy" }]);

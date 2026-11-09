@@ -10,7 +10,7 @@ import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType } from "../../workbench/mediaAssets.ts";
-import { effectiveToolkits } from "../../workbench/toolkitSlot.ts";
+import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
@@ -154,8 +154,18 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (method === "POST" && url.pathname === "/api/topics") {
         const data = await body(req);
+        if (data.toolkits !== undefined && (!Array.isArray(data.toolkits) || !data.toolkits.every(item => typeof item === "string"))) throw new Error("Invalid toolkits");
+        const material = typeof data.materialId === "string" && data.materialId ? await store.getMaterial(data.materialId) : null;
+        if (data.materialId && !material) throw new Error("Material not found");
+        let sampleText = material?.title;
+        const first = material?.files[0];
+        if (material && first && !/\.(?:epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(first.name) && !/^(?:audio|video|image)\//.test(first.mimeType)) {
+          const bytes = await storage.readBinary(`materials/${material.id}/files/${first.name}`);
+          try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
+        }
+        const toolkits = data.toolkits !== undefined ? data.toolkits as string[] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : undefined;
         const topic = await store.createTopic({ title: str(data, "title"), target: typeof data.target === "string" ? data.target : "", nextAction: typeof data.nextAction === "string" ? data.nextAction : undefined,
-          materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined });
+          materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}) });
         await refresh(); return send(res, 201, topic);
       }
       const toolkitPath = /^\/api\/topics\/([^/]+)\/toolkits$/.exec(url.pathname);
@@ -227,6 +237,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error("Invalid audio");
           return send(res, 200, await asr.transcribeAudio(new Uint8Array(Buffer.from(encoded, "base64")), typeof data.mimeType === "string" ? data.mimeType : undefined, abort.signal));
         } catch (error) { return send(res, 503, { error: `语音引擎不可用，请前往 ⚙ 设置检查配置：${speechErrorMessage(error, url.pathname.endsWith("synthesize") ? tts : asr)}` }); }
+      }
+      if (method === "POST" && url.pathname === "/api/materials/repo") {
+        const data = await body(req), info = await repository.inspectRepository(str(data, "repoPath"));
+        const material = await store.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha });
+        await refresh(); return send(res, 201, material);
       }
       if (method === "POST" && url.pathname === "/api/materials") {
         const data = await body(req);

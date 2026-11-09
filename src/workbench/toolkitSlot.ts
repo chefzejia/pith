@@ -10,3 +10,11 @@ export function toolkitSlot(toolkits: readonly string[], active: string, labels:
   const name = labels[selected] ?? (selected === "shadowing" ? "影子跟读" : selected === "feynman" ? "费曼复述" : selected === "interline" ? "行间双语" : selected);
   return { ids, active: selected, text: ids.length ? `🛠 ${name}${ids.length > 1 ? ` · ${ids.length} ▾` : ""}` : "🛠" };
 }
+export function defaultToolkitsForMaterial(input: { kind: string; files: readonly { name: string; mimeType?: string }[]; sampleText?: string }): string[] {
+  if (input.kind === "media" || input.files.some(file => /\.(?:vtt|srt|mp3|m4a|wav|ogg|mp4|webm|mov)$/i.test(file.name) || /^(?:audio|video)\//i.test(file.mimeType || ""))) return ["shadowing"];
+  if (input.kind === "repo") return ["feynman"];
+  const sample = input.sampleText?.trim().replace(/\.[a-z][a-z0-9]{0,9}$/i, "") || input.files.map(file => file.name.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/, "")).join(" ");
+  const characters = Array.from(sample).filter(char => !/\s/u.test(char));
+  const foreign = characters.filter(char => /\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char)).length;
+  return characters.length && foreign / characters.length >= 0.5 ? ["interline", "feynman"] : ["feynman"];
+}

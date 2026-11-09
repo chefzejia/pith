@@ -70,7 +70,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.route("**/api/speech/synthesize", async (route: any) => { spoken.push(route.request().postDataJSON().text); await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"stub"}' }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     assert.match((await page.locator("#open-dojo").textContent())!, /行间双语/);
-    await page.locator("#open-dojo").click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="interline"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-interline-subtitle").first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll(".pith-interline-subtitle").length > 1);
     await neighbor; assert.deepEqual(calls.slice(0, 2), [0, 1]);

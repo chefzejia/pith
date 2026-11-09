@@ -7,7 +7,7 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
 
 async function assertPrimaryHover(page: any): Promise<void> {
-  for (const selector of ["[data-home-new]", ".pith-focus button[data-topic]", ".pith-home-form button"]) {
+  for (const selector of ["[data-intake-open]", ".pith-focus button[data-topic]"]) {
     const button = page.locator(selector); await button.hover();
     const colors = await button.evaluate((node: HTMLElement) => { const css = getComputedStyle(node); return { foreground: css.color, background: css.backgroundColor }; });
     const luminance = (value: string) => { const components = value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((channel: number) => { const c = channel / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }); return .2126 * components[0]! + .7152 * components[1]! + .0722 * components[2]!; };
@@ -33,13 +33,12 @@ test("topic board controls and timeline practice retain timestamps without readi
     const settings = page.locator("[data-home-settings]");
     assert.equal(await settings.evaluate((node: HTMLElement) => node.classList.contains("pith-icon")), true);
     const [header, gear] = await Promise.all([page.locator(".pith-view-header").boundingBox(), settings.boundingBox()]); assert.ok(header && gear && header.x + header.width - (gear.x + gear.width) < 20);
-    for (const selector of ["[data-home-new]", "[data-home-import]", ".pith-focus button"]) {
+    for (const selector of ["[data-intake-open]", "[data-intake-files]", ".pith-focus button"]) {
       const style = await page.locator(selector).evaluate((node: HTMLElement) => { const css = getComputedStyle(node); return { border: css.borderTopWidth, radius: css.borderTopLeftRadius, padding: css.paddingLeft }; });
       assert.ok(parseFloat(style.border) >= 1 && parseFloat(style.radius) >= 4 && parseFloat(style.padding) >= 8, selector);
     }
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "board.png") });
-    await page.locator("[data-home-new]").click();
-    for (const selector of [".pith-home-form input", ".pith-home-form select", ".pith-home-form button"]) {
+    for (const selector of ['.pith-intake-box input[name="title"]', ".pith-intake-box button"]) {
       const style = await page.locator(selector).first().evaluate((node: HTMLElement) => { const css = getComputedStyle(node); return [parseFloat(css.borderTopWidth), parseFloat(css.borderTopLeftRadius), parseFloat(css.paddingLeft)]; });
       assert.ok(style.every((value: number) => value > 0), selector);
     }
@@ -95,7 +94,7 @@ test("Obsidian workspace board connects settings and maintains readable hover", 
       await state.view.onOpen();
     });
     const settings = page.locator("[data-home-settings]"); assert.equal(await settings.count(), 1); await settings.click(); assert.equal(await page.evaluate(() => (window as any).nativeBoard.opened), 1);
-    await page.locator("[data-home-new]").click(); await assertPrimaryHover(page);
+    await assertPrimaryHover(page);
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "worker-native-hover.png") });
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
 });

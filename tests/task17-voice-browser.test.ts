@@ -28,7 +28,7 @@ test("both shells record and transcribe guide and dojo input, and release tracks
     await page.route("**/api/speech/transcribe", async (route: any) => { const body = route.request().postDataJSON(); assert.equal(body.mimeType, "audio/webm"); assert.ok(Buffer.from(body.audio, "base64").length > 0); await route.fulfill({ json: { text: "recognized" } }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     for (const target of ["guide", "dojo"]) {
-      if (target === "dojo") await page.locator("#open-dojo").click();
+      if (target === "dojo") { await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click(); }
       const button = page.locator(`[data-voice="${target}"]`); await button.click(); await page.waitForFunction((value: string) => document.querySelector(`[data-voice="${value}"]`)?.getAttribute("aria-pressed") === "true", target);
       await page.waitForTimeout(300); await button.click(); await page.locator(target === "guide" ? ".pith-guide textarea" : "[data-dojo-produced]").evaluate((input: HTMLTextAreaElement) => new Promise<void>(resolve => { if (input.value.includes("recognized")) resolve(); else input.addEventListener("input", () => resolve(), { once: true }); }));
       assert.equal(await page.evaluate(() => (window as any).voiceTest.streams.at(-1).getTracks().every((track: MediaStreamTrack) => track.readyState === "ended")), true);

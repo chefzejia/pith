@@ -43,7 +43,7 @@ test("toolbar practice anchors the visible paragraph after scrolling", { timeout
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 500 } });
     const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     const target = page.locator('.pith-article [data-prose="true"]').filter({ hasText: "Visible target paragraph." }); await target.evaluate((node: HTMLElement) => node.scrollIntoView({ block: "start" }));
-    await page.locator("#open-dojo").click(); await page.locator("[data-dojo-reveal]").click();
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click(); await page.locator("[data-dojo-reveal]").click();
     assert.equal(await page.locator(".pith-dojo-source").textContent(), "Visible target paragraph.");
   } finally { if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

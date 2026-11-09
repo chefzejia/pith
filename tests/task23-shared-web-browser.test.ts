@@ -35,6 +35,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(".pith-view .pith-article .pith-epub-chapter").first().waitFor();
     await page.locator(".pith-view #open-dojo").click();
+    await page.locator('[data-dojo-choose="interline"]').click();
     await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-article .pith-interline-subtitle").first().waitFor();
     await page.locator('[data-command="typography"]').click(); await page.locator('[data-mode="double"]').click();
@@ -71,9 +72,8 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator("[data-home-settings]").click();
     await page.locator("#simple-mode").waitFor();
     await page.locator("#close-drawer").click();
-    await page.locator("[data-home-new]").click();
-    await page.locator('.pith-home-form input[name="title"]').fill("新课题");
-    await page.locator(".pith-home-form button").click();
+    await page.locator('.pith-intake-box input[name="title"]').fill("新课题");
+    await page.locator("[data-intake-open]").click();
     await page.getByText("这个课题还没有关联材料。").waitFor();
     await page.locator("#material-files").setInputFiles({ name: "material.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported\n\nA real imported paragraph.") });
     await page.getByText("A real imported paragraph.").waitFor();

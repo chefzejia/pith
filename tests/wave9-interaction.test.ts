@@ -101,14 +101,14 @@ test("hiding a guide only detaches Pith leaves and never collapses other sidebar
 test("Obsidian import accepts CBZ and sends it as a book", async () => {
   let finish!: (input: { kind: string; files: { name: string }[] }) => void;
   const imported = new Promise<{ kind: string; files: { name: string }[] }>(resolve => { finish = resolve; });
-  const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], value: "", accept: "", onchange: () => {}, click() {} };
-  const form = {}, status = {}, button = {};
-  const root = { ownerDocument: { createElement: () => input }, classList: { add() {} }, innerHTML: "", append() {}, querySelector: (s: string) => s === ".pith-home-form" ? form : s === ".pith-home-status" ? status : button, querySelectorAll: () => [] };
+  const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], onchange: () => {}, click() {} };
+  const status = { textContent: "" }, selected = { textContent: "" }, repo = { hidden: true, value: "" }, buttons = [{ disabled: false }, { disabled: false }], fileButton = {}, repoButton = {}, guideButton = {};
+  const form = { elements: { namedItem: () => ({ value: "" }) }, onsubmit: (_event: unknown) => {}, querySelector: (s: string) => s === 'input[type="file"]' ? input : s === '[name="repoPath"]' ? repo : s === ".pith-home-status" ? status : s === "[data-intake-selected]" ? selected : s === "[data-intake-files]" ? fileButton : s === "[data-intake-repo]" ? repoButton : guideButton, querySelectorAll: () => buttons };
+  const root = { classList: { add() {} }, innerHTML: "", querySelector: (s: string) => s === ".pith-intake-box" ? form : null, querySelectorAll: () => [] };
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
   Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
   await (workspace.onOpen as () => Promise<void>)();
-  assert.match(input.accept, /\.cbz/);
-  input.onchange(); const value = await imported;
+  form.onsubmit({ preventDefault() {} }); const value = await imported;
   assert.equal(value.kind, "book"); assert.equal(value.files[0]!.name, "comic.CBZ");
 });
 

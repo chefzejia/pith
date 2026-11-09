@@ -27,12 +27,18 @@ function home(): void {
   renderCompass(main, state.compass, {
     materials: state.boardMaterials,
     open: id => { void openTopic(id).catch(notify); },
-    create: data => { void api<Topic>("/api/topics", data).then(item => openTopic(item.id)).catch(notify); },
-    import: () => requiredElement("#material-files").click(),
+    create: async data => {
+      let material: Material | undefined;
+      if (data.repoPath) material = await api<Material>("/api/materials/repo", { repoPath: data.repoPath });
+      else if (data.files.length) material = await importFiles(data.files);
+      const title = data.title || material?.title || "";
+      const item = await api<Topic>("/api/topics", { title, ...(material ? { materialId: material.id } : {}), ...(data.guide ? { toolkits: ["feynman"] } : {}) });
+      try { await openTopic(item.id, data.guide); } catch (error) { notify(error); }
+    },
     settings: openSimpleSettings,
   });
 }
-async function openTopic(id: string): Promise<void> {
+async function openTopic(id: string, guide = false): Promise<void> {
   const request = ++navigation;
   await refresh(); if (request !== navigation) return;
   const next = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === id);
@@ -46,24 +52,27 @@ async function openTopic(id: string): Promise<void> {
     home: () => goHome().catch(notify), settings: openSimpleSettings, importMaterial: () => requiredElement("#material-files").click(), visibility: visible => guideVisibility.set(id, visible), report: notify });
   workbench = instance;
   await instance.open();
+  if (guide && request === navigation) await instance.startCurriculum();
 }
 document.addEventListener("click", event => {
   const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button") : null;
   if (!button || button.closest(".pith-view")) return;
   if (button.id === "close-drawer") drawer.hidden = true;
 });
-document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" accept=".md,.markdown,.epub,.pdf,.cbz,.vtt,.srt,image/png,image/jpeg,image/gif,image/webp,image/avif,audio/*,video/*" multiple hidden>');
+document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" multiple hidden>');
+async function importFiles(files: File[], topicId?: string): Promise<Material> {
+  const entries = await Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary), bytes }; }));
+  const kind = entries.some(f => /\.(vtt|srt|mp3|m4a|wav|ogg|mp4|webm|mov)$/i.test(f.name) || /^(audio|video)\//.test(f.mimeType)) ? "media" : entries.some(f => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(f.name)) ? "book" : "article";
+  const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
+  return api<Material>("/api/materials", { title: metadata.title || cleanMaterialTitle(first.name), kind, files: entries.map(({ bytes: _bytes, ...entry }) => entry), topicId });
+}
 document.addEventListener("change", event => {
   if (!(event.target instanceof HTMLInputElement) || event.target.id !== "material-files" || !event.target.files?.length) return;
   const input = event.target, fileList = input.files; if (!fileList) return;
   const files = Array.from(fileList), topicId = topic?.id;
-  void Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary), bytes }; })).then(async entries => {
-    const kind = entries.some(f => /\.(vtt|srt)$/i.test(f.name) || /^(audio|video)\//.test(f.mimeType)) ? "media" : entries.some(f => /\.(epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(f.name)) ? "book" : "article";
-    const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
-    const title = metadata.title || cleanMaterialTitle(first.name);
-    const material = await api<Material>("/api/materials", { title, kind, files: entries.map(({ bytes: _bytes, ...entry }) => entry), topicId });
-    if (!topicId) await api("/api/topics", { title, materialId: material.id });
-    if (topicId && topic?.id === topicId) await openTopic(topicId); else { await refresh(); if (!topic) home(); }
+  void importFiles(files, topicId).then(async material => {
+    const id = topicId || (await api<Topic>("/api/topics", { title: material.title, materialId: material.id })).id;
+    if (!topicId || topic?.id === topicId) await openTopic(id);
   }).catch(notify).finally(() => { input.value = ""; });
 });
 let settingsPending = Promise.resolve(), agentIntent: string | undefined;
