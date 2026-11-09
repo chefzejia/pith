@@ -1,68 +1,69 @@
-# 子系统 2：预训练阅读与媒体舞台（`stage-reader` & `stage-timeline`）
+# 子系统 2：多模态呈现舞台（`Stage` · `stage-reader` & `stage-timeline`）
 
 > 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [3-dojos.md](3-dojos.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
-## 1. 职责与边界
+## 1. 职责与边界：`Stage` 是承载任意材料的静默画布底板
 
-对应人类认知训练管线的 **第 1 阶段：预训练（Pre-training · 一手原始语料摄入）**。
+对应人类认知训练管线的 **第 1 阶段：预训练（Pre-training · 一手语料与定制讲义摄入）**。
 
-Pith 拒绝用一键 AI 摘要代替原著阅读。舞台子系统（[`stage-reader`](../../src/plugins/stage-reader/index.ts) 与 [`stage-timeline`](../../src/plugins/stage-timeline/index.ts)）的任务是把书籍（EPUB / PDF / CBZ / Markdown）与音视频播客直接呈现在零干扰的画布上，并为每一段正文赋予**与屏幕尺寸、字号无关的内在坐标（`IntrinsicLocator`）**，供高亮、笔记、语音伴读与实训道场精准锚定。
+在 Pith 的插件架构中，**舞台（`Stage`）** 只解决一个纯粹的问题：**“如何把当前 Topic 的材料清晰、零干扰地呈现出来，并为每个内容片段赋予稳定的内在坐标（`IntrinsicLocator`）”**。
+- `Stage` 不绑定特定的训练法则，也不需要 AI 去动态增删；系统根据当前打开的材料类型自动选择匹配的 `Stage`；
+- 同时，`Stage` 通过标准 DOM 数据属性（`data-locator`、`data-prose`、`.pith-cue`）向挂载在当前课题上的 **脚手架工具（`Toolkit`）** 暴露原位 `UI Protocol` 叠加锚点。
 
 ---
 
-## 2. 内在位置坐标系（`IntrinsicLocator`）与选区锚定
+## 2. 任意输入材料的三层渲染托底（Anything-as-Input on Stage）
+
+Pith 的输入不局限于电子书，[`stage-reader`](../../src/plugins/stage-reader/index.ts) 与 [`stage-timeline`](../../src/plugins/stage-timeline/index.ts) 为各种形态的材料提供三层渲染托底：
+
+1. **第一层：结构化出版物、定制讲义与多模态时间轴**
+   - **向导递进讲义与 Markdown 文档（`.md / .markdown`）**：支持渲染向导为庞大课题拆解的《`00-课程大纲.md`》、《`01-xxx.md`》、内嵌教学块（````pith-teaching````）及源码引用锚点；
+   - **重排与定版书籍（`.epub / .pdf / .cbz / 单图`）**：支持黄金版心多栏按屏分页；
+   - **音视频与时间轴台词流（`.mp3 / .wav / .m4a / .mp4 / .webm` + `.vtt / .srt`）**：由 `stage-timeline` 渲染上方媒体区 + 下方同步台词流，联动底部 `.pith-media-deck`。
+2. **第二层：任意纯文本与代码源文件（`.ts / .py / .rs / .go / .js / .json / .yaml / .txt / .sh / .abc` 等）**
+   - 用户导入任意代码文件、配置文件、文本乐谱或日志时，`stage-reader` 将其按行/块渲染为带 `text:line:<N>` 内在坐标的可选中文本文档，支持直接框选任意代码行高亮、记笔记、问向导或挂载 `feynman` 工具复述。
+3. **第三层：绑定本地 Git 代码仓库（`kind: "repo"`）或无初始文件课题**
+   - 当 Topic 刚通过一句话意图创建或仅绑定了本地代码仓库（尚未生成第一篇讲义文件）时，Stage 呈现清晰的**课题引导空态（Empty Stage Prompt）**，展示当前绑定仓库/课题目标，并提供一键触发向导生成《`00-课程大纲.md`》的动作入口；一旦向导写入讲义，Stage 自动无缝切换并渲染该讲义。
+
+---
+
+## 3. 内在位置坐标系（`IntrinsicLocator`）与选区锚定
 
 无论用户在宽屏桌面还是窄屏窗口打开同一份材料，也无论切换单栏、双栏还是调大字号，阅读进度与笔记锚点始终通过内在坐标恢复：
 
 | 材料形态 | 坐标格式示例 | 解析与生成位置 |
 | :--- | :--- | :--- |
-| **Markdown 文档/讲义** | `text:line:42`（叠加句内偏移：`text:line:42;offset:18`） | [`stage-reader/index.ts`](../../src/plugins/stage-reader/index.ts) 中的 `markdownBlocks` |
+| **Markdown 讲义 / 代码文本** | `text:line:42`（叠加句内偏移：`text:line:42;offset:18`） | [`stage-reader/index.ts`](../../src/plugins/stage-reader/index.ts) 中的 `markdownBlocks` |
 | **EPUB 重排章节** | `epub:chapter:2;block:5`（章节号 + 块序号） | [`stage-reader/epub.ts`](../../src/plugins/stage-reader/epub.ts) 中的 `renderEpub` |
 | **PDF / CBZ / 固定版 EPUB** | `page:12` | [`stage-reader/fixedPage.ts`](../../src/plugins/stage-reader/fixedPage.ts) 中的 `renderPdf` / `renderCbz` |
 | **音视频字幕流** | `time:860`（秒级起点） | [`stage-timeline/index.ts`](../../src/plugins/stage-timeline/index.ts) 中的 `parseTranscript` |
-| **代码仓库文件** | `repo:<commitSha>:<path>#L<start>-L<end>` | [`src/core/types.ts`](../../src/core/types.ts) 中的 `IntrinsicLocator` |
+| **代码仓库文件引用** | `repo:<commitSha>:<path>#L<start>-L<end>` | [`src/core/types.ts`](../../src/core/types.ts) 中的 `IntrinsicLocator` |
 
-- **正文与非正文严格标记（`data-prose`）**：标题、普通段落、引文标记为 `data-prose="true"`；代码块、数学公式、表格、YAML Frontmatter、教学卡片以及行间双语嵌入的译文节点一律标记为 `data-prose="false"`。下游 TTS 伴读仅提取 `data-prose="true"` 的纯粹原文朗读。
-- **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
+- **正文与非正文严格标记（`data-prose`）**：标题、普通段落、引文标记为 `data-prose="true"`；代码块、数学公式、表格、YAML Frontmatter、教学卡片以及 `interline` 工具嵌入的译文节点一律标记为 `data-prose="false"`。下游 TTS 伴读仅提取 `data-prose="true"` 的纯粹原文朗读。
+- **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching```` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
 - **文本重定位容错（[`matchTextAnchor`](../../src/plugins/stage-reader/textAnchor.ts)）**：优先按 `locator` 精确匹配，当文本前部发生插入/删除导致偏移漂移时，回退至 `quote + prefix + suffix` 上下文匹配度与最小距离评分重定位。
 
 ---
 
-## 3. EPUB 净化与跨章链接解析（`epub.ts`）
+## 4. EPUB 净化与黄金版心多栏分页恒等式（`epub.ts` & `pagination.ts`）
 
-1. **容量与安全边界（Fail-Closed）**：[`Zip`](../../src/plugins/stage-reader/epub.ts) 对单文件与整书解压字节数执行硬性上限检查，防止压缩包炸弹耗尽内存。
-2. **保留命名空间剥离**：净化原书 HTML 时，强制剥离原书中任何以 `pith-` 开头的伪造类名及宿主保留 `data-*` 属性，确保章节容器查询（`section.pith-epub-chapter[data-epub-chapter]`）100% 命中真实章节节点，绝不被原书脏标签劫持。
-3. **同章与跨章链接跳转**：[`resolveEpubTarget`](../../src/plugins/stage-reader/epub.ts) 将原书目录与正文内的相对路径、`#fragment` 锚点解析为目标章节下标与重写后的安全 DOM ID（`pith-epub-id-<chapter>-<id>`），支持点击目录或正文脚注直接翻至目标屏。
-
----
-
-## 4. 黄金版心多栏分页恒等式（`pagination.ts`）
-
-电子书（`epub / pdf / cbz`）采用**零横向滚动条的按屏分页模式**（`overflow: hidden`，通过滚轮、方向键或顶栏 `< 1/N >` 翻页）：
-
-1. **栏数自适应与黄金行宽**：
-   - [`resolveResponsiveLayout`](../../src/plugins/stage-reader/pagination.ts) 根据阅读容器实时净宽判定最大可读栏数；
-   - [`computePagination`](../../src/plugins/stage-reader/pagination.ts) 按栏数约束最大舒适列宽。在超宽屏下选择单栏或多栏时，多余宽度自动均分至两侧水平留白 `horizontalInsetPx`，使版心在视口内水平居中。
+1. **容量与安全边界（Fail-Closed）**：[`Zip`](../../src/plugins/stage-reader/epub.ts) 对单文件与整书解压字节数执行硬性上限检查；净化原书 HTML 时强制剥离任何以 `pith-` 开头的伪造类名及宿主保留 `data-*` 属性。
 2. **多屏翻页步长恒等式**：
-   - 为确保每次向右滚动一个 `viewportWidth`（`scrollLeft = pageIndex * viewportWidth`）都能像素级对齐下一屏的首列，列宽 `columnWidthPx`、列间距 `columnGapPx` 与水平内边距 `horizontalInsetPx` 恒满足：
+   - 电子书（`epub / pdf / cbz`）采用**零横向滚动条的按屏分页模式**（`overflow: hidden`）；
+   - 列宽 `columnWidthPx`、列间距 `columnGapPx` 与水平内边距 `horizontalInsetPx` 恒满足：
      $$\text{columnGapPx} = 2 \times \text{horizontalInsetPx}$$
      $$\text{columns} \times (\text{columnWidthPx} + \text{columnGapPx}) \equiv \text{viewportWidth}$$
-3. **跨列字符测量与缩放锚点保护**：
-   - 测量跨列段落的位置时，通过 `range.getClientRects()` 过滤宽高非零的真实字符片段（避免 `getBoundingClientRect()` 返回跨列合并外框）；
-   - 窗口连续拖拽缩放触发 `ResizeObserver` 重排时，直接恢复缩放前的锚点位置，不以重排途中的中间态覆盖原锚点。
+3. **跨列字符测量与缩放锚点保护**：通过 `range.getClientRects()` 过滤宽高非零的真实字符片段；窗口连续缩放触发 `ResizeObserver` 重排时直接恢复缩放前的锚点位置。
 
 ---
 
-## 5. 时间轴媒体舞台与跨模态伴读（`stage-timeline`）
+## 5. 时间轴媒体舞台与句级同步钩子（`stage-timeline`）
 
 1. **复合媒体视图结构（[`renderTimelineView`](../../src/plugins/stage-timeline/index.ts)）**：
-   - 当材料为视频（`mediaKind === "video"`）或音频时，画布呈现为「上方媒体画面/状态区 + 下方带时间锚点的同步台词流（`.pith-cue[data-locator="time:<sec>"][data-prose="true"]`）」，同时联动底部实心停靠播客甲板（`.pith-media-deck`，详见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）；
-   - 用户可直接用鼠标框选任意时间轴台词触发 `[ 高亮 | 记笔记 | 问向导 | 复制 ]`，生成的 `SelectionAnchor` 自动绑定 `locator: "time:<sec>"`；日后在右侧向导 `[笔记]` 账本中点击该卡片，播放器与视图直接跳回对应秒数。
-2. **字幕解析与 A-B 循环切片**：
-   - [`parseTranscript`](../../src/plugins/stage-timeline/index.ts) 统一解析标准 WebVTT（含 `<v Speaker>` 说话人标签）、SRT 以及 `[mm:ss] 文本` 简化时间戳格式，按起点排序并自动闭合开放区间；
-   - [`sliceLoopRange`](../../src/plugins/stage-timeline/index.ts) 与 [`findCueAt`](../../src/plugins/stage-timeline/index.ts) 支持播放时的当前句高亮同步与 A-B 区间循环复听，并为 `dojo-shadowing` 提供原位句级锚点。
+   - 当材料为音视频或附带 `.vtt / .srt` 字幕时，画布呈现同步台词流（`.pith-cue[data-locator="time:<sec>"][data-end-sec="<end>"][data-prose="true"]`），联动底部实心停靠播客甲板（`.pith-media-deck`）；
+   - 每个 `.pith-cue` 携带精确的 `startSec`（`data-locator="time:<start>"`）与 `endSec`（`data-end-sec="<end>"`），为挂载在其上的 `shadowing` 工具提供**单句定点播放、单句循环（Cue Loop）与 0.75x 慢速跟读**的底层时间区间锚点。
 
 ---
 

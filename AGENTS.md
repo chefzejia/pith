@@ -9,7 +9,10 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
 
 1. **四层单向依赖与插件隔离（`Concentric 4-Layer DAG`）**：`src/core/` 绝不导入上层；`src/plugins/<id>/` 仅导入 `src/core/` 且插件之间绝不互相导入（仅由 `src/plugins/all.ts` 汇总注册）；`src/workbench/` 仅导入 `src/core/` 与 `src/plugins/` 并提供全 Shell 唯一一份共享工作台 UI（严禁各 Shell 各自复制维护第二套 DOM/CSS）；`src/shells/` 根目录下严禁散落未归类的 `.ts` 文件。
 2. **宿主零泄漏（`Host-Agnostic Core, Plugins & Workbench`）**：`src/core/**`、`src/plugins/**` 与 `src/workbench/**` 严禁导入 `node:*`、`"obsidian"` 或 `@deepseek-ai/*`；所有存储、网络、密钥与子进程能力统一经由 `HostPort`（`src/core/host.ts`）注入，且 ACP 插件只走标准协议，严禁硬编码读取特定 Agent 的私有配置文件。
-3. **内核去隐喻化与 Agent 编排原则**：内核仅使用中性领域词（`Workspace`, `Profile`, `Topic`, `Material`, `Note`, `Anchor`, `Guide`）；插件由内核与向导 Agent 按需编排（`topic.toolkits`），严禁在 UI 设置中向用户暴露底层插件开关列表。
+3. **万物皆可投喂、插件双角色（`Stage` vs `Toolkit`）与向导动态 CRUD**：
+   - **任意内容输入（Anything-as-Input）**：首页唯一立项框支持一句话庞大课题意图、本地 Git 代码仓库、外部 URL 与任意本地文件；
+   - **插件能力解耦（`Plugin = Stage | Toolkit + UI Protocol`）**：`Core` 之外皆插件。插件向系统贡献两类正交角色——**舞台（`Stage`：负责如何渲染展示材料底板）**与**工具（`Toolkit`：负责如何辅助理解与实训，含向导提示词/后端工具 + 通过 UI Protocol 寄生于 Stage 之上的原位覆盖层）**；
+   - **启发式默认挂载 + 向导动态 CRUD**：上传显式材料（如外文 EPUB/PDF、带字幕音视频、代码仓）但 Agent 尚未介入时，系统按启发式规则预挂载基础 `Toolkit`；向导 Agent 介入理解 Topic 后，可根据学习意图通过 `pith_configure_toolkits` 自由增删改（CRUD）任何有益的 `Toolkit`。严禁在用户设置面板暴露底层插件开关列表。
 4. **标准外部/按需语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件解耦；实时 TTS/ASR 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关（原生零 Python 依赖运行时），严禁回退系统低劣语音 API（`speechSynthesis`）或运行时调 `pip`，不可达时直接 Fail-Closed。
 5. **双环四角色验证切分、手动破壁与多 Worktree 流水线**：
    - **秒级内环自检与手动破壁归 Worker**：开工必读 [`docs/LESSONS.md`](docs/LESSONS.md)；全仓类型检查、单测、架构守卫单测（`tests/boundaries.test.ts`）、**手动破壁验证（`Broken by hand`）**与构建同步由 Worker 在秒级内环 100% 跑通，并在业务 Commit Body 简明记录意图/根因与验证证据；

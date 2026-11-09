@@ -50,6 +50,8 @@ export interface ImportMaterialInput {
   readonly title: string;
   readonly kind: MaterialKind;
   readonly files: readonly ImportMaterialFileInput[];
+  readonly externalPath?: string;
+  readonly commitSha?: string;
 }
 
 export interface AppendNoteInput {

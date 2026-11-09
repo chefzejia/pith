@@ -266,7 +266,12 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const filenames = input.files.map(file => name(file.name));
       if (new Set(filenames).size !== filenames.length) throw new Error("Duplicate file name");
       const files = await Promise.all(input.files.map(file => fileEntry(file.name, file.mimeType ?? "application/octet-stream", file.bytes)));
-      const a: Frontmatter = { type: "pith-material", id, title: input.title, kind: input.kind, createdAt: new Date().toISOString(), files: files.map(file => fileFields(file)) };
+      const a: Frontmatter = {
+        type: "pith-material", id, title: input.title, kind: input.kind, createdAt: new Date().toISOString(),
+        ...(input.externalPath !== undefined ? { externalPath: input.externalPath } : {}),
+        ...(input.commitSha !== undefined ? { commitSha: input.commitSha } : {}),
+        files: files.map(file => fileFields(file)),
+      };
       const markdown = stringifyFrontmatter(a, "\n");
       const material = parseMaterial(markdown).material;
       await this.storage.mkdir(dir);

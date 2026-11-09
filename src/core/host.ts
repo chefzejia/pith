@@ -106,6 +106,22 @@ export interface AgentProcessPort {
   spawnStdio(spec: AgentProcessSpawnSpec): Promise<AgentStdioHandle>;
 }
 
+export interface RepositoryFileExcerpt {
+  readonly externalPath: string;
+  readonly commitSha: string;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+export interface RepositoryPort {
+  inspectRepository(repoPath: string): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string }>;
+  listFiles(externalPath: string, commitSha: string, offset?: number, limit?: number): Promise<{ readonly files: readonly string[]; readonly total: number; readonly nextOffset: number | null }>;
+  readFile(externalPath: string, commitSha: string, filePath: string, startLine?: number, maxLines?: number): Promise<RepositoryFileExcerpt>;
+}
+
 import type { ManagedSpeechRuntimePort } from "./seams.ts";
 
 export interface HostPort {
@@ -116,5 +132,6 @@ export interface HostPort {
   readonly sanitizer?: DomSanitizerPort;
   readonly process?: AgentProcessPort;
   readonly speechRuntime?: ManagedSpeechRuntimePort;
+  readonly repository?: RepositoryPort;
   notify?(message: string, timeoutMs?: number): void;
 }

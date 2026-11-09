@@ -226,17 +226,24 @@ export interface SpeechAsrService {
   transcribeAudio?(audioBytes: Uint8Array, mimeType?: string, signal?: AbortSignal): Promise<AsrTranscriptionResult>;
 }
 
+export type ToolkitUiOverlayProtocol = "interline-subtitle" | "inline-stage-lens" | "score-overlay";
+
 export interface DojoToolkitDescriptor {
   readonly id: string;
   readonly label: string;
   readonly category: "language" | "comprehension" | "executable" | "music";
   readonly evalMode?: "deterministic" | "guide-rubric";
   readonly evaluationRubric?: string;
+  readonly whenToUse?: string;
+  readonly compatibleStages?: readonly ("reader" | "timeline" | "score" | "code")[];
+  readonly uiProtocol?: ToolkitUiOverlayProtocol;
   readonly stages: readonly DojoScaffoldStage[];
   transformCue(text: string, stage: DojoScaffoldStage): string;
   diagnose(targetText: string, producedText: string): DojoDiagnosisResult;
   quickActions: readonly { id: string; label: string; prompt: string }[];
 }
+
+export type ToolkitDescriptor = DojoToolkitDescriptor;
 
 export interface GuideQuickAction {
   readonly id: string;
@@ -328,9 +335,17 @@ export interface GuideAgentService {
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
     readonly topic: Topic;
+    readonly material?: {
+      readonly id: string;
+      readonly title: string;
+      readonly kind: string;
+      readonly files: readonly { readonly name: string; readonly mimeType?: string }[];
+      readonly externalPath?: string;
+      readonly commitSha?: string;
+    } | null;
     readonly userMessage: string;
     readonly anchor?: SelectionAnchor;
-    readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category">[];
+    readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
   }): string;
 }

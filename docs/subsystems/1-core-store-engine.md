@@ -6,7 +6,7 @@
 
 ## 1. 职责与边界
 
-[`src/core/`](../../src/core/) 是 Pith 的零依赖心脏——它不认识 Obsidian、不认识 Node.js、也不认识浏览器 DOM。所有的领域实体（[`types.ts`](../../src/core/types.ts)）、宿主窄边界（[`HostPort`](../../src/core/host.ts)）、插件接缝契约（[`seams.ts`](../../src/core/seams.ts)）、纯文本 Markdown 读写协议（[`store/`](../../src/core/store/)）、课题看板与注意力调度引擎（[`engine/`](../../src/core/engine/)）以及插件挂载生命周期（[`pluginrt/`](../../src/core/pluginrt/)）都在此定义。
+[`src/core/`](../../src/core/) 是 Pith 的零依赖心脏——它不认识 Obsidian、不认识 Node.js、也不认识浏览器 DOM。所有的领域实体（[`types.ts`](../../src/core/types.ts)）、宿主窄边界（[`HostPort`](../../src/core/host.ts)）、插件接缝与 `Stage` / `Toolkit` 协议契约（[`seams.ts`](../../src/core/seams.ts)）、纯文本 Markdown 读写协议（[`store/`](../../src/core/store/)）、课题看板与注意力调度引擎（[`engine/`](../../src/core/engine/)）以及插件挂载生命周期（[`pluginrt/`](../../src/core/pluginrt/)）都在此定义。
 
 ---
 
@@ -19,21 +19,21 @@
            │             Profile (ME.md)              │
            │  已知领域 · 擅长类比 · 学习偏好 · 常见卡点  │
            └────────────────────┬─────────────────────┘
-                                │ 因人施教 & 毕业反哺
+                                │ 因人施教拆课 & 毕业反哺
                                 ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │                           Topic (课题)                             │
 │  - id, title, target (唯一核心求知目标)                            │
 │  - status: "exploring" (探索中) | "settled" (已内化沉淀)            │
 │  - nextAction: 下一步 15 分钟内可执行的具体微动作                  │
-│  - toolkits: 按需挂载的认知工具 ID 列表 (如 ["interline","feynman"])│
+│  - toolkits: 启发式默认或向导动态 CRUD 的 Toolkit ID 列表          │
 └──────────┬──────────────────────────────────────────────┬──────────┘
-           │ 1:1 绑定可观测载体                           │ 1:N 沉淀轨迹
+           │ 1:1 绑定可观测载体 (或按需自动创建讲义包)     │ 1:N 沉淀轨迹
            ▼                                              ▼
 ┌─────────────────────────────────┐        ┌─────────────────────────────────┐
 │       Material (材料包)         │        │      Note (笔记/高亮/诊断)      │
 │  - kind: book|article|media|repo│        │  - kind: highlight|note|practice│
-│  - files: 只读原文件或生成讲义  │◄───────│  - anchor: { file, locator,     │
+│  - files: 任意原始文件或递进讲义 │◄───────│  - anchor: { file, locator,     │
 │  - locator: 内在阅读位置坐标    │ 精确回跳│              quote }            │
 │  - externalPath / commitSha     │        │  - body: 用户原话或实训误差诊断 │
 └─────────────────────────────────┘        │  - guideRemark: 向导简短批注    │
@@ -52,8 +52,8 @@
 | **课题状态** | `"exploring" \| "settled"` | 探索中 / 已沉淀 | 进行中 / 已归档 | - |
 | **可观测材料包** | `Material` (`materials/<id>/`) | 材料 | 材料 | `Source`, `SourceRecord` |
 | **思考与实训记录** | `TopicNote` & `SelectionAnchor` | 笔记与高亮 | 笔记与锚点 | `Bloom`, `Gap`, `Attempt` |
-| **AI 引导协作者** | `Guide` (`pith-choices`) | 园丁 | 向导 | `GardenerService` |
-| **按需认知工具** | `DojoToolkit` (`toolkits`) | 实训工坊 | 训练场 | `Echo`, `EchoModal` |
+| **AI 认知管家** | `Guide` (`pith-choices`) | 园丁 | 向导 | `GardenerService` |
+| **学习脚手架工具** | `Toolkit` (`DojoToolkitDescriptor` / `toolkits`) | 实训工坊 | 训练工具 | `Echo`, `EchoModal` |
 
 ---
 
@@ -68,12 +68,13 @@
 ├── ME.md                               # 学习者个人认知基座权重（已知领域、擅长类比、认知盲区）
 ├── topics/
 │   └── topic-<id>/
-│       └── topic.md                    # 课题元数据 + 高亮/笔记/实训诊断账本
+│       └── topic.md                    # 课题元数据 + toolkits 列表 + 高亮/笔记/实训诊断账本
 ├── materials/
 │   └── material-<id>/
-│       ├── material.md                 # 材料元数据、文件 SHA-256 清单与内在阅读坐标 locator
+│       ├── material.md                 # 材料元数据（含可选 externalPath/commitSha）、SHA-256 清单与 locator
 │       └── files/
-│           └── <name>                  # 100% 只读的原始导入文件，或向导生成的 .md 讲义
+│           ├── 00-课程大纲.md          # 向导按课题拆解生成的递进课程讲义（标记 generated: true）
+│           └── <name>                  # 100% 只读的原始导入文件（书籍、源码、音视频、任意附件）
 └── _cache/                             # 可随时删除重建的衍生缓存
     ├── effects.json                    # 后台异步任务队列快照
     ├── conversations/<topic-id>.json   # 按课题持久化的向导对话与选项胶囊
@@ -87,23 +88,23 @@
 ```markdown
 ---
 type: pith-topic
-id: topic-attention
-title: 搞懂生成式学习与人类后训练
-target: 能合上书讲清只看摘要不更新大脑参数的原因
+id: topic-20261109-dsh-arch
+title: 深入理解 DSH 架构与插件模型
+target: 能独立讲清四层单向拓扑并动手编写一个最小插件
 status: exploring
-material: "[[materials/material-learning/material]]"
-nextAction: 精读第 2 章并使用费曼道场完成一次盲产复述
+material: "[[materials/material-20261109-dsh-arch/material]]"
+nextAction: 阅读《01-核心拓扑.md》并用费曼工具复述 HostPort 边界
 toolkits:
   - feynman
-createdAt: "2026-11-05T10:00:00.000Z"
-updatedAt: "2026-11-05T10:15:00.000Z"
+createdAt: "2026-11-09T10:00:00.000Z"
+updatedAt: "2026-11-09T10:15:00.000Z"
 ---
 
-## [note] 2026-11-05T10:15:00.000Z
+## [note] 2026-11-09T10:15:00.000Z
 <!-- pith-note:v1 -->
 - id: "note-1"
-- file: "book.epub"
-- locator: "epub:chapter:1;block:3"
+- file: "01-核心拓扑.md"
+- locator: "text:line:12"
 
 <!-- pith-note:quote -->
 > 顺畅的讲解极易制造流畅性错觉。
@@ -117,28 +118,32 @@ updatedAt: "2026-11-05T10:15:00.000Z"
 <!-- pith-note:end -->
 ```
 
-- **`material.md`**：Frontmatter 固定 `type: pith-material`，记录 `id`、`title`、`kind`（`book | article | media | discussion | repo`）、`createdAt`、可选代码仓绑定（`externalPath` / `commitSha`）以及 `files` 数组（含 `name`、`mimeType`、`bytes`、64 位十六进制 `sha256`、当前阅读位置 `locator` 与 `lastActiveAt`）：
+- **`material.md`**：Frontmatter 固定 `type: pith-material`，记录 `id`、`title`、`kind`（`book | article | media | discussion | repo`）、`createdAt`、可选本地代码仓绑定（`externalPath` / `commitSha`）以及 `files` 数组（含 `name`、`mimeType`、`bytes`、64 位十六进制 `sha256`、可选 `generated: true`、当前阅读位置 `locator` 与 `lastActiveAt`）：
 
 ```markdown
 ---
 type: pith-material
-id: material-learning
-title: 学习科学导论
-kind: book
-createdAt: "2026-11-05T10:00:00.000Z"
+id: material-20261109-dsh-arch
+title: DSH 源码仓库
+kind: repo
+externalPath: "/Users/me/Projects/dsh"
+commitSha: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+createdAt: "2026-11-09T10:00:00.000Z"
 files:
-  - name: book.epub
-    mimeType: application/epub+zip
-    bytes: 412908
+  - name: 00-课程大纲.md
+    mimeType: text/markdown
+    bytes: 2048
     sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    locator: "epub:chapter:1;block:3"
-    lastActiveAt: "2026-11-05T10:15:00.000Z"
+    generated: true
+    locator: "text:line:0"
+    lastActiveAt: "2026-11-09T10:15:00.000Z"
 ---
 ```
 
-### 3.3 安全与容错语义（Fail-Closed）
+### 3.3 任意材料导入、讲义自动挂载与安全语义（Fail-Closed）
 
-- **路径穿越拦截**：所有 `topicId`、`materialId` 与 `fileName` 均禁止包含 `/`、`\`、`\0`、`.` 或 `..`；[`writeGeneratedFile`](../../src/core/store/WorkspaceStore.ts) 仅允许写入 `.md / .markdown` 衍生讲义，且严禁覆盖 `files/` 下已有的原始导入文件。
+- **无材料课题自动创建讲义包**：当用户以一句话意图（如“我想学 magpie”）新建无初始文件的课题，或绑定了 `files: []` 的代码仓库课题时，向导调用讲义写入工具（`pith_write_lesson`）若发现该 Topic 尚未关联 `materialId`，Store 支持自动为该 Topic 创建并绑定一个专属 `Material` 容器，将《`00-课程大纲.md`》与《`01-xxx.md`》写入其中并立即在左侧 Stage 呈现。
+- **路径穿越拦截与原始文件只读保护**：所有 `topicId`、`materialId` 与 `fileName` 均禁止包含 `/`、`\`、`\0`、`.` 或 `..`；[`writeGeneratedFile`](../../src/core/store/WorkspaceStore.ts) 仅允许写入带 `generated: true` 标记的 `.md` 衍生讲义，严禁覆盖 `files/` 下任何原始导入文件。
 - **坏文件隔离**：[`listTopics`](../../src/core/store/WorkspaceStore.ts) 与 [`listMaterials`](../../src/core/store/WorkspaceStore.ts) 扫描目录时，遇到单个损坏或格式非法的 Markdown 文件自动跳过，不阻断整个工作区加载。
 
 ---
@@ -151,8 +156,8 @@ Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`D
 2. **零阻塞选区捕获（[`captureSelection()`](../../src/core/engine/AttentionEngine.ts)）**：用户在阅读舞台划高亮、记笔记或保存实训结果时，前台立即落盘至 `topic.md`，同时在后台合并入队一条 `(kind: "prepare-next-action", key: topicId)` 副作用任务。
 3. **同键合并持久化队列（`_cache/effects.json`）**：
    - [`enqueueEffect(kind, key, payload)`](../../src/core/engine/AttentionEngine.ts) 对处于 `pending` 状态的同 `(kind, key)` 任务原地更新 `payload`，避免连续划线触发多次冗余 LLM 请求；
-   - 若同一 `(kind, key)` 正在 `running` 执行中，新到达的变更会保留为下一拍 `pending` 项；进程重启后首次调用 [`processDueEffects()`](../../src/core/engine/AttentionEngine.ts) 会自动将崩溃前残留的 `running` 项恢复为 `pending`。
-4. **向导对话与离线降级（[`sendMessage()`](../../src/core/engine/AttentionEngine.ts)）**：未配置或未连接向导 Agent 时，用户提问与笔记依然落盘成功，系统 100% 降级为纯本地训练账本。
+   - 进程重启后首次调用 [`processDueEffects()`](../../src/core/engine/AttentionEngine.ts) 自动将崩溃前残留的 `running` 项恢复为 `pending`。
+4. **向导对话与离线降级（[`sendMessage()`](../../src/core/engine/AttentionEngine.ts)）**：未配置或未连接向导 Agent 时，用户立项、导入资料、阅读、提问与记笔记依然 100% 落盘可用。
 
 ---
 
@@ -170,8 +175,8 @@ Layer 3: user（显式插件配置）
 Layer 4: inUse 守卫 + 传递依赖提权（Transitive Requirement Propagation）
 ```
 
-- **存档保活**：只要工作区中已有课题或材料正在使用某插件（`manifest.inUse() > 0`，或者 `inUse()` 抛错处于未知状态），该插件强制保持开启（`source: "in-use"`），并自动将其 `requires` 依赖链上的底层服务提供者一并拉起，确保已存课题永不因预设切换而卡死在 `pending`。
-- **栈式服务表与热重挂**：[`reconcile()`](../../src/core/pluginrt/runtime.ts) 比对当前激活配置与新配置——当某插件停用或配置变更时，先按激活逆序（`newest first`）卸载该插件及其下游依赖方，再按拓扑顺序重新挂载。单个插件 `apply(ctx)` 抛错时立即调用 [`ctx.undo()`](../../src/core/pluginrt/runtime.ts) 逆序回滚半途注册项并标记为 `failed`，绝不传染其他插件。
+- **存档保活**：只要工作区中已有课题或材料正在使用某插件（`manifest.inUse() > 0`，或者 `inUse()` 抛错处于未知状态），该插件强制保持开启（`source: "in-use"`），并自动将其 `requires` 依赖链上的底层服务提供者一并拉起。
+- **栈式服务表与热重挂**：[`reconcile()`](../../src/core/pluginrt/runtime.ts) 比对当前激活配置与新配置——当某插件停用或配置变更时，先按激活逆序卸载该插件及其下游依赖方，再按拓扑顺序重新挂载。
 
 ---
 

@@ -1,64 +1,54 @@
-# 子系统 3：正交认知工具与后训练实训道场（`dojo-*`）
+# 子系统 3：学习脚手架工具与原位 UI 协议（`Toolkit` · `src/plugins/dojo-*/`）
 
 > 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [4-guide-speech-shells.md](4-guide-speech-shells.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
-## 1. 职责与正交维度
+## 1. 核心定位：什么是 `Toolkit`？它与 `Stage` 如何协同？
 
-`src/plugins/dojo-*` 下是由向导（Guide）根据课题（`Topic`）的真实意图、按需注入 `topic.toolkits` 的**三个正交认知维度**——它们可以单独挂载，也可以在同一课题中自由组合：
+在 Pith 中（代码中历史标识符 `Dojo` / `dojo-*` 统一指代 **`Toolkit` 脚手架工具**），如果说 **`Stage`（舞台）** 解决了“材料怎么显示”，那么 **`Toolkit`（工具）** 就解决了**“在这份材料上怎么降低理解阻力、怎么逼大脑和身体做主動训练”**。
 
-| 正交维度 | 代表插件 | 评价模式 (`evalMode`) | 介入训练阶段 | 物理动作与反馈机制 |
+诸如“影子跟读（`shadowing`）”这样既需要特定界面交互、又需要诊断逻辑的功能，通过 **「`Toolkit`（逻辑与 AI 编排契约） + `UI Protocol`（寄生于 Stage 之上的原位覆盖层）」** 彻底解耦：
+1. **底层仍然是通用 `Stage`**：例如 `stage-timeline` 负责渲染字幕与控制音频，`stage-reader` 负责渲染书籍与讲义段落；
+2. **`Toolkit` 声明前后端双重协议**：
+   - **对后端（向导 Agent）**：声明 `whenToUse`（何时应该为用户的 Topic 挂载或移除该工具）、`orchestrationGuide`（挂载后 Agent 如何配合准备讲义或诊断误差）以及 `quickActions`（向导侧栏快捷胶囊）；
+   - **对前端（Workbench 画布）**：通过 `UI Protocol` 声明如何在兼容的 `Stage` 目标块（`.pith-cue` 或 `[data-prose="true"]`）原位叠加交互控件（如行间译文层、跟读四阶同步与录音对比栏、费曼合书遮罩阐述栏）。
+
+---
+
+## 2. 工具生命周期：启发式默认挂载 + 向导/用户动态 CRUD
+
+Pith 严格遵循**“Agent 介入前有聪明默认，Agent 介入后可完全灵活 CRUD”**的双拍机制：
+
+### 2.1 第一拍：显式材料导入时的启发式默认挂载（`defaultToolkitsForMaterial`）
+
+当用户直接上传或导入显式资料（尚未与向导 Agent 对话）时，系统根据材料特征自动为新建课题预挂载最匹配的初始 `topic.toolkits`：
+
+| 用户上传/绑定的显式材料类型 | 启发式判定条件 | 默认自动挂载的 `toolkits` | 用户进入 Stage 即可获得的体验 |
+| :--- | :--- | :--- | :--- |
+| **外文书籍 / 外文论文 / 外刊文章** | `kind === "book" \| "article"` 且抽样文本中非中文（拉丁/日韩/西里尔等）字符占比显著 | `["interline", "feynman"]` | 顶栏直接出现 `[行间双语 · 2 ▾]`，一键开启段落下方母语对齐字幕，或点击段落进行费曼复述 |
+| **带字幕或音视频的语料 / 播客** | `kind === "media"` 或包含音频/视频文件及 `.vtt / .srt` 字幕 | `["shadowing"]` | 顶栏直接出现 `[影子跟读]`，点击任意字幕句即可单句慢放、单句循环、录音跟读与回放对比 |
+| **中文深度书籍 / 论文 / 绑定代码仓** | 中文 `book / article` 或 `kind === "repo"` | `["feynman"]` | 顶栏直接出现 `[费曼复述]`，阅读完核心章节或源码讲义后点击段落即可合书盲产并请向导追问 |
+
+### 2.2 第二拍：向导 Agent 与用户的全灵活 CRUD（`pith_configure_toolkits` & 顶栏工具管理）
+
+- **向导 Agent 自动识别与 CRUD**：
+  - 向导的 System Prompt 中自动注入全量已注册 `Toolkit` 的说明清单（含 ID、适用场景与作用）；
+  - 当向导通过对话了解到用户的真实目标（例如：*“我拿这篇英文演讲稿是为了下周上台脱稿演讲”* $\rightarrow$ 自动追加 `["shadowing", "feynman"]`；或者 *“我只想安静通读原文，不需要双语和跟读”* $\rightarrow$ 自动更新为 `[]`），直接通过 `pith_configure_toolkits`（或 `pith-toolkits` 围栏）增删改当前 Topic 的工具列表，前端顶栏与 Stage 原位控件实时热更新。
+- **用户前端手动 CRUD**：
+  - 用户点击阅读器顶栏右侧的 `🛠` 按钮时，近源展开的面板不仅能切换当前已挂载的工具，还可以直接勾选/取消勾选工作区已注册的任意 `Toolkit`（持久化回写 `topic.toolkits`），离线无 Agent 时依然 100% 掌控所有工具。
+
+---
+
+## 3. 内置三大正交 `Toolkit` 的前后端契约
+
+| 工具 ID | 介入阶段 | 评价模式 (`evalMode`) | 后端向导编排职责 | 前端 `UI Protocol` 原位交互能力 |
 | :--- | :--- | :--- | :--- | :--- |
-| **输入降噪脚手架**<br>*(Input Scaffolding)* | [`dojo-interline`](../../src/plugins/dojo-interline/) | - | **1. Pre-training**<br>*(一手语料摄入)* | 在不破坏原著版心的前提下，于段落正下方嵌入滑动预热的行间母语字幕，降低外文一手材料的启动阻力。 |
-| **程序性/肌肉记忆跟练**<br>*(Procedural Drill)* | [`dojo-shadowing`](../../src/plugins/dojo-shadowing/) | `"deterministic"`<br>*(确定性词对齐)* | **3. Post-training RL**<br>*(声学/动作 1:1 复现)* | 针对语言跟读等程序性技能，追求与目标原句 1:1 精确复现，采用确定性词级对齐（LCS）在原位标出吞音与漏词。 |
-| **生成式/心智模型内化**<br>*(Generative Recall)* | [`dojo-feynman`](../../src/plugins/dojo-feynman/) | `"guide-rubric"`<br>*(向导教练规程)* | **3. RL & 4. Eval**<br>*(概念重构与教练追问)* | 针对概念、机制与架构内化，撤除原文拐杖逼迫学习者用自己的话阐述因果链，交由向导按 `evaluationRubric`（三明治苏格拉底追问规程）检验盲区。 |
+| **`interline`**<br>*(行间双语)* | **1. Pre-train**<br>*(输入降噪)* | - | 使用本机 ACP Agent 按邻域优先级（`activeUnit ± 1`）将外文段落流式翻译为母语并缓存至 `_cache/interline/` | 在每个 `[data-prose="true"]` 段落正下方内嵌 `.pith-interline-subtitle[data-prose="false"]`；支持 `[ 原文 \| 行间双语 \| 译文主显 ]` 三档切换，且 TTS 伴读严格跳过译文 |
+| **`shadowing`**<br>*(影子跟读)* | **3. RL**<br>*(程序性声学跟练)* | `"deterministic"`<br>*(确定性词对齐)* | 推荐 20~30s 高价值跟读桥段；分析连读、弱读与语调重音；根据漏词记录迭代训练处方 | 在目标字幕句（`.pith-cue`）或段落原位展开：1) **四阶渐进镜头**（`意群拆解` / `原文` / `骨干词` / `盲听诊断`）；2) **句级声学控制**（`[▶ 播放本句]`、`[🐢 0.75x 慢听]`、`[🔁 单句循环]`、Stage 2 `边放边录`）；3) **双轨听觉对比与词对齐**（录完音后支持 **`[🔊 听我的录音]`** 与原声直接对比，并用 LCS 标亮漏词） |
+| **`feynman`**<br>*(费曼复述)* | **3. RL & 4. Eval**<br>*(心智模型内化)* | `"guide-rubric"`<br>*(苏格拉底追问规程)* | 按 `evaluationRubric` 执行**三明治苏格拉底追问**（🟢 肯定主干因果链 → 🟡 指出遗漏前提/边界 → 🎯 抛出 1 个反例或迁移问题） | 在目标段落原位将其平滑折叠遮罩（`【合上原文】`），紧贴下方展开阐述框（支持键盘输入与 `🎙️` 语音口述），一键提交复述并联动右侧向导展开追问 |
 
----
-
-## 2. 程序性跟读与生成式复述的差异化脚手架（`DojoToolkitDescriptor`）
-
-### 2.1 两种实训的不同脚手架形态
-
-[`DojoToolkitDescriptor`](../../src/core/seams.ts) 不强迫所有实训工具生搬硬套同一个 UI 模板，而是按训练目标的本质提供恰当的原位变形（UI 原位挂载规范见 [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)）：
-
-1. **`dojo-shadowing`（外语语音与语感跟读 · 四阶渐进镜头 `DojoScaffoldStage`）**：
-   - 在时间轴舞台（`.pith-cue`）或目标段落原位提供 4 个渐进撤拐杖档位：
-     - `1. listen-decompose`（意群拆解）：每隔意群边界（标点或词数阈值）插入 `/` 呼吸停顿标记；
-     - `2. guided-follow`（原文跟练）：展示完整字幕，配合语音逐句跟读建立口腔肌肉记忆；
-     - `3. scaffold-cloze`（骨干词）：挖空介词、冠词、助动词与连词等语法功能词为 `___`，检验语块衔接；
-     - `4. blind-produce`（盲听诊断）：遮蔽全文为 `••••••••`，凭听觉或记忆开口跟读并由 ASR 转写对齐漏词。
-2. **`dojo-feynman`（概念内化与复述 · 原位合书遮罩与直接阐述）**：
-   - 概念内化无需机械切换“按句号拆行/双字挖空”四阶段按钮；触发费曼复述时，直接在 Stage 画布原位将目标段落平滑折叠/遮罩（`blind-produce` 合上原文态），在段落下方内联展开阐述框（支持打字与 `🎙️` 麦克风口述），一步直达主动生成与向导追问。
-
-### 2.2 两种正交评价与反馈机制（`evalMode`）
-
-1. **`evalMode: "deterministic"`（确定性序列对齐 · 用于 `dojo-shadowing`）**：
-   - [`diagnose(targetText, producedText)`](../../src/plugins/dojo-shadowing/index.ts) 对目标文本与学习者产出（或麦克风 ASR 转写文本）做 NFC 归一化后执行动态规划最长公共子序列（LCS）词级对齐（矩阵规模受硬上限保护）；
-   - 直接在原位标出漏读词（`missedTokens`），不渲染引发防御心理的考试总分，支持一键存为 `kind: "practice"` 笔记。
-2. **`evalMode: "guide-rubric"`（向导语义教练规程 · 用于 `dojo-feynman`）**：
-   - 概念内化与迁移严禁使用死板的正则表达式凑词打分；[`feynmanToolkit`](../../src/plugins/dojo-feynman/index.ts) 声明专属的 `evaluationRubric`（**三明治苏格拉底追问规程**）：
-     - **🟢 已掌握主干**：肯定学习者复述中抓准的核心因果链或自创的恰当类比；
-     - **🟡 遗漏的前提/边界**：指出对照原文漏掉的一个关键机制前提或极端边界条件（不直接替学习者背书）；
-     - **🎯 深水区一问**：提出 1 个具体的反例或跨场景迁移问题，引导学习者补齐缺口。
-   - 学习者提交复述后，系统将目标锚点 `anchor`、学习者复述正文与 `evaluationRubric` 注入向导上下文（[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts)），在右侧向导栏展开追问并落盘 `practice` 笔记（仅当向导离线未配置时回退至本地关键词盲区提示）。
-
----
-
-## 3. 行间双语伴读与滑动窗口预热（`dojo-interline`）
-
-`dojo-interline` 让学习者直接阅读外文一手原著，同时在每个正文块下方按需嵌入母语对齐字幕：
-
-1. **三种展示模式（`InterlineDisplayMode`）**：
-   - `original`：仅显示原文；
-   - `bilingual`：原文为主，段落正下方嵌入弱化样式的行间译文（`<span class="pith-interline-subtitle" data-prose="false">`）；
-   - `subtitle-primary`：译文主显、原文对照。
-   - **伴读隔离铁律**：所有嵌入的译文节点强制标记 `data-prose="false"`，确保开启 `🎧 听读` 时 TTS 只朗读纯粹外文原文，绝不混读母语译文。
-2. **FNV-1a 64-bit 源文本哈希（[`computeSourceHash`](../../src/plugins/dojo-interline/index.ts)）**：
-   - 对每个 `data-prose="true"` 段落归一化空白后计算 16 位十六进制哈希；缓存命中时校验 `sourceHash`，原文未变则直接零延迟复用 `_cache/interline/` 中的译文。
-3. **邻域优先滑动窗口预热（[`InterlinePreparationCoordinator`](../../src/plugins/dojo-interline/coordinator.ts)）**：
-   - [`planNeighborhoodOrder(activeUnit, totalUnits, radius)`](../../src/plugins/dojo-interline/index.ts) 按 **`[当前章节 activeUnit] → [邻近章节 activeUnit ± 1..radius] → [其余章节]`** 的优先级排序；
-   - 当用户快速翻页或跨章跳转调用 [`activateUnit(newIndex)`](../../src/plugins/dojo-interline/coordinator.ts) 时，协调器**不粗暴中断已在途（in-flight）的翻译请求**（确保已消耗的 Token 正常落盘缓存），并在当前批次完成后的下一拍立即将新活动章节提权至队首。
+> **面向未来的扩展性（如 `music-midi` / `code-sandbox`）**：未来新增音乐或代码实训时，只需在 `src/plugins/` 下新建插件并注册对应的 `Stage`（如 ABC/MusicXML 乐谱舞台）与 `Toolkit`（如 WebMIDI 跟弹对齐工具），向导即可在音乐 Topic 中自动识别并注入该工具。
 
 ---
 
