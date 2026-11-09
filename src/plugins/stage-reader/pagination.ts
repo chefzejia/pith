@@ -218,7 +218,7 @@ export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, fil
   const chapters = Array.from(article.querySelectorAll<HTMLElement>(":scope > .pith-epub-chapter"));
   const candidates = chapters.length ? chapters : [article];
   const viewport = reader.getBoundingClientRect();
-  const blocks = candidates.flatMap(chapter => Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"]'))).filter(item => !item.closest('.pith-inline-dojo,.pith-interline-subtitle,[data-dojo-display],[data-prose="false"]') && Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
+  const blocks = candidates.flatMap(chapter => Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"],[data-trainable="true"]'))).filter(item => !item.closest('.pith-inline-dojo,.pith-interline-subtitle,[data-dojo-display]') && (item.dataset.trainable === "true" || !item.closest('[data-prose="false"]')) && Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
   const isHeading = (item: HTMLElement): boolean => /^H[1-6]$/.test(item.tagName) || item.getAttribute("role") === "heading";
   for (const block of [...blocks.filter(item => !isHeading(item)), ...blocks.filter(isHeading)]) {
     const copy = block.cloneNode(true) as HTMLElement;
@@ -237,7 +237,7 @@ export function proseTextNodes(block: Element): Text[] {
   let node: Node | null;
   while ((node = walker.nextNode())) {
     const excluded = node.parentElement && node.parentElement.closest('[data-prose="false"]');
-    if (!excluded || !block.contains(excluded)) result.push(node as Text);
+    if (!excluded || excluded === block || !block.contains(excluded)) result.push(node as Text);
   }
   return result;
 }

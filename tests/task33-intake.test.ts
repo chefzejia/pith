@@ -8,6 +8,8 @@ import test from "node:test";
 import { build } from "esbuild";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { renderFile } from "../src/plugins/stage-reader/index.ts";
+import { filterProseOnly } from "../src/plugins/speech-service/index.ts";
+import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { defaultToolkitsForMaterial } from "../src/workbench/toolkitSlot.ts";
@@ -41,6 +43,33 @@ test("source reader escapes markup, anchors every line and rejects binary", asyn
   assert.deepEqual(view.blocks?.map(block => block.locator), ["text:line:0", "text:line:1", "text:line:2"]);
   await assert.rejects(renderFile(file, new Uint8Array([65, 0, 66])), /binary/);
   await assert.rejects(renderFile(file, new Uint8Array([255])), /binary/);
+});
+
+test("imported source remains trainable but is excluded from prose and guide validates bytes", async () => {
+  const root = await testSandbox("audit-source-");
+  try {
+    const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
+    await store.ensureScaffold();
+    const read = createGuideWorkspaceTools(store, undefined, storage).find(tool => tool.name === "pith_read_material_section")!;
+    for (const [name, mimeType] of [["sample.ts", "video/mp2t"], ["module.py", "application/octet-stream"]]) {
+      const bytes = new TextEncoder().encode("const answer = 42;\nnext line");
+      const material = await store.importMaterial({ title: name!, kind: "article", files: [{ name: name!, mimeType: mimeType!, bytes }] });
+      const view = await renderFile(material.files[0]!, bytes);
+      assert.deepEqual(filterProseOnly(view.blocks!), []);
+      assert.match(view.html, /data-prose="false" data-trainable="true"/);
+      assert.match((await read.execute({ materialId: material.id, file: name }) as { text: string }).text, /answer = 42/);
+    }
+    for (const name of ["prose.txt", "prose.abc"]) {
+      const bytes = new TextEncoder().encode("Natural prose.\nAnother sentence.");
+      const view = await renderFile({ name, mimeType: "application/octet-stream", bytes: bytes.length, sha256: "" }, bytes);
+      assert.equal(filterProseOnly(view.blocks!).length, 2);
+      assert.match(view.html, /data-prose="true"/);
+    }
+    for (const bytes of [new Uint8Array([65, 0, 66]), new Uint8Array([255]), new Uint8Array(256 * 1024 + 1).fill(65)]) {
+      const material = await store.importMaterial({ title: "invalid", kind: "article", files: [{ name: "invalid.ts", mimeType: "text/plain", bytes }] });
+      await assert.rejects(read.execute({ materialId: material.id, file: "invalid.ts" }), /not text|size limit/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("real HTTP intake and repository binding preserve explicit empty toolkit lists", async () => {
@@ -88,6 +117,11 @@ test("browser intake binds Git, opens guide, refreshes generated lesson and pers
     assert.equal(await page.locator('.pith-dojo-panel').evaluate((panel: HTMLElement) => panel.scrollWidth <= panel.clientWidth && Array.from(panel.querySelectorAll('button')).every(button => getComputedStyle(button).whiteSpace === 'nowrap' && button.scrollWidth <= button.clientWidth)), true);
     await page.locator('[data-command="home"]').click(); await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: "example.ts", mimeType: "video/mp2t", buffer: Buffer.from('const value = "<script>";\nsecond line') }); await page.locator('[data-intake-open]').click();
     await page.locator('.pith-article [data-locator="text:line:1"]').getByText("second line").waitFor(); assert.equal(await page.locator('.pith-article script').count(), 0); assert.match(await page.locator('.pith-article').textContent(), /<script>/);
+    assert.equal(await page.locator('.pith-article [data-prose="true"]').count(), 0);
+    await page.locator('[data-command="read"]').click(); await page.getByText("当前页面没有可朗读的正文段落").waitFor();
+    await page.locator('.pith-article [data-locator="text:line:1"]').click(); await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.match(await page.locator('.pith-dojo-source').textContent(), /second line/);
+    await page.screenshot({ path: resolve('.tmp/evidence/audit-fix/web-source-feynman.png') });
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -105,8 +139,9 @@ test("native shared surface opens empty topic and refreshes a generated lesson",
     await page.evaluate(async () => {
       const data = new Map<string, Uint8Array>(), folders = new Set<string>(); const encoder = new TextEncoder(), decoder = new TextDecoder();
       const storage = { exists: async (path: string) => data.has(path) || folders.has(path), readText: async (path: string) => { if (!data.has(path)) throw new Error("missing " + path); return decoder.decode(data.get(path)); }, readBinary: async (path: string) => { const value = data.get(path); if (!value) throw new Error("missing " + path); return value; }, writeText: async (path: string, text: string) => { data.set(path, encoder.encode(text)); }, createText: async (path: string, text: string) => { if (data.has(path)) throw new Error("exists"); data.set(path, encoder.encode(text)); }, writeBinary: async (path: string, bytes: Uint8Array) => { data.set(path, bytes); }, createBinary: async (path: string, bytes: Uint8Array) => { if (data.has(path)) throw new Error("exists"); data.set(path, bytes); }, processText: async (path: string, update: (text: string) => string) => { const result = update(decoder.decode(data.get(path))); data.set(path, encoder.encode(result)); return result; }, mkdir: async (path: string) => { folders.add(path); }, list: async (path: string) => [...folders, ...data.keys()].filter(item => item.startsWith(path + "/") && !item.slice(path.length + 1).includes("/")).map(item => ({ path: item, type: folders.has(item) ? "folder" : "file" })) };
-      const host = { id: "obsidian", storage }, controller = new (window as any).NativePith.PithObsidianController(host); await controller.initialize();
-      let calls = 0; controller.engine.sendMessage = async ({ topicId }: { topicId: string }) => { if (calls++ > 0) return; const material = await controller.store.importMaterial({ title: "课程", kind: "article", files: [] }); await controller.store.updateTopic(topicId, { materialId: material.id }); await controller.store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 原生课程大纲\n第一讲"); await controller.store.writeGeneratedFile(material.id, "01-第一讲.md", "# 原生第一讲\n真实内容"); };
+      const host = { id: "obsidian", storage }; let controller: any; const received: string[] = []; (window as any).guideReceived = received;
+      const provider = { async reply({ topicId, conversation }: any) { received.push(conversation.at(-1).text); if (received.length === 1) { const material = await controller.store.importMaterial({ title: "课程", kind: "article", files: [] }); await controller.store.updateTopic(topicId, { materialId: material.id }); await controller.store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 原生课程大纲\n第一讲"); await controller.store.writeGeneratedFile(material.id, "01-第一讲.md", "# 原生第一讲\n真实内容"); } return "受控向导回复"; } };
+      controller = new (window as any).NativePith.PithObsidianController(host, undefined, provider); await controller.initialize();
       const leaf: any = { container: document.getElementById("side"), detach() {}, async setViewState() { this.view = new (window as any).NativePith.PithGuideView(this); } }; const workspace = { rightSplit: { expand() {}, collapse() {} }, getRightLeaf: () => leaf, getLeavesOfType: () => leaf.view ? [leaf] : [], revealLeaf: async () => {} };
       const view = new (window as any).NativePith.PithWorkspaceView({}, controller, host, workspace); (window as any).nativeController = controller; await view.onOpen();
     });
@@ -115,6 +150,8 @@ test("native shared surface opens empty topic and refreshes a generated lesson",
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-file="01-第一讲.md"]').click(); await page.locator('.pith-article').getByText("原生第一讲").waitFor(); await page.evaluate(() => { (window as any).readingNode = document.querySelector(".pith-article h1"); });
     await page.locator('.pith-guide textarea').fill("普通问题"); await page.locator('[data-guide-send]').click(); await page.waitForFunction(() => !(document.querySelector('[data-guide-send]') as HTMLButtonElement).disabled);
     assert.equal(await page.evaluate(() => (window as any).readingNode === document.querySelector(".pith-article h1")), true); assert.equal(await page.locator('.pith-article h1').textContent(), "原生第一讲");
+    const conversation = await page.evaluate(async () => { const c = (window as any).nativeController; const topic = (await c.store.listTopics())[0]; return { received: (window as any).guideReceived, entries: await c.engine.getConversation(topic.id) }; });
+    assert.equal(conversation.received.at(-1), "普通问题"); assert.equal(conversation.entries.at(-2).text, "普通问题"); assert.equal(conversation.entries.at(-1).text, "受控向导回复");
     await page.locator("#open-dojo").click(); await page.locator('[data-toolkit-toggle="feynman"]').uncheck(); await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLInputElement>('[data-toolkit-toggle]')).every(item => !item.disabled));
     assert.deepEqual(await page.evaluate(async () => (await (window as any).nativeController.store.listTopics())[0].toolkits), []);
     const evidence = resolve(".tmp/evidence/task-33"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "native-guide.png") });
@@ -122,6 +159,20 @@ test("native shared surface opens empty topic and refreshes a generated lesson",
     await page.locator('.pith-article [data-locator="text:line:1"]').getByText("second line").waitFor();
     const imported = await page.evaluate(async () => { const controller = (window as any).nativeController; const topics = await controller.store.listTopics(); for (const topic of topics) { if (!topic.materialId) continue; const material = await controller.store.getMaterial(topic.materialId); if (material.files.some((file: any) => file.name === "sample.ts")) return { topic, material }; } throw new Error("imported topic not found"); });
     assert.equal(imported.material.kind, "article"); assert.equal(imported.material.files[0].mimeType, "video/mp2t"); assert.deepEqual(imported.topic.toolkits, ["interline", "feynman"]); assert.equal(await page.locator('.pith-article script').count(), 0);
+    assert.equal(await page.locator('.pith-article [data-prose="true"]').count(), 0);
+    await page.locator('[data-command="read"]').click(); await page.getByText("当前页面没有可朗读的正文段落").waitFor();
+    await page.locator('.pith-article [data-locator="text:line:1"]').click();
+    await page.locator('[data-dojo-choose="feynman"]').click();
+    assert.match(await page.locator('.pith-dojo-source').textContent(), /second line/);
+    await page.locator('[data-dojo-reveal]').click(); assert.match(await page.locator('.pith-dojo-source').textContent(), /second line/);
+    await page.screenshot({ path: resolve('.tmp/evidence/audit-fix/native-source-feynman.png') });
+    await page.locator('[data-dojo-close]').click();
+    await page.evaluate(() => { const line = document.querySelector('[data-locator="text:line:1"]')!; const range = document.createRange(); range.selectNodeContents(line); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); line.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); });
+    await page.locator('[data-selection="highlight"]').click();
+    await page.waitForFunction(() => !!document.querySelector('mark[data-pith-note]'));
+    await page.evaluate(() => { const line = document.querySelector('[data-locator="text:line:1"]')!; const range = document.createRange(); range.selectNodeContents(line); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); line.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); });
+    await page.locator('[data-selection="ask"]').click(); await page.locator('.pith-guide blockquote').getByText('second line').waitFor();
+    await page.evaluate(() => { window.getSelection()!.removeAllRanges(); document.querySelector('.pith-article')!.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); });
     const binaryRejected = await page.evaluate(async () => { const c = (window as any).nativeController; const material = await c.importMaterial({ title: "binary", kind: "article", files: [{ name: "fake.ts", mimeType: "video/mp2t", bytes: new Uint8Array([65, 0, 66]) }] }); try { await c.renderMaterialFile(material.id, "fake.ts"); return false; } catch (error) { return String(error).includes("binary"); } }); assert.equal(binaryRejected, true);
     await page.screenshot({ path: join(evidence, "fix-native-source.png") });
     await page.setViewportSize({ width: 700, height: 850 }); await page.locator('#root').evaluate((root: HTMLElement) => { root.style.width = '332px'; });

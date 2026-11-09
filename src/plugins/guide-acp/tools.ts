@@ -76,9 +76,9 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (!material) throw new Error("Material not found");
       const entry = material.files.find(candidate => candidate.name === file);
       if (!entry) throw new Error("Material file not found");
-      if (!entry.mimeType.startsWith("text/") && !/\.(?:md|markdown|txt|html|htm|json|csv|xml|ya?ml)$/i.test(file)) throw new Error("Material is not text");
       if (!storage) throw new Error("Material storage unavailable");
       if (/[\\/\0]/.test(materialId) || /[\\/\0]/.test(file) || materialId === "." || materialId === ".." || file === "." || file === "..") throw new Error("Invalid material path");
+      if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 256 * 1024) throw new Error("Material exceeds text size limit");
       let line = 0;
       if (input.locator !== undefined) {
         const match = /^text:line:(0|[1-9]\d*)$/.exec(text(input, "locator", 300));
@@ -86,7 +86,12 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
         line = Number(match[1]);
         if (!Number.isSafeInteger(line)) throw new Error("Invalid text locator");
       }
-      const lines = (await storage.readText(`materials/${materialId}/files/${file}`)).split(/\r?\n/);
+      const bytes = await storage.readBinary(`materials/${materialId}/files/${file}`);
+      if (bytes.byteLength > 256 * 1024) throw new Error("Material exceeds text size limit");
+      let content: string;
+      try { content = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error("Material is not text"); }
+      if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(content)) throw new Error("Material is not text");
+      const lines = content.split(/\r?\n/);
       if (line >= lines.length) throw new Error("Text locator not found");
       const startLine = input.locator === undefined ? 0 : Math.max(0, line - 10);
       const endLine = Math.min(lines.length, input.locator === undefined ? 40 : line + 11);

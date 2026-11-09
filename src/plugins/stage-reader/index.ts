@@ -129,8 +129,12 @@ export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Pr
     return { format: "markdown", title: sections[0]?.title ?? file.name, html: renderMarkdown(markdown), sections, blocks: extractProseBlocks(markdown), totalUnits: markdown.split(/\r?\n/).length };
   }
   const lines = markdown.split(/\r?\n/);
-  const blocks: ProseBlock[] = lines.map((text, index) => ({ index, locator: `text:line:${index}`, text, isProse: true }));
-  return { format: "markdown", title: file.name, html: `<pre><code>${blocks.map(block => `<span data-locator="${block.locator}" data-prose="true">${escape(block.text)}</span>`).join("\n")}</code></pre>`, sections: [], blocks, totalUnits: lines.length };
+  const source = /\.(?:ts|tsx|js|jsx|mjs|cjs|py|rs|go|java|c|h|cc|cpp|hpp|cs|swift|kt|json|jsonl|yaml|yml|toml|sh|bash|zsh|css|html|xml|sql|rb|php|lua|r)$/i.test(file.name);
+  const blocks: ProseBlock[] = lines.map((text, index) => ({ index, locator: `text:line:${index}`, text, isProse: !source }));
+  const html = source
+    ? `<pre><code>${blocks.map(block => `<span data-locator="${block.locator}" data-prose="false" data-trainable="true">${escape(block.text)}</span>`).join("\n")}</code></pre>`
+    : blocks.map(block => `<p data-locator="${block.locator}" data-prose="true">${escape(block.text)}</p>`).join("");
+  return { format: "markdown", title: file.name, html, sections: [], blocks, totalUnits: lines.length };
 }
 
 registerPlugin({

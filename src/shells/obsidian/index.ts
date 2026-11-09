@@ -195,12 +195,12 @@ export class PithObsidianController {
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
   private readonly views = new Set<PithObsidianView>();
 
-  constructor(host: HostPort, interlineTranslator?: InterlineTranslator) {
+  constructor(host: HostPort, interlineTranslator?: InterlineTranslator, guideProvider?: GuideProvider) {
     this.host = host;
     this.interlineTranslator = interlineTranslator;
     this.store = new DefaultWorkspaceStore(host.storage);
-    let provider: GuideProvider | undefined;
-    this.engine = new DefaultAttentionEngine(this.store, host.storage, () => this.agentId ? provider : undefined);
+    let provider: GuideProvider | undefined = guideProvider;
+    this.engine = new DefaultAttentionEngine(this.store, host.storage, () => guideProvider || (this.agentId ? provider : undefined));
     const manifests = builtinRegistry.list().map(manifest => {
       if (!["stage-reader", "stage-timeline", "dojo-shadowing", "dojo-feynman", "dojo-interline"].includes(manifest.id)) return manifest;
       return { ...manifest, inUse: () => {
@@ -212,7 +212,7 @@ export class PithObsidianController {
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
-    if (host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
