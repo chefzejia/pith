@@ -7,16 +7,6 @@
 
 ---
 
-## [Task #26] 设置面板重构（Agent 右侧对齐与单键刷新、云端语音平铺显隐、本机语音单主按钮与安装修复）
-
-- **Status**: verified
-- **Scope**: `src/shells/obsidian/**`, `src/shells/web/**`, `src/shells/speech/**`, `src/workbench/**`, `scripts/**`, `tests/**`
-- **Verified-Commit**: 1f6b821e4603539504dbac2af9b4dc4475c2776d
-- **Updated**: 2026-11-08
-- **验收摘要**：Worker 完成类型检查、全仓测试（223 通过、46 跳过）、构建与手动破壁，三个插件产物已同步至 `ganfan-media`。Tester 在 Web 与隔离 Obsidian 通过 Agent 对齐刷新、语音模式互斥、安装中重开与失败反馈、已安装操作验收（终验截图 `.tmp/evidence/task-26/final-1f6b821-*.png`）。
-
----
-
 ## [Task #27] 阅读舞台键盘翻页焦点自动接管 & EPUB 深色模式字色可读性修复（对齐 `ganfan-garden` 渲染演进）
 
 - **Status**: verified
@@ -33,24 +23,68 @@
 - **Scope**: `src/shells/speech/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
 - **Verified-Commit**: 852bb9cda7913749f1af9d7a64456fb6d9339aca
 - **Updated**: 2026-11-09
-- **验收摘要**：Worker 类型检查、全仓测试（232 通过、53 环境跳过）、最终相关 HTTP/浏览器回归（15 通过）、手动破壁与构建同步通过。独立 Tester 在 Web 与真实隔离 Obsidian（`.dev-vault`）中验证进度多次增长、重开保持、取消后保留 917,504 字节并从 `Range: bytes=917504-` 续传、五个归档校验解压完成，以及错误哈希显性失败且无安装标记。终验使用本地受控小型归档，未验证真实公网全量下载或启动模型；本轮测试资源已关闭。
-- **Evidence**: `.tmp/evidence/task-28/final-web-{reopened,ready,bad-hash}.png`、`.tmp/evidence/task-28/final-native-{reopened,ready,bad-hash}.png`（均为真实 PNG，已亲眼审视）。
-- **授权范围**：允许修改 `src/shells/speech/speechRuntime.ts`、`src/workbench/speechRuntimeSettings.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。只读消费 `src/core/seams.ts` 已有的 `ManagedSpeechState.progressPercent`、`downloadSizeMb` 与 `ManagedSpeechRuntimePort.stop()`。
-- **不在范围内**：严禁修改 `src/core/` 冻结契约（`ManagedSpeechState` 已定义 `progressPercent?: number` 与 `downloadSizeMb?: number`，`ManagedSpeechRuntimePort` 已定义 `stop?(): Promise<ManagedSpeechState>`，无需改动核心接口）；严禁修改 `model` / `effort` 既有行为。
-- **背景与实证根因**：
-  - 用户在真实 Obsidian（`ganfan-media`）中点击 `[安装引擎]` 后，界面长时间停留在静态文字 `安装中…：正在下载 Node 运行时` 且右侧按钮锁死为 `正在安装…`，看起来完全像黑盒卡死：
-  - **根因 1（无实时字节进度与可视化进度条）**：`src/shells/speech/speechRuntime.ts:34, 108-129` 使用 `curl --silent` 且 `stdio: "ignore"`，在下载 Node（~45MB）、`sherpa-onnx`、Kokoro TTS（~140MB）与 SenseVoice ASR（~1000MB，合计约 1.2GB）的漫长过程中，从未填充 `ManagedSpeechState.progressPercent`，`src/workbench/speechRuntimeSettings.ts:23` 也未渲染 `<progress>` 进度条或 `已下载 X MB / Y MB (Z%)`；
-  - **根因 2（慢网必死超时 + 失败重头下、无断点续传与低速卡死检测）**：`speechRuntime.ts:109` 硬编码 `--max-time 600`（实测用户本机拉取 `nodejs.org` 10 分钟仅下完 35MB/47MB 即触发 `exit 28` 失败！而 SenseVoice 高达 1GB，`--max-time 1200` 在慢网下必挂），且每次重试覆盖重下 `node.tar.gz`，没有断点续传或已校验归档复用，也没有 `--connect-timeout 15 --speed-limit 10240 --speed-time 30` 捕获真断流并自动断点重试；
-  - **根因 3（Electron/Obsidian GUI 代理环境缺失 + 安装期间无法取消）**：macOS 从 Finder 启动的 Obsidian 进程 `process.env` 中通常不含终端的 `HTTPS_PROXY`，而 `speechRuntime.ts:33` 仅透传 `process.env`；同时安装期间右侧按钮完全禁用，未暴露已有的 `stop()` 取消能力。
+- **验收摘要**：独立 Tester 在 Web 与真实隔离 Obsidian（`.dev-vault`）中验证进度多次增长、重开保持、取消后保留已下字节并从 `Range` 续传、五个归档校验解压完成，以及错误哈希显性失败（证据见 `.tmp/evidence/task-28/`）。
+
+---
+
+## [Task #29] 工作区可读短 ID、EPUB OPF 元数据标题净化、书籍封面提取与课题看板（Topic Board）书卷卡片重构
+
+- **Status**: pending
+- **Scope**: `src/core/store/**`, `src/plugins/stage-reader/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
+- **Verified-Commit**: none
+- **Updated**: 2026-11-09
+- **授权范围**：允许修改 `src/core/store/WorkspaceStore.ts`、`src/plugins/stage-reader/epub.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。
+- **不在范围内**：严禁添加“SVG 进度圆环（progress ring） / 成就徽章 / 打卡纹理”等任务系统噪音；保持对已有旧长 UUID 目录（如 `topic-8bdc0803...`）的 100% 向后兼容读取。
+- **背景与参考代码**：执行环开工前请主动阅读：
+  - `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/store/ids.ts` 与 `GardenStore.ts`（日期 + 短 slug/hash 可读文件夹 ID 生成）；
+  - `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/src/material/ingest/epub.ts`（OPF `<dc:title>` 提取与 `findCover` 封面提取逻辑）；
+  - `/Users/zejiawu/Projects/Project-Atlas/labs/ganfan-garden/docs/product/prototype/interaction.html`（第 158~190 行与 894~954 行：探索中三栏精致卡片 `.topic-card` 含顶部状态与时间、衬线标题、关联材料行、虚线分隔下一步建议、底部笔记计数与 `进入 →`，以及已沉淀 `.grown-list` 紧凑横排列表）。
 - **接口与行为契约**：
-  1. **流式下载实时字节统计、进度百分比与可视 `<progress>` 进度条（`speechRuntime.ts` & `speechRuntimeSettings.ts`）**：
-     - 在 `NodeManagedSpeechRuntime` 下载阶段（可改用 Node 原生流式 HTTP/HTTPS 下载或监控目标归档文件实时字节增长 + `Content-Length` / 已知各阶段预期字节权重）实时更新当前步骤（如 `步骤 1/5 · 正在下载 Node 运行时`）、**当前文件已下载/总大小（如 `34.2 / 45.5 MB`）**以及整体或阶段 **`progressPercent`（`0 ~ 100`）**；解压与哈希校验阶段同样给出清晰阶段提示（如 `正在校验与解压 TTS 模型…`）；
-     - 在 `src/workbench/speechRuntimeSettings.ts` 中，当 `status === "installing"` 时，除简洁阶段与 `MB / %` 文本外，渲染一个干净的原生 `<progress max="100" value="...">` 进度条（搭配书卷主题 `--pith-sage` 样式，Web 与 Obsidian 共享同一样式），每秒轮询平滑推进，彻底消灭黑盒卡死感。
-  2. **断点续传（Range / `-C -`）、已下载归档复用与慢网抗超时重试（`speechRuntime.ts`）**：
-     - **移除误杀慢速正常下载的固定短 `--max-time` 硬切**，改为连接超时与低速无响应检测（如连接超时 `20s`，连续 `30s` 传输速率低于 `1 KB/s` 才视为卡死中断，并自动带指数退避断点重试最多 3 次）；
-     - **支持断点续传与已完整下载归档校验跳过**：若目标目录中已存在部分下载的 `.part` / 归档文件（如刚才已下载 35MB 的 `node.tar.gz`），重试或继续安装时使用 HTTP `Range` / `curl -C -` 从断点处续传（若已存在完整归档且 SHA-256/SHA-512 校验通过，直接跳过下载进入解压）；仅当校验明确不匹配已完结文件时才删除重下；
-     - **macOS 系统代理自动感知（零额外依赖）**：当 `process.env.HTTPS_PROXY / https_proxy` 未设置且 `process.platform === "darwin"` 时，可通过 `scutil --proxy`（短超时安全读取，失败静默忽略）检测系统开启的 HTTP/HTTPS 本地代理端口并注入下载环境，大幅提升桌面 GUI 宿主在代理环境下的 GitHub Releases / Node 下载速度。
-  3. **安装中支持一键 `[取消安装]`（`speechRuntimeSettings.ts` & `obsidian/index.ts` & `web/client.ts`）**：
-     - 当 `status === "installing"` 时，右侧操作区不再把按钮死锁为不可点的 `正在安装…`，而是提供可点击的次级按钮 **`[取消安装]`**（调用已有的 `stop` 动作中止在途下载进程，保留已下好的 `.part` 分片供下次断点续传，状态干净回退至 `未安装`）。
-- **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（自动同步至 `.dev-vault` 与 `ganfan-media`）；新增单测与浏览器回归测试覆盖：1) 本地受控慢速流式 HTTP 服务分块下发归档时，`getState()` 返回递增的字节/百分比且 UI `<progress>` 与 `MB` 文本实时推进；2) 中途断开连接或点击 `[取消安装]` 后再次点击 `[安装引擎]`，验证服务端收到 `Range: bytes=<offset>-` 实现断点续传并最终校验通过；完成手动破壁验证并截屏存入 `.tmp/evidence/task-28/` 自检。
-- **Tester 模拟用户终验要求**：在 Web 与隔离 Obsidian 中验证点击 `[安装引擎]` 后进度条、`MB / %` 数值动态递增、`[取消安装]` 立即生效且再次点击可续传完成，终验截图归档至 `.tmp/evidence/task-28/`。
+  1. **告别 36 位冗长 UUID：新建 `Topic` 与 `Material` 采用紧凑可读文件夹 ID（`src/core/store/WorkspaceStore.ts`）**：
+     - 参考 `ganfan-garden/src/store/ids.ts`，将默认生成的 `topic-${crypto.randomUUID()}` 与 `material-${crypto.randomUUID()}` 改为紧凑可读的 **`topic-<YYYYMMDD>-<slugOrShortHash>`** 与 **`material-<YYYYMMDD>-<slugOrShortHash>`**（英文提取短小写 ASCII slug 限长 24 字符，中文/非拉丁字符提取 6~7 位稳定 base36 短哈希，冲突时自动追加 `-2, -3` 或 4 位随机后缀，总长度控制在 20 字符左右）；
+     - 100% 保持对磁盘上既有 `topic-<uuid>` / `material-<uuid>` 目录的兼容读取。
+  2. **解决冗长脏文件名污染标题：优先提取 EPUB OPF `<dc:title>` + 剥离下载站尾巴（`src/plugins/stage-reader/epub.ts` & `obsidian/index.ts` & `web/client.ts`）**：
+     - 新增导出辅助函数（如 `cleanMaterialTitle(rawNameOrTitle: string)` 与 EPUB 元数据/封面轻量提取函数 `inspectEpubPackage(bytes: Uint8Array): Promise<{ title?: string; author?: string; coverDataUrl?: string }>`）：
+       1. 导入 `.epub` 时，优先从 OPF `<dc:title>` 读取真实书名（若 `<dc:title>` 包含 ` = ` 英文副标题或冗长后缀，主标题取干净的书名）；
+       2. 对所有从文件名派生的标题，自动剥离扩展名及尾部的下载源垃圾括号（如 `(z-library.sk, 1lib.sk, z-lib.sk)`、`(Z-Library)`、`[z-lib.org]` 等），将《女人的性爱动机 = Why Women Have Sex ... (z-library.sk, 1lib.sk, z-lib.sk)》净化为干净优雅的 **`女人的性爱动机`**（副标题或原文件名留在材料行）；
+       3. 渲染课题看板时，对历史已存课题中仍带有 `(z-library...)` 或 ` = Why Women...` 的超长标题同步应用显示层净化与 `line-clamp: 2` 優雅截断（鼠标悬停 `title` 属性可看全名）。
+  3. **书籍封面提取与看板卡片呈现（`src/plugins/stage-reader/epub.ts` & `src/workbench/compass.ts` & `obsidian/index.ts` & `web/server.ts`）**：
+     - 参考 `ganfan-garden/src/material/ingest/epub.ts` 的 `findCover`（检查 OPF `<meta name="cover">`、`properties="cover-image"`、`<reference type="cover">` 或首章内嵌封面图），支持从 EPUB（及单图/CBZ 首图）提取封面图片 Data URL / 缩略图 URL 并通过看板材料摘要传给 `renderCompass`；
+     - **重构课题看板卡片（`src/workbench/compass.ts` & `view.ts`，对齐 `interaction.html` 原型美感，拒绝死板方框）**：
+       - **探索中卡片（`.pith-topic-card`）**：
+         - 顶部元信息行（`.pith-card-top`）：左侧鼠尾草绿胶囊标签 `探索中`（若已挂载 `toolkits` 则并列展示轻量工具标签如 `· 行间双语 / 影子跟读`），右侧显示相对/简短更新时间；
+         - 主体区：若关联材料有书籍封面（`coverUrl`），在卡片内以精致书封缩略图（如右侧或左侧圆角小书封 `width: 56px; height: 78px; object-fit: cover; border-radius: 4px; box-shadow: ...`）与左侧衬线大标题（`h3`）+ `材料：《...》` 副标题并排呈现；
+         - 虚线分隔区（`border-top: 1px dashed ...`）：展示下一步建议（`nextAction` 或 `target`，无则温和提示 `点进材料，框选文字即刻高亮、记笔记或问向导`）；
+         - 底部页脚行（`.pith-card-foot`）：左侧显示 `已收 N 条笔记/高亮`（或 `暂无笔记`），右侧显示 `进入阅读 →`；
+       - **已沉淀区域（`settled`）**：采用原型中克制优雅的水平书目行列表（`.pith-settled-row`），左侧展示标题与 `材料：... · 共归档 N 条核心笔记`，右侧展示陶土色 `已沉淀` 胶囊。
+- **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（自动同步至 `.dev-vault` 与 `ganfan-media`）；新增单测与浏览器回归测试覆盖：1) 新建课题与材料生成的 ID 为紧凑可读的 `topic-YYYYMMDD-xxx` 格式；2) 含 `(z-library.sk, 1lib.sk, z-lib.sk)` 及 OPF `<dc:title>` + 封面的 EPUB 导入后，看板卡片显示净化后的干净书名、真实封面缩略图 `<img>`（`naturalWidth > 0`）、虚线建议区与底部笔记计数；完成手动破壁验证并截屏存入 `.tmp/evidence/task-29/` 自检。
+- **Tester 模拟用户终验要求**：在 Web 与真实隔离 Obsidian 中导入带封面和长文件名的 EPUB，检查文件夹命名长度、看板卡片封面缩略图、干净标题、顶部/底部元信息排版与明暗主题视觉美感，截图归档至 `.tmp/evidence/task-29/`。
+
+---
+
+## [Task #30] Kokoro v1.1-zh 内置 103 个多语种音色动态发现与本机/云端音色选择器
+
+- **Status**: pending
+- **Scope**: `src/shells/speech/**`, `src/plugins/speech-service/**`, `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
+- **Verified-Commit**: none
+- **Updated**: 2026-11-09
+- **授权范围**：允许修改 `src/shells/speech/speechGateway.ts`、`src/shells/speech/speechRuntime.ts`、`src/plugins/speech-service/neuralSpeech.ts`、`src/workbench/**`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。
+- **不在范围内**：严禁修改 `src/core/` 冻结契约；严禁硬编码死板的固定 sid=48 而不允许切换。
+- **背景与实证根因**：
+  - **当前使用的 Kokoro 版本**：`kokoro-int8-multi-lang-v1_1`（对应 HuggingFace `hexgrad/Kokoro-82M-v1.1-zh` 的 `k2-fsa/sherpa-onnx` int8 多语种版本，内置 `espeak-ng` + 美英/英英/中文词典 + 中文日期/数字/电话 FST，共含 **103 个内置音色** `sid: 0 ~ 102`）；
+  - **为什么之前无法选择音色**：
+    1. `src/shells/speech/speechGateway.ts:15` 硬编码了 `const audio = tts.generate({ text, speed, sid: 48 });`，完全忽略了 `POST /v1/audio/speech` 请求体传入的 `input.voice` 参数！
+    2. 设置面板在 `本机语音服务` 模式下没有暴露音色选择下拉框，而在 `云端语音服务` 模式下也只是一个裸 `<input>` 文本框。
+  - **如何动态获取模型内置音色（零硬编码文件解析）**：
+    - `kokoro-int8-multi-lang-v1_1/model.int8.onnx` 文件尾部的 ONNX Protobuf 元数据中直接内嵌了完整的 `speaker2id` 与 `speaker_names` 字典（共 103 个音色：含英文女声 `af_maple->0, af_sol->1, bf_vale->2`、中文女声 `zf_001->3 ... zf_099->57`、中文男声 `zm_009->58 ... zm_100->102`，默认 `sid: 48` 对应 `zf_084`）！
+- **接口与行为契约**：
+  1. **从 `model.int8.onnx` 动态解析内置 `speaker_names / speaker2id` 并在网关与运行时暴露（`speechGateway.ts` & `speechRuntime.ts`）**：
+     - 从已安装的 `kokoro-int8-multi-lang-v1_1/model.int8.onnx` 二进制（读取文件尾部或扫描 `speaker2id` / `speaker_names` 元数据段）动态提取全部音色列表（如 `{ id: "zf_001", sid: 3, group: "中文女声 (zf)" }`、`{ id: "zm_009", sid: 58, group: "中文男声 (zm)" }`、`{ id: "af_maple", sid: 0, group: "英文女声 (af/bf)" }`）；
+     - 在 `SPEECH_GATEWAY`（`speechGateway.ts`）中：
+       - 新增 `GET /v1/audio/voices`（并在 `GET /health` 中一并返回 `voices`），返回动态解析出的内置音色数组及默认音色（如 `zf_001` 或 `zf_084`）；
+       - 在 `POST /v1/audio/speech` 中读取请求体的 `input.voice`：支持传入音色名（如 `"zf_001"`、`"zm_010"`、`"af_maple"`）或数字 ID（`"0" ~ "102"`），将其映射为对应的 `sid` 传给 `tts.generate({ text, speed, sid })`（若传入未识别的云端默认词如 `"alloy"` 或空值，回退至默认中文/多语种音色 `sid: 48` 而不报错）。
+  2. **本机与云端模式下提供友好的「朗读音色（Voice）」选择控件（`obsidian/index.ts` & `web/client.ts` & `web/server.ts`）**：
+     - **本机语音模式（`local`）**：当本机语音引擎已安装时，自动从本机模型动态读取内置音色列表，在设置面板渲染带分组（`<optgroup label="中文女声 (zf)">`、`<optgroup label="中文男声 (zm)">`、`<optgroup label="英文音色 (af/bf)">`）的 **`朗读音色`** `<select>` 下拉框，选择后立即保存至 `speechConfig.ttsVoice` 并在点击 `🎧 听读` 时生效；
+     - **云端语音模式（`cloud`）**：保留自定义音色能力（支持常用预设选项或输入音色名）。
+- **Worker 工程内环门禁（交卷前置条件）**：`npm run typecheck && npm test && npm run build:obsidian` 全绿（自动同步至 `.dev-vault` 与 `ganfan-media`）；新增单测与浏览器回归测试覆盖：1) 动态解析 `model.int8.onnx` 元数据提取出 `af_maple`、`zf_001`、`zm_100` 等 103 个音色映射；2) 切换不同音色（如 `zf_001` vs `zm_010`）调用 `/v1/audio/speech` 时网关使用对应 `sid` 合成出不同音频；3) 设置面板在本机模式下展示分组音色下拉框并持久化；完成手动破壁验证并截屏存入 `.tmp/evidence/task-30/` 自检。
+- **Tester 模拟用户终验要求**：在 Web 与真实隔离 Obsidian 中验证本机语音设置下的动态分组音色下拉框（含中文女声、中文男声、英文音色）、切换音色后持久化及实际听读请求携带所选 `voice`，终验截图归档至 `.tmp/evidence/task-30/`。
