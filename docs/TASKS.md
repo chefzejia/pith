@@ -66,7 +66,9 @@
 
 ## [Task #33] 显式材料启发式默认 Toolkit 挂载、首页唯一统一立项台（Unified Intake）与顶栏 Toolkit CRUD
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: c6f35143ffb794b60bd0720392a7ebd9e2dd1573
+- **验收摘要**：独立 Tester 在 Web 与隔离 Obsidian 验证统一立项、仓库及无材料向导生成、材料刷新、普通聊天保持阅读、源码逐行锚点与转义、二进制拒绝、默认及显式空工具和工具增删启动持久化。原生 `.ts` 的 `video/mp2t` 冲突已修复；332px 内容区与 Web 390px 中标题、工具图标和菜单完整，宽幅恢复名称。Worker 类型检查、全仓测试（253 通过、59 跳过）、构建与有效破壁通过。受控 ACP 不评价真实模型教学质量，原生窄幅使用 CDP 视口。截图及报告：`.tmp/evidence/task-33/final-header-native-narrow.png`、`final-header-native-menu.png`、`final-header-web-narrow.png`、`final-header-report.md`。
 - **Scope**: `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
 - **授权范围**：允许修改 `src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/obsidian/index.ts`、`src/shells/obsidian/plugin.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts`、`src/shells/web/workbench.ts` 及 `tests/**`。
 - **不在范围内**：严禁在首页展开右侧向导侧边栏造成双输入框视觉分裂；严禁拦截用户上传代码或文本类文件（如 `.ts`, `.py`, `.json`, `.txt`）。
