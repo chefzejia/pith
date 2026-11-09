@@ -1,7 +1,7 @@
 import { spawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { lstat, readFile, rm } from "node:fs/promises";
+import { lstat, readFile, rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -62,9 +62,10 @@ async function responseHeaders(headers: string): Promise<{ status: number; start
 
 async function sample(path: string, headers: string, before: number, report: (progress: DownloadProgress) => void): Promise<void> {
   const response = await responseHeaders(headers);
+  const full = response.status === 200;
   const validRange = before === 0 || (response.status === 206 && response.start === before);
-  const bytes = before + (validRange ? await archiveSize(path) : 0);
-  const total = validRange ? response.total : undefined;
+  const bytes = full ? await archiveSize(path) : before + (validRange ? await archiveSize(path) : 0);
+  const total = full || validRange ? response.total : undefined;
   report({ bytes, ...(total !== undefined && total > 0 ? { total } : {}) });
 }
 
@@ -77,7 +78,7 @@ async function transfer(path: string, archive: SpeechArchive, signal: AbortSigna
   const proxy = await proxyEnvironment(); signal.throwIfAborted();
   const host = new URL(archive.url).hostname;
   const noProxy = ["127.0.0.1", "localhost", "[::1]"].includes(host) ? ["--noproxy", "*"] : [];
-  const args = ["--disable", "--silent", "--show-error", "--fail", "--location", "--connect-timeout", String(policy.connectTimeoutSec), "--speed-limit", String(policy.lowSpeedBytes), "--speed-time", String(policy.lowSpeedSeconds), "--max-filesize", String(archive.maxBytes - before), ...(before ? ["--range", `${before}-`] : []), "--dump-header", headers, "--output", target, "--write-out", "%{http_code}", ...noProxy, archive.url];
+  const args = ["--disable", "--silent", "--show-error", "--fail", "--location", "--connect-timeout", String(policy.connectTimeoutSec), "--speed-limit", String(policy.lowSpeedBytes), "--speed-time", String(policy.lowSpeedSeconds), "--max-filesize", String(archive.maxBytes), ...(before ? ["--range", `${before}-`] : []), "--dump-header", headers, "--output", target, "--write-out", "%{http_code}", ...noProxy, archive.url];
   const result = await new Promise<{ code: number; http: number; start?: number; end?: number; total?: number }>((resolveTransfer, reject) => {
     const child = spawn("curl", args, { cwd: undefined, env: { ...proxy, PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" }, stdio: ["ignore", "pipe", "ignore"] });
     let output = "", spawnError: Error | undefined, sampleError: unknown, pendingSample: Promise<void> | null = null;
@@ -95,6 +96,16 @@ async function transfer(path: string, archive: SpeechArchive, signal: AbortSigna
     });
   });
   if (before) {
+    if (result.http === 200) {
+      try {
+        signal.throwIfAborted();
+        if (result.code !== 0 || !await valid(target, archive, signal)) throw new Error("完整归档下载或校验失败，已保留原分片");
+        if (await archiveSize(path) !== before) throw new Error("语音归档在续传期间发生变化");
+        signal.throwIfAborted();
+        await rename(target, path);
+      } finally { await rm(target, { force: true }); }
+      return result;
+    }
     const size = await archiveSize(target);
     const validRange = result.http === 206 && result.start === before && result.end !== undefined && result.total !== undefined && result.end >= before && result.end < result.total && size <= result.end - before + 1 && before + size <= archive.maxBytes;
     if (size && validRange) {

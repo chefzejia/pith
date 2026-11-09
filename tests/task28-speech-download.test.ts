@@ -63,7 +63,7 @@ test("low-speed transfer retries from its retained offset", { timeout: 30000 }, 
   finally { await runtime.stop(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-for (const behavior of ["ignore", "invalid", "malformed", "unknown416"] as const) test(`refused or invalid Range (${behavior}) preserves the exact partial archive`, { timeout: 30000 }, async () => {
+for (const behavior of ["invalid", "malformed", "unknown416"] as const) test(`refused or invalid Range (${behavior}) preserves the exact partial archive`, { timeout: 30000 }, async () => {
   const root = await testSandbox("pith-task28-refused-range-");
   const fixture = await createSpeechDownloadFixture(root, { rangeBehavior: behavior, chunkMs: 0 });
   const path = join(root, "partial.tar.gz");

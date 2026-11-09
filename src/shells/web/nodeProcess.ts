@@ -94,12 +94,7 @@ export class NodeAgentProcessPort implements AgentProcessPort {
   ): Promise<string | null> {
     const cwd = await mkdtemp(join(tmpdir(), "pith-acp-probe-"));
     try {
-      const env = buildAgentEnvironment(executablePath, {
-        PI_CODING_AGENT_DIR: join(cwd, "pi"),
-        CLAUDE_CONFIG_DIR: join(cwd, "claude"),
-        CODEX_HOME: join(cwd, "codex"),
-        DSH_HOME: join(cwd, "dsh"),
-      });
+      const env = buildAgentEnvironment(executablePath);
       const result = await execFileAsync(executablePath, [...args], {
         cwd,
         env,
