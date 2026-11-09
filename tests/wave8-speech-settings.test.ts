@@ -110,6 +110,7 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
   const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(dir) });
   try {
     await controller.initialize();
+    await controller.setSpeechMode("cloud");
     const plugin = { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
     const tab = new PithSettingTab({} as never, plugin as never, controller);
     const root = new Element(); tab.containerEl = root as unknown as HTMLElement; tab.display();
@@ -119,7 +120,7 @@ test("Obsidian settings tab edits and saves all speech fields", async () => {
     for (const [label, value] of Object.entries(fields)) { const field = row(label); field.value = value; field.onchange!(); }
     const status = root.children.at(-1)!;
     for (let i = 0; i < 1000 && controller.getSpeechConfig().asrModel !== "model-a"; i++) await new Promise<void>(resolve => setImmediate(resolve));
-    assert.deepEqual(controller.getSpeechConfig(), { ttsEndpoint: "http://localhost:9999/tts", ttsModel: "model-t", ttsVoice: "voice-t", asrLoopbackUrl: "http://localhost:9998", asrModel: "model-a" });
+    assert.deepEqual(controller.getSpeechConfig(), { ttsProvider: "openai-tts", asrProvider: "openai-whisper", ttsEndpoint: "http://localhost:9999/tts", ttsModel: "model-t", ttsVoice: "voice-t", asrLoopbackUrl: "http://localhost:9998", asrModel: "model-a" });
     const path = row("Pith 数据目录（相对于 Vault）"); path.value = "../invalid"; status.textContent = ""; path.onchange!();
     for (let i = 0; i < 1000 && !status.textContent; i++) await new Promise<void>(resolve => setImmediate(resolve));
     assert.match(status.textContent, /Invalid workspace root/);

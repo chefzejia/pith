@@ -139,6 +139,10 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         return send(res, 200, await guide.probeAgentOptions(id, url.searchParams.get("force") === "true"));
       }
       if (url.pathname === "/api/speech/runtime" && method === "GET") return send(res, 200, await speechRuntime.getState());
+      if (url.pathname === "/api/speech/voices" && method === "GET") {
+        if (!("getVoices" in speechRuntime) || typeof speechRuntime.getVoices !== "function") return send(res, 501, { error: "本宿主不支持音色读取" });
+        return send(res, 200, await speechRuntime.getVoices());
+      }
       if (url.pathname === "/api/speech/runtime" && method === "POST") {
         const data = await body(req), action = str(data, "action");
         if (action !== "install" && action !== "ensureRunning" && action !== "stop" && action !== "remove") return send(res, 400, { error: "Invalid runtime action" });

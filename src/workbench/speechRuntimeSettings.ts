@@ -2,7 +2,7 @@ import type { ManagedSpeechState } from "../core/index.ts";
 
 type Action = "install" | "ensureRunning" | "remove" | "stop";
 
-export function renderSpeechRuntimeSettings(panel: HTMLElement, getState: () => Promise<ManagedSpeechState>, act: (action: Action) => Promise<ManagedSpeechState>, connected: () => boolean): void {
+export function renderSpeechRuntimeSettings(panel: HTMLElement, getState: () => Promise<ManagedSpeechState>, act: (action: Action) => Promise<ManagedSpeechState>, connected: () => boolean, onState?: (state: ManagedSpeechState) => void): void {
   const doc = panel.ownerDocument;
   const title = doc.createElement("div"); title.className = "pith-runtime-title";
   const name = doc.createElement("strong"); name.textContent = "本机语音引擎";
@@ -22,6 +22,7 @@ export function renderSpeechRuntimeSettings(panel: HTMLElement, getState: () => 
   const draw = (info: ManagedSpeechState, busy = false) => {
     revision++;
     state = info;
+    if (onState) onState(info);
     const labels = { "not-installed": "未安装", installing: "安装中…", stopped: "已就绪（按需自动启动）", starting: "启动中…", running: "运行中", failed: "安装异常" };
     const percent = info.progressPercent;
     status.textContent = info.supported ? info.status === "failed" || info.status === "installing" ? `${labels[info.status]}：${info.note}${percent === undefined ? "" : ` · ${Math.max(0, Math.min(100, percent)).toFixed(1)}%`}` : labels[info.status] : info.note;

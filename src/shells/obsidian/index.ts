@@ -19,6 +19,7 @@ import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
+import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 
 interface ObsidianLeaf {
   view?: ObsidianItemViewBase;
@@ -306,6 +307,7 @@ export class PithObsidianController {
   isAgentConfigured(): boolean { return this.agentConfigured; }
   getSpeechConfig(): Record<string, string> { return { ...this.speechConfig }; }
   async speechRuntimeState() { return this.host.speechRuntime ? this.host.speechRuntime.getState() : { supported: false, status: "not-installed" as const, note: "无法确认 Vault 路径，本机语音不可用" }; }
+  async speechRuntimeVoices(): Promise<VoiceOptions> { const runtime = this.host.speechRuntime; if (!runtime || !("getVoices" in runtime) || typeof runtime.getVoices !== "function") throw new Error("本宿主不支持音色读取"); return runtime.getVoices() as Promise<VoiceOptions>; }
   async speechRuntimeAction(action: "install" | "ensureRunning" | "stop" | "remove") { const runtime = this.host.speechRuntime; if (!runtime || !runtime[action]) throw new Error("本宿主不支持该操作"); return runtime[action](); }
   createView(root: HTMLElement, actions: ObsidianViewActions): PithObsidianView {
     const view = new PithObsidianView(root, actions);
@@ -480,17 +482,21 @@ export class PithSettingTab extends SettingTabBase {
     const currentMode = speechMode(speech);
     const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);
     const runtimePanel = doc.createElement("div"); runtimePanel.id = "pith-runtime"; root.append(runtimePanel);
-    renderSpeechRuntimeSettings(runtimePanel, () => this.controller.speechRuntimeState(), action => this.controller.speechRuntimeAction(action), () => root.contains(runtimePanel));
+    const voiceRoot = doc.createElement("div"); voiceRoot.id = "pith-voices"; root.append(voiceRoot);
+    let voiceRevision = 0; const fieldRevisions = new WeakMap<HTMLInputElement, number>();
+    const voices = renderSpeechVoiceSettings(voiceRoot, () => this.controller.speechRuntimeVoices(), voice => { voiceRevision++; void enqueue(async () => { await this.controller.setSpeechConfig({ ...this.controller.getSpeechConfig(), ttsVoice: voice }); status.textContent = "设置已保存"; }); }, () => root.contains(voiceRoot));
+    voices.setMode(mode.value, speech.ttsVoice || "");
+    renderSpeechRuntimeSettings(runtimePanel, () => this.controller.speechRuntimeState(), action => this.controller.speechRuntimeAction(action), () => root.contains(runtimePanel), info => voices.setRuntimeState(info));
     if (currentMode === "legacy") { const legacy = mode.querySelector<HTMLOptionElement>('option[value="legacy"]'); if (legacy) legacy.disabled = true; status.textContent = "现有语音配置保持不变；选择模式可切换标准协议"; }
     const key = input(root, "API Key", ""); key.type = "password"; key.autocomplete = "new-password"; const keyRow = key.parentElement!;
     const health = doc.createElement("button"); health.textContent = "检测连接"; health.type = "button"; health.className = "pith-cloud-health";
     const cloudFields = doc.createElement("div"); root.append(cloudFields);
     const fields = [["ttsEndpoint", "TTS 端点 URL"], ["ttsModel", "TTS 模型"], ["ttsVoice", "音色"], ["asrLoopbackUrl", "ASR 端点 URL"], ["asrModel", "ASR 模型"]] as const;
     const controls = new Map<string, HTMLInputElement>();
-    for (const [name, label] of fields) { const control = input(cloudFields, label, speech[name] || ""); controls.set(name, control); control.addEventListener("change", () => { const value = control.value; void enqueue(async () => { await this.controller.setSpeechConfig({ ...this.controller.getSpeechConfig(), [name]: value }); status.textContent = "设置已保存"; }); }); }
+    for (const [name, label] of fields) { const control = input(cloudFields, label, speech[name] || ""); controls.set(name, control); control.addEventListener("input", () => fieldRevisions.set(control, (fieldRevisions.get(control) ?? 0) + 1)); control.addEventListener("change", () => { if (mode.value !== "cloud") return; const value = control.value; void enqueue(async () => { await this.controller.setSpeechConfig({ ...this.controller.getSpeechConfig(), [name]: value }); status.textContent = "设置已保存"; }); }); }
     root.append(health);
     const visibility = () => { keyRow.hidden = mode.value !== "cloud"; cloudFields.hidden = mode.value !== "cloud"; health.hidden = mode.value !== "cloud"; runtimePanel.hidden = mode.value !== "local"; }; visibility();
-    mode.addEventListener("change", () => { visibility(); const selected = mode.value as SpeechMode; void enqueue(async () => { await this.controller.setSpeechMode(selected); if (mode.value === selected) { const current = this.controller.getSpeechConfig(); for (const [name, control] of controls) control.value = current[name] || ""; } status.textContent = "设置已保存"; }); });
+    mode.addEventListener("change", () => { visibility(); const selected = mode.value as SpeechMode; voices.setMode(selected, ""); const revision = voiceRevision, revisions = new Map([...controls.values()].map(control => [control, fieldRevisions.get(control) ?? 0])); void enqueue(async () => { await this.controller.setSpeechMode(selected); if (mode.value === selected) { const current = this.controller.getSpeechConfig(); if (voiceRevision === revision) voices.setValue(current.ttsVoice || ""); for (const [name, control] of controls) if ((fieldRevisions.get(control) ?? 0) === revisions.get(control)) control.value = current[name] || ""; } status.textContent = "设置已保存"; }); });
     key.addEventListener("change", () => { try { if (key.value) { const result = this.plugin.saveSpeechSecret(key.value); key.value = ""; status.textContent = result === "encrypted" ? "密钥已保存" : "密钥仅保存在本次运行的内存中，重启后需重新配置"; } } catch (error) { status.textContent = String(error); } });
     health.onclick = () => { health.disabled = true; void this.pending.then(async () => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"), asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); const check = async (service: SpeechTtsService | SpeechAsrService | undefined) => { if (!service || !service.checkHealth) return "未验证：服务不可用"; const result = await service.checkHealth(); return `${result.status === "verified" ? "已验证" : result.status === "failed" ? "不可用" : "未验证"}：${result.note}`; }; status.textContent = `TTS ${await check(tts)}；ASR ${await check(asr)}`; }).catch(error => { status.textContent = String(error); }).finally(() => { health.disabled = false; }); };
     root.append(status); detect(); probe();

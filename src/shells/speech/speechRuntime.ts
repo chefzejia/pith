@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ManagedSpeechRuntimePort, ManagedSpeechState } from "../../core/index.ts";
 import { SPEECH_GATEWAY } from "./speechGateway.ts";
 import { downloadSpeechArchive, defaultDownloadPolicy, type DownloadPolicy, type SpeechArchive } from "./speechDownload.ts";
+import { readSpeechVoices, type SpeechVoices } from "./speechVoices.ts";
 
 const assets = [
   { name: "tts.tar.bz2", url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2", sha256: "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c" },
@@ -79,6 +80,15 @@ export class NodeManagedSpeechRuntime implements ManagedSpeechRuntimePort {
     if (this.installing) return this.state("installing", this.installPhase);
     if (this.installFailure !== null) return this.state("failed", this.installFailure);
     return this.installedState();
+  }
+  async getVoices(): Promise<SpeechVoices> {
+    await this.checkPath();
+    const state = await this.installedState();
+    if (this.installing || (state.status !== "stopped" && state.status !== "running")) throw new Error("本机语音引擎尚未安装");
+    const model = join(this.home, "kokoro-int8-multi-lang-v1_1", "model.int8.onnx");
+    const info = await lstat(model);
+    if (!info.isFile() || info.isSymbolicLink() || !isWithin(await realpath(model), await realpath(this.home))) throw new Error("语音模型路径不安全");
+    return readSpeechVoices(model);
   }
   private async installedState(): Promise<ManagedSpeechState> {
     if (this.child && this.endpoint) return this.state("running", "本机语音运行中");

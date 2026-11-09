@@ -1,6 +1,7 @@
 import { WebWorkbench } from "./workbench.ts";
 import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
+import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 import { speechMode } from "../speech/speechSettings.ts";
 import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
 import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
@@ -102,7 +103,11 @@ function openSimpleSettings() {
     status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
   });
   const runtimePanel = requiredHost("#speech-runtime");
-  renderSpeechRuntimeSettings(runtimePanel, () => api<ManagedSpeechState>("/api/speech/runtime"), action => api<ManagedSpeechState>("/api/speech/runtime", { action }), () => runtimePanel.isConnected);
+  const voiceRoot = document.createElement("div"); voiceRoot.id = "speech-voices"; runtimePanel.after(voiceRoot);
+  let voiceRevision = 0; const fieldRevisions = new WeakMap<HTMLInputElement, number>();
+  const voices = renderSpeechVoiceSettings(voiceRoot, () => api<VoiceOptions>("/api/speech/voices"), voice => { voiceRevision++; void enqueue(async () => { const result = await api<{ settings: WebSettings }>("/api/settings", { speech: { ...state.settings.speech, ttsVoice: voice } }); state.settings = result.settings; status.textContent = "设置已保存"; }); }, () => voiceRoot.isConnected && !drawer.hidden);
+  voices.setMode(mode.value, speech.ttsVoice || "");
+  renderSpeechRuntimeSettings(runtimePanel, () => api<ManagedSpeechState>("/api/speech/runtime"), action => api<ManagedSpeechState>("/api/speech/runtime", { action }), () => runtimePanel.isConnected, info => voices.setRuntimeState(info));
   const visibility = () => {
     runtimePanel.hidden = mode.value !== "local";
     requiredHost("#simple-key-row").hidden = mode.value !== "cloud";
@@ -138,22 +143,25 @@ function openSimpleSettings() {
   mode.onchange = () => {
     visibility();
     const selected = mode.value;
+    voices.setMode(selected, "");
+    const revision = voiceRevision, revisions = new Map(Array.from(drawer.querySelectorAll<HTMLInputElement>("input[data-speech-field]"), input => [input, fieldRevisions.get(input) ?? 0]));
     enqueue(async () => {
       const result = await api<{ settings: WebSettings }>("/api/settings", { speechMode: selected });
       state.settings = result.settings;
-      if (mode.value === selected) drawer.querySelectorAll<HTMLInputElement>("input[data-speech-field]").forEach((input) => { const field = input.dataset.speechField; if (field) input.value = (state.settings.speech || {})[field] || ""; });
+      if (mode.value === selected && voiceRevision === revision) voices.setValue((state.settings.speech || {}).ttsVoice || "");
+      if (mode.value === selected) drawer.querySelectorAll<HTMLInputElement>("input[data-speech-field]").forEach((input) => { const field = input.dataset.speechField; if (field && (fieldRevisions.get(input) ?? 0) === revisions.get(input)) input.value = (state.settings.speech || {})[field] || ""; });
       status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
     });
   };
-  drawer.querySelectorAll<HTMLInputElement>("input[data-speech-field]").forEach((input) => input.onchange = () => {
+  drawer.querySelectorAll<HTMLInputElement>("input[data-speech-field]").forEach((input) => { input.oninput = () => fieldRevisions.set(input, (fieldRevisions.get(input) ?? 0) + 1); input.onchange = () => {
     const name = input.dataset.speechField, value = input.value;
-    if (!name) return;
+    if (!name || mode.value !== "cloud") return;
     enqueue(async () => {
       const result = await api<{ settings: WebSettings }>("/api/settings", { speech: { ...state.settings.speech, [name]: value } });
       state.settings = result.settings;
       status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
     });
-  });
+  }; });
   const keyInput = requiredInput("#simple-key");
   keyInput.onchange = () => {
     const value = keyInput.value;
