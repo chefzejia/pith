@@ -71,7 +71,7 @@
 | `pith_save_note` | 向当前课题追加 `note`、`highlight` 或 `practice` 记录及向导评注 `guideRemark` |
 | `pith_ingest_external` | 经 SSRF 公网 IP 校验抓取外部文章/讨论/媒体并导入为只读 `Material` |
 | `pith_search_media` | **主动搜索声学语料（`yt-dlp`）**：按关键词检索公开音视频/演讲候选列表（返回标题、URL、时长与来源），供外语听说与跟读课题挑选真实语料 |
-| `pith_fetch_media_corpus` | **拉取音轨与时间轴字幕（`yt-dlp`）**：给定公开视频/播客 URL，提取音频轨与 `.vtt/.srt` 时间轴字幕导入当前课题 `Material` 并自动挂载 `shadowing` 工具 |
+| `pith_fetch_media_corpus` | **拉取音视频轨、时间轴字幕与语义切片（`yt-dlp`）**：给定公开视频/播客 URL，提取轻量视频（`.mp4/.webm`）或音频轨及 `.vtt/.srt` 时间轴字幕导入当前课题 `Material`，自动按 30~60s 语义边界切出 `slices: MediaCorpusSlice[]` 写入《`00-跟读导读.md`》并自动挂载 `shadowing` 工具 |
 | `pith_settle_topic` | **硬性毕业门禁**：校验 `status === "exploring"` 且 `topic.notes.length > 0`，追加 `## 核心认知总结`、将课题置为 `settled` 并支持反哺更新 `ME.md` |
 
 ---

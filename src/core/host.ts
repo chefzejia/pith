@@ -130,10 +130,20 @@ export interface MediaSearchCandidate {
   readonly uploader?: string;
 }
 
+export interface MediaCorpusSlice {
+  readonly id: string;
+  readonly title: string;
+  readonly startSec: number;
+  readonly endSec: number;
+  readonly cueCount: number;
+  readonly text: string;
+}
+
 export interface MediaCorpusBundle {
   readonly title: string;
   readonly sourceUrl: string;
   readonly files: readonly { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }[];
+  readonly slices?: readonly MediaCorpusSlice[];
   readonly warnings?: readonly string[];
 }
 

@@ -59,11 +59,13 @@ Pith 的输入不局限于电子书，[`stage-reader`](../../src/plugins/stage-r
 
 ---
 
-## 5. 时间轴媒体舞台与句级同步钩子（`stage-timeline`）
+## 5. 时间轴媒体舞台与统一播放控制底座联动（`stage-timeline`）
 
-1. **复合媒体视图结构（[`renderTimelineView`](../../src/plugins/stage-timeline/index.ts)）**：
-   - 当材料为音视频或附带 `.vtt / .srt` 字幕时，画布呈现同步台词流（`.pith-cue[data-locator="time:<sec>"][data-end-sec="<end>"][data-prose="true"]`），联动底部实心停靠播客甲板（`.pith-media-deck`）；
-   - 每个 `.pith-cue` 携带精确的 `startSec`（`data-locator="time:<start>"`）与 `endSec`（`data-end-sec="<end>"`），为挂载在其上的 `shadowing` 工具提供**单句定点播放、单句循环（Cue Loop）与 0.75x 慢速跟读**的底层时间区间锚点。
+1. **复合媒体视图结构（[`renderTimelineView`](../../src/plugins/stage-timeline/index.ts) · 零原生播放器冗余）**：
+   - 当材料为音视频或附带 `.vtt / .srt` 字幕时：
+     - 若为视频（`mediaKind === "video"`），上方仅渲染无原生控制条的纯净视频画面 `<video class="pith-timeline-video" playsinline src="...">`；若为纯音频（`mediaKind === "audio"`），**严禁在正文上方渲染冗余的 `<audio controls>` 原生播放器或 `"A-B 循环未设置"` 状态文字**；
+     - 所有播放/暂停、进度条与语义切片刻度统一归口到底部唯一的 **统一播放控制底座（`.pith-media-deck`）**；
+   - 下方呈现同步台词流（`.pith-cue[data-locator="time:<sec>"][data-end-sec="<end>"][data-prose="true"]`），每个 `.pith-cue` 携带精确的 `startSec` 与 `endSec`，点击任意台词或点击底部进度条上的语义切片刻度，即刻同步定位播放位置并聚焦对应台词。
 
 ---
 
