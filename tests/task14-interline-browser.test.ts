@@ -16,7 +16,7 @@ import { testSandbox } from "./sandbox.ts";
 
 test("interline appears in guide discovery", () => {
   const prompt = buildScenePrompt({ profileMarkdown: "", topic: { id: "t", title: "English", target: "Read", status: "exploring", toolkits: [], notes: [], createdAt: "", updatedAt: "" }, userMessage: "Read" });
-  assert.match(prompt, /interline: 行间双语/);
+  assert.match(prompt, /interline: 行间/);
 });
 
 test("interline session warms only the active neighborhood and follows navigation", async () => {
@@ -69,10 +69,11 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     const page = await browser.newPage();
     await page.route("**/api/speech/synthesize", async (route: any) => { spoken.push(route.request().postDataJSON().text); await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"stub"}' }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
-    assert.match((await page.locator("#open-dojo").textContent())!, /行间双语/);
+    assert.match((await page.locator("#open-dojo").textContent())!, /行间/);
     await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="interline"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-interline-subtitle").first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll(".pith-interline-subtitle").length > 1);
+    await mkdir(".tmp/evidence/task-39", { recursive: true }); await page.screenshot({ path: ".tmp/evidence/task-39/web-interline.png" });
     await neighbor; assert.deepEqual(calls.slice(0, 2), [0, 1]);
     await page.locator('.pith-dojo-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('.pith-article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();
@@ -91,7 +92,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.exposeFunction("interlineSpeech", (text: string) => { spoken.push(text); throw new Error("stub"); });
     await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间双语", category: "language", stages: [], quickActions: [], transformCue: (text: string) => text, diagnose() { throw new Error("unused"); } }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() { view.openDojo([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareInterline(...args), synthesizeSpeech: (text: string) => (window as any).interlineSpeech(text) }); view.setToolkits(["interline"]); view.render({ ...(documentData as object), currentFile: "book.epub", files: [], title: "Interline" }); }, rendered);
+    await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间", category: "language", stages: [], quickActions: [], transformCue: (text: string) => text, diagnose() { throw new Error("unused"); } }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() { view.openDojo([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareInterline(...args), synthesizeSpeech: (text: string) => (window as any).interlineSpeech(text) }); view.setToolkits(["interline"]); view.render({ ...(documentData as object), currentFile: "book.epub", files: [], title: "Interline" }); }, rendered);
     await page.locator('[data-command="dojo"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
     await page.locator('.pith-interline-subtitle').first().waitFor(); assert.equal(calls[0], 0);
     await page.locator('.pith-dojo-panel [data-interline-mode="subtitle-primary"]').click();

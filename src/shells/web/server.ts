@@ -84,7 +84,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const processPort = new NodeAgentProcessPort();
   const repository = new NodeRepositoryPort();
   const http = new NodeHttpPort();
-  const mediaCorpus = new NodeMediaCorpusPort();
+  const mediaCorpus = new NodeMediaCorpusPort({ transcribeAudio: async (bytes, mimeType, signal) => { const asr = runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); } });
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
@@ -193,11 +193,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && url.pathname === "/api/interline") {
         const data = await body(req), topicId = str(data, "topicId"), file = str(data, "file"), mode = str(data, "mode");
         const topic = await store.getTopic(topicId);
-        if (!topic || !topic.materialId || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间双语未挂载" });
+        if (!topic || !topic.materialId || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间未挂载" });
         const material = await store.getMaterial(topic.materialId);
         if (!material || !material.files.some(item => item.name === file)) return send(res, 404, { error: "材料不存在" });
         const service = runtime.getService<InterlineService>("dojo.interline");
-        if (!service) return send(res, 503, { error: "行间双语不可用" });
+        if (!service) return send(res, 503, { error: "行间不可用" });
         if (!Array.isArray(data.units) || !data.units.length || data.units.length > 10000 || JSON.stringify(data.units).length > 10_000_000 || !data.units.every((unit: any) => unit && typeof unit.html === "string" && Array.isArray(unit.segments) && unit.segments.every((segment: any) => segment && typeof segment.locator === "string" && typeof segment.sourceText === "string" && Number.isInteger(segment.blockIndex)))) throw new Error("Invalid interline units");
         const units = data.units as InterlineUnitInput[], index = data.index;
         if (typeof index !== "number") throw new Error("Invalid interline unit");

@@ -7,12 +7,34 @@ import https from "node:https";
 import net from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import type { MediaCorpusBundle, MediaCorpusPort, MediaSearchCandidate } from "../../core/index.ts";
+import type { MediaCorpusBundle, MediaCorpusPort, MediaCorpusSlice, MediaSearchCandidate } from "../../core/index.ts";
 import { isPublicHttpUrl } from "../../plugins/guide-acp/externalIngest.ts";
+import { formatTimestamp, parseTranscript } from "../../plugins/stage-timeline/index.ts";
 import { publicAddress } from "./nodeHttp.ts";
 
 const maxFile = 25 * 1024 * 1024;
 const maxBinary = 100 * 1024 * 1024;
+
+export function buildMediaCorpusSlices(vttText: string, targetSliceSec = 45): MediaCorpusSlice[] {
+  if (!Number.isFinite(targetSliceSec) || targetSliceSec < 25 || targetSliceSec > 60) throw new RangeError("Invalid slice duration");
+  const cues = parseTranscript(vttText).flatMap(cue => { const count = Math.ceil((cue.endSec - cue.startSec) / 60); if (count <= 1) return [cue]; const chars = Array.from(cue.text); return Array.from({ length: count }, (_, i) => ({ ...cue, startSec: cue.startSec + (cue.endSec - cue.startSec) * i / count, endSec: cue.startSec + (cue.endSec - cue.startSec) * (i + 1) / count, text: chars.slice(Math.floor(chars.length * i / count), Math.floor(chars.length * (i + 1) / count)).join("") })); }), slices: MediaCorpusSlice[] = []; let group: typeof cues = [];
+  const flush = () => { if (!group.length) return; const startSec = group[0]!.startSec, endSec = Math.max(...group.map(cue => cue.endSec)), index = slices.length + 1; slices.push({ id: `slice-${index}`, title: `片段 ${index} (${formatTimestamp(startSec)} - ${formatTimestamp(endSec)})`, startSec, endSec, cueCount: group.length, text: group.map(cue => cue.text.trim()).join(" ") }); group = []; };
+  for (const cue of cues) { if (group.length && cue.endSec - group[0]!.startSec > 60) flush(); group.push(cue); const span = cue.endSec - group[0]!.startSec; if (span >= 25 && (span >= targetSliceSec || /[.!?。！？][\s"'”’）)]*$/u.test(cue.text))) flush(); }
+  flush(); return slices;
+}
+
+function transcriptVtt(text: string, durationSec?: number): { vtt: string; estimated: boolean } {
+  if (text.length > 4 * 1024 * 1024) throw new Error("语音识别文本过长");
+  const sentences = (text.match(/[^.!?。！？\n]+[.!?。！？]*|[^\n]+/gu) ?? []).map(item => item.trim()).filter(Boolean);
+  if (!sentences.length) throw new Error("语音识别未返回文本");
+  const estimated = !durationSec || !Number.isFinite(durationSec) || durationSec <= 0;
+  const duration = estimated ? sentences.length * 4 : durationSec!;
+  const durationMs = Math.round(duration * 1000);
+  if (sentences.length > 10000 || durationMs < sentences.length) throw new Error("语音识别时间范围无效");
+  const stamp = (millis: number) => { const hours = Math.floor(millis / 3600000), minutes = Math.floor(millis / 60000) % 60, seconds = Math.floor(millis / 1000) % 60; return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis % 1000).padStart(3, "0")}`; };
+  const weight = sentences.map(sentence => Array.from(sentence).length), total = weight.reduce((a, b) => a + b, 0); let elapsed = 0, previousMs = 0;
+  return { vtt: `WEBVTT\n\n${sentences.map((sentence, i) => { const start = previousMs; elapsed += weight[i]!; const end = Math.max(start + 1, Math.min(Math.round(durationMs * elapsed / total), durationMs - (sentences.length - i - 1))); previousMs = end; return `${stamp(start)} --> ${stamp(end)}\n${sentence.replace(/-->/g, "→")}\n`; }).join("\n")}`, estimated };
+}
 
 export async function publicHost(host: string, signal?: AbortSignal): Promise<{ address: string; family: number }> {
   const name = host.startsWith("[") ? host.slice(1, -1) : host;
@@ -85,6 +107,9 @@ async function ensureDirectory(path: string): Promise<void> {
 }
 
 export class NodeMediaCorpusPort implements MediaCorpusPort {
+  private transcribeAudio?: (bytes: Uint8Array, mimeType: string, signal?: AbortSignal) => Promise<{ readonly text: string; readonly durationSec?: number }>;
+  constructor(options: { transcribeAudio?: (bytes: Uint8Array, mimeType: string, signal?: AbortSignal) => Promise<{ readonly text: string; readonly durationSec?: number }> } = {}) { this.transcribeAudio = options.transcribeAudio; }
+  setTranscriber(transcribeAudio: NonNullable<NodeMediaCorpusPort["transcribeAudio"]>): void { this.transcribeAudio = transcribeAudio; }
   private async binary(signal?: AbortSignal): Promise<string> {
     signal?.throwIfAborted(); const override = process.env.PITH_YTDLP_PATH;
     if (override) { if (!basename(override) || !isAbsolute(override)) throw new Error("Invalid yt-dlp path"); await access(override, constants.X_OK); return override; }
@@ -137,22 +162,36 @@ export class NodeMediaCorpusPort implements MediaCorpusPort {
     const directory = await mkdtemp(join(await realpath(tmpdir()), "pith-media-")); const warnings: string[] = [];
     try {
       const common = ["--max-filesize", "25M", "--restrict-filenames", "-o", "%(id)s.%(ext)s", ...(options.maxDurationSec ? ["--match-filter", `duration <= ${options.maxDurationSec}`] : [])];
-      let title = url.hostname;
-      try { const output = await this.run([...common, "--no-simulate", "--print", "after_move:%(title)s", "--downloader", "native", "-f", "ba[protocol^=http][filesize<25M]/ba[protocol^=http][filesize_approx<25M]", "--", url.href], directory, signal); if (output.trim()) title = output.trim().split(/\r?\n/)[0]!.slice(0, 500); } catch (error) { if (signal?.aborted) throw error; warnings.push("音轨提取失败"); }
+      let title = url.hostname, videoCodec = "", mediaDuration: number | undefined;
+      try { const output = await this.run([...common, "--no-simulate", "--print", "after_move:%(title)s", "--print", "after_move:%(vcodec)s", "--print", "after_move:%(duration)s", "--downloader", "native", "-f", "b[ext=mp4][protocol^=http][filesize<25M]/b[ext=webm][protocol^=http][filesize<25M]/ba[protocol^=http][filesize<25M]/ba[protocol^=http][filesize_approx<25M]", "--", url.href], directory, signal); const lines = output.trim().split(/\r?\n/); if (lines[0]) title = lines[0].slice(0, 500); videoCodec = lines[1] ?? ""; const duration = Number(lines[2]); if (Number.isFinite(duration) && duration > 0) mediaDuration = duration; } catch (error) { if (signal?.aborted) throw error; warnings.push("音轨提取失败"); }
       try { await this.run([...common, "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", options.lang ?? "en.*,zh.*", "--sub-format", "vtt", "--", url.href], directory, signal); } catch (error) { if (signal?.aborted) throw error; warnings.push("字幕提取失败"); }
       const files: { name: string; mimeType: string; bytes: Uint8Array }[] = [];
       const names = await readdir(directory); if (names.length > 20) throw new Error("Too many media files"); let total = 0;
       for (const name of names) {
         if (!/^[a-zA-Z0-9_.-]+$/.test(name) || name.startsWith(".")) throw new Error("Unsafe media filename");
         const info = await lstat(join(directory, name)); if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error("Unsafe media file");
-        const mimeType = /\.vtt$/i.test(name) ? "text/vtt" : /\.m4a$/i.test(name) ? "audio/mp4" : /\.webm$/i.test(name) ? "audio/webm" : /\.mp3$/i.test(name) ? "audio/mpeg" : /\.opus$/i.test(name) ? "audio/ogg" : null;
+        const mimeType = /\.vtt$/i.test(name) ? "text/vtt" : /\.mp4$/i.test(name) ? "video/mp4" : /\.m4a$/i.test(name) ? "audio/mp4" : /\.webm$/i.test(name) ? videoCodec && videoCodec !== "none" && videoCodec !== "NA" ? "video/webm" : "audio/webm" : /\.mp3$/i.test(name) ? "audio/mpeg" : /\.opus$/i.test(name) ? "audio/ogg" : null;
         if (!mimeType) continue;
         const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW); try { const stat = await file.stat(); total += stat.size; if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxFile || total > 2 * maxFile) throw new Error("Unsafe media file"); files.push({ name, mimeType, bytes: new Uint8Array(await file.readFile()) }); } finally { await file.close(); }
       }
       if (!files.length) throw new Error("未能获取音轨或字幕");
-      if (!files.some(file => file.mimeType.startsWith("audio/")) && !warnings.includes("音轨提取失败")) warnings.push("未找到音轨");
+      const media = files.find(file => /^(audio|video)\//.test(file.mimeType));
+      if (!media && !warnings.includes("音轨提取失败")) warnings.push("未找到音轨");
+      if (media && !files.some(file => file.mimeType === "text/vtt") && this.transcribeAudio) {
+        try { let audio = media;
+          if (media.mimeType.startsWith("video/")) {
+            const audioDir = join(directory, "asr"); await mkdir(audioDir);
+            await this.run(["--max-filesize", "25M", "--restrict-filenames", "-o", "asr.%(ext)s", "--downloader", "native", "-f", "ba[protocol^=http][filesize<25M]/ba[protocol^=http][filesize_approx<25M]", "--", url.href], audioDir, signal);
+            const names = await readdir(audioDir); if (names.length !== 1 || !/^asr\.(m4a|webm|mp3|opus)$/i.test(names[0]!)) throw new Error("未找到可转写音轨");
+            const name = names[0]!, path = join(audioDir, name), info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error("Unsafe media file");
+            const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); try { const stat = await file.stat(); if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxFile) throw new Error("Unsafe media file"); const mimeType = /\.m4a$/i.test(name) ? "audio/mp4" : /\.webm$/i.test(name) ? "audio/webm" : /\.mp3$/i.test(name) ? "audio/mpeg" : "audio/ogg"; audio = { name, mimeType, bytes: new Uint8Array(await file.readFile()) }; } finally { await file.close(); }
+          }
+          const result = await this.transcribeAudio(audio.bytes, audio.mimeType, signal); signal?.throwIfAborted(); const generated = transcriptVtt(result.text, result.durationSec ?? mediaDuration); warnings.push(generated.estimated ? "字幕时长和时间按文本估算" : "字幕时间按文本比例估算"); files.push({ name: `${media.name.replace(/\.[^.]+$/, "")}.auto.vtt`, mimeType: "text/vtt", bytes: new TextEncoder().encode(generated.vtt) }); }
+        catch (error) { if (signal?.aborted) throw error; warnings.push(`语音转写失败：${error instanceof Error ? error.message : String(error)}`); }
+      }
       if (!files.some(file => file.mimeType === "text/vtt") && !warnings.includes("字幕提取失败")) warnings.push("未找到字幕");
-      return { title, sourceUrl: url.href, files, ...(warnings.length ? { warnings } : {}) };
+      const subtitle = files.find(file => file.mimeType === "text/vtt"); let slices: MediaCorpusSlice[] = []; if (subtitle) { try { slices = buildMediaCorpusSlices(new TextDecoder("utf-8", { fatal: true }).decode(subtitle.bytes)); } catch { warnings.push("字幕编码无效"); } }
+      return { title, sourceUrl: url.href, files, ...(slices.length ? { slices } : {}), ...(warnings.length ? { warnings } : {}) };
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
 }

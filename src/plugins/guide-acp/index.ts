@@ -55,7 +55,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
   const available = input.availableToolkits ?? [
     { id: "shadowing", label: "4-Stage Language Shadowing", category: "language" },
     { id: "feynman", label: "4-Stage Feynman Recall", category: "comprehension" },
-    { id: "interline", label: "行间双语", category: "language" },
+    { id: "interline", label: "行间", category: "language" },
   ];
   return [
     `# 学习者画像\n${input.profileMarkdown}`,

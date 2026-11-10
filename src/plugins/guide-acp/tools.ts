@@ -47,9 +47,10 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       const bundle = await mediaCorpus.fetchMediaCorpus(text(input, "url", 4096), input.lang === undefined ? {} : { lang: text(input, "lang", 40) }, signal); signal?.throwIfAborted();
       const current = await store.getTopic(topicId); if (!current || current.materialId !== topic.materialId) throw new Error("Topic material changed");
       let material; if (current.materialId) { if (!store.appendMaterialFiles) throw new Error("Material append unavailable"); material = await store.appendMaterialFiles(current.materialId, bundle.files); } else { material = await store.importMaterial({ title: bundle.title, kind: "media", files: bundle.files }); }
+      if (bundle.slices?.length) { if (!store.writeGeneratedFile) throw new Error("Generated lesson unavailable"); const sections = bundle.slices.map(slice => `## ${slice.title}\n\n${slice.text.replace(/\s+/g, " ").slice(0, 300)}\n\n跟读建议：先听原声，再逐句跟读。`); material = await store.writeGeneratedFile(material.id, "00-跟读切片导读.md", `# 跟读切片导读\n\n${sections.join("\n\n")}\n`); }
       const latest = await store.getTopic(topicId); if (!latest || latest.materialId !== current.materialId) throw new Error("Topic material changed");
       const toolkits = [...new Set([...latest.toolkits, "shadowing"])]; await store.updateTopic(topicId, { ...(latest.materialId ? {} : { materialId: material.id }), toolkits });
-      return { material, warnings: bundle.warnings ?? [] };
+      return { material, slices: bundle.slices ?? [], warnings: bundle.warnings ?? [] };
     } }] : []),
     ...(http ? [{ name: "pith_ingest_external", description: "Import a public external document or media into the workspace.", inputSchema: schema({ url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
       keys(input, ["url", "kind", "transcriptMarkdown", "topicId"]);
@@ -59,7 +60,7 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (topicId && !await store.getTopic(topicId)) throw new Error("Topic not found");
       const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http);
       const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
-      if (topicId) await store.updateTopic(topicId, { materialId: material.id });
+      if (topicId) { const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); const markdown = bundle.files.filter(file => /\.md$/i.test(file.name)).map(file => new TextDecoder("utf-8", { fatal: true }).decode(file.bytes)).join(" "); const chars = Array.from(markdown).filter(char => !/\s/u.test(char)); const foreign = chars.filter(char => /\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char)).length; const toolkits = chars.length && foreign / chars.length >= .5 ? [...new Set([...topic.toolkits, "interline"])] : topic.toolkits; await store.updateTopic(topicId, { materialId: material.id, toolkits }); }
       return { material, warnings: bundle.warnings };
     } }] : []),
     { name: "pith_get_context", description: "Read the learner profile, compass and optional topic.", inputSchema: schema({ topicId: field }, []), async execute(input) {

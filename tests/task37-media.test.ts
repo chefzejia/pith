@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
-import { NodeMediaCorpusPort, publicHost } from "../src/shells/web/nodeMediaCorpus.ts";
+import { buildMediaCorpusSlices, NodeMediaCorpusPort, publicHost } from "../src/shells/web/nodeMediaCorpus.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";
 
@@ -21,13 +21,33 @@ if (url.startsWith('ytsearch')) {
 } else if (url.includes('cancel')) { process.on('SIGTERM', () => { fs.writeFileSync(path.join(__dirname, 'stopped'), 'yes'); process.exit(0); }); fs.writeFileSync(path.join(__dirname, 'started'), 'yes'); setInterval(() => {}, 1000); }
 else if (url.includes('symlink')) { fs.symlinkSync('/etc/passwd','bad.vtt'); }
 else if (url.includes('partial') && !args.includes('--skip-download')) { process.exit(2); }
+else if (args.includes('asr.%(ext)s')) { fs.writeFileSync('asr.webm', Buffer.from([9,8,7])); }
+else if (args.includes('--skip-download') && (url.includes('asr') || url.includes('video'))) { }
 else if (args.includes('--skip-download')) { fs.writeFileSync('clip.en.vtt','WEBVTT\\n\\n00:00.000 --> 00:01.000\\nHello\\n'); }
+else if (url.includes('video')) { fs.writeFileSync('clip.mp4', Buffer.from([5,6,7])); console.log('Video title\\nh264\\n60'); }
+else if (url.includes('asr')) { fs.writeFileSync('clip.webm', Buffer.from([1,2,3,4])); console.log('Audio title\\nnone\\n60'); }
 else { fs.writeFileSync('clip.webm', Buffer.from([1,2,3,4])); console.log('Fixture title'); }
 `;
 
 test("proxy DNS validation rejects private and loopback destinations", async () => {
   for (const host of ["127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "localhost"]) await assert.rejects(publicHost(host), /non-public/);
   assert.equal((await publicHost("8.8.8.8")).address, "8.8.8.8");
+});
+
+test("media slices follow cue timing and ASR generates persisted VTT for audio and video", async () => {
+  const root = await testSandbox("task39-media-"); const binary = join(root, "yt-dlp.cjs"); const previous = process.env.PITH_YTDLP_PATH;
+  await writeFile(binary, fixture); await chmod(binary, 0o755); process.env.PITH_YTDLP_PATH = binary;
+  try {
+    const vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:15.000\nFirst phrase\n\n00:00:15.000 --> 00:00:30.000\nends here.\n\n00:00:30.000 --> 00:00:55.000\nAnother sentence.\n\n00:00:55.000 --> 00:01:20.000\nFinal sentence.\n";
+    const slices = buildMediaCorpusSlices(vtt); assert.deepEqual(slices.map(item => [item.startSec, item.endSec, item.cueCount]), [[0, 30, 2], [30, 55, 1], [55, 80, 1]]); assert.match(slices[0]!.title, /00:00 - 00:30/);
+    const calls: { bytes: number[]; mime: string }[] = []; const corpus = new NodeMediaCorpusPort({ async transcribeAudio(bytes, mime) { calls.push({ bytes: [...bytes], mime }); return { text: "First sentence. Second sentence. Third sentence.", durationSec: 60 }; } });
+    const audio = await corpus.fetchMediaCorpus("https://8.8.8.8/asr"); assert.deepEqual(calls[0], { bytes: [1, 2, 3, 4], mime: "audio/webm" }); assert.ok(audio.slices?.length); const subtitle = audio.files.find(file => file.name === "clip.auto.vtt"); assert.ok(subtitle); const raw = new TextDecoder().decode(subtitle.bytes); assert.match(raw, /^WEBVTT\n\n00:00:00\.000 -->/); assert.match(raw, /00:01:00\.000/);
+    const video = await corpus.fetchMediaCorpus("https://8.8.8.8/video"); assert.deepEqual(calls[1], { bytes: [9, 8, 7], mime: "audio/webm" }); assert.ok(video.files.some(file => file.mimeType === "video/mp4")); assert.ok(video.slices?.length);
+    const short = await new NodeMediaCorpusPort({ async transcribeAudio() { return { text: `${"Long".repeat(100)}. A. B.`, durationSec: 0.003 }; } }).fetchMediaCorpus("https://8.8.8.8/asr"); const shortVtt = new TextDecoder().decode(short.files.find(file => file.name.endsWith(".vtt"))!.bytes); assert.match(shortVtt, /00:00:00\.000 --> 00:00:00\.001/); assert.match(shortVtt, /00:00:00\.001 --> 00:00:00\.002/); assert.match(shortVtt, /00:00:00\.002 --> 00:00:00\.003/);
+    await mkdir(join(root, "workspace")); const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold(); const topic = await store.createTopic({ title: "New" }); const tool = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, topic.id).find(item => item.name === "pith_fetch_media_corpus")!;
+    const result: any = await tool.execute({ topicId: topic.id, url: "https://8.8.8.8/asr" }); const updated = await store.getTopic(topic.id); assert.ok(updated?.materialId); assert.ok(updated.toolkits.includes("shadowing")); assert.ok(result.slices.length); for (const file of audio.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${updated.materialId}/files/${file.name}`)), file.bytes); assert.match(await storage.readText(`materials/${updated.materialId}/files/00-跟读切片导读.md`), /First sentence/);
+    const failed = await new NodeMediaCorpusPort({ async transcribeAudio() { throw new Error("ASR offline"); } }).fetchMediaCorpus("https://8.8.8.8/asr"); assert.ok(failed.warnings?.some(warning => warning.includes("ASR offline"))); assert.equal(failed.files.some(file => file.name.endsWith(".vtt")), false);
+  } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }
 });
 
 test("yt-dlp subprocess uses isolated public proxy and appends or imports real material bytes", async () => {
@@ -50,14 +70,14 @@ test("yt-dlp subprocess uses isolated public proxy and appends or imports real m
     const tools = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, topic.id); const fetchTool = tools.find(tool => tool.name === "pith_fetch_media_corpus")!;
     await assert.rejects(fetchTool.execute({ topicId: other.id, url: "https://8.8.8.8/watch" }), /current session/);
     await fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" });
-    const updated = await store.getTopic(topic.id), material = await store.getMaterial(existing.id); assert.equal(updated?.materialId, existing.id); assert.ok(updated?.toolkits.includes("shadowing")); assert.ok(updated?.toolkits.includes("feynman")); assert.deepEqual(material?.files.map(file => file.name).sort(), ["clip.en.vtt", "clip.webm", "lesson.md"]);
+    const updated = await store.getTopic(topic.id), material = await store.getMaterial(existing.id); assert.equal(updated?.materialId, existing.id); assert.ok(updated?.toolkits.includes("shadowing")); assert.ok(updated?.toolkits.includes("feynman")); assert.deepEqual(material?.files.map(file => file.name).sort(), ["00-跟读切片导读.md", "clip.en.vtt", "clip.webm", "lesson.md"]); assert.match(await storage.readText(`materials/${existing.id}/files/00-跟读切片导读.md`), /片段 1.*00:00.*00:01/);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
     assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
     await assert.rejects(fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" }), /exist/i);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
     assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
     const newTools = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, other.id); await newTools.find(tool => tool.name === "pith_fetch_media_corpus")!.execute({ topicId: other.id, url: "https://8.8.8.8/watch" });
-    const created = await store.getTopic(other.id); assert.ok(created?.materialId); assert.ok(created.toolkits.includes("shadowing")); assert.equal((await store.getMaterial(created.materialId))?.files.length, 2);
+    const created = await store.getTopic(other.id); assert.ok(created?.materialId); assert.ok(created.toolkits.includes("shadowing")); assert.equal((await store.getMaterial(created.materialId))?.files.length, 3); assert.match(await storage.readText(`materials/${created.materialId}/files/00-跟读切片导读.md`), /Hello/);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${created.materialId}/files/${file.name}`)), file.bytes);
   } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }
 });

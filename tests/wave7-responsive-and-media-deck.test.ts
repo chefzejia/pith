@@ -58,8 +58,8 @@ test("audio types are detected by MIME or recognized extension", () => {
 test("one toolbar slot aggregates zero, one, and multiple toolkits", () => {
   assert.equal(toolkitSlot([], "shadowing").text, "");
   assert.equal(toolkitSlot(["feynman"], "shadowing").text, "费曼复述");
-  assert.equal(toolkitSlot(["shadowing", "feynman"], "shadowing").text, "影子跟读 · 2");
-  assert.equal(toolkitSlot(["dojo-shadowing", "shadowing", "other"], "other", { other: "Custom" }).text, "Custom · 2");
+  assert.equal(toolkitSlot(["shadowing", "feynman"], "shadowing").text, "影子跟读");
+  assert.equal(toolkitSlot(["dojo-shadowing", "shadowing", "other"], "other", { other: "Custom" }).text, "Custom");
 });
 
 test("reader service exposes the same responsive decision to host shells", () => {
@@ -80,7 +80,7 @@ test("Obsidian uses one toolkit button and cue clicks seek without mounting a to
   const set = view.setToolkits as (ids: string[]) => void;
   set.call(view, []); assert.equal(button.hidden, false);
   set.call(view, ["feynman"]); assert.equal(label.textContent, "费曼复述");
-  set.call(view, ["shadowing", "feynman"]); assert.equal(label.textContent, "费曼复述 · 2");
+  set.call(view, ["shadowing", "feynman"]); assert.equal(label.textContent, "费曼复述");
   set.call(view, []);
   assert.deepEqual(cancelled, ["dojo"]);
   const cue = { dataset: { locator: "time:16.5" } };

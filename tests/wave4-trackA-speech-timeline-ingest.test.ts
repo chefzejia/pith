@@ -104,8 +104,14 @@ test("external ingestion requires pinned transport and imports into a topic", as
     const tool = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_ingest_external")!;
     const imported = await tool.execute({ url: "https://public.com/post", topicId: topic.id }) as { material: { id: string } };
     assert.equal((await store.getTopic(topic.id))!.materialId, imported.material.id);
+    assert.ok((await store.getTopic(topic.id))!.toolkits.includes("interline"));
     const body = await disk.readText(`materials/${imported.material.id}/files/article.md`);
     assert.match(body, /Hello/); assert.doesNotMatch(body, /127\.0\.0\.1|<script>/);
+    const chinese = await store.createTopic({ title: "中文课题", toolkits: ["feynman"] });
+    const chineseHttp: PublicHttpPort = { request: async () => { throw new Error("insecure path"); }, requestPublic: async () => response("这是一段中文文章，介绍一个中文主题。", "text/plain") };
+    const chineseTool = createDshPluginBundle({ storage: disk, http: chineseHttp }).tools.find(item => item.name === "pith_ingest_external")!;
+    const chineseResult = await chineseTool.execute({ url: "https://public.com/chinese", topicId: chinese.id }) as { material: { id: string } };
+    assert.deepEqual((await store.getTopic(chinese.id))!.toolkits, ["feynman"]); assert.match(await disk.readText(`materials/${chineseResult.material.id}/files/article.md`), /中文文章/);
     await assert.rejects(tool.execute({ url: "http://localhost" }), /not public/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

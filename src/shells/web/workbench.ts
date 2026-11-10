@@ -120,8 +120,10 @@ export class WebWorkbench {
     if (!topic) throw new Error("课题不存在");
     const next = state.materials.find(item => item.id === topic.materialId);
     if (JSON.stringify(this.material) === JSON.stringify(next)) return;
+    const previousFiles = new Set(this.material?.id === next?.id ? this.material?.files.map(file => file.name) : []);
+    const newSubtitle = next?.files.find(file => /\.vtt$/i.test(file.name) && !previousFiles.has(file.name));
     this.material = next;
-    const file = this.material?.files.find(item => item.name === this.file) || this.material?.files.find(item => item.name === "00-课程大纲.md") || this.material?.files[0];
+    const file = newSubtitle || this.material?.files.find(item => item.name === this.file) || this.material?.files.find(item => item.name === "00-课程大纲.md") || this.material?.files[0];
     if (file && !this.disposed) await this.openFile(file.name);
   }
 
