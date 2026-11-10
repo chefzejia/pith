@@ -1,4 +1,4 @@
-<!-- reviewed-through: c63fcf7e585a72ad7fa25c458b4c6adc6d14a134 (2026-11-10 03:50 +0800) -->
+<!-- reviewed-through: 286c1e5cb327705c7dd9cec2f80d40470fafca05 (2026-11-10 18:09 +0800) -->
 # Lessons from Merged Work
 
 ## Active Lessons
