@@ -1,5 +1,6 @@
 import type { AttentionEngine, GuideMcpToolSpec, HttpPort, MediaCorpusPort, RepositoryPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
+import { clearDefaultToolkit, isDefaultToolkit } from "./toolkitDefaults.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
   if (!Array.isArray(value) || !value.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item))) throw new Error("Invalid toolkit IDs");
@@ -60,7 +61,7 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (topicId && !await store.getTopic(topicId)) throw new Error("Topic not found");
       const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http);
       const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
-      if (topicId) { const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); const markdown = bundle.files.filter(file => /\.md$/i.test(file.name)).map(file => new TextDecoder("utf-8", { fatal: true }).decode(file.bytes)).join(" "); const chars = Array.from(markdown).filter(char => !/\s/u.test(char)); const foreign = chars.filter(char => /\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char)).length; const toolkits = chars.length && foreign / chars.length >= .5 ? [...new Set([...topic.toolkits, "interline"])] : topic.toolkits; await store.updateTopic(topicId, { materialId: material.id, toolkits }); }
+      if (topicId) { const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); const markdown = bundle.files.filter(file => /\.md$/i.test(file.name)).map(file => new TextDecoder("utf-8", { fatal: true }).decode(file.bytes)).join(" "); const chars = Array.from(markdown).filter(char => !/\s/u.test(char)); const foreign = chars.filter(char => /\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char)).length; const defaultToolkit = await isDefaultToolkit(storage, topic); const toolkits = chars.length && foreign / chars.length >= .5 ? [...new Set([...(defaultToolkit ? [] : topic.toolkits), "interline"])] : topic.toolkits; await clearDefaultToolkit(storage, topicId); await store.updateTopic(topicId, { materialId: material.id, toolkits }); }
       return { material, warnings: bundle.warnings };
     } }] : []),
     { name: "pith_get_context", description: "Read the learner profile, compass and optional topic.", inputSchema: schema({ topicId: field }, []), async execute(input) {
@@ -134,7 +135,7 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
     { name: "pith_configure_toolkits", description: "Configure topic toolkits.", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), async execute(input) {
       keys(input, ["topicId", "toolkits"]);
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
-      return store.updateTopic(text(input, "topicId", 200), { toolkits: normalizeToolkits(input.toolkits) });
+      const topicId = text(input, "topicId", 200), toolkits = normalizeToolkits(input.toolkits); await clearDefaultToolkit(storage, topicId); return store.updateTopic(topicId, { toolkits });
     } },
     { name: "pith_settle_topic", description: "Settle an exploring topic after recording a verification summary and requiring an existing learner note; optionally replace the learner profile.", inputSchema: schema({ topicId: field, verificationSummary: field, profilePatchMarkdown: { type: "string", minLength: 1, maxLength: 100000 } }, ["topicId", "verificationSummary"]), async execute(input) {
       keys(input, ["topicId", "verificationSummary", "profilePatchMarkdown"]);

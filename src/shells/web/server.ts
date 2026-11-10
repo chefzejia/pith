@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type DojoScaffoldStage, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
+import { clearDefaultToolkit, markDefaultToolkit } from "../../plugins/guide-acp/toolkitDefaults.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeRepositoryPort } from "./nodeRepository.ts";
@@ -166,16 +167,18 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const bytes = await storage.readBinary(`materials/${material.id}/files/${first.name}`);
           try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
         }
-        const toolkits = data.toolkits !== undefined ? data.toolkits as string[] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : undefined;
+        if (data.guideDefault !== undefined && (data.guideDefault !== true || material || data.toolkits !== undefined)) throw new Error("Invalid guide default");
+        const toolkits = data.toolkits !== undefined ? data.toolkits as string[] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guideDefault ? ["feynman"] : undefined;
         const topic = await store.createTopic({ title: str(data, "title"), target: typeof data.target === "string" ? data.target : "", nextAction: typeof data.nextAction === "string" ? data.nextAction : undefined,
           materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}) });
+        if (data.guideDefault) await markDefaultToolkit(storage, topic);
         await refresh(); return send(res, 201, topic);
       }
       const toolkitPath = /^\/api\/topics\/([^/]+)\/toolkits$/.exec(url.pathname);
       if (method === "POST" && toolkitPath) {
         const data = await body(req);
         if (!Array.isArray(data.toolkits) || !data.toolkits.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item)) || new Set(data.toolkits).size !== data.toolkits.length) throw new Error("Invalid toolkits");
-        const topic = await store.updateTopic(decodeURIComponent(toolkitPath[1]!), { toolkits: data.toolkits });
+        const topicId = decodeURIComponent(toolkitPath[1]!); await clearDefaultToolkit(storage, topicId); const topic = await store.updateTopic(topicId, { toolkits: data.toolkits });
         await refresh(); return send(res, 200, topic);
       }
       const actionsPath = /^\/api\/topics\/([^/]+)\/actions$/.exec(url.pathname);

@@ -4,6 +4,7 @@ import https from "node:https";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type SelectionAnchor, type WorkspaceStoragePort } from "../../core/index.ts";
 import { normalizeToolkits } from "../../plugins/guide-acp/acpSession.ts";
 import { createGuideWorkspaceTools } from "../../plugins/guide-acp/tools.ts";
+import { clearDefaultToolkit } from "../../plugins/guide-acp/toolkitDefaults.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 import { withHttpDeadline } from "../../core/host.ts";
 export { mountPithWorkbench, PithWorkbenchView, renderCompass, workbenchStyles } from "../../workbench/index.ts";
@@ -64,7 +65,7 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
     { name: "pith_read_topic", description: "Read a topic and its notes", inputSchema: schema({ topicId: field }, ["topicId"]), execute: async input => store.getTopic(string(input, "topicId")) },
     { name: "pith_configure_toolkits", description: "Configure topic toolkits: shadowing, feynman, or interline (bilingual reading)", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), execute: async input => {
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
-      return store.updateTopic(string(input, "topicId"), { toolkits: normalizeToolkits(input.toolkits) });
+      const topicId = string(input, "topicId"), toolkits = normalizeToolkits(input.toolkits); await clearDefaultToolkit(options.storage, topicId); return store.updateTopic(topicId, { toolkits });
     } },
     { name: "pith_capture_note", description: "Capture a topic note", inputSchema: schema({ topicId: field, body: field, kind: { enum: ["note", "highlight", "practice"] }, anchor: { type: "object" } }, ["topicId", "body"]), execute: async input => {
       const kind = input.kind === undefined ? "note" : input.kind;

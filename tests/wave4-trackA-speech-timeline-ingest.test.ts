@@ -8,6 +8,8 @@ import { createNeuralSpeech, CURATED_ASR_PRESETS, CURATED_TTS_PRESETS, isLoopbac
 import { renderTimelineView } from "../src/plugins/stage-timeline/index.ts";
 import { ingestExternalUrl, isPublicHttpUrl, type PublicHttpPort } from "../src/plugins/guide-acp/externalIngest.ts";
 import { createDshPluginBundle } from "../src/shells/dsh/index.ts";
+import { isDefaultToolkit, markDefaultToolkit } from "../src/plugins/guide-acp/toolkitDefaults.ts";
+import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 
 const encoder = new TextEncoder();
@@ -104,7 +106,7 @@ test("external ingestion requires pinned transport and imports into a topic", as
     const tool = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_ingest_external")!;
     const imported = await tool.execute({ url: "https://public.com/post", topicId: topic.id }) as { material: { id: string } };
     assert.equal((await store.getTopic(topic.id))!.materialId, imported.material.id);
-    assert.ok((await store.getTopic(topic.id))!.toolkits.includes("interline"));
+    assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["interline"]);
     const body = await disk.readText(`materials/${imported.material.id}/files/article.md`);
     assert.match(body, /Hello/); assert.doesNotMatch(body, /127\.0\.0\.1|<script>/);
     const chinese = await store.createTopic({ title: "中文课题", toolkits: ["feynman"] });
@@ -112,6 +114,11 @@ test("external ingestion requires pinned transport and imports into a topic", as
     const chineseTool = createDshPluginBundle({ storage: disk, http: chineseHttp }).tools.find(item => item.name === "pith_ingest_external")!;
     const chineseResult = await chineseTool.execute({ url: "https://public.com/chinese", topicId: chinese.id }) as { material: { id: string } };
     assert.deepEqual((await store.getTopic(chinese.id))!.toolkits, ["feynman"]); assert.match(await disk.readText(`materials/${chineseResult.material.id}/files/article.md`), /中文文章/);
+    const fresh = await store.createTopic({ title: "Default", toolkits: ["feynman"] }); await markDefaultToolkit(disk, fresh); await store.updateTopic(fresh.id, { title: "Renamed", target: "Read the article" }); assert.equal(await isDefaultToolkit(new NodeWorkspaceStorage(dir), (await store.getTopic(fresh.id))!), true); await tool.execute({ url: "https://public.com/english", topicId: fresh.id }); assert.deepEqual((await store.getTopic(fresh.id))!.toolkits, ["interline"]); assert.equal(await isDefaultToolkit(new NodeWorkspaceStorage(dir), (await store.getTopic(fresh.id))!), false);
+    const explicit = await store.createTopic({ title: "Explicit", toolkits: ["feynman"] }); await markDefaultToolkit(disk, explicit); const configure = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_configure_toolkits")!; await configure.execute({ topicId: explicit.id, toolkits: ["feynman"] }); await tool.execute({ url: "https://public.com/english", topicId: explicit.id }); assert.deepEqual((await store.getTopic(explicit.id))!.toolkits, ["feynman", "interline"]);
+    const guided = await store.createTopic({ title: "Guide selection", toolkits: ["feynman"] }); await markDefaultToolkit(disk, guided); const configureGuide = createGuideWorkspaceTools(store, undefined, disk).find(item => item.name === "pith_configure_toolkits")!; await configureGuide.execute({ topicId: guided.id, toolkits: ["feynman"] }); await tool.execute({ url: "https://public.com/english", topicId: guided.id }); assert.deepEqual((await store.getTopic(guided.id))!.toolkits, ["feynman", "interline"]);
+    const invalid = await store.createTopic({ title: "Invalid selection", toolkits: ["feynman"] }); await markDefaultToolkit(disk, invalid); await assert.rejects(configureGuide.execute({ topicId: invalid.id, toolkits: ["INVALID"] })); await tool.execute({ url: "https://public.com/english", topicId: invalid.id }); assert.deepEqual((await store.getTopic(invalid.id))!.toolkits, ["interline"]);
+    const unknown = await store.createTopic({ title: "Existing", toolkits: ["feynman"] }); await tool.execute({ url: "https://public.com/english", topicId: unknown.id }); assert.deepEqual((await store.getTopic(unknown.id))!.toolkits, ["feynman", "interline"]);
     await assert.rejects(tool.execute({ url: "http://localhost" }), /not public/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

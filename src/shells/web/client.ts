@@ -33,7 +33,7 @@ function home(): void {
       if (data.repoPath) { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath: data.repoPath }); material = result; target = result.intakeDescription; }
       else if (data.files.length) material = await importFiles(data.files);
       const title = material?.title || data.title;
-      const item = await api<Topic>("/api/topics", { title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { toolkits: ["feynman"] } : {}) });
+      const item = await api<Topic>("/api/topics", { title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { guideDefault: true } : {}) });
       try { await openTopic(item.id, data.guide, intakeGuidePrompt(target || data.title, data.files)); } catch (error) { notify(error); }
     },
     settings: openSimpleSettings,
