@@ -29,7 +29,9 @@
 
 ## [Task #38] Web 端系统主题对齐（干掉绿底色与卡片折行微瑕） & 统一播放控制底座（Unified Transport Dock：砍掉正文原生 `<audio>` 与 `A-B` 冗余、视频/音频/跟读单一进度条联动）
 
-- **Status**: in_progress
+- **Status**: verified
+- **Verified-Commit**: 681a63411f5a71010c36f4bae272969b5fed9835
+- **验收摘要**：独立 Web 与隔离 Obsidian 验证中性色、日期单行、音视频/TTS/回听统一底座与字幕/跟读定位；332px 原生内容区明暗主题按钮边界及坐标实点通过，双端播放中离页停止归零。报告：`.tmp/evidence/task-38/final-retest-report.md`（首轮通过项见 `final-report.md`）；截图：`.tmp/evidence/task-38/final-retest-native-dark.png`、`.tmp/evidence/task-38/final-retest-native-light.png`、`.tmp/evidence/task-38/final-retest-web-390.png`。
 - **Scope**: `src/shells/web/server.ts`, `src/plugins/stage-timeline/index.ts`, `src/workbench/view.ts`, `src/workbench/compass.ts`, `src/workbench/mediaAssets.ts`, `tests/**`
 - **授权范围**：允许修改 `src/shells/web/server.ts`、`src/plugins/stage-timeline/index.ts`、`src/workbench/view.ts`、`src/workbench/compass.ts`、`src/workbench/mediaAssets.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在音频时间轴舞台的正文中再渲染第二个 `<audio controls>` 播放器或 `"A-B 循环未设置"` 文本；严禁在底部播放底座保留晦涩的手动 `A-B` 按钮。
