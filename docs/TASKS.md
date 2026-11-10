@@ -90,7 +90,9 @@
 
 ## [Task #37] 影子跟读（`shadowing`）聚光灯级交互重设计（砍掉打字框/毛玻璃盲听/声波律动） & 内嵌托管 `yt-dlp` 声学语料搜索与拉取工具
 
-- **Status**: pending
+- **Status**: blocked
+- **Updated**: 2026-11-10
+- **阻塞证据**：`WorkspaceStore` 为材料唯一写入者，但 `importMaterial` 仅新建、`writeGeneratedFile` 仅写 Markdown；缺少向当前已有 Material 一致追加音轨与 VTT 的接口，本单又禁止修改 `src/core/`。需要上游冻结 Store 二进制追加契约。证据：`.tmp/evidence/task-37/blocker-report.md`。部分 UI 与回归改动保留于 `.tmp/worktrees/task-37/`，未提交、未合入或部署；不将局部测试当作整单验收。
 - **Scope**: `src/plugins/dojo-shadowing/**`, `src/plugins/guide-acp/**`, `src/workbench/view.ts`, `src/workbench/voiceInput.ts`, `src/shells/web/nodeMediaCorpus.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
 - **授权范围**：允许新建 `src/shells/web/nodeMediaCorpus.ts`（实现 `MediaCorpusPort`），允许修改 `src/plugins/dojo-shadowing/index.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/workbench/view.ts`、`src/workbench/voiceInput.ts`、`src/shells/web/server.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在影子跟读界面保留丑陋的 `<textarea>` 复述文本框、多余的“对齐漏词”按钮或死板的 `"••••••••"` 黑点字符串。
