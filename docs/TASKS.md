@@ -57,7 +57,9 @@
 
 ## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 3056f1e04a4c8ca5050c05195bc52594672772f3
+- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。自动字幕时间按文本比例估算；公网视频站点和真实语音引擎未验。报告：`.tmp/evidence/task-39/final-retest-report.md`（媒体与书籍见 `final-report.md`）；截图：`.tmp/evidence/task-39/final-retest-web-default.png`、`.tmp/evidence/task-39/final-retest-native-default.png`、`.tmp/evidence/task-39/final-native-asr-follow.png`。
 - **Updated**: 2026-11-10
 - **上游阻塞已解除说明**：`src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库。
 - **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `tests/**`
