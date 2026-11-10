@@ -78,8 +78,8 @@
 
 1. **非正文严格剔除与双位置解耦**：[`filterProseOnly`](../../src/plugins/speech-service/index.ts) 仅提取 `isProse === true` 的块朗读；听读期间手动翻页不中断播放，底部播客甲板提供 `[跳回朗读处]`。
 2. **零 Python 依赖的 Vault 外本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）**：
-   - 模型与运行时安装在 Vault 之外的系统目录，支持断点续传、SHA-256 强校验与取消控制；
-   - 从 `kokoro-int8-multi-lang-v1_1/model.int8.onnx` 动态解析全部 103 个内置多语种音色（中文女声 `zf_*`、中文男声 `zm_*`、英文音色 `af_*/bf_*`），在设置面板提供分组音色下拉选择器。
+   - 模型与运行时安装在 Vault 之外的系统目录（默认路径与 `PITH_SPEECH_HOME` 规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)），支持实时下载进度、断点续传、SHA-256 强校验与取消控制；
+   - 默认 TTS 为 **ZipVoice INT8（中英双语）**，使用预置参考音色（[`ZIPVOICE_PRESETS`](../../src/shells/speech/speechVoices.ts)）与 8 步生成，ASR 为 **SenseVoice INT8（多语种）**；原生运行时、模型下载地址及哈希由 [`SPEECH_MODEL_ASSETS`](../../src/shells/speech/speechRuntime.ts) 定义，在设置面板提供本机/云端音色选择器，严禁在运行时调用宿主机 `python3` 或 `pip`。
 
 ---
 
