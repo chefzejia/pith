@@ -58,7 +58,7 @@
 ## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
 
 - **Status**: blocked
-- **审计阻塞**：周期审计复现默认工具唯一来源仅在可删 `_cache/toolkit-defaults`，删缓存后首次外文导入重现双工具；来源事实属于冻结核心账本，需上游冻结持久化来源字段/存储契约。本单禁止修改 `src/core/`，执行环不擅自改核心。证据：`.tmp/evidence/audit-39/report.md` F2。F1 新字幕绑定旧媒体在本单内继续修复复验。
+- **审计阻塞**：周期审计复现默认工具唯一来源仅在可删 `_cache/toolkit-defaults`，删缓存后首次外文导入重现双工具；来源事实属于冻结核心账本，需上游冻结持久化来源字段/存储契约。本单禁止修改 `src/core/`，执行环不擅自改核心。证据：`.tmp/evidence/audit-39/report.md` F2。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。报告：`.tmp/evidence/task-39/final-audit-f1-report.md`；截图：`.tmp/evidence/task-39/final-audit-f1-web-audio-video.png`、`.tmp/evidence/task-39/final-audit-f1-native-video-audio-auto.png`。F2 未解除前不标整单 verified，审计水位保持原值。
 - **Last-Accepted-Commit**: 3056f1e04a4c8ca5050c05195bc52594672772f3
 - **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。自动字幕时间按文本比例估算；公网视频站点和真实语音引擎未验。报告：`.tmp/evidence/task-39/final-retest-report.md`（媒体与书籍见 `final-report.md`）；截图：`.tmp/evidence/task-39/final-retest-web-default.png`、`.tmp/evidence/task-39/final-retest-native-default.png`、`.tmp/evidence/task-39/final-native-asr-follow.png`。
 - **Updated**: 2026-11-10
