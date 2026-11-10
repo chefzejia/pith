@@ -29,7 +29,7 @@
 
 ## [Task #38] Web 端系统主题对齐（干掉绿底色与卡片折行微瑕） & 统一播放控制底座（Unified Transport Dock：砍掉正文原生 `<audio>` 与 `A-B` 冗余、视频/音频/跟读单一进度条联动）
 
-- **Status**: pending
+- **Status**: in_progress
 - **Scope**: `src/shells/web/server.ts`, `src/plugins/stage-timeline/index.ts`, `src/workbench/view.ts`, `src/workbench/compass.ts`, `src/workbench/mediaAssets.ts`, `tests/**`
 - **授权范围**：允许修改 `src/shells/web/server.ts`、`src/plugins/stage-timeline/index.ts`、`src/workbench/view.ts`、`src/workbench/compass.ts`、`src/workbench/mediaAssets.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在音频时间轴舞台的正文中再渲染第二个 `<audio controls>` 播放器或 `"A-B 循环未设置"` 文本；严禁在底部播放底座保留晦涩的手动 `A-B` 按钮。
@@ -53,24 +53,33 @@
 
 ---
 
-## [Task #39] 长音视频跟读旅程闭环：`yt-dlp` 视频/音频双模态拉取 + 无字幕自动本地 ASR 转写生成 `.vtt` + 语义切片（`MediaCorpusSlice`）自动编排
+## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
 
-- **Status**: blocked
-- **阻塞证据**：所需 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 尚未出现在已提交核心接口中，仅存在于上游未提交改动；本单禁止修改 `src/core/`。详见 `.tmp/evidence/task-39/blocker-report.md`。上游提交接口与相关契约并重新置 pending 后恢复。
-- **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
-- **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/shells/web/server.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
-- **不在范围内**：严禁修改 `src/core/`。
-- **背景与参考代码**：开工前请阅读 [`docs/subsystems/4-guide-speech-shells.md`](subsystems/4-guide-speech-shells.md) 第 2.4 节与 `src/core/host.ts` 中的 `MediaCorpusSlice`、`MediaCorpusBundle` 接口定义。
+- **Status**: pending
+- **Updated**: 2026-11-10
+- **上游阻塞已解除说明**：`src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库。
+- **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `tests/**`
+- **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
+- **不在范围内**：严禁修改 `src/core/`；严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴。
+- **背景与参考代码**：开工前请阅读 [`docs/subsystems/3-dojos.md`](subsystems/3-dojos.md) 第 2.1 节与第 3 节、[`docs/subsystems/4-guide-speech-shells.md`](subsystems/4-guide-speech-shells.md) 第 2.4 节，以及 `src/core/host.ts` 中的 `MediaCorpusSlice`、`MediaCorpusBundle` 接口定义。
 - **接口与行为契约**：
-  1. **支持视频流（`.mp4/.webm`）与音频流拉取 + 无外挂字幕时自动调用 ASR 生成 `.vtt` 字幕（`src/shells/web/nodeMediaCorpus.ts` & 各 Shell）**：
+  1. **将 `interline` 工具正名为「行间」、砍掉顶栏 `"· 2"` 计数尾巴，并仅在非母语阅读（含网页/Blog 剪藏）时自动注入（`dojo-interline/index.ts` & `toolkitSlot.ts` & `compass.ts` & `view.ts` & `guide-acp/index.ts` & `tools.ts`）**：
+     - **品牌正名（`"行间双语"` $\rightarrow$ `"行间"`）**：`interline` 是 Pith 内嵌的「行间（Interline）」翻译产品，旨在为非母语阅读提供舒适的一行一翻译体验。将 `dojo-interline/index.ts`（`interlineToolkit.label`）、`toolkitSlot.ts`、`compass.ts`、`view.ts`、`guide-acp/index.ts` 中面向用户的工具名称统一简化为 **`"行间"`**；
+     - **砍掉令人费解的 `" · 2"` 数字后缀（`src/workbench/toolkitSlot.ts`）**：
+       - 此前 `toolkitSlot` 在 `ids.length > 1` 时拼接了 `` `${name} · ${ids.length}` ``，导致页面顶栏出现莫名其妙的 `"行间双语 · 2"` 或 `"费曼复述 · 2"`；
+       - 修改 `toolkitSlot` 为始终直接返回当前激活工具的干净名称 `text: ids.length ? name : ""`（不再拼接 ` · ${ids.length}`！同步更新 `tests/wave7-responsive-and-media-deck.test.ts` 等关联测试断言）；
+     - **非母语阅读（外文书籍 / 剪藏英文网页或 Blog）按需单独注入 `["interline"]`**：
+       - 在 `defaultToolkitsForMaterial`（`src/workbench/toolkitSlot.ts`）中：当判定为非母语文本（`foreign / characters.length >= 0.5`）时，**仅默认返回 `["interline"]`**（不再捆绑塞入 `"feynman"` 凑成两个工具）；母语阅读材料默认返回 `["feynman"]`（或不挂翻译工具）；
+       - 在 `pith_ingest_external`（`src/plugins/guide-acp/tools.ts`）或首页 Omnibox 输入公开网页/Blog URL 剪藏导入时：检测抓取到的文章正文（`bundle.files` 中的 Markdown 文本），若为非母语（如剪藏英文网页、英文 Blog），自动为该 Topic 注入 `"interline"` 工具，让用户点进剪藏的英文网页即可直接享受「行间」一行一译体验！
+  2. **支持视频流（`.mp4/.webm`）与音频流拉取 + 无外挂字幕时自动调用 ASR 生成 `.vtt` 字幕（`src/shells/web/nodeMediaCorpus.ts` & 各 Shell）**：
      - 升级 `NodeMediaCorpusPort`：
        - 在 `fetchMediaCorpus` 中支持提取轻量视频（如 `mp4/webm` $\le 25\text{MB}$）或音频轨（`m4a/mp3/webm/opus`）及 `.vtt` 字幕；
        - **无字幕自动 ASR 补齐**：允许在构造 `NodeMediaCorpusPort` 时注入可选的 `transcribeAudio?: (bytes: Uint8Array, mimeType: string, signal?: AbortSignal) => Promise<{ readonly text: string; readonly durationSec?: number }>` 回调（在 `server.ts` 与 `obsidian/index.ts` 中接入当前配置的 `speech.asr` 服务）；当 `yt-dlp` 下载了音视频文件但未能获取到 `.vtt` 字幕文件、且 `transcribeAudio` 可用时，自动调用 `transcribeAudio` 将音频转写为文本，并按自然句读切分生成带时间戳的标准 WebVTT 字幕文件（`<stem>.auto.vtt`）一并收入 `bundle.files`！
-  2. **自动按自然语义与时长（30~60s）生成原子跟读切片 `slices: MediaCorpusSlice[]`（`src/shells/web/nodeMediaCorpus.ts` & `src/plugins/guide-acp/tools.ts`）**：
+  3. **自动按自然语义与时长（30~60s）生成原子跟读切片 `slices: MediaCorpusSlice[]`（`src/shells/web/nodeMediaCorpus.ts` & `src/plugins/guide-acp/tools.ts`）**：
      - 新增导出纯函数 `buildMediaCorpusSlices(vttText: string, targetSliceSec = 45): MediaCorpusSlice[]`：
        - 解析 `.vtt` 中的时间轴字幕句，按自然句末标点与时长阈值（每段约 `25s ~ 60s`）将长音视频切分为有序的 `MediaCorpusSlice[]`（每项含 `id: "slice-1"`, `title: "片段 1 (00:00 - 00:42)"`, `startSec`, `endSec`, `cueCount`, `text`）；
      - `fetchMediaCorpus` 在拿到或生成 `.vtt` 后，自动调用 `buildMediaCorpusSlices` 计算并填充 `bundle.slices`；
      - 在 `pith_fetch_media_corpus`（`src/plugins/guide-acp/tools.ts`）执行时：
        - 除了将音视频与 `.vtt` 写入课题 `Material` 并自动挂载 `["shadowing"]` 外，若 `bundle.slices?.length` 非空，自动生成一份《`00-跟读切片导读.md`》（列出所有语义切片的时间区间、核心台词预览与跟读建议）写入该 `Material`；
        - 工具返回值中包含 `slices` 摘要，且在 `server.ts` / `obsidian/index.ts` 处理向导工具完成后，前端若检测到当前课题新增了 `.vtt` 字幕材料，自动打开该时间轴视图，让用户零摩擦开启影子跟读旅程！
-- **Worker 工程内环门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；新增单测与回归验证：1) `buildMediaCorpusSlices` 将长 VTT 字幕按语义与时长切分为 `MediaCorpusSlice[]`；2) 当 `yt-dlp` 仅返回音频无字幕时，自动通过注入的 `transcribeAudio`（ASR）生成 `.vtt` 字幕并切出 `slices`；3) `pith_fetch_media_corpus` 自动生成《`00-跟读切片导读.md`》、保存音视频+VTT 并挂载 `shadowing`；完成手动破壁验证并归档证据至 `.tmp/evidence/task-39/`。
+- **Worker 工程内环门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；新增单测与回归验证：1) `interline` 标签统一为 `"行间"`，顶栏无 `" · 2"` 后缀，非母语书籍或剪藏英文网页/Blog 自动挂载 `["interline"]` 而中文材料不挂载 `interline`；2) `buildMediaCorpusSlices` 将长 VTT 字幕按语义与时长切分为 `MediaCorpusSlice[]`；3) 当 `yt-dlp` 仅返回音频无字幕时，自动通过注入的 `transcribeAudio`（ASR）生成 `.vtt` 字幕并切出 `slices`；4) `pith_fetch_media_corpus` 自动生成《`00-跟读切片导读.md`》、保存音视频+VTT 并挂载 `shadowing`；完成手动破壁验证并归档证据至 `.tmp/evidence/task-39/`。
