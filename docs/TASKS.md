@@ -51,7 +51,9 @@
 
 ## [Task #37] 影子跟读（`shadowing`）聚光灯级交互重设计 & 砍掉通用打字框“语音输入”按钮（麦克风仅归属声学实训） & 内嵌托管 `yt-dlp` 声学语料搜索与拉取工具
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 59d285e813bd7eb97f6e294cd5b2d72bf071d48c
+- **验收摘要**：独立 Tester 在 Web 与隔离 Obsidian 按原契约验证四镜头、录音转写与漏词反馈、回听保存、原声慢放循环、搜索、已有材料追加和新材料绑定；实际打开字幕并播放新增音轨，保留原材料身份与讲义。报告：`.tmp/evidence/task-37/final-report.md`；截图：`.tmp/evidence/task-37/final-native-shadowing-light.png`、`.tmp/evidence/task-37/final-web-narrow-dark.png`、`.tmp/evidence/task-37/final-native-import-audio.png`。外部 ACP/ASR/yt-dlp 使用受控边界，官方二进制及真实公网下载、物理麦克风未验；可见取消入口为原任务范围外观察。磁盘字节断言审计整改 `a0f6442` 已独立闭环，见 `.tmp/evidence/audit-37/report.md`。
 - **Updated**: 2026-11-10
 - **上游阻塞已解除说明**：`src/core/store/contract.ts` 与 `WorkspaceStore.ts` 已新增并冻结 `store.appendMaterialFiles(materialId, files)`，支持向当前已有 `Material` 安全追加音轨与 `.vtt` 字幕文件并一致更新清单（同名冲突直接拒绝覆盖原始文件）。
 - **Scope**: `src/plugins/dojo-shadowing/**`, `src/plugins/guide-acp/**`, `src/workbench/view.ts`, `src/workbench/voiceInput.ts`, `src/shells/web/nodeMediaCorpus.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
