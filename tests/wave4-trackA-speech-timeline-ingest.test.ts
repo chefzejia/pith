@@ -83,11 +83,11 @@ test("prefetch reuses the requested sentence and cancels stale work", async () =
   await assert.rejects(waiting);
 });
 
-test("timeline escapes user text and retains cue anchors and loop status", () => {
+test("timeline escapes user text and retains cue anchors without native controls", () => {
   const html = renderTimelineView({ title: "<Title>", mediaKind: "video", cues: [{ id: 'x"', text: "<script>", startSec: 2, endSec: 4 }], activeCueId: 'x"', loopRange: { startSec: 2, endSec: 4 } });
   assert.match(html, /pith-timeline-stage/); assert.match(html, /data-media-kind="video"/);
   assert.match(html, /data-cue-id="x&quot;"/); assert.match(html, /data-locator="time:2" data-prose="true"/);
-  assert.match(html, /A 00:02 - B 00:04/); assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /A-B|controls|pith-loop-status|<script>/); assert.match(html, /<video class="pith-timeline-video"/);
 });
 
 test("external ingestion requires pinned transport and imports into a topic", async () => {

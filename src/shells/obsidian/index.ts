@@ -10,7 +10,7 @@ import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { NodeMediaCorpusPort } from "../web/nodeMediaCorpus.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType, importedMaterialKind, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
+import { audioContentType, videoContentType, importedMaterialKind, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
@@ -284,7 +284,7 @@ export class PithObsidianController {
     this.speechConfig = next.speech; this.speechProfiles = next.profiles;
     await this.refresh(); await this.save({ speech: this.speechConfig, speechProfiles: this.speechProfiles, speechSettingsVersion: 1 });
   }
-  async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !audioContentType(entry)) throw new Error("音频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }
+  async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !(audioContentType(entry) || videoContentType(entry))) throw new Error("音视频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }
   async renderMaterialFile(materialId: string, name: string) {
     const material = await this.store.getMaterial(materialId); const file = material && material.files.find(entry => entry.name === name);
     if (!material || !file) throw new Error("材料文件不存在");

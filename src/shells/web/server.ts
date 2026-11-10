@@ -10,7 +10,7 @@ import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import { NodeMediaCorpusPort } from "./nodeMediaCorpus.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
-import { audioContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
+import { audioContentType, videoContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
@@ -309,8 +309,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const material = await store.getMaterial(id);
         const entry = material && material.files.find(item => item.name === name);
         if (!entry) return send(res, 404, { error: "File not found" });
-        const mimeType = audioContentType(entry);
-        if (!mimeType) return send(res, 415, { error: "Not an audio file" });
+        const mimeType = audioContentType(entry) ?? videoContentType(entry);
+        if (!mimeType) return send(res, 415, { error: "Not an audio or video file" });
         const bytes = await storage.readBinary(`materials/${id}/files/${entry.name}`);
         const range = req.headers.range;
         const match = range && /^bytes=(\d*)-(\d*)$/.exec(range);
@@ -342,7 +342,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const media = isMediaFile(entry) && /^(audio|video)\//.test(entry.mimeType) ? entry : material.files.find(item => isMediaFile(item) && /^(audio|video)\//.test(item.mimeType));
           const mediaKind = media && media.mimeType.startsWith("video/") ? "video" : "audio";
           const mediaFile = media ? `/api/materials/${encodeURIComponent(material.id)}/file?name=${encodeURIComponent(media.name)}&raw=1` : undefined;
-          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaFile ? `<${mediaKind} controls src="${escape(mediaFile)}"></${mediaKind}>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
+          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaKind === "video" && mediaFile ? `<video class="pith-timeline-video" playsinline preload="metadata" src="${escape(mediaFile)}"></video>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-end-sec="${cue.endSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
           return send(res, 200, { text, html, sections: [] });
         }
         const reader = runtime.getService<StageReaderService>("stage.reader");
@@ -423,13 +423,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
 const APP = String.raw`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pith</title>
 <style>
-:root{color-scheme:light dark;--background-primary:#fff;--background-secondary:#f5f5f5;--background-modifier-border:#ddd;--background-modifier-hover:#eee;--text-normal:#222;--text-muted:#666;--text-faint:#999;--text-accent:#705dc7;--interactive-accent:#705dc7;--text-on-accent:#fff;--font-interface:system-ui,sans-serif}
-@media(prefers-color-scheme:dark){:root{--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#444;--background-modifier-hover:#333;--text-normal:#ddd;--text-muted:#aaa;--text-faint:#777;--text-accent:#a99bea;--interactive-accent:#7865c4;--text-on-accent:#fff}}
+:root{color-scheme:light dark;--background-primary:#ffffff;--background-secondary:#f6f6f7;--background-modifier-border:#e4e4e7;--background-modifier-hover:#ececef;--text-normal:#18181b;--text-muted:#71717a;--text-faint:#a1a1aa;--text-accent:#4e6a56;--interactive-accent:#4e6a56;--text-on-accent:#fff;--font-interface:system-ui,sans-serif;--pith-sage:#4e6a56;--pith-clay:#ad6548;--pith-serif:"Garden LXGW WenKai","LXGW WenKai","Songti SC","Noto Serif CJK SC","Source Han Serif SC","Iowan Old Style",Georgia,serif}
+@media(prefers-color-scheme:dark){:root{--background-primary:#18181b;--background-secondary:#202024;--background-modifier-border:#34343a;--background-modifier-hover:#2c2c32;--text-normal:#e4e4e7;--text-muted:#a1a1aa;--text-faint:#71717a;--text-accent:#9bbfa2;--interactive-accent:#58785e;--pith-sage:#9bbfa2;--pith-clay:#d88d70}}
 *{box-sizing:border-box}body{margin:0;background:var(--background-primary);color:var(--text-normal);font:15px/1.6 var(--font-interface)}button,input,textarea,select{font:inherit;color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--text-accent);outline-offset:2px}button:active{transform:scale(.97)}[hidden]{display:none!important}
 .button{background:transparent;border:1px solid var(--background-modifier-border);border-radius:5px;padding:7px 12px;min-height:38px}.button:hover{background:var(--background-modifier-hover)}
 @font-face{font-family:"Garden LXGW WenKai";src:url('/fonts/lxgw-wenkai.woff2') format('woff2');font-display:swap}
-:root{--background-primary:#f7f8f6;--background-secondary:#edf0ed;--background-modifier-border:#d5dcd6;--background-modifier-hover:#e1e9e2;--text-normal:#25322b;--text-muted:#5f6c63;--text-faint:#87938a;--text-accent:#4e6a56;--interactive-accent:#4e6a56;--pith-sage:#4e6a56;--pith-clay:#ad6548;--pith-serif:"Garden LXGW WenKai","LXGW WenKai","Songti SC","Noto Serif CJK SC","Source Han Serif SC","Iowan Old Style",Georgia,serif}
-@media(prefers-color-scheme:dark){:root{--background-primary:#202622;--background-secondary:#2a322d;--background-modifier-border:#455149;--background-modifier-hover:#35443a;--text-normal:#e0e8e1;--text-muted:#aebcb0;--text-faint:#829286;--text-accent:#9bbfa2;--interactive-accent:#58785e;--pith-sage:#9bbfa2;--pith-clay:#d88d70}}
 .drawer{position:fixed;top:44px;right:0;bottom:0;width:min(360px,100%);background:var(--background-secondary);border:1px solid var(--background-modifier-border);z-index:20;padding:20px;overflow:auto}.form{display:grid;gap:10px;padding:20px 0}.pith-toast-tip{position:fixed;z-index:30;left:50%;bottom:80px;transform:translateX(-50%);background:var(--background-secondary);border:1px solid var(--background-modifier-border);padding:8px 12px;color:var(--text-normal)}@media(max-width:800px){body>header{padding:0 10px;gap:6px}.crumb{display:none}.home{padding:25px 18px}.focus{align-items:flex-start;flex-direction:column}.focus .button{margin:0}}
 .drawer .form label{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;padding:4px 0}.drawer .form label input,.drawer .form label select{min-width:0;width:100%;max-width:100%}.drawer .pith-setting-control{display:inline-flex;align-items:center;justify-content:flex-end;gap:8px}.drawer .pith-setting-control select{width:auto;min-width:120px}.drawer #speech-runtime{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.drawer #speech-runtime[hidden]{display:none}.drawer .pith-runtime-title{display:flex;flex-direction:column;gap:4px}.drawer .pith-runtime-title small{color:var(--text-muted)}
 </style></head><body><main id="main"></main><aside class="drawer" id="drawer" hidden></aside><div class="pith-toast-tip" id="toast" role="status" hidden></div><script src="/app.js" defer></script></body></html>`;

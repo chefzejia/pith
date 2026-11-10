@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import test from "node:test";
+import { createPithWebServer } from "../src/shells/web/server.ts";
+import { testSandbox } from "./sandbox.ts";
+
+test("Web transport drives real video, cue targets and controlled speech", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+  const dir = await testSandbox("task38-transport-"); let browser: any, server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
+  try {
+    await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
+    const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
+    const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
+    const realVideo = process.env.PITH_TASK38_VIDEO; const video = await readFile(realVideo || "tests/fixtures/task38-video.webm"); const videoName = realVideo ? "clip.mp4" : "clip.webm", videoType = realVideo ? "video/mp4" : "video/webm";
+    const transcript = Buffer.from("WEBVTT\n\n00:00:00.000 --> 00:00:01.500\nFirst sentence.\n\n00:00:01.500 --> 00:00:03.500\nSecond sentence.\n");
+    const material = await post("/api/materials", { title: "Transport", kind: "media", files: [{ name: "clip.vtt", mimeType: "text/vtt", data: transcript.toString("base64") }, { name: videoName, mimeType: videoType, data: video.toString("base64") }] });
+    const topic = await post("/api/topics", { title: "Transport", materialId: material.id, toolkits: ["shadowing", "feynman", "interline"] });
+    const raw = await fetch(`${base}/api/materials/${material.id}/raw?name=${videoName}`); assert.equal(raw.headers.get("content-type"), videoType); assert.deepEqual(Buffer.from(await raw.arrayBuffer()), video);
+    const wav = Buffer.alloc(44 + 16000 * 2 * 8); wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" }); page.setDefaultTimeout(8000);
+    await page.route("**/api/speech/synthesize", (route: any) => route.fulfill({ status: 200, contentType: "audio/wav", body: wav }));
+    await page.addInitScript(() => { const play = HTMLMediaElement.prototype.play, revoke = URL.revokeObjectURL.bind(URL); (window as any).task38 = { players: [], revoked: [] }; HTMLMediaElement.prototype.play = function () { (window as any).task38.players.push(this); return play.call(this); }; URL.revokeObjectURL = url => { (window as any).task38.revoked.push(url); revoke(url); }; });
+    await page.goto(base); const evidence = resolve(".tmp/evidence/task-38"); await mkdir(evidence, { recursive: true });
+    const card = page.locator(`[data-topic="${topic.id}"]`).first(); await card.waitFor();
+    const date = card.locator("time"); assert.equal(await date.evaluate((node: HTMLElement) => { const top = node.parentElement!; top.style.width = "210px"; const range = document.createRange(); range.selectNodeContents(node); const rect = node.getBoundingClientRect(), label = top.querySelector<HTMLElement>(".pith-topic-status")!.getBoundingClientRect(); const fits = range.getClientRects().length === 1 && rect.right <= top.getBoundingClientRect().right && label.right <= rect.left; top.style.removeProperty("width"); return fits; }), true);
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--background-primary").trim()), "#ffffff");
+    await page.screenshot({ path: join(evidence, "web-light-cards.png") });
+    await card.click(); await page.locator(".pith-timeline-video").waitFor();
+    await page.waitForFunction(() => { const media = document.querySelector<HTMLVideoElement>(".pith-timeline-video"); return media && media.readyState >= 1 && Number.isFinite(media.duration); });
+    assert.equal(await page.locator("audio[controls],video[controls],.pith-loop-status,[data-media=loop]").count(), 0);
+    assert.equal(await page.locator(".pith-media-deck:visible").count(), 1); assert.equal(await page.locator(".pith-media-deck input[type=range]").count(), 1); assert.equal(await page.locator(".pith-deck-marker").count(), 2);
+    await page.locator('[data-media="play"]').click(); await page.waitForFunction(() => { const video = document.querySelector<HTMLVideoElement>("video")!; return !video.paused && video.currentTime > .05; });
+    await page.locator('[data-media="play"]').click(); assert.equal(await page.locator("video").evaluate((v: HTMLVideoElement) => v.paused), true);
+    await page.locator(".pith-cue").first().click(); await page.locator('[data-dojo-choose="shadowing"]').click(); await page.locator('.pith-deck-marker[data-cue-start="1.5"]').click();
+    assert.ok(Math.abs(await page.locator("video").evaluate((node: HTMLVideoElement) => node.currentTime) - 1.5) < .1);
+    assert.match(await page.locator(".pith-shadowing-spotlight [data-dojo-display]").textContent(), /Second sentence/);
+    assert.equal(await page.locator('.pith-cue[data-locator="time:1.5"]').evaluate((node: HTMLElement) => node.classList.contains("pith-speech-active")), true);
+    await page.screenshot({ path: join(evidence, "web-light-video.png") });
+    await page.emulateMedia({ colorScheme: "dark" }); assert.equal(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--background-primary").trim()), "#18181b"); await page.screenshot({ path: join(evidence, "web-dark-video.png") });
+    await page.locator('[data-dojo-close]').click(); await page.locator('[data-command="read"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-media="play"]')?.getAttribute("aria-label") === "暂停");
+    assert.equal(await page.locator(".pith-media-deck:visible").count(), 1); assert.equal(await page.locator(".pith-media-deck input[type=range]").count(), 1); assert.equal(await page.locator("video").evaluate((v: HTMLVideoElement) => v.paused), true);
+    await page.locator('[data-media="play"]').click(); await page.locator(".pith-media-seek").fill("3"); assert.ok(await page.evaluate(() => Math.abs((window as any).task38.players.at(-1).currentTime - 3) < .1));
+    await page.screenshot({ path: join(evidence, "web-dark-tts.png") }); const speechUrl = await page.evaluate(() => (window as any).task38.players.at(-1).src); await page.locator('[data-media="close"]').click(); assert.equal(await page.evaluate((url: string) => (window as any).task38.revoked.includes(url), speechUrl), true);
+    const videoUrl = await page.locator("video").evaluate((node: HTMLVideoElement) => node.src); await page.locator('[data-media="close"]').click(); assert.equal(await page.evaluate((url: string) => (window as any).task38.revoked.includes(url), videoUrl), true); assert.equal(await page.locator("video").getAttribute("src"), null);
+    await page.locator('[data-command="read"]').click(); await page.waitForFunction(() => { const video = document.querySelector<HTMLVideoElement>("video"); return video && video.readyState >= 1; }); assert.equal(await page.locator(".pith-media-deck:visible").count(), 1);
+  } finally { if (browser) await browser.close(); if (server) await new Promise<void>((ok, fail) => server!.close(error => error ? fail(error) : ok())); await rm(dir, { recursive: true, force: true }); }
+});

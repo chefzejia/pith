@@ -90,15 +90,15 @@ test("Obsidian uses one toolkit button and cue clicks seek without mounting a to
 });
 
 test("Obsidian media controls seek, change rate, close and reopen the deck", async () => {
-  const audio = { currentTime: 20, duration: 60, playbackRate: 1, pause() {} };
+  const audio = { currentTime: 20, duration: 60, playbackRate: 1, pause() {}, removeAttribute() {}, load() {} };
   const deck = { hidden: false };
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
-  Object.assign(view, { assetAudio: audio, mediaDeck: deck, speechRate: 1, speaking: false, root: { contains: () => true }, updateAssetControls() {} });
+  Object.assign(view, { assetAudio: audio, assetSource: { name: "clip.wav", type: "audio/wav" }, assetControls: { hidden: false }, mediaDeck: deck, speechRate: 1, speaking: false, root: { contains: () => true }, article: { querySelectorAll: () => [] }, renderCueMarkers() {}, updateAssetControls() {}, async loadAsset() { deck.hidden = false; } });
   const click = async (dataset: Record<string, string>) => { const button = { dataset, textContent: "", hasAttribute: () => false }; await (view.click as (event: unknown) => Promise<void>).call(view, { target: { closest: (selector: string) => selector === "button" ? button : null } }); return button; };
   await click({ media: "back" }); assert.equal(audio.currentTime, 5);
   await click({ media: "forward" }); assert.equal(audio.currentTime, 20);
   assert.equal((await click({ media: "rate" })).textContent, "1.25x"); assert.equal(audio.playbackRate, 1.25);
-  await click({ media: "close" }); assert.equal(deck.hidden, true);
+  await click({ media: "close" }); assert.equal(deck.hidden, true); assert.equal(view.assetAudio, null);
   await click({ command: "read" }); assert.equal(deck.hidden, false);
 });
 

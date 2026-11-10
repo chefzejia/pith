@@ -3,6 +3,7 @@ import type { MaterialFileEntry } from "../core/index.ts";
 const AUDIO_TYPES: Readonly<Record<string, string>> = {
   mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", ogg: "audio/ogg", aac: "audio/aac", flac: "audio/flac",
 };
+const VIDEO_TYPES: Readonly<Record<string, string>> = { mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" };
 
 export function isSourceTextFile(name: string): boolean {
   return /\.(?:md|markdown|txt|ts|tsx|js|jsx|mjs|cjs|py|rs|go|java|c|h|cc|cpp|hpp|cs|swift|kt|json|jsonl|yaml|yml|toml|sh|bash|zsh|css|html|xml|sql|rb|php|lua|r|abc)$/i.test(name);
@@ -21,4 +22,11 @@ export function audioContentType(file: Pick<MaterialFileEntry, "name" | "mimeTyp
   if (/^audio\/[a-z0-9.+-]+$/i.test(file.mimeType)) return file.mimeType.toLowerCase();
   const extension = /\.([a-z0-9]+)$/i.exec(file.name);
   return extension ? AUDIO_TYPES[extension[1]!.toLowerCase()] ?? null : null;
+}
+
+export function videoContentType(file: Pick<MaterialFileEntry, "name" | "mimeType">): string | null {
+  if (isSourceTextFile(file.name) || /^audio\//i.test(file.mimeType)) return null;
+  if (/^video\/[a-z0-9.+-]+$/i.test(file.mimeType)) return file.mimeType.toLowerCase();
+  const extension = /\.([a-z0-9]+)$/i.exec(file.name);
+  return extension ? VIDEO_TYPES[extension[1]!.toLowerCase()] ?? null : null;
 }
