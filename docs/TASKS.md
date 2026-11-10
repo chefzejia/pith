@@ -29,7 +29,10 @@
 
 ## [Task #35] 全仓统一线性 SVG 图标系统（干掉 Emoji/散装符号） & 首页极简无感 Omnibox 立项台 & 向导动作胶囊去重
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 093613baa44d5a863ddc236f31f466e0c243a7c0
+- **Updated**: 2026-11-10
+- **验收摘要**：独立 Tester 在真实 Web 与隔离 Obsidian 完成首轮及修复复验；四项仓库路径/目标/空态/动作缺陷修复通过，两轮不同 choices 仅保留最新组，无选项后恢复固定动作，文件单独导入直接阅读。终验报告及截图：`.tmp/evidence/task-35/final-retest-report.md`、`.tmp/evidence/task-35/final-retest-web-repo.png`、`.tmp/evidence/task-35/final-retest-native-lesson-actions.png`。
 - **Scope**: `src/workbench/**`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
 - **授权范围**：允许新建 `src/workbench/icons.ts`，允许修改 `src/workbench/compass.ts`、`src/workbench/view.ts`、`src/workbench/toolkitSlot.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/client.ts`、`src/shells/web/server.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在工作台按钮中残留 `🛠`、`🎧`、`🎙️`、`📁`、`✨`、`🔁`、`🔊`、`☰`、`⚙` 等 Emoji 或散装字符图标。
