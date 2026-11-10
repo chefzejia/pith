@@ -8,6 +8,7 @@ import type {
   GuideConversationEntry,
   GuideProvider,
   HttpPort,
+  MediaCorpusPort,
   RepositoryPort,
   DojoToolkitDescriptor,
   Material,
@@ -407,6 +408,7 @@ export interface LocalAcpGuideProviderOptions {
   readonly storage?: WorkspaceStoragePort;
   readonly http?: HttpPort;
   readonly repository?: RepositoryPort;
+  readonly mediaCorpus?: MediaCorpusPort;
   readonly getToolkits?: () => readonly DojoToolkitDescriptor[];
   readonly getAgentConfig: () => {
     readonly agentId: string;
@@ -486,8 +488,8 @@ export class LocalAcpGuideProvider implements GuideProvider {
       ...(activeRubric ? { activeRubric } : {}),
     });
 
-    const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage, this.options.http, this.options.repository);
-    const readNames = new Set(["pith_get_context", "pith_read_material_section", "pith_list_repository_files", "pith_read_repository_file"]);
+    const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage, this.options.http, this.options.repository, this.options.mediaCorpus, topic.id, signal);
+    const readNames = new Set(["pith_get_context", "pith_read_material_section", "pith_list_repository_files", "pith_read_repository_file", "pith_search_media"]);
     for (let turn = 0; turn < 4; turn++) {
       const result = await runOneShotAcpPrompt(promptText, {
         descriptor,

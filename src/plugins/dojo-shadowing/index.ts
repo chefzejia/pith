@@ -12,7 +12,7 @@ export function shadowingTokens(text: string): { text: string; start: number; en
 
 export function transformCue(text: string, stage: DojoScaffoldStage): string {
   if (stage === "guided-follow") return text;
-  if (stage === "blind-produce") return "••••••••";
+  if (stage === "blind-produce") return text;
   if (stage === "scaffold-cloze") return text.replace(functionWords, "___");
   if (stage !== "listen-decompose") throw new Error("Invalid scaffold stage");
   let words = 0;

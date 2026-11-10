@@ -8,6 +8,7 @@ import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeRepositoryPort } from "./nodeRepository.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
+import { NodeMediaCorpusPort } from "./nodeMediaCorpus.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
@@ -83,10 +84,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const processPort = new NodeAgentProcessPort();
   const repository = new NodeRepositoryPort();
   const http = new NodeHttpPort();
+  const mediaCorpus = new NodeMediaCorpusPort();
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
-  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
-  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
+  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;

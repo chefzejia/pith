@@ -1,4 +1,4 @@
-import type { AttentionEngine, GuideMcpToolSpec, HttpPort, RepositoryPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
+import type { AttentionEngine, GuideMcpToolSpec, HttpPort, MediaCorpusPort, RepositoryPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
@@ -26,7 +26,7 @@ function anchorValue(value: unknown): SelectionAnchor {
   return { file: text(anchor, "file", 500), locator: text(anchor, "locator", 300), ...(anchor.quote === undefined ? {} : { quote: text(anchor, "quote") }) };
 }
 
-export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort): readonly GuideMcpToolSpec[] {
+export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort, mediaCorpus?: MediaCorpusPort, activeTopicId?: string, signal?: AbortSignal): readonly GuideMcpToolSpec[] {
   const binding = async (input: Readonly<Record<string, unknown>>) => {
     const material = await store.getMaterial(text(input, "materialId", 200));
     if (!material || material.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository material is not bound to a commit");
@@ -40,6 +40,17 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
     return value;
   };
   return [
+    ...(mediaCorpus ? [{ name: "pith_search_media", description: "Search public audio and video for listening practice.", inputSchema: schema({ query: field, limit: { type: "integer", minimum: 1, maximum: 10 } }, ["query"]), async execute(input: Readonly<Record<string, unknown>>) {
+      keys(input, ["query", "limit"]); return mediaCorpus.searchMedia(text(input, "query", 500), integer(input, "limit"), signal);
+    } }, { name: "pith_fetch_media_corpus", description: "Import public audio and subtitles into the current topic and enable shadowing.", inputSchema: schema({ topicId: field, url: field, lang: field }, ["topicId", "url"]), async execute(input: Readonly<Record<string, unknown>>) {
+      keys(input, ["topicId", "url", "lang"]); const topicId = text(input, "topicId", 200); if (activeTopicId && topicId !== activeTopicId) throw new Error("Topic does not match current session"); const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found");
+      const bundle = await mediaCorpus.fetchMediaCorpus(text(input, "url", 4096), input.lang === undefined ? {} : { lang: text(input, "lang", 40) }, signal); signal?.throwIfAborted();
+      const current = await store.getTopic(topicId); if (!current || current.materialId !== topic.materialId) throw new Error("Topic material changed");
+      let material; if (current.materialId) { if (!store.appendMaterialFiles) throw new Error("Material append unavailable"); material = await store.appendMaterialFiles(current.materialId, bundle.files); } else { material = await store.importMaterial({ title: bundle.title, kind: "media", files: bundle.files }); }
+      const latest = await store.getTopic(topicId); if (!latest || latest.materialId !== current.materialId) throw new Error("Topic material changed");
+      const toolkits = [...new Set([...latest.toolkits, "shadowing"])]; await store.updateTopic(topicId, { ...(latest.materialId ? {} : { materialId: material.id }), toolkits });
+      return { material, warnings: bundle.warnings ?? [] };
+    } }] : []),
     ...(http ? [{ name: "pith_ingest_external", description: "Import a public external document or media into the workspace.", inputSchema: schema({ url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
       keys(input, ["url", "kind", "transcriptMarkdown", "topicId"]);
       const kind = input.kind;

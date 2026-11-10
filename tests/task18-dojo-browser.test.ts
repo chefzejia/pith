@@ -7,6 +7,7 @@ import { testSandbox } from "./sandbox.ts";
 import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { shadowingToolkit } from "../src/plugins/dojo-shadowing/index.ts";
 import { feynmanToolkit } from "../src/plugins/dojo-feynman/index.ts";
+import { installSyntheticVoice, recordSyntheticVoice } from "./task37-voice-fixture.ts";
 
 test("rubrics and alignment represent the two evaluation modes", () => {
   const result = shadowingToolkit.diagnose("one two one", "one one");
@@ -53,23 +54,24 @@ test("Obsidian dojo renders one input, anchored source and mode-specific actions
   try {
     const viewBundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
-    const page = await browser.newPage(); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: viewBundle.outputFiles[0]!.text });
+    const page = await browser.newPage(); await installSyntheticVoice(page, "One three four"); await page.route('http://localhost:31419/**', (route: any) => route.fulfill({ contentType: 'text/html', body: '<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>' })); await page.goto('http://localhost:31419/'); await page.addScriptTag({ content: viewBundle.outputFiles[0]!.text });
     const shadow = await build({ entryPoints: ["src/plugins/dojo-shadowing/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Shadow" });
     const feynman = await build({ entryPoints: ["src/plugins/dojo-feynman/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Feynman" });
     await page.addScriptTag({ content: shadow.outputFiles[0]!.text }); await page.addScriptTag({ content: feynman.outputFiles[0]!.text });
     await page.evaluate(() => {
       const state: any = (window as any).dojoTest = { calls: [] };
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo(text?: string, locator?: string) { state.view.openDojo([state.shadow, state.feynman], text, text === undefined ? undefined : { file: "dojo.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo(text?: string, locator?: string) { state.view.openDojo([state.shadow, state.feynman], text, text === undefined ? undefined : { file: "dojo.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), transcribeAudio: async () => ({ text: "One three four" }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
       state.view = view; document.body.append(view.guideElement()); view.render({ title: "Dojo", currentFile: "dojo.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
       state.shadow = (window as any).Shadow.shadowingToolkit; state.feynman = (window as any).Feynman.feynmanToolkit; view.openDojo([state.shadow, state.feynman]);
     });
-    await page.locator('[data-dojo-choose="shadowing"]').click(); assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
+    await page.locator('[data-dojo-choose="shadowing"]').click(); assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 0); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
     assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"]').count(), 1);
     assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 0);
-    await page.locator('[data-dojo-produced]').fill("One three four"); await page.locator('[data-dojo-diagnose]').click(); assert.equal(await page.locator('[data-dojo-display] mark').textContent(), "two");
-    await page.locator('[data-dojo-stage="blind-produce"]').click(); assert.equal(await page.locator('[data-dojo-display] mark').count(), 0); assert.match(await page.locator('[data-dojo-display]').textContent(), /••/);
+    await recordSyntheticVoice(page); assert.equal(await page.locator('[data-dojo-display] mark').textContent(), "two");
+    await page.locator('[data-dojo-stage="blind-produce"]').click(); assert.equal(await page.locator('[data-dojo-display] mark').count(), 0); assert.match(await page.locator('[data-dojo-display]').textContent(), /One two three four/);
     await page.evaluate(() => { const state: any = (window as any).dojoTest; state.view.openDojo([state.shadow, state.feynman]); state.view.openDojo([state.shadow, state.feynman]); });
     await page.locator('[data-dojo-choose="feynman"]').click(); assert.equal(await page.locator('.pith-dojo-source').isHidden(), true); assert.equal(await page.locator('[data-dojo-produced]').inputValue(), ""); await page.locator('[data-dojo-produced]').fill("Explain"); await page.locator('[data-dojo-submit]').click();
+    assert.equal(await page.locator('.pith-inline-dojo [data-voice]').count(), 0);
     assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="feynman"]').count(), 1);
     assert.equal(await page.locator('.pith-inline-dojo [data-dojo-stage]').count(), 0);
     await page.waitForFunction(() => (window as any).dojoTest.calls.length === 1); const call = await page.evaluate(() => (window as any).dojoTest.calls[0]); assert.equal(call.anchor.quote, "One two three four."); assert.equal(call.body, "Explain"); assert.match(call.rubric, /反例/); await page.locator(".pith-guide").waitFor({ state: "visible", timeout: 3000 });
@@ -100,16 +102,16 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
-    const page = await browser.newPage(); page.setDefaultTimeout(5000); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    const page = await browser.newPage(); page.setDefaultTimeout(5000); await installSyntheticVoice(page, "One three four"); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click();
     assert.equal(await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"]').count(), 1);
     assert.equal(await page.locator(".pith-dojo-panel textarea").count(), 0);
     await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("One two three four"));
-    assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 1); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
-    await page.locator("[data-dojo-produced]").fill("One three four"); await page.locator("[data-dojo-diagnose]").click();
+    assert.equal(await page.locator(".pith-inline-dojo textarea").count(), 0); assert.equal(await page.locator('[data-voice="dojo"]').count(), 1);
+    await recordSyntheticVoice(page);
     await page.locator("[data-dojo-display] mark").waitFor(); assert.equal(await page.locator("[data-dojo-display] mark").textContent(), "two");
     await page.locator('[data-dojo-stage="guided-follow"]').click();
-    await page.locator('[data-dojo-stage="blind-produce"]').click(); await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("••")); assert.equal(await page.locator("[data-dojo-display] mark").count(), 0);
+    await page.locator('[data-dojo-stage="blind-produce"]').click(); await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("One two three four")); assert.equal(await page.locator("[data-dojo-display] mark").count(), 0);
     await page.locator("#open-dojo").click(); await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
     assert.equal(await page.locator('[data-dojo-produced]').inputValue(), "");
     await page.locator("[data-dojo-produced]").fill("My explanation"); await page.locator("[data-dojo-submit]").click();

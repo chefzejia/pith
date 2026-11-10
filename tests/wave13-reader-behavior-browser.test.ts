@@ -146,7 +146,7 @@ test("Web subtitle cues anchor the mounted practice toolkit without mounting ano
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     await page.locator('[data-command="home"]').click(); await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"] [data-dojo-diagnose]').waitFor({ timeout: 5000 });
+    await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"] [data-voice="dojo"]').waitFor({ timeout: 5000 });
     assert.match(await page.locator(".pith-cue [data-dojo-display]").textContent(), /A spoken sentence/);
   } finally {
     if (browser) await browser.close();

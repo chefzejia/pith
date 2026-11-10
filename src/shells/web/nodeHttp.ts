@@ -10,7 +10,7 @@ const globalV6 = new BlockList();
 globalV6.addSubnet("2000::", 3, "ipv6");
 const reservedV6 = new BlockList();
 for (const [address, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20]] as const) reservedV6.addSubnet(address, prefix, "ipv6");
-function publicAddress(address: string, family: number): boolean {
+export function publicAddress(address: string, family: number): boolean {
   if (family === 4 && isIP(address) === 4) return isPublicHttpUrl(`http://${address}`);
   return family === 6 && isIP(address) === 6 && globalV6.check(address, "ipv6") && !reservedV6.check(address, "ipv6");
 }

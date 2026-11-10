@@ -76,7 +76,7 @@ test("web dojo API defaults to shadowing and validates explicit toolkit", async 
     const created = await post("/api/topics", { title: "理解" }); assert.equal(created.status, 201); const topic = await created.json();
     assert.equal((await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] })).status, 200);
     const data = { topicId: topic.id, targetText: "A useful concept", stage: "blind-produce" };
-    const old = await post("/api/dojo/transform", data); assert.equal(old.status, 200); assert.equal((await old.json()).text, "••••••••");
+    const old = await post("/api/dojo/transform", data); assert.equal(old.status, 200); assert.equal((await old.json()).text, "A useful concept");
     const modern = await post("/api/dojo/transform", { ...data, toolkit: "feynman" }); assert.equal(modern.status, 200); assert.match((await modern.json()).text, /解释/);
     assert.equal((await post("/api/dojo/transform", { ...data, toolkit: "invalid" })).status, 400);
   } finally { if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }

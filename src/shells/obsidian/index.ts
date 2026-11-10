@@ -8,6 +8,7 @@ import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
+import { NodeMediaCorpusPort } from "../web/nodeMediaCorpus.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
 import { audioContentType, importedMaterialKind, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
@@ -170,7 +171,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
   }
   const unavailable = rootError;
   const speechRuntime = unavailable ? { getState: async () => ({ supported: false, status: "not-installed" as const, note: unavailable }) } : new NodeManagedSpeechRuntime(protectedRoot ? { protectedRoot } : { home: join(homedir(), "Library", "Application Support", "pith", "speech") });
-  return { id: "obsidian", storage, repository: new NodeRepositoryPort(), http: new NodeHttpPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
+  return { id: "obsidian", storage, repository: new NodeRepositoryPort(), http: new NodeHttpPort(), mediaCorpus: new NodeMediaCorpusPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -217,7 +218,7 @@ export class PithObsidianController {
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
-    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();

@@ -50,7 +50,7 @@ test("four-stage scaffolding, Unicode LCS, and contextual guide actions", () => 
   assert.match(cloze, /that's ___ ___ table/);
   assert.equal(transformCue(text, "guided-follow"), text);
   assert.match(transformCue(text, "listen-decompose"), /book, \/ /);
-  assert.notEqual(transformCue(text, "blind-produce"), text);
+  assert.equal(transformCue(text, "blind-produce"), text);
   const result = diagnose("Café × and it's a good day", "Cafe\u0301 and it's day");
   assert.deepEqual(result.missedTokens, ["a", "good"]);
   assert.deepEqual(result.matchedTokens, ["Café", "and", "it's", "day"]);
