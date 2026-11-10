@@ -55,7 +55,8 @@
 
 ## [Task #39] 长音视频跟读旅程闭环：`yt-dlp` 视频/音频双模态拉取 + 无字幕自动本地 ASR 转写生成 `.vtt` + 语义切片（`MediaCorpusSlice`）自动编排
 
-- **Status**: pending
+- **Status**: blocked
+- **阻塞证据**：所需 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 尚未出现在已提交核心接口中，仅存在于上游未提交改动；本单禁止修改 `src/core/`。详见 `.tmp/evidence/task-39/blocker-report.md`。上游提交接口与相关契约并重新置 pending 后恢复。
 - **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
 - **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/shells/web/server.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`。
