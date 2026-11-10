@@ -64,7 +64,7 @@
 - **Updated**: 2026-11-10
 - **上游阻塞已解除说明**：`src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库。
 - **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `tests/**`
-- **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts` 及 `tests/**`。
+- **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts`、`src/core/` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴。
 - **背景与参考代码**：开工前请阅读 [`docs/subsystems/3-dojos.md`](subsystems/3-dojos.md) 第 2.1 节与第 3 节、[`docs/subsystems/4-guide-speech-shells.md`](subsystems/4-guide-speech-shells.md) 第 2.4 节，以及 `src/core/host.ts` 中的 `MediaCorpusSlice`、`MediaCorpusBundle` 接口定义。
 - **接口与行为契约**：
