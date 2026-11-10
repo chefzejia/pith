@@ -423,6 +423,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     let currentFile = material?.files[0]?.name || "";
     let interlineSession: { file: string; signature: string; session: InterlineSession } | undefined;
     let renderGeneration = 0;
+    let materialGeneration = 0;
     let lessonRequest: number | null = null;
     const dojos = (): DojoToolkitDescriptor[] => ["shadowing", "feynman", "interline"].flatMap(id => { const service = this.controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [service] : []; });
     const render = async (name: string): Promise<void> => {
@@ -448,12 +449,19 @@ export class PithWorkspaceView extends obsidian.ItemView {
           if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id);
           if (generation !== this.generation || request !== renderGeneration) return;
           await this.controller.engine.sendMessage({ topicId: topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` });
-          if (generation !== this.generation || request !== renderGeneration) return;
+          if (generation !== this.generation) return;
+          const refresh = ++materialGeneration;
           const updated = await this.controller.store.getTopic(topic.id);
           const next = updated?.materialId ? await this.controller.store.getMaterial(updated.materialId) : null;
-          if (generation !== this.generation || request !== renderGeneration) return;
+          if (generation !== this.generation || refresh !== materialGeneration) return;
+          if (next) {
+            const outline = next.files.some(file => file.name === "00-课程大纲.md") ? await this.host.storage.readText(`materials/${next.id}/files/00-课程大纲.md`) : undefined;
+            if (generation !== this.generation || refresh !== materialGeneration) return;
+            material = next; originatingView.updateMaterialNavigation(next.files, outline !== undefined ? parseCurriculumOutline(outline, next.files.map(file => file.name)) : undefined);
+          }
+          if (request !== renderGeneration) return;
           if (!next || !next.files.some(file => file.name === name)) throw new Error(`讲义未保存：${name}`);
-          material = next; opening = true; await render(name); await originatingView.refreshGuide();
+          opening = true; await render(name); await originatingView.refreshGuide();
         } catch (error) {
           if (generation !== this.generation || renderGeneration !== request + (opening ? 1 : 0)) return;
           if (previous) await render(previous);

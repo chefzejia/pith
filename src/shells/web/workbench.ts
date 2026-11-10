@@ -30,6 +30,7 @@ export class WebWorkbench {
   private material: Material | undefined;
   private file = "";
   private generation = 0;
+  private materialGeneration = 0;
   private lessonRequest: number | null = null;
   private disposed = false;
 
@@ -130,13 +131,19 @@ export class WebWorkbench {
     this.view.showLessonLoading(title); this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true);
     try {
       await this.options.request("/api/chat", { topicId: this.options.topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` });
-      if (this.disposed || request !== this.generation) return;
+      const refresh = ++this.materialGeneration;
       const state = await this.options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] }; materials: readonly Material[] }>("/api/state");
-      if (this.disposed || request !== this.generation) return;
+      if (this.disposed || refresh !== this.materialGeneration) return;
       const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === this.options.topic.id);
       const material = state.materials.find(item => item.id === topic?.materialId);
+      if (material) {
+        const outline = material.files.some(file => file.name === "00-课程大纲.md") ? await this.options.request<DocumentData>(`/api/materials/file?id=${encodeURIComponent(material.id)}&name=${encodeURIComponent("00-课程大纲.md")}`) : undefined;
+        if (this.disposed || refresh !== this.materialGeneration) return;
+        this.material = material; this.view.updateMaterialNavigation(material.files, outline ? parseCurriculumOutline(outline.text || "", material.files.map(file => file.name)) : undefined);
+      }
+      if (request !== this.generation) return;
       if (!material || !material.files.some(file => file.name === name)) throw new Error(`讲义未保存：${name}`);
-      this.material = material; opening = true; await this.openFile(name);
+      opening = true; await this.openFile(name);
     } catch (error) {
       if (this.disposed || this.generation !== request + (opening ? 1 : 0)) return;
       if (previous) await this.openFile(previous);

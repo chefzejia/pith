@@ -56,6 +56,7 @@ body.theme-dark .pith-view{--pith-sage:#9bbfa2;--pith-clay:#d88d70}
 .pith-view[data-sheet-mode="split-right"] .pith-guide{position:static;width:auto}
 .pith-view[data-sheet-mode="overlay-drawer"] .pith-guide{position:absolute;top:0;right:0;bottom:0;width:min(320px,100%);z-index:6}
 .pith-view[data-sheet-mode="bottom-sheet"] .pith-guide{position:absolute;left:0;right:0;top:auto;bottom:0;width:100%;max-height:75%;z-index:10;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-stage:has(.pith-left-drawer:not([hidden])),.pith-view[data-sheet-mode="overlay-drawer"] .pith-stage:has(.pith-left-drawer:not([hidden])){z-index:11}
 .pith-view .pith-dojo-panel{top:100%;margin-top:4px;right:8px;bottom:auto;max-height:calc(100vh - 120px)}.pith-reader.pith-paged .pith-epub-chapter + .pith-epub-chapter{break-before:column}
 .pith-view[data-hit-target="44"] .pith-view-header button,.pith-view[data-hit-target="44"] .pith-media-deck button{min-width:44px;min-height:44px}
 .pith-view-header #open-dojo:not(.pith-dojo-add){flex:0 1 auto;min-width:34px;max-width:180px;color:var(--pith-sage);background:var(--background-secondary);border-radius:6px}
@@ -242,6 +243,8 @@ export class PithWorkbenchView {
   private guideGeneration = 0;
   private pendingAnchor: SelectionAnchor | undefined;
   private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideConversationEntry[]; actions: readonly GuideQuickAction[] } = { notes: [], conversation: [], actions: [] };
+  private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
+  private guideSending = false;
   private dojos: readonly DojoToolkitDescriptor[] = [];
   private mountedToolkits: readonly string[] = [];
   private configuredToolkits: readonly string[] = [];
@@ -349,6 +352,23 @@ export class PithWorkbenchView {
     this.article.innerHTML = document.html;
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
+    this.navigationDocument = document;
+    this.renderNavigation(document);
+    this.closeNavigation();
+    this.markExisting(); this.applyPageMode();
+    const active = this.doc.activeElement;
+    if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
+    const asset = document.files.find(file => audioContentType({ name: file.name, mimeType: file.mimeType ?? "" }));
+    if (asset && this.actions.loadAudio) { const generation = this.assetGeneration; const load = this.actions.loadAudio; void load(asset.name).then(bytes => { if (this.disposed || generation !== this.assetGeneration) return; const type = audioContentType({ name: asset.name, mimeType: asset.mimeType ?? "" }); if (!type) return; this.assetUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type })); const audio = this.doc.createElement("audio"); this.assetAudio = audio; audio.src = this.assetUrl; audio.playbackRate = this.speechRate; audio.addEventListener("timeupdate", () => this.updateAssetControls()); audio.addEventListener("loadedmetadata", () => this.updateAssetControls()); audio.addEventListener("play", () => this.updateAssetControls()); audio.addEventListener("pause", () => { if (audio.paused && this.cueRange?.audio === audio) this.stopCuePlayback(); this.updateAssetControls(); }); audio.addEventListener("ended", () => { if (this.cueRange?.audio === audio) this.stopCuePlayback(); }); audio.addEventListener("error", () => this.tip("音频播放失败")); this.assetControls.hidden = false; this.mediaDeck.hidden = false; this.updateAssetControls(); }).catch(error => { if (!this.disposed && generation === this.assetGeneration) this.tip(error instanceof Error ? error.message : String(error)); }); }
+  }
+
+  updateMaterialNavigation(files: ObsidianReaderDocument["files"], curriculum: ObsidianReaderDocument["curriculum"]): void {
+    if (!this.navigationDocument || this.disposed) return;
+    this.navigationDocument = { ...this.navigationDocument, files, curriculum };
+    this.renderNavigation(this.navigationDocument);
+  }
+
+  private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile">): void {
     this.navigation.replaceChildren();
     const group = (label: string): void => { const heading = this.doc.createElement("h2"); heading.textContent = label; this.navigation.append(heading); };
     const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
@@ -367,12 +387,6 @@ export class PithWorkbenchView {
       group("材料"); for (const file of document.files) { const button = this.doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.setAttribute("aria-current", String(file.name === document.currentFile)); this.navigation.append(button); }
       group("目录"); renderTocTree(this.navigation, document.sections, navigate, pithIcon("chevron-right"));
     }
-    this.closeNavigation();
-    this.markExisting(); this.applyPageMode();
-    const active = this.doc.activeElement;
-    if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
-    const asset = document.files.find(file => audioContentType({ name: file.name, mimeType: file.mimeType ?? "" }));
-    if (asset && this.actions.loadAudio) { const generation = this.assetGeneration; const load = this.actions.loadAudio; void load(asset.name).then(bytes => { if (this.disposed || generation !== this.assetGeneration) return; const type = audioContentType({ name: asset.name, mimeType: asset.mimeType ?? "" }); if (!type) return; this.assetUrl = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type })); const audio = this.doc.createElement("audio"); this.assetAudio = audio; audio.src = this.assetUrl; audio.playbackRate = this.speechRate; audio.addEventListener("timeupdate", () => this.updateAssetControls()); audio.addEventListener("loadedmetadata", () => this.updateAssetControls()); audio.addEventListener("play", () => this.updateAssetControls()); audio.addEventListener("pause", () => { if (audio.paused && this.cueRange?.audio === audio) this.stopCuePlayback(); this.updateAssetControls(); }); audio.addEventListener("ended", () => { if (this.cueRange?.audio === audio) this.stopCuePlayback(); }); audio.addEventListener("error", () => this.tip("音频播放失败")); this.assetControls.hidden = false; this.mediaDeck.hidden = false; this.updateAssetControls(); }).catch(error => { if (!this.disposed && generation === this.assetGeneration) this.tip(error instanceof Error ? error.message : String(error)); }); }
   }
 
   guideElement(): HTMLElement { return this.guide; }
@@ -424,6 +438,9 @@ export class PithWorkbenchView {
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
   quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
   private renderGuide(): void {
+    const previousInput = this.guide.querySelector<HTMLTextAreaElement>("textarea");
+    const draft = previousInput?.value ?? "";
+    const selection = previousInput && this.doc.activeElement === previousInput ? { start: previousInput.selectionStart, end: previousInput.selectionEnd, direction: previousInput.selectionDirection } : null;
     this.voice.cancel("guide");
     const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     const latest = this.guideData.conversation.findLast(entry => entry.role === "guide");
@@ -431,6 +448,9 @@ export class PithWorkbenchView {
     const conversation = this.guideData.conversation.map(entry => `<p><strong>${entry.role === "user" ? "你" : "向导"}</strong><br>${escape(displayPracticeMessage(entry.text))}</p>${entry === latest ? choices.map((choice, index) => `<button class="pith-choice-btn" data-guide-prompt="${escape(choice)}"><span>${index + 1}.</span> ${escape(choice)}</button>`).join("") : ""}`).join("");
     const quick = choices.length ? "" : `<div class="pith-quick-actions">${this.guideData.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}">${escape(action.label)}</button>`).join("")}</div>`;
     this.guide.innerHTML = `<div class="pith-guide-tabs"><button data-guide-tab="chat" aria-pressed="${this.guideTab === "chat"}">对话</button><button data-guide-tab="notes" aria-pressed="${this.guideTab === "notes"}">笔记 ${this.guideData.notes.length}</button></div><div class="pith-guide-content">${this.guideTab === "chat" ? conversation + quick : this.guideData.notes.map(note => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" title="跳回原文"><strong>${escape(note.kind)}</strong><br>${escape(note.body)}</button>` : `<p><strong>${escape(note.kind)}</strong><br>${escape(note.body)}</p>`).join("")}</div><div class="pith-guide-compose"><blockquote>${this.pendingAnchor && this.pendingAnchor.quote ? escape(this.pendingAnchor.quote) : ""}</blockquote><textarea aria-label="消息"></textarea><button type="button" data-voice="guide" aria-pressed="false">${pithIcon("mic")} 语音输入</button><div data-guide-error role="alert"></div><button data-guide-send>发送</button></div>`;
+    const input = this.guide.querySelector<HTMLTextAreaElement>("textarea")!; input.value = draft;
+    const send = this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")!; send.disabled = this.guideSending;
+    if (selection) { input.focus({ preventScroll: true }); input.setSelectionRange(selection.start, selection.end, selection.direction); }
   }
   openDojo(dojos: readonly DojoToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
     this.dojos = dojos;
@@ -605,7 +625,7 @@ export class PithWorkbenchView {
     if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
     if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) { input.value = button.dataset.guidePrompt; input.focus(); } return; }
-    if (button.hasAttribute("data-guide-send")) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), errorBox = this.guide.querySelector<HTMLElement>("[data-guide-error]"); if (!input || !input.value.trim() || !this.actions.sendGuide) return; if (errorBox) errorBox.textContent = ""; button.disabled = true; try { await this.actions.sendGuide(input.value.trim(), this.pendingAnchor, this.guideTab === "notes"); this.pendingAnchor = undefined; await this.refreshGuide(); } catch (error) { if (errorBox && errorBox.isConnected) errorBox.textContent = error instanceof Error ? error.message : String(error); if (button.isConnected) button.disabled = false; } return; }
+    if (button.hasAttribute("data-guide-send")) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), errorBox = this.guide.querySelector<HTMLElement>("[data-guide-error]"); if (!input || !input.value.trim() || !this.actions.sendGuide || this.guideSending) return; const message = input.value, anchor = this.pendingAnchor; input.value = ""; this.pendingAnchor = undefined; if (errorBox) errorBox.textContent = ""; this.guideSending = true; button.disabled = true; try { await this.actions.sendGuide(message.trim(), anchor, this.guideTab === "notes"); await this.refreshGuide(); } catch (error) { const current = this.guide.querySelector<HTMLTextAreaElement>("textarea"), currentError = this.guide.querySelector<HTMLElement>("[data-guide-error]"); if (current && !current.value) { current.value = message; this.pendingAnchor = anchor; } if (currentError) currentError.textContent = error instanceof Error ? error.message : String(error); } finally { this.guideSending = false; const send = this.guide.querySelector<HTMLButtonElement>("[data-guide-send]"); if (send) send.disabled = false; } return; }
     if (button.dataset.dojoStage || button.hasAttribute("data-dojo-diagnose") || button.hasAttribute("data-dojo-save") || button.hasAttribute("data-dojo-submit")) {
       try {
         this.readDojo(); const toolkit = this.dojos.find(item => item.id === this.dojoId); if (!toolkit) throw new Error("工坊不可用");

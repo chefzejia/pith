@@ -178,11 +178,11 @@ export function parseCurriculumOutline(outlineMarkdown: string, existingFiles: r
     const list = /^\s*(?:[-*+]\s+|\d+[.)、]\s*)/.exec(line);
     if (!list) continue;
     const text = line.slice(list[0].length).trim();
-    const link = /^\[([^\]]+)\]\(([^)]+\.md)(?:\s+"[^"]*")?\)(.*)$/i.exec(text);
+    const link = /^\[([^\]]+)\]\(([^)]+?\.md(?:#[^\s)]*)?)(?:\s+"[^"]*")?\)(.*)$/i.exec(text);
     const bracket = /^\[([^\]/\\]+\.md)\]\s*(.*)$/i.exec(text);
     const plain = /^([^\s\[\]/\\]+\.md)(?:\s+|$)(.*)$/i.exec(text);
-    const fileName = (link ? link[2] : bracket ? bracket[1] : plain?.[1])?.trim();
-    if (!fileName || fileName === "00-课程大纲.md" || /[/\\\x00-\x1f]/.test(fileName) || seen.has(fileName)) continue;
+    const fileName = (link ? link[2]?.split("#", 1)[0]?.replace(/^\.\//, "") : bracket ? bracket[1] : plain?.[1])?.trim();
+    if (!fileName || fileName === "00-课程大纲.md" || /[/\\\x00-\x1f<>:"|?*]/.test(fileName) || fileName.startsWith(".") || seen.has(fileName)) continue;
     const title = (link ? `${link[1]}${link[3]}` : bracket ? bracket[2] : plain?.[2])?.trim().replace(/^[-—:：\s]+/, "") || fileName;
     seen.add(fileName); items.push({ fileName, title, status: existingFiles.includes(fileName) ? "ready" : "planned" });
   }
