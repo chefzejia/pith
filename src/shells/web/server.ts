@@ -11,7 +11,7 @@ import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
 import { NodeMediaCorpusPort } from "./nodeMediaCorpus.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
-import { audioContentType, videoContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
+import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
@@ -338,15 +338,13 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (material && isMediaFile(entry)) {
           const timeline = runtime.getService<StageTimelineService>("stage.timeline");
           if (!timeline) return send(res, 503, { error: "Timeline unavailable" });
-          const transcript = /\.(vtt|srt)$/i.test(file) ? entry : material.files.find(item => /\.(vtt|srt)$/i.test(item.name));
+          const { media, transcript } = resolveMediaPair(material.files, file);
           const text = transcript ? await storage.readText(`materials/${id}/files/${transcript.name}`) : "";
           const cues = timeline.parseTranscript(text);
           const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-          const media = isMediaFile(entry) && /^(audio|video)\//.test(entry.mimeType) ? entry : material.files.find(item => isMediaFile(item) && /^(audio|video)\//.test(item.mimeType));
-          const mediaKind = media && media.mimeType.startsWith("video/") ? "video" : "audio";
-          const mediaFile = media ? `/api/materials/${encodeURIComponent(material.id)}/file?name=${encodeURIComponent(media.name)}&raw=1` : undefined;
-          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind, ...(mediaFile ? { mediaFile } : {}) }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaKind === "video" && mediaFile ? `<video class="pith-timeline-video" playsinline preload="metadata" src="${escape(mediaFile)}"></video>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-end-sec="${cue.endSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
-          return send(res, 200, { text, html, sections: [] });
+          const mediaKind = media && videoContentType(media) ? "video" : "audio";
+          const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${mediaKind === "video" ? `<video class="pith-timeline-video" playsinline preload="metadata"></video>` : ""}${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-end-sec="${cue.endSec}" data-prose="true"><time data-prose="false">${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
+          return send(res, 200, { text, html, sections: [], mediaFile: media?.name ?? null });
         }
         const reader = runtime.getService<StageReaderService>("stage.reader");
         if (!reader) return send(res, 503, { error: "Reader unavailable" });

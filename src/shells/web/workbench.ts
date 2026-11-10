@@ -7,7 +7,7 @@ import type { InterlineViewUnit } from "../../plugins/dojo-interline/index.ts";
 import { emptyMaterialHtml } from "../../workbench/repositoryIntake.ts";
 import { parseCurriculumOutline } from "../../plugins/stage-reader/pagination.ts";
 
-type DocumentData = Pick<RenderedDocumentView, "html" | "sections"> & { text?: string; format?: RenderedDocumentView["format"] };
+type DocumentData = Pick<RenderedDocumentView, "html" | "sections"> & { text?: string; format?: RenderedDocumentView["format"]; mediaFile?: string | null };
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
 
 export interface WebWorkbenchOptions {
@@ -100,7 +100,7 @@ export class WebWorkbench {
     const outline = material.files.some(file => file.name === "00-课程大纲.md") ? name === "00-课程大纲.md" ? data : await this.options.request<DocumentData>(fileUrl("00-课程大纲.md")) : undefined;
     if (this.disposed || request !== this.generation) return;
     this.file = name;
-    this.view.render({ title: this.options.topic.title, html: data.html, sections: data.sections, files: material.files, currentFile: name, format: data.format, ...(outline ? { curriculum: parseCurriculumOutline(outline.text || "", material.files.map(file => file.name)) } : {}) });
+    this.view.render({ title: this.options.topic.title, html: data.html, sections: data.sections, files: material.files, currentFile: name, format: data.format, ...(data.mediaFile !== undefined ? { mediaFile: data.mediaFile } : {}), ...(outline ? { curriculum: parseCurriculumOutline(outline.text || "", material.files.map(file => file.name)) } : {}) });
     await this.view.refreshGuide();
   }
 

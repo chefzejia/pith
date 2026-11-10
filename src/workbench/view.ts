@@ -3,7 +3,7 @@ import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, pro
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
 import * as readerFont from "../plugins/stage-reader/lxgwWenKaiData.ts";
-import { audioContentType, videoContentType } from "./mediaAssets.ts";
+import { audioContentType, videoContentType, resolveMediaPair } from "./mediaAssets.ts";
 import { effectiveToolkits, toolkitSlot } from "./toolkitSlot.ts";
 import { InterlineView, preserveInterlinePosition, type InterlineViewPrepare } from "../plugins/dojo-interline/index.ts";
 import { VoiceInput } from "./voiceInput.ts";
@@ -95,6 +95,7 @@ export interface ObsidianReaderDocument {
   readonly html: string;
   readonly files: readonly { name: string; mimeType?: string }[];
   readonly currentFile: string;
+  readonly mediaFile?: string | null;
   readonly format?: "markdown" | "epub" | "pdf" | "cbz" | "image";
   readonly sections: readonly ReaderSectionHeading[];
   readonly curriculum?: readonly CurriculumItem[];
@@ -369,7 +370,7 @@ export class PithWorkbenchView {
     const active = this.doc.activeElement;
     if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const typeOf = (file: ObsidianReaderDocument["files"][number]) => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name: file.name, mimeType: file.mimeType ?? "" });
-    const asset = document.files.find(file => file.name === document.currentFile && typeOf(file)) ?? document.files.find(file => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" })) ?? document.files.find(file => typeOf(file));
+    const asset = document.mediaFile === undefined ? resolveMediaPair(document.files, document.currentFile).media : document.files.find(file => file.name === document.mediaFile) ?? null;
     const video = this.article.querySelector<HTMLVideoElement>(".pith-timeline-video"); if (video) video.removeAttribute("src");
     if (asset && this.actions.loadAudio) { const type = typeOf(asset); if (type) { this.assetSource = { name: asset.name, type }; void this.loadAsset(); } }
   }

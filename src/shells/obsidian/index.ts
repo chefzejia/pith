@@ -11,7 +11,7 @@ import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { NodeMediaCorpusPort } from "../web/nodeMediaCorpus.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType, videoContentType, importedMaterialKind, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
+import { audioContentType, videoContentType, importedMaterialKind, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
@@ -293,11 +293,13 @@ export class PithObsidianController {
     const bytes = await this.host.storage.readBinary(`materials/${material.id}/files/${file.name}`);
     if (isMediaFile(file)) {
       const timeline = this.runtime.getService<StageTimelineService>("stage.timeline"); if (!timeline) throw new Error("时间轴不可用");
-      const transcript = /\.(vtt|srt)$/i.test(name) ? bytes : await (async () => { const entry = material.files.find(item => /\.(vtt|srt)$/i.test(item.name)); return entry ? this.host.storage.readBinary(`materials/${material.id}/files/${entry.name}`) : new Uint8Array(); })();
+      const pair = resolveMediaPair(material.files, name);
+      const transcript = pair.transcript ? pair.transcript.name === name ? bytes : await this.host.storage.readBinary(`materials/${material.id}/files/${pair.transcript.name}`) : new Uint8Array();
       const cues = timeline.parseTranscript(new TextDecoder().decode(transcript));
       const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-      const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time>${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
-      return { title: material.title, html, sections: [] };
+      const mediaKind = pair.media && videoContentType(pair.media) ? "video" : "audio";
+      const html = timeline.renderTimelineView ? timeline.renderTimelineView({ title: material.title, cues, mediaKind }) : `<section class="pith-timeline-stage"><h1>${escape(material.title)}</h1>${cues.map(cue => `<div class="pith-cue" data-cue-id="${escape(cue.id)}" data-locator="time:${cue.startSec}" data-prose="true"><time>${timeline.formatTimestamp(cue.startSec)}</time> ${escape(cue.text)}</div>`).join("")}</section>`;
+      return { title: material.title, html, sections: [], mediaFile: pair.media?.name ?? null };
     }
     const reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
     return reader.renderFile(isSourceTextFile(file.name) ? { ...file, mimeType: "text/plain" } : file, bytes);
@@ -436,7 +438,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       if (!material) throw new Error("材料不存在");
       const document = await this.controller.renderMaterialFile(material.id, name);
       const outline = material.files.some(file => file.name === "00-课程大纲.md") ? await this.host.storage.readText(`materials/${material.id}/files/00-课程大纲.md`) : undefined;
-      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections, ...(outline !== undefined ? { curriculum: parseCurriculumOutline(outline, material.files.map(file => file.name)) } : {}), ...("format" in document ? { format: document.format } : {}) }); }
+      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections, ...("mediaFile" in document ? { mediaFile: document.mediaFile } : {}), ...(outline !== undefined ? { curriculum: parseCurriculumOutline(outline, material.files.map(file => file.name)) } : {}), ...("format" in document ? { format: document.format } : {}) }); }
     };
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;

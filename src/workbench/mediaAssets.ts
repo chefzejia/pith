@@ -30,3 +30,25 @@ export function videoContentType(file: Pick<MaterialFileEntry, "name" | "mimeTyp
   const extension = /\.([a-z0-9]+)$/i.exec(file.name);
   return extension ? VIDEO_TYPES[extension[1]!.toLowerCase()] ?? null : null;
 }
+
+export function resolveMediaPair<T extends { name: string; mimeType?: string }>(files: readonly T[], currentFile: string): { media: T | null; transcript: T | null } {
+  const media = files.filter(file => audioContentType({ name: file.name, mimeType: file.mimeType ?? "" }) || videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }));
+  const subtitles = files.filter(file => /\.(?:vtt|srt)$/i.test(file.name));
+  const stems = (name: string): string[] => {
+    let stem = name.replace(/\.[^.]+$/, "").toLowerCase(); const result = [stem];
+    while (/\.(?:auto|[a-z]{2,3}(?:-[a-z0-9]{2,8})*)$/i.test(stem)) { stem = stem.replace(/\.[^.]+$/, ""); result.push(stem); }
+    return result;
+  };
+  const unique = (matches: readonly T[]): T | null => matches.length === 1 ? matches[0]! : null;
+  const currentMedia = media.find(file => file.name === currentFile);
+  const currentSubtitle = subtitles.find(file => file.name === currentFile);
+  if (currentSubtitle) {
+    for (const stem of stems(currentSubtitle.name)) { const matches = media.filter(file => file.name.replace(/\.[^.]+$/, "").toLowerCase() === stem); if (matches.length) return { media: unique(matches), transcript: currentSubtitle }; }
+    return { media: unique(media), transcript: currentSubtitle };
+  }
+  if (currentMedia) {
+    const stem = currentMedia.name.replace(/\.[^.]+$/, "").toLowerCase(); const matches = subtitles.filter(file => stems(file.name).includes(stem));
+    return { media: currentMedia, transcript: unique(matches) ?? (matches.length === 0 && media.length === 1 ? unique(subtitles) : null) };
+  }
+  return { media: unique(media), transcript: null };
+}
