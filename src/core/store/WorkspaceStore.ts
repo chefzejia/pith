@@ -281,6 +281,29 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       return material;
     });
   }
+  appendMaterialFiles(materialId: string, files: readonly { readonly name: string; readonly mimeType?: string; readonly bytes: Uint8Array }[]): Promise<Material> {
+    return this.queue.run(async () => {
+      const dir = `materials/${name(materialId)}`, path = `${dir}/material.md`;
+      const parsed = parseMaterial(await this.storage.readText(path));
+      if (parsed.material.id !== materialId) throw new Error("Material id does not match path");
+      if (!files.length) return parsed.material;
+      const filenames = files.map(file => name(file.name));
+      if (new Set(filenames).size !== filenames.length) throw new Error("Duplicate file name");
+      const existingNames = new Set(parsed.material.files.map(file => file.name));
+      for (const fileName of filenames) {
+        if (existingNames.has(fileName) || await this.storage.exists(`${dir}/files/${fileName}`)) throw new Error("Cannot overwrite existing material file");
+      }
+      const entries = parsed.attributes.files as Record<string, string | number | boolean | null>[];
+      const added = await Promise.all(files.map(file => fileEntry(file.name, file.mimeType ?? "application/octet-stream", file.bytes)));
+      for (const item of added) entries.push(fileFields(item));
+      const markdown = stringifyFrontmatter(parsed.attributes, parsed.body);
+      const updated = parseMaterial(markdown).material;
+      await this.storage.mkdir(`${dir}/files`);
+      for (const file of files) await this.storage.createBinary(`${dir}/files/${file.name}`, file.bytes);
+      await this.storage.writeText(path, markdown);
+      return updated;
+    });
+  }
   writeGeneratedFile(materialId: string, fileName: string, markdown: string): Promise<Material> {
     return this.queue.run(async () => {
       name(fileName);

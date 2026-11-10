@@ -76,6 +76,7 @@ export interface WorkspaceStore {
   listMaterials(): Promise<readonly Material[]>;
   getMaterial(materialId: string): Promise<Material | null>;
   importMaterial(input: ImportMaterialInput): Promise<Material>;
+  appendMaterialFiles?(materialId: string, files: readonly ImportMaterialFileInput[]): Promise<Material>;
   writeGeneratedFile(materialId: string, fileName: string, markdown: string): Promise<Material>;
   updateReadingLocator(materialId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
 }

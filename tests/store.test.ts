@@ -165,6 +165,10 @@ test("imports immutable files, updates generated files and records reading progr
   assert.equal(updated.files[1]?.locator, "page:3");
   assert.ok(updated.files[1]?.lastActiveAt);
   assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
+  const appended = await store.appendMaterialFiles(material.id, [{ name: "clip.mp3", mimeType: "audio/mpeg", bytes: new Uint8Array([1, 2, 3]) }, { name: "clip.vtt", mimeType: "text/vtt", bytes: new TextEncoder().encode("WEBVTT\n\n00:00.000 --> 00:01.000\nhi\n") }]);
+  assert.deepEqual(appended.files.map(file => file.name), ["original.md", "lesson.md", "clip.mp3", "clip.vtt"]);
+  await assert.rejects(store.appendMaterialFiles(material.id, [{ name: "clip.mp3", bytes: new Uint8Array([9]) }]), /Cannot overwrite existing material file/);
+  assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
   await assert.rejects(store.importMaterial({ id: "material-one", title: "Duplicate", kind: "book", files: [] }));
   await assert.rejects(store.writeGeneratedFile(material.id, "../escape.md", "x"));
   await assert.rejects(store.updateReadingLocator(material.id, "missing.md", "page:1"));
