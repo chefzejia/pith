@@ -12,6 +12,7 @@ import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType, isMediaFile, isSourceTextFile } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
+import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
@@ -239,9 +240,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         } catch (error) { return send(res, 503, { error: `语音引擎不可用，请前往 ⚙ 设置检查配置：${speechErrorMessage(error, url.pathname.endsWith("synthesize") ? tts : asr)}` }); }
       }
       if (method === "POST" && url.pathname === "/api/materials/repo") {
-        const data = await body(req), info = await repository.inspectRepository(str(data, "repoPath"));
+        const data = await body(req), { info, description } = await resolveRepositoryIntake(str(data, "repoPath"), repository);
         const material = await store.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha });
-        await refresh(); return send(res, 201, material);
+        await refresh(); return send(res, 201, { ...material, intakeDescription: description });
       }
       if (method === "POST" && url.pathname === "/api/materials") {
         const data = await body(req);

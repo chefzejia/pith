@@ -41,7 +41,7 @@ export function quickActionsForTopic(topic: Topic & { readonly material?: Materi
     { id: "plan-curriculum", label: "规划课程大纲与第一讲", prompt: "请结合我的学习者画像和当前课题目标，先规划《00-课程大纲.md》并生成第一讲讲义，同时配置合适的实训工具。" },
   ] : [
     { id: "orient", label: "导读这一节", prompt: "请结合我的目标导读当前材料。" },
-    { id: "quiz", label: "考考我 / 下一步", prompt: "请检验我的理解，并给出下一步。" },
+    { id: "quiz", label: "下一讲 / 考考我", prompt: "请检验我对当前内容的理解，并结合我的掌握情况指导我进入下一讲。" },
   ];
   if (topic.notes.length) actions.push({ id: "settle", label: "总结沉淀", prompt: "请根据我的笔记和目标进行毕业深水区一问。" });
   for (const dojo of activeDojos) {

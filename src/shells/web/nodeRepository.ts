@@ -40,8 +40,7 @@ export class NodeRepositoryPort implements RepositoryPort {
     if (/^[a-z]:[\\/]/i.test(repoPath) && process.platform !== "win32") throw new Error("当前系统不支持 Windows 仓库路径");
     if (repoPath.startsWith("~/")) repoPath = `${homedir()}/${repoPath.slice(2)}`;
     if (!isAbsolute(repoPath) || repoPath.includes("\0")) throw new Error("请输入仓库绝对路径");
-    let directory: string;
-    try { directory = await realpath(repoPath); } catch (error) { const separator = repoPath.indexOf(" — "); if (separator < 0 || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error; directory = await realpath(repoPath.slice(0, separator)); }
+    const directory = await realpath(repoPath);
     if (!(await stat(directory)).isDirectory()) throw new Error("仓库路径不是目录");
     const externalPath = await realpath(decoder.decode(await git(directory, ["rev-parse", "--show-toplevel"])).trim());
     const commitSha = decoder.decode(await git(externalPath, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();

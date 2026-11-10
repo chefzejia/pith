@@ -1,0 +1,25 @@
+import type { Material, RepositoryPort } from "../core/index.ts";
+
+export async function resolveRepositoryIntake(input: string, repository: Pick<RepositoryPort, "inspectRepository">): Promise<{ info: Awaited<ReturnType<RepositoryPort["inspectRepository"]>>; description: string }> {
+  const separators = [...input.matchAll(/\s+/g)].map(match => match.index).reverse();
+  const candidates = [input.length, ...separators];
+  let missing: unknown;
+  for (const end of candidates) {
+    const path = input.slice(0, end).trimEnd();
+    const description = input.slice(end).trim().replace(/^—\s*/, "");
+    if (!path || (end !== input.length && !description)) continue;
+    try { return { info: await repository.inspectRepository(path), description }; }
+    catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || !("syscall" in error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR") || error.syscall !== "realpath") throw error;
+      if (!missing) missing = error;
+    }
+  }
+  throw missing || new Error("请输入仓库绝对路径");
+}
+
+export function emptyMaterialHtml(material: Material | null | undefined): string {
+  if (!material) return "<p>这个课题还没有关联材料。</p>";
+  if (material.kind !== "repo") return "<p>材料尚无可阅读文件。</p>";
+  const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  return `<h2>仓库已绑定</h2><p>路径：${escape(material.externalPath || "未提供")}</p><p>Commit：${escape(material.commitSha || "未提供")}</p><p>尚无讲义。</p>`;
+}

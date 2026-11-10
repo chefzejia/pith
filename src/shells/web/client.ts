@@ -29,12 +29,12 @@ function home(): void {
     materials: state.boardMaterials,
     open: id => { void openTopic(id).catch(notify); },
     create: async data => {
-      let material: Material | undefined;
-      if (data.repoPath) material = await api<Material>("/api/materials/repo", { repoPath: data.repoPath });
+      let material: Material | undefined; let target = "";
+      if (data.repoPath) { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath: data.repoPath }); material = result; target = result.intakeDescription; }
       else if (data.files.length) material = await importFiles(data.files);
       const title = material?.title || data.title;
-      const item = await api<Topic>("/api/topics", { title, ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { toolkits: ["feynman"] } : {}) });
-      try { await openTopic(item.id, data.guide, intakeGuidePrompt(data.title, data.files)); } catch (error) { notify(error); }
+      const item = await api<Topic>("/api/topics", { title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { toolkits: ["feynman"] } : {}) });
+      try { await openTopic(item.id, data.guide, intakeGuidePrompt(target || data.title, data.files)); } catch (error) { notify(error); }
     },
     settings: openSimpleSettings,
   });

@@ -17,6 +17,7 @@ import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-in
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { intakeGuidePrompt, renderCompass } from "../../workbench/compass.ts";
 import { pithIcon } from "../../workbench/icons.ts";
+import { emptyMaterialHtml, resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
@@ -368,9 +369,9 @@ export class PithWorkspaceView extends obsidian.ItemView {
       ...(this.openSettings ? { settings: this.openSettings } : {}),
       open: id => { void this.openTopic(id).catch(error => this.report(error)); },
       create: async data => {
-        let material;
+        let material; let target = "";
         let sampleText: string | undefined;
-        if (data.repoPath) { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const info = await this.host.repository.inspectRepository(data.repoPath); material = await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha }); }
+        if (data.repoPath) { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const resolved = await resolveRepositoryIntake(data.repoPath, this.host.repository); const info = resolved.info; target = resolved.description; material = await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha }); }
         else if (data.files.length) {
           const entries = await Promise.all(data.files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) })));
           const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
@@ -381,8 +382,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
           material = await this.controller.importMaterial({ title, kind, files: entries });
         }
         const toolkits = material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guide ? ["feynman"] : undefined;
-        const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}) });
-        if (generation === this.generation) try { await this.openTopic(topic.id, data.guide, intakeGuidePrompt(data.title, data.files)); } catch (error) { this.report(error); }
+        const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}) });
+        if (generation === this.generation) try { await this.openTopic(topic.id, data.guide, intakeGuidePrompt(target || data.title, data.files)); } catch (error) { this.report(error); }
       },
     });
   }
@@ -461,7 +462,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (this.workspace) await this.showNativeGuide(guideVisible, this.view, topic.id);
     this.view.setToolkits(topic.toolkits);
     if (material?.files.length) await render(material.files[0]!.name);
-    else this.view.render({ title: topic.title, html: "<p>这个课题还没有关联材料。</p>", files: [], currentFile: "", sections: [] });
+    else this.view.render({ title: topic.title, html: emptyMaterialHtml(material), files: [], currentFile: "", sections: [] });
     if (generation === this.generation && this.view) await this.view.refreshGuide();
     if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await refreshMaterial(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
   }

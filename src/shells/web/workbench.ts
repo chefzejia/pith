@@ -4,6 +4,7 @@ import { feynmanToolkit } from "../../plugins/dojo-feynman/index.ts";
 import { interlineToolkit } from "../../plugins/dojo-interline/index.ts";
 import type { GuideConversationEntry, GuideQuickAction, Material, RenderedDocumentView, SelectionAnchor, Topic } from "../../core/index.ts";
 import type { InterlineViewUnit } from "../../plugins/dojo-interline/index.ts";
+import { emptyMaterialHtml } from "../../workbench/repositoryIntake.ts";
 
 type DocumentData = Pick<RenderedDocumentView, "html" | "sections"> & { format?: RenderedDocumentView["format"] };
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
@@ -99,7 +100,7 @@ export class WebWorkbench {
   async open(): Promise<void> {
     const material = this.material;
     if (material && material.files.length) return this.openFile(material.files[0]!.name);
-    this.view.render({ title: this.options.topic.title, html: "<p>这个课题还没有关联材料。</p>", sections: [], files: [], currentFile: "" });
+    this.view.render({ title: this.options.topic.title, html: emptyMaterialHtml(material), sections: [], files: [], currentFile: "" });
     await this.view.refreshGuide();
   }
 
