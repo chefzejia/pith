@@ -33,16 +33,18 @@ test("web generates the requested lesson after persistence and ignores stale res
   await store.ensureScaffold();
   const material = await store.importMaterial({ title: "课程", kind: "article", files: [] });
   const topic = await store.createTopic({ title: "课程", materialId: material.id });
-  await store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲");
+  await store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲：深入理解异步数据流中的状态更新与并发边界");
   await store.writeGeneratedFile(material.id, "01-intro.md", "# 第一讲\n## 概览\n阅读内容");
   const write = createGuideWorkspaceTools(store, undefined, storage).find(tool => tool.name === "pith_write_lesson")!;
-  const received: string[] = []; let release: (() => void) | undefined; let started: (() => void) | undefined; let releaseMessage: (() => void) | undefined; let messageStarted: (() => void) | undefined;
+  const received: string[] = []; let release: (() => void) | undefined; let started: (() => void) | undefined; let releaseMessage: (() => void) | undefined; let messageStarted: (() => void) | undefined; let releaseSix: (() => void) | undefined; let sixStarted: (() => void) | undefined;
   const waiting = new Promise<void>(resolve => { started = resolve; });
   const messageWaiting = new Promise<void>(resolve => { messageStarted = resolve; });
+  const sixWaiting = new Promise<void>(resolve => { sixStarted = resolve; });
   const server = await createPithWebServer({ workspaceDir: root, guideProvider: { async reply(input) {
     const text = input.conversation.at(-1)!.text; received.push(text);
     if (text.includes("03-runtime.md")) { started!(); await new Promise<void>(resolve => { release = resolve; }); }
     if (text === "切章后的真实草稿") { messageStarted!(); await new Promise<void>(resolve => { releaseMessage = resolve; }); }
+    if (text.includes("06-extra.md")) { sixStarted!(); await new Promise<void>(resolve => { releaseSix = resolve; }); }
     const name = text.match(/《(0[234]-[^》]+\.md)》/)?.[1];
     if (name && name !== "04-error.md") await write.execute({ topicId: topic.id, fileName: name, markdown: `# ${name} 正文\n## 小节\n真实讲义` });
     return "完成";
@@ -72,8 +74,23 @@ test("web generates the requested lesson after persistence and ignores stale res
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-guide-send]').click(); await messageWaiting; assert.equal(await input.inputValue(), ''); await input.fill('请求期间的新草稿'); releaseMessage!(); await page.waitForFunction(() => !(document.querySelector('[data-guide-send]') as HTMLButtonElement).disabled); assert.equal(await input.inputValue(), '请求期间的新草稿'); assert.ok(received.includes('切章后的真实草稿'));
     await page.locator('.pith-nav-toggle').click();
     await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(evidence, 'fix-web-narrow-light.png') }); await page.emulateMedia({ colorScheme: 'dark' }); await page.screenshot({ path: join(evidence, 'fix-web-narrow-dark.png') });
-    await page.locator('[data-planned-lesson="06-extra.md"]').click(); await page.getByText('讲义未保存：06-extra.md').waitFor(); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
+    await page.setViewportSize({ width: 390, height: 650 }); await page.locator('[data-planned-lesson="06-extra.md"]').click(); await sixWaiting;
+    const loading = page.locator('.pith-lesson-loading'); await loading.waitFor(); assert.equal(await page.locator('.pith-left-drawer').isHidden(), true); assert.equal(await page.locator('.pith-guide').isVisible(), true);
+    const checkLoading = async () => {
+      const result = await loading.evaluate((section: HTMLElement) => {
+        const reader = section.closest('.pith-reader')!.getBoundingClientRect(), guide = document.querySelector('.pith-guide')!.getBoundingClientRect();
+        return Array.from(section.querySelectorAll<HTMLElement>('h1,[role=status]')).map(node => {
+          const range = document.createRange(); range.selectNodeContents(node);
+          return Array.from(range.getClientRects()).filter(rect => rect.width && rect.height).map(rect => { const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); return { visible: rect.top >= reader.top && rect.bottom <= reader.bottom && rect.bottom <= guide.top && rect.left >= 0 && rect.right <= innerWidth, hit: !!hit && (hit === node || node.contains(hit)) }; });
+        });
+      });
+      assert.equal(result.length, 2); assert.ok(result.every((lines: any[]) => lines.length && lines.every(line => line.visible && line.hit)), JSON.stringify(result)); assert.ok(result[0].length >= 2);
+    };
+    for (const scheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: scheme }); await checkLoading(); await page.screenshot({ path: join(evidence, `fix2-loading-${scheme}.png`) }); }
+    await page.locator('.pith-guide textarea').click(); assert.equal(await page.locator('.pith-guide textarea').evaluate((node: HTMLElement) => document.activeElement === node), true);
+    await page.locator('.pith-nav-toggle').click(); assert.equal(await page.locator('[data-file="01-intro.md"]').isVisible(), true); await page.locator('.pith-nav-toggle').click(); await checkLoading();
+    releaseSix!(); await page.getByText('讲义未保存：06-extra.md').waitFor(); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
     await page.setViewportSize({ width: 1100, height: 800 });
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-planned-lesson="04-error.md"]').click(); await page.getByText('讲义未保存：04-error.md').waitFor(); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
-  } finally { if (release) release(); if (releaseMessage) releaseMessage(); if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
+  } finally { if (release) release(); if (releaseMessage) releaseMessage(); if (releaseSix) releaseSix(); if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });

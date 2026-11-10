@@ -56,6 +56,13 @@ body.theme-dark .pith-view{--pith-sage:#9bbfa2;--pith-clay:#d88d70}
 .pith-view[data-sheet-mode="split-right"] .pith-guide{position:static;width:auto}
 .pith-view[data-sheet-mode="overlay-drawer"] .pith-guide{position:absolute;top:0;right:0;bottom:0;width:min(320px,100%);z-index:6}
 .pith-view[data-sheet-mode="bottom-sheet"] .pith-guide{position:absolute;left:0;right:0;top:auto;bottom:0;width:100%;max-height:75%;z-index:10;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])):has(.pith-lesson-loading){display:flex;flex-direction:column}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])):has(.pith-lesson-loading) .pith-stage{flex:0 1 auto;max-height:60%}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])):has(.pith-lesson-loading) .pith-guide{position:relative;flex:1 1 0;height:auto;min-height:0;max-height:none}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])) .pith-article:has(.pith-lesson-loading){padding:16px 20px}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])) .pith-lesson-loading{padding:0}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])) .pith-lesson-loading h1{font-size:22px;line-height:1.4;margin:0 0 8px}
+.pith-view[data-sheet-mode="bottom-sheet"] .pith-layout:has(> .pith-guide:not([hidden])) .pith-lesson-loading p{font-size:15px;line-height:1.5;margin:0}
 .pith-view[data-sheet-mode="bottom-sheet"] .pith-stage:has(.pith-left-drawer:not([hidden])),.pith-view[data-sheet-mode="overlay-drawer"] .pith-stage:has(.pith-left-drawer:not([hidden])){z-index:11}
 .pith-view .pith-dojo-panel{top:100%;margin-top:4px;right:8px;bottom:auto;max-height:calc(100vh - 120px)}.pith-reader.pith-paged .pith-epub-chapter + .pith-epub-chapter{break-before:column}
 .pith-view[data-hit-target="44"] .pith-view-header button,.pith-view[data-hit-target="44"] .pith-media-deck button{min-width:44px;min-height:44px}
