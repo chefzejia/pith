@@ -166,7 +166,7 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
 
 test("Obsidian guide refresh synchronizes mounted toolkits and ignores older responses", async () => {
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
-  const button = { textContent: "", title: "", classList: { toggle() {} }, setAttribute() {} };
+  const label = { textContent: "" }; const button = { innerHTML: "", querySelector: () => label, title: "", classList: { toggle() {} }, setAttribute() {} };
   let resolveOld!: (value: unknown) => void;
   const old = new Promise(resolve => { resolveOld = resolve; });
   let requests = 0;
@@ -175,10 +175,10 @@ test("Obsidian guide refresh synchronizes mounted toolkits and ignores older res
   const refresh = view.refreshGuide as () => Promise<void>;
   const first = refresh.call(view);
   await refresh.call(view);
-  assert.equal(button.textContent, "🛠 费曼复述");
+  assert.equal(label.textContent, "费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
   resolveOld(snapshot([])); await first;
-  assert.equal(button.textContent, "🛠 费曼复述");
+  assert.equal(label.textContent, "费曼复述");
   assert.deepEqual(view.mountedToolkits, ["feynman"]);
 });
 

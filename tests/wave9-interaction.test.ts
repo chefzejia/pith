@@ -102,14 +102,17 @@ test("Obsidian import accepts CBZ and sends it as a book", async () => {
   let finish!: (input: { kind: string; files: { name: string }[] }) => void;
   const imported = new Promise<{ kind: string; files: { name: string }[] }>(resolve => { finish = resolve; });
   const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], onchange: () => {}, click() {} };
-  const status = { textContent: "" }, selected = { textContent: "" }, repo = { hidden: true, value: "" }, buttons = [{ disabled: false }, { disabled: false }], fileButton = {}, repoButton = {}, guideButton = {};
-  const form = { elements: { namedItem: () => ({ value: "" }) }, onsubmit: (_event: unknown) => {}, querySelector: (s: string) => s === 'input[type="file"]' ? input : s === '[name="repoPath"]' ? repo : s === ".pith-home-status" ? status : s === "[data-intake-selected]" ? selected : s === "[data-intake-files]" ? fileButton : s === "[data-intake-repo]" ? repoButton : guideButton, querySelectorAll: () => buttons };
+  const status = { textContent: "" }, selected = { replaceChildren() {}, append() {} }, buttons = [{ disabled: false }, { disabled: false }], fileButton = {};
+  const form = { elements: { namedItem: () => ({ value: "" }) }, onsubmit: (_event: unknown) => {}, querySelector: (s: string) => s === 'input[type="file"]' ? input : s === ".pith-home-status" ? status : s === "[data-intake-selected]" ? selected : fileButton, querySelectorAll: () => buttons };
   const root = { classList: { add() {} }, innerHTML: "", querySelector: (s: string) => s === ".pith-intake-box" ? form : null, querySelectorAll: () => [] };
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
   Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
   await (workspace.onOpen as () => Promise<void>)();
-  form.onsubmit({ preventDefault() {} }); const value = await imported;
+  const originalDocument = globalThis.document;
+  Object.assign(globalThis, { document: { createElement: () => ({ append() {}, setAttribute() {} }), createTextNode: (text: string) => text } });
+  try { input.onchange(); form.onsubmit({ preventDefault() {} }); const value = await imported;
   assert.equal(value.kind, "book"); assert.equal(value.files[0]!.name, "comic.CBZ");
+  } finally { Object.assign(globalThis, { document: originalDocument }); }
 });
 
 test("empty prose never requests speech and reports the empty page", () => {

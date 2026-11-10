@@ -114,9 +114,9 @@ export class WebWorkbench {
     if (file && !this.disposed) await this.openFile(file.name);
   }
 
-  async startCurriculum(): Promise<void> {
+  async startCurriculum(prompt = ""): Promise<void> {
     this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true);
-    try { await this.options.request("/api/chat", { topicId: this.options.topic.id, text: "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await this.refreshMaterial(); await this.view.refreshGuide(); }
+    try { await this.options.request("/api/chat", { topicId: this.options.topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await this.refreshMaterial(); await this.view.refreshGuide(); }
     catch (error) { this.options.report(error); }
   }
 

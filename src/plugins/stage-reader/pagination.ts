@@ -170,7 +170,7 @@ export function resolveReaderLocator(article: HTMLElement, locator: string): HTM
   return Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === locator) ?? null;
 }
 
-export function renderTocTree(container: HTMLElement, sections: readonly ReaderSectionHeading[], navigate: (locator: string) => void): void {
+export function renderTocTree(container: HTMLElement, sections: readonly ReaderSectionHeading[], navigate: (locator: string) => void, toggleIcon = ""): void {
   const doc = container.ownerDocument;
   const root = doc.createElement("ul"), stack: { level: number; list: HTMLUListElement; item: HTMLLIElement | null }[] = [{ level: -Infinity, list: root, item: null }];
   const add = (entries: readonly ReaderSectionHeading[], inheritedLevel = 0): void => {
@@ -185,8 +185,8 @@ export function renderTocTree(container: HTMLElement, sections: readonly ReaderS
         list = child;
       }
       const item = doc.createElement("li"), row = doc.createElement("div"), toggle = doc.createElement("button"), title = doc.createElement("button");
-      toggle.dataset.tocToggle = ""; toggle.textContent = "▸"; toggle.hidden = true; toggle.setAttribute("aria-label", "展开章节");
-      toggle.onclick = () => { const children = item.querySelector<HTMLUListElement>(":scope > ul"); if (!children) return; children.hidden = !children.hidden; toggle.setAttribute("aria-expanded", String(!children.hidden)); toggle.textContent = children.hidden ? "▸" : "▾"; };
+      toggle.dataset.tocToggle = ""; toggle.innerHTML = toggleIcon; toggle.hidden = true; toggle.setAttribute("aria-label", "展开章节");
+      toggle.onclick = () => { const children = item.querySelector<HTMLUListElement>(":scope > ul"); if (!children) return; children.hidden = !children.hidden; toggle.setAttribute("aria-expanded", String(!children.hidden)); };
       title.dataset.tocLocator = section.locator; title.textContent = section.title; title.onclick = () => navigate(section.locator);
       row.append(toggle, title); item.append(row); list.append(item); stack.push({ level, list, item });
       if (section.children) add(section.children, level + 1);
@@ -207,11 +207,11 @@ export function updateTocLocation(container: HTMLElement, article: HTMLElement, 
     if (paged ? rect.left < viewport.left || (rect.left < viewport.right && rect.top < viewport.bottom) : rect.top < viewport.bottom) current = button;
   }
   for (const list of container.querySelectorAll<HTMLUListElement>(".pith-toc-tree ul")) list.hidden = true;
-  for (const toggle of container.querySelectorAll<HTMLButtonElement>("[data-toc-toggle]")) { toggle.setAttribute("aria-expanded", "false"); toggle.textContent = "▸"; }
+  for (const toggle of container.querySelectorAll<HTMLButtonElement>("[data-toc-toggle]")) toggle.setAttribute("aria-expanded", "false");
   if (!current) return;
   current.setAttribute("aria-current", "location");
   let list = current.closest("ul");
-  while (list && list.className !== "pith-toc-tree") { list.hidden = false; const parent: HTMLElement | null = list.parentElement; const toggle = parent?.querySelector<HTMLButtonElement>(":scope > div > [data-toc-toggle]"); if (toggle) { toggle.setAttribute("aria-expanded", "true"); toggle.textContent = "▾"; } list = parent?.closest("ul") ?? null; }
+  while (list && list.className !== "pith-toc-tree") { list.hidden = false; const parent: HTMLElement | null = list.parentElement; const toggle = parent?.querySelector<HTMLButtonElement>(":scope > div > [data-toc-toggle]"); if (toggle) toggle.setAttribute("aria-expanded", "true"); list = parent?.closest("ul") ?? null; }
 }
 
 export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, file: string): { file: string; locator: string; quote: string } | null {

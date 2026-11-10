@@ -10,7 +10,7 @@ export function toolkitSlot(toolkits: readonly string[], active: string, labels:
   const ids = [...new Set(toolkits.filter(id => id !== "none").map(id => id.replace(/^dojo-/, "")))];
   const selected = ids.includes(active) ? active : ids[0] ?? "";
   const name = labels[selected] ?? (selected === "shadowing" ? "影子跟读" : selected === "feynman" ? "费曼复述" : selected === "interline" ? "行间双语" : selected);
-  return { ids, active: selected, text: ids.length ? `🛠 ${name}${ids.length > 1 ? ` · ${ids.length} ▾` : ""}` : "🛠" };
+  return { ids, active: selected, text: ids.length ? `${name}${ids.length > 1 ? ` · ${ids.length}` : ""}` : "" };
 }
 export function defaultToolkitsForMaterial(input: { kind: string; files: readonly { name: string; mimeType?: string }[]; sampleText?: string }): string[] {
   if (input.kind === "media" || input.files.some(isMediaFile)) return ["shadowing"];

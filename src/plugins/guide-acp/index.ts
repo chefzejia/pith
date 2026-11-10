@@ -36,7 +36,7 @@ export {
 };
 
 export function quickActionsForTopic(topic: Topic & { readonly material?: Material | null }, activeDojos: readonly DojoToolkitDescriptor[]): GuideQuickAction[] {
-  const needsPlan = !topic.materialId || (topic.material !== undefined && (!topic.material || topic.material.kind === "repo" || topic.material.files.length === 0));
+  const needsPlan = !topic.materialId || (topic.material !== undefined && (!topic.material || topic.material.files.length === 0));
   const actions: GuideQuickAction[] = needsPlan ? [
     { id: "plan-curriculum", label: "规划课程大纲与第一讲", prompt: "请结合我的学习者画像和当前课题目标，先规划《00-课程大纲.md》并生成第一讲讲义，同时配置合适的实训工具。" },
   ] : [

@@ -33,15 +33,9 @@ test("topic board controls and timeline practice retain timestamps without readi
     const settings = page.locator("[data-home-settings]");
     assert.equal(await settings.evaluate((node: HTMLElement) => node.classList.contains("pith-icon")), true);
     const [header, gear] = await Promise.all([page.locator(".pith-view-header").boundingBox(), settings.boundingBox()]); assert.ok(header && gear && header.x + header.width - (gear.x + gear.width) < 20);
-    for (const selector of ["[data-intake-open]", "[data-intake-files]", ".pith-focus button"]) {
-      const style = await page.locator(selector).evaluate((node: HTMLElement) => { const css = getComputedStyle(node); return { border: css.borderTopWidth, radius: css.borderTopLeftRadius, padding: css.paddingLeft }; });
-      assert.ok(parseFloat(style.border) >= 1 && parseFloat(style.radius) >= 4 && parseFloat(style.padding) >= 8, selector);
-    }
+    for (const selector of ["[data-intake-open]", "[data-intake-files]"]) { const button = page.locator(selector); assert.equal(await button.locator('svg').count(), 1); assert.ok(await button.getAttribute('aria-label')); const box = await button.boundingBox(); assert.ok(box && box.width >= 36 && box.height >= 36, selector); }
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "board.png") });
-    for (const selector of ['.pith-intake-box input[name="title"]', ".pith-intake-box button"]) {
-      const style = await page.locator(selector).first().evaluate((node: HTMLElement) => { const css = getComputedStyle(node); return [parseFloat(css.borderTopWidth), parseFloat(css.borderTopLeftRadius), parseFloat(css.paddingLeft)]; });
-      assert.ok(style.every((value: number) => value > 0), selector);
-    }
+    assert.equal(await page.locator('.pith-intake-box input[name="title"]').count(), 1);
     await assertPrimaryHover(page);
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "worker-web-hover.png") });
     await settings.click(); assert.equal(await page.locator('#simple-agent').isVisible(), true);

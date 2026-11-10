@@ -15,7 +15,8 @@ import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/to
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
-import { renderCompass } from "../../workbench/compass.ts";
+import { intakeGuidePrompt, renderCompass } from "../../workbench/compass.ts";
+import { pithIcon } from "../../workbench/icons.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
@@ -183,6 +184,7 @@ export class PithObsidianController {
   readonly guideVisibility = new Map<string, boolean>();
   private readonly host: HostPort;
   private readonly interlineTranslator: InterlineTranslator | undefined;
+  private readonly injectedGuide: boolean;
   private config: PluginsConfigFile = { preset: "all" };
   private persona: "sanctuary" | "studio" = "sanctuary";
   private agentId: ObsidianAgentConfig["agentId"] = "";
@@ -198,6 +200,7 @@ export class PithObsidianController {
   constructor(host: HostPort, interlineTranslator?: InterlineTranslator, guideProvider?: GuideProvider) {
     this.host = host;
     this.interlineTranslator = interlineTranslator;
+    this.injectedGuide = Boolean(guideProvider);
     this.store = new DefaultWorkspaceStore(host.storage);
     let provider: GuideProvider | undefined = guideProvider;
     this.engine = new DefaultAttentionEngine(this.store, host.storage, () => guideProvider || (this.agentId ? provider : undefined));
@@ -234,6 +237,7 @@ export class PithObsidianController {
     }
     await this.refresh();
   }
+  hasGuideProvider(): boolean { return this.injectedGuide || Boolean(this.agentId); }
   private async refresh(): Promise<void> {
     this.topics = null; this.materials = null;
     try { [this.topics, this.materials] = await Promise.all([this.store.listTopics(), this.store.listMaterials()]); }
@@ -376,9 +380,9 @@ export class PithWorkspaceView extends obsidian.ItemView {
           if (kind === "article") try { const text = new TextDecoder("utf-8", { fatal: true }).decode(first.bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
           material = await this.controller.importMaterial({ title, kind, files: entries });
         }
-        const toolkits = data.guide ? ["feynman"] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : undefined;
-        const topic = await this.controller.store.createTopic({ title: data.title || material?.title || "", ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}) });
-        if (generation === this.generation) try { await this.openTopic(topic.id, data.guide); } catch (error) { this.report(error); }
+        const toolkits = material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guide ? ["feynman"] : undefined;
+        const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}) });
+        if (generation === this.generation) try { await this.openTopic(topic.id, data.guide, intakeGuidePrompt(data.title, data.files)); } catch (error) { this.report(error); }
       },
     });
   }
@@ -406,7 +410,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     await workspace.revealLeaf(leaf);
     if (this.view === view && request === this.guideRequest) view.focusQuotedGuide();
   }
-  private async openTopic(id: string, guide = false): Promise<void> {
+  private async openTopic(id: string, guide = false, prompt = ""): Promise<void> {
     const generation = ++this.generation;
     const topic = await this.controller.openTopic(id);
     if (generation !== this.generation) return;
@@ -459,7 +463,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (material?.files.length) await render(material.files[0]!.name);
     else this.view.render({ title: topic.title, html: "<p>这个课题还没有关联材料。</p>", files: [], currentFile: "", sections: [] });
     if (generation === this.generation && this.view) await this.view.refreshGuide();
-    if (guide && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await refreshMaterial(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
+    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await refreshMaterial(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
   }
 }
 
@@ -486,7 +490,7 @@ export class PithSettingTab extends SettingTabBase {
     const config = this.controller.getAgentConfig();
     const agent = select([...(this.controller.isAgentConfigured() ? [] : [["unconfigured", "未配置"] as const]), ["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? config.agentId : "unconfigured"); const agentControls = doc.createElement("span"); agentControls.className = "pith-setting-control"; agentControls.append(agent); row(root, "本机 Agent", agentControls);
     const unconfigured = agent.querySelector<HTMLOptionElement>('option[value="unconfigured"]'); if (unconfigured) unconfigured.disabled = true;
-    const scan = doc.createElement("button"); scan.textContent = "↻"; scan.type = "button"; scan.setAttribute("aria-label", "刷新本机 Agent"); scan.title = "刷新本机 Agent"; agentControls.append(scan);
+    const scan = doc.createElement("button"); scan.innerHTML = pithIcon("rotate-cw"); scan.type = "button"; scan.setAttribute("aria-label", "刷新本机 Agent"); scan.title = "刷新本机 Agent"; agentControls.append(scan);
     const model = select([], ""), effort = select([], ""); row(root, "模型（Model）", model); row(root, "推理强度（Effort）", effort);
     const persona = select([["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona); row(root, "术语风格", persona);
     const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
@@ -495,7 +499,7 @@ export class PithSettingTab extends SettingTabBase {
     const saveOption = (name: "model" | "effort", value: string) => { void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), [name]: value }); status.textContent = "设置已保存"; }); };
     model.addEventListener("change", () => saveOption("model", model.value)); effort.addEventListener("change", () => saveOption("effort", effort.value));
     agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); probe(); }); persona.addEventListener("change", () => { const value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setPersona(value); status.textContent = "设置已保存"; }); });
-    const detect = () => { scan.disabled = true; scan.textContent = "…"; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); probe(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; scan.textContent = "↻"; }); }; scan.onclick = () => { detect(); probe(true); };
+    const detect = () => { scan.disabled = true; scan.textContent = "…"; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); probe(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; scan.innerHTML = pithIcon("rotate-cw"); }); }; scan.onclick = () => { detect(); probe(true); };
     heading("语音服务"); const speech = this.controller.getSpeechConfig();
     const currentMode = speechMode(speech);
     const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);
