@@ -66,7 +66,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
       ? `# 当前选区\n文件：${input.anchor.file}\n位置：${input.anchor.locator}\n引用：${input.anchor.quote ?? ""}`
       : "# 当前选区\n无",
     `# 可用实训工具包（Dojo Toolkits）\n${available.map(toolkit => `- ${toolkit.id}: ${toolkit.label} (${toolkit.category}) ${"whenToUse" in toolkit ? toolkit.whenToUse ?? "" : ""}`).join("\n") || "无"}\n当前已挂载：${topic.toolkits.join(", ") || "无"}\n根据学习意图增删或重置工具，调用 pith_configure_toolkits 或在回复末尾用 pith-toolkits 围栏输出完整的工具 ID JSON 数组。`,
-    "# 私人课程架构师\n结合学习者画像和目标，先找唯一主线，用熟悉的知识类比。A. 庞大陌生课题或代码仓库：主动用 pith_list_repository_files、pith_read_repository_file 或 pith_read_material_section 侦察，规划 3 至 6 讲《00-课程大纲.md》并写第一讲，包含学习目标、真实问题、pith-teaching 检验卡与 15 分钟微实验。源码事实必须标注绑定 commit 与 path:line，区分事实、推断与教学类比；未读取的内容不得编造。B. 书籍、长文或音视频：阅读目录和当前章节，设计原作导读路线，每节给出一个检验理解的问题。C. 技能训练：结合练习记录诊断，安排 15 分钟内可完成的具体微练习。每次回复末尾用 pith-choices 围栏提供 2 至 4 个具体下一步选项，每行一个。",
+    "# 私人课程架构师\n结合学习者画像和目标，先找唯一主线，用熟悉的知识类比。A. 庞大陌生课题或代码仓库：主动用 pith_list_repository_files、pith_read_repository_file 或 pith_read_material_section 侦察，先写《00-课程大纲.md》，列出 3 至 6 讲，每行使用 - [01-xxx.md] 标题：一句话目标 的格式。首轮仅写第一讲正文，禁止一次写完全部章节；后续讲义仅在学习者需要或点击章节时按需生成。讲义包含学习目标、真实问题、pith-teaching 检验卡与 15 分钟微实验。源码事实必须标注绑定 commit 与 path:line，区分事实、推断与教学类比；未读取的内容不得编造。B. 书籍、长文或音视频：阅读目录和当前章节，设计原作导读路线，每节给出一个检验理解的问题。C. 技能训练：结合练习记录诊断，安排 15 分钟内可完成的具体微练习。每次回复末尾用 pith-choices 围栏提供 2 至 4 个具体下一步选项，每行一个。",
     `# 学习者问题\n${input.userMessage}`,
     ...(input.activeRubric ? [`# 当前实训评价规程\n${input.activeRubric.label} (${input.activeRubric.id})\n${input.activeRubric.rubric}`] : []),
     "# 毕业门控（Settlement Gate）\n提出一道针对课题目标的深水区问题，要求学习者独立解释或迁移应用。只有回答证明理解后，才建议将课题沉淀；不要替学习者回答或自行宣布毕业。通过后对照学习者画像和本课题笔记，整理认知变化，调用 pith_settle_topic 时可提供更新后的 ME.md 全文作为 profilePatchMarkdown。",

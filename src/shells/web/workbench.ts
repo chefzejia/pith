@@ -5,8 +5,9 @@ import { interlineToolkit } from "../../plugins/dojo-interline/index.ts";
 import type { GuideConversationEntry, GuideQuickAction, Material, RenderedDocumentView, SelectionAnchor, Topic } from "../../core/index.ts";
 import type { InterlineViewUnit } from "../../plugins/dojo-interline/index.ts";
 import { emptyMaterialHtml } from "../../workbench/repositoryIntake.ts";
+import { parseCurriculumOutline } from "../../plugins/stage-reader/pagination.ts";
 
-type DocumentData = Pick<RenderedDocumentView, "html" | "sections"> & { format?: RenderedDocumentView["format"] };
+type DocumentData = Pick<RenderedDocumentView, "html" | "sections"> & { text?: string; format?: RenderedDocumentView["format"] };
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
 
 export interface WebWorkbenchOptions {
@@ -29,6 +30,7 @@ export class WebWorkbench {
   private material: Material | undefined;
   private file = "";
   private generation = 0;
+  private lessonRequest: number | null = null;
   private disposed = false;
 
   constructor(options: WebWorkbenchOptions) {
@@ -49,6 +51,7 @@ export class WebWorkbench {
       openSettings: options.settings,
       importMaterial: options.importMaterial,
       openFile: name => this.openFile(name),
+      generateLesson: (name, title) => this.generateLesson(name, title),
       openDojo: (text, locator) => this.view.openDojo(dojos, text, text === undefined ? undefined : { file: this.file, locator: locator || "text:offset:0", quote: text }),
       selection: (action, text, locator) => {
         const anchor = { file: this.file, locator: locator || "text:offset:0", quote: text };
@@ -87,13 +90,16 @@ export class WebWorkbench {
   }
 
   async openFile(name: string): Promise<void> {
+    this.lessonRequest = null;
     const material = this.material;
     if (!material) throw new Error("材料不存在");
     const request = ++this.generation;
-    const data = await this.options.request<DocumentData>(`/api/materials/file?id=${encodeURIComponent(material.id)}&name=${encodeURIComponent(name)}`);
+    const fileUrl = (file: string) => `/api/materials/file?id=${encodeURIComponent(material.id)}&name=${encodeURIComponent(file)}`;
+    const data = await this.options.request<DocumentData>(fileUrl(name));
+    const outline = material.files.some(file => file.name === "00-课程大纲.md") ? name === "00-课程大纲.md" ? data : await this.options.request<DocumentData>(fileUrl("00-课程大纲.md")) : undefined;
     if (this.disposed || request !== this.generation) return;
     this.file = name;
-    this.view.render({ title: this.options.topic.title, html: data.html, sections: data.sections, files: material.files, currentFile: name, format: data.format });
+    this.view.render({ title: this.options.topic.title, html: data.html, sections: data.sections, files: material.files, currentFile: name, format: data.format, ...(outline ? { curriculum: parseCurriculumOutline(outline.text || "", material.files.map(file => file.name)) } : {}) });
     await this.view.refreshGuide();
   }
 
@@ -105,14 +111,39 @@ export class WebWorkbench {
   }
 
   private async refreshMaterial(): Promise<void> {
+    const request = this.generation;
+    if (this.lessonRequest !== null) return;
     const state = await this.options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] }; materials: readonly Material[] }>("/api/state");
     const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === this.options.topic.id);
+    if (this.disposed || request !== this.generation || this.lessonRequest !== null) return;
     if (!topic) throw new Error("课题不存在");
     const next = state.materials.find(item => item.id === topic.materialId);
     if (JSON.stringify(this.material) === JSON.stringify(next)) return;
     this.material = next;
     const file = this.material?.files.find(item => item.name === this.file) || this.material?.files.find(item => item.name === "00-课程大纲.md") || this.material?.files[0];
     if (file && !this.disposed) await this.openFile(file.name);
+  }
+
+  private async generateLesson(name: string, title: string): Promise<void> {
+    if (!this.options.guideAvailable) throw new Error("向导不可用，无法生成讲义");
+    const request = ++this.generation, previous = this.file; let opening = false; this.lessonRequest = request;
+    this.view.showLessonLoading(title); this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true);
+    try {
+      await this.options.request("/api/chat", { topicId: this.options.topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` });
+      if (this.disposed || request !== this.generation) return;
+      const state = await this.options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] }; materials: readonly Material[] }>("/api/state");
+      if (this.disposed || request !== this.generation) return;
+      const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === this.options.topic.id);
+      const material = state.materials.find(item => item.id === topic?.materialId);
+      if (!material || !material.files.some(file => file.name === name)) throw new Error(`讲义未保存：${name}`);
+      this.material = material; opening = true; await this.openFile(name);
+    } catch (error) {
+      if (this.disposed || this.generation !== request + (opening ? 1 : 0)) return;
+      if (previous) await this.openFile(previous);
+      throw error;
+    } finally {
+      if (this.lessonRequest === request) this.lessonRequest = null;
+    }
   }
 
   async startCurriculum(prompt = ""): Promise<void> {

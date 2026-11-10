@@ -1,5 +1,5 @@
 import type { DojoDiagnosisResult, DojoScaffoldStage, DojoToolkitDescriptor, GuideConversationEntry, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, TopicNote } from "../core/index.ts";
-import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleDojoTarget, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, renderTocTree, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleDojoTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
 import * as readerFont from "../plugins/stage-reader/lxgwWenKaiData.ts";
@@ -73,6 +73,7 @@ body.theme-dark .pith-view{--pith-sage:#9bbfa2;--pith-clay:#d88d70}
 .pith-guide .pith-choice-btn{margin:5px 0;padding:9px 10px;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-primary);color:var(--text-normal);line-height:1.5}.pith-guide .pith-choice-btn:hover{background:var(--background-modifier-hover)}
 .pith-intake-row [data-intake-open]:hover{background:#304b38;color:#fff}
 .pith-toc-tree,.pith-toc-tree ul{list-style:none;padding:0 0 0 14px;margin:0}.pith-toc-tree>li>div,.pith-toc-tree li>div{display:flex;align-items:start}.pith-left-drawer .pith-toc-tree [data-toc-toggle]{width:28px;flex:none;padding:8px 4px}.pith-toc-tree [data-toc-toggle][hidden]{display:block!important;visibility:hidden}.pith-left-drawer [aria-current=location]{background:var(--background-modifier-hover);color:var(--pith-sage)}
+.pith-left-drawer .pith-lesson{display:flex;align-items:center;gap:8px;white-space:normal;overflow-wrap:anywhere}.pith-lesson span:first-child{flex:1}.pith-left-drawer .pith-lesson[data-planned-lesson]{border:1px dashed var(--background-modifier-border);color:var(--text-muted)}.pith-lesson-badge{flex:none;border:1px solid currentColor;border-radius:999px;padding:2px 7px;color:var(--pith-sage);font-size:12px}.pith-lesson-loading{padding-top:2em}.pith-lesson-loading p{color:var(--text-muted)}
 `;
 
 export interface ObsidianReaderDocument {
@@ -82,10 +83,12 @@ export interface ObsidianReaderDocument {
   readonly currentFile: string;
   readonly format?: "markdown" | "epub" | "pdf" | "cbz" | "image";
   readonly sections: readonly ReaderSectionHeading[];
+  readonly curriculum?: readonly CurriculumItem[];
 }
 
 export interface ObsidianViewActions {
   openFile(name: string): void | Promise<void>;
+  generateLesson?(fileName: string, title: string): Promise<void>;
   home?(): void | Promise<void>;
   openDojo(text?: string, locator?: string): void;
   selection(action: "highlight" | "note" | "ask", text: string, locator?: string): void;
@@ -348,8 +351,22 @@ export class PithWorkbenchView {
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
     this.navigation.replaceChildren();
     const group = (label: string): void => { const heading = this.doc.createElement("h2"); heading.textContent = label; this.navigation.append(heading); };
-    group("材料"); for (const file of document.files) { const button = this.doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.setAttribute("aria-current", String(file.name === document.currentFile)); this.navigation.append(button); }
-    group("目录"); renderTocTree(this.navigation, document.sections, locator => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); }, pithIcon("chevron-right"));
+    const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
+    if (document.curriculum?.length) {
+      group("课程目录");
+      for (const item of document.curriculum) {
+        const button = this.doc.createElement("button"), title = this.doc.createElement("span"); button.className = "pith-lesson"; title.textContent = item.title; button.append(title);
+        if (item.status === "ready") { button.dataset.file = item.fileName; button.setAttribute("aria-current", String(item.fileName === document.currentFile)); }
+        else { button.dataset.plannedLesson = item.fileName; button.dataset.plannedTitle = item.title; const badge = this.doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "待生成"; button.append(badge); }
+        this.navigation.append(button);
+        if (item.fileName === document.currentFile) renderTocTree(this.navigation, document.sections.filter(section => section.level >= 2), navigate, pithIcon("chevron-right"));
+      }
+      const extras = document.files.filter(file => !document.curriculum!.some(item => item.fileName === file.name));
+      if (extras.length) { group("材料"); for (const file of extras) { const button = this.doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.setAttribute("aria-current", String(file.name === document.currentFile)); this.navigation.append(button); } }
+    } else {
+      group("材料"); for (const file of document.files) { const button = this.doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.setAttribute("aria-current", String(file.name === document.currentFile)); this.navigation.append(button); }
+      group("目录"); renderTocTree(this.navigation, document.sections, navigate, pithIcon("chevron-right"));
+    }
     this.closeNavigation();
     this.markExisting(); this.applyPageMode();
     const active = this.doc.activeElement;
@@ -359,6 +376,7 @@ export class PithWorkbenchView {
   }
 
   guideElement(): HTMLElement { return this.guide; }
+  showLessonLoading(title: string): void { this.closeInlineDojo(); this.voice.cancel(); this.stopSpeech(); this.clearAudioAsset(); this.closeNavigation(); const section = this.doc.createElement("section"), heading = this.doc.createElement("h1"), status = this.doc.createElement("p"); section.className = "pith-lesson-loading"; heading.textContent = title; status.textContent = "向导正在结合课程大纲与源码为你撰写本讲讲义…"; status.setAttribute("role", "status"); section.append(heading, status); this.article.replaceChildren(section); }
   focusQuotedGuide(): void { if (this.pendingAnchor) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) input.focus(); } }
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
   setGuideAvailable(available: boolean): void { this.guideButton.hidden = !available; if (!available) this.setGuideVisible(false); }
@@ -622,6 +640,7 @@ export class PithWorkbenchView {
     else if (button.dataset.command === "import" && this.actions.importMaterial) this.actions.importMaterial();
     else if (button === this.navigationButton) { this.navigation.hidden = !this.navigation.hidden; button.setAttribute("aria-expanded", String(!this.navigation.hidden)); if (!this.navigation.hidden) updateTocLocation(this.navigation, this.article, this.reader, this.paged); }
     else if (button === this.guideButton) { const visible = this.guide.hidden; this.setGuideVisible(visible); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(visible); }
+    else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.actions.generateLesson) { this.tip("向导不可用，无法生成讲义"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.locator) { this.closeNavigation(); const heading = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === button.dataset.locator); if (heading) heading.scrollIntoView({ block: "start" }); }
     else if (button.dataset.command === "dojo") { const range = this.selectionRange; if (this.dojo.hidden && range && !range.collapsed && this.article.contains(range.startContainer)) { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(range.startContainer, range.startOffset); this.requestedDojoBlock = (range.startContainer.parentElement?.closest<HTMLElement>('[data-prose="true"],[data-trainable="true"],.pith-cue') ?? null); this.actions.openDojo(range.toString(), `text:offset:${prefix.toString().length}`); } else this.actions.openDojo(); }
