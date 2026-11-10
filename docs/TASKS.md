@@ -19,7 +19,10 @@
 
 ## [Task #36] 渐进式课程拆解（Just-in-Time 逐章推进）、大纲融入左侧目录树（Curriculum TOC）与点击未生成章节即点即写
 
-- **Status**: in_progress
+- **Status**: verified
+- **Verified-Commit**: daeeb44fc82379c094171e29fec805bfb64854bd
+- **Updated**: 2026-11-10
+- **验收摘要**：渐进课程解析、按需生成、目录状态与草稿保持已独立复验；Web 窄屏生成反馈及 Obsidian 长标题目录修复通过。最终报告：`.tmp/evidence/task-36/final-directory-retest-report.md`；截图：`.tmp/evidence/task-36/final-directory-native-700-light.png`、`.tmp/evidence/task-36/final-directory-native-700-dark.png`、`.tmp/evidence/task-36/final-directory-web-390.png`。此前行为与过渡验收分别见 `final-retest-report.md`、`final-retest2-report.md`。
 - **Scope**: `src/plugins/guide-acp/**`, `src/plugins/stage-reader/**`, `src/workbench/view.ts`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
 - **授权范围**：允许修改 `src/plugins/guide-acp/index.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/stage-reader/pagination.ts`、`src/workbench/view.ts`、`src/shells/obsidian/index.ts`、`src/shells/web/server.ts`、`src/shells/web/workbench.ts` 及 `tests/**`。
 - **不在范围内**：严禁修改 `src/core/`；严禁在首轮一次性生成全部章节的正文（必须逐章按需推进）。
