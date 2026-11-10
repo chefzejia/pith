@@ -122,6 +122,26 @@ export interface RepositoryPort {
   readFile(externalPath: string, commitSha: string, filePath: string, startLine?: number, maxLines?: number): Promise<RepositoryFileExcerpt>;
 }
 
+export interface MediaSearchCandidate {
+  readonly id: string;
+  readonly title: string;
+  readonly url: string;
+  readonly durationSec?: number;
+  readonly uploader?: string;
+}
+
+export interface MediaCorpusBundle {
+  readonly title: string;
+  readonly sourceUrl: string;
+  readonly files: readonly { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }[];
+  readonly warnings?: readonly string[];
+}
+
+export interface MediaCorpusPort {
+  searchMedia(query: string, limit?: number, signal?: AbortSignal): Promise<readonly MediaSearchCandidate[]>;
+  fetchMediaCorpus(url: string, options?: { readonly maxDurationSec?: number; readonly lang?: string }, signal?: AbortSignal): Promise<MediaCorpusBundle>;
+}
+
 import type { ManagedSpeechRuntimePort } from "./seams.ts";
 
 export interface HostPort {
@@ -133,5 +153,6 @@ export interface HostPort {
   readonly process?: AgentProcessPort;
   readonly speechRuntime?: ManagedSpeechRuntimePort;
   readonly repository?: RepositoryPort;
+  readonly mediaCorpus?: MediaCorpusPort;
   notify?(message: string, timeoutMs?: number): void;
 }
