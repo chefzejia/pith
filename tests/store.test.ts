@@ -165,9 +165,13 @@ test("imports immutable files, updates generated files and records reading progr
   assert.equal(updated.files[1]?.locator, "page:3");
   assert.ok(updated.files[1]?.lastActiveAt);
   assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
-  const appended = await store.appendMaterialFiles(material.id, [{ name: "clip.mp3", mimeType: "audio/mpeg", bytes: new Uint8Array([1, 2, 3]) }, { name: "clip.vtt", mimeType: "text/vtt", bytes: new TextEncoder().encode("WEBVTT\n\n00:00.000 --> 00:01.000\nhi\n") }]);
+  const files = [{ name: "clip.mp3", mimeType: "audio/mpeg", bytes: new Uint8Array([1, 2, 3]) }, { name: "clip.vtt", mimeType: "text/vtt", bytes: new TextEncoder().encode("WEBVTT\n\n00:00.000 --> 00:01.000\nhi\n") }];
+  const appended = await store.appendMaterialFiles(material.id, files);
   assert.deepEqual(appended.files.map(file => file.name), ["original.md", "lesson.md", "clip.mp3", "clip.vtt"]);
+  for (const file of files) assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/${file.name}`), file.bytes);
   await assert.rejects(store.appendMaterialFiles(material.id, [{ name: "clip.mp3", bytes: new Uint8Array([9]) }]), /Cannot overwrite existing material file/);
+  for (const file of files) assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/${file.name}`), file.bytes);
+  assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/original.md`), new TextEncoder().encode("abc"));
   assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
   await assert.rejects(store.importMaterial({ id: "material-one", title: "Duplicate", kind: "book", files: [] }));
   await assert.rejects(store.writeGeneratedFile(material.id, "../escape.md", "x"));

@@ -51,8 +51,13 @@ test("yt-dlp subprocess uses isolated public proxy and appends or imports real m
     await assert.rejects(fetchTool.execute({ topicId: other.id, url: "https://8.8.8.8/watch" }), /current session/);
     await fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" });
     const updated = await store.getTopic(topic.id), material = await store.getMaterial(existing.id); assert.equal(updated?.materialId, existing.id); assert.ok(updated?.toolkits.includes("shadowing")); assert.ok(updated?.toolkits.includes("feynman")); assert.deepEqual(material?.files.map(file => file.name).sort(), ["clip.en.vtt", "clip.webm", "lesson.md"]);
+    for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
+    assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
     await assert.rejects(fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" }), /exist/i);
+    for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
+    assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
     const newTools = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, other.id); await newTools.find(tool => tool.name === "pith_fetch_media_corpus")!.execute({ topicId: other.id, url: "https://8.8.8.8/watch" });
     const created = await store.getTopic(other.id); assert.ok(created?.materialId); assert.ok(created.toolkits.includes("shadowing")); assert.equal((await store.getMaterial(created.materialId))?.files.length, 2);
+    for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${created.materialId}/files/${file.name}`)), file.bytes);
   } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }
 });
