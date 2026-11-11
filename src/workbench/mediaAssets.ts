@@ -40,15 +40,21 @@ export function resolveMediaPair<T extends { name: string; mimeType?: string }>(
     return result;
   };
   const unique = (matches: readonly T[]): T | null => matches.length === 1 ? matches[0]! : null;
+  const mediaForSubtitle = (subtitle: T): T | null => {
+    for (const stem of stems(subtitle.name)) { const matches = media.filter(file => file.name.replace(/\.[^.]+$/, "").toLowerCase() === stem); if (matches.length) return unique(matches); }
+    return null;
+  };
   const currentMedia = media.find(file => file.name === currentFile);
   const currentSubtitle = subtitles.find(file => file.name === currentFile);
-  if (currentSubtitle) {
-    for (const stem of stems(currentSubtitle.name)) { const matches = media.filter(file => file.name.replace(/\.[^.]+$/, "").toLowerCase() === stem); if (matches.length) return { media: unique(matches), transcript: currentSubtitle }; }
-    return { media: unique(media), transcript: currentSubtitle };
-  }
+  if (currentSubtitle) return { media: mediaForSubtitle(currentSubtitle), transcript: currentSubtitle };
   if (currentMedia) {
-    const stem = currentMedia.name.replace(/\.[^.]+$/, "").toLowerCase(); const matches = subtitles.filter(file => stems(file.name).includes(stem));
-    return { media: currentMedia, transcript: unique(matches) ?? (matches.length === 0 && media.length === 1 ? unique(subtitles) : null) };
+    const stem = currentMedia.name.replace(/\.[^.]+$/, "").toLowerCase();
+    const matches = subtitles.filter(file => mediaForSubtitle(file) === currentMedia).sort((a, b) => {
+      const aName = a.name.toLowerCase(), bName = b.name.toLowerCase();
+      const aExact = aName.replace(/\.[^.]+$/, "") === stem, bExact = bName.replace(/\.[^.]+$/, "") === stem;
+      return Number(bExact) - Number(aExact) || (aName < bName ? -1 : aName > bName ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    });
+    return { media: currentMedia, transcript: matches[0] ?? null };
   }
   return { media: unique(media), transcript: null };
 }

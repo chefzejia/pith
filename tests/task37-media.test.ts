@@ -7,6 +7,7 @@ import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
 import { buildMediaCorpusSlices, NodeMediaCorpusPort, publicHost } from "../src/shells/web/nodeMediaCorpus.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
+import { resolveMediaPair } from "../src/workbench/mediaAssets.ts";
 import { testSandbox } from "./sandbox.ts";
 
 const fixture = `#!/usr/bin/env node
@@ -28,6 +29,22 @@ else if (url.includes('video')) { fs.writeFileSync('clip.mp4', Buffer.from([5,6,
 else if (url.includes('asr')) { fs.writeFileSync('clip.webm', Buffer.from([1,2,3,4])); console.log('Audio title\\nnone\\n60'); }
 else { fs.writeFileSync('clip.webm', Buffer.from([1,2,3,4])); console.log('Fixture title'); }
 `;
+
+test("guide partial extraction keeps new subtitles separate from an old recording", async () => {
+  const root = await testSandbox("media-partial-pair-"), binary = join(root, "yt-dlp.cjs"); const previous = process.env.PITH_YTDLP_PATH;
+  await writeFile(binary, fixture); await chmod(binary, 0o755); process.env.PITH_YTDLP_PATH = binary;
+  try {
+    const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
+    const oldBytes = new Uint8Array([7, 8, 9]); const material = await store.importMaterial({ title: "Old", kind: "media", files: [{ name: "old.wav", mimeType: "audio/wav", bytes: oldBytes }] });
+    const topic = await store.createTopic({ title: "Existing", materialId: material.id });
+    const tool = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, new NodeMediaCorpusPort(), topic.id).find(item => item.name === "pith_fetch_media_corpus")!;
+    const result = await tool.execute({ topicId: topic.id, url: "https://8.8.8.8/partial" }) as { warnings: readonly string[] };
+    assert.ok(result.warnings.includes("音轨提取失败")); const updated = await store.getMaterial(material.id); assert.ok(updated);
+    assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${material.id}/files/old.wav`)), oldBytes);
+    assert.match(await storage.readText(`materials/${material.id}/files/clip.en.vtt`), /Hello/);
+    const pair = resolveMediaPair(updated.files, "clip.en.vtt"); assert.equal(pair.transcript?.name, "clip.en.vtt"); assert.equal(pair.media, null);
+  } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }
+});
 
 test("proxy DNS validation rejects private and loopback destinations", async () => {
   for (const host of ["127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "localhost"]) await assert.rejects(publicHost(host), /non-public/);

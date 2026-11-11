@@ -16,7 +16,19 @@ test("subtitle pairing uses matching stems and rejects ambiguous media", () => {
   assert.equal(resolveMediaPair(files, "new.webm").transcript?.name, "new.en-US.auto.vtt");
   assert.equal(resolveMediaPair([...files, { name: "unmatched.vtt", mimeType: "text/vtt" }], "unmatched.vtt").media, null);
   assert.equal(resolveMediaPair([...files, { name: "new.wav", mimeType: "audio/wav" }], "new.en-US.auto.vtt").media, null);
-  assert.equal(resolveMediaPair([files[0]!, { name: "other.vtt", mimeType: "text/vtt" }], "other.vtt").media?.name, "old.wav");
+  assert.equal(resolveMediaPair([files[0]!, { name: "other.vtt", mimeType: "text/vtt" }], "other.vtt").media, null);
+  assert.equal(resolveMediaPair([files[0]!, { name: "other.vtt", mimeType: "text/vtt" }], "old.wav").transcript, null);
+});
+
+test("media selects a matching transcript deterministically across languages", () => {
+  const multi = [{ name: "clip.wav", mimeType: "audio/wav" }, { name: "clip.zh.vtt", mimeType: "text/vtt" }, { name: "clip.en.vtt", mimeType: "text/vtt" }];
+  assert.equal(resolveMediaPair(multi, "clip.wav").transcript?.name, "clip.en.vtt");
+  assert.equal(resolveMediaPair([...multi].reverse(), "clip.wav").transcript?.name, "clip.en.vtt");
+  assert.equal(resolveMediaPair([...multi, { name: "clip.vtt", mimeType: "text/vtt" }], "clip.wav").transcript?.name, "clip.vtt");
+  assert.equal(resolveMediaPair(multi, "clip.zh.vtt").media?.name, "clip.wav");
+  const nested = [...multi, { name: "clip.en.mp4", mimeType: "video/mp4" }];
+  assert.equal(resolveMediaPair(nested, "clip.en.vtt").media?.name, "clip.en.mp4");
+  assert.equal(resolveMediaPair(nested, "clip.wav").transcript?.name, "clip.zh.vtt");
 });
 
 test("guide tool imports real bytes and opens new subtitles in Web", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {

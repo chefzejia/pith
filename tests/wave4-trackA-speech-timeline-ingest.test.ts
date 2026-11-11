@@ -140,3 +140,21 @@ test("external import retries when an explicit same-value choice races its snaps
     const actual = await store.getTopic(topic.id); assert.deepEqual(actual!.toolkits, ["feynman", "interline"]); assert.equal(actual!.toolkitsOrigin, undefined);
   } finally { release(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test("external import retries a concurrent toolkit list change with unchanged origin", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pith-ingest-list-race-"));
+  let release!: () => void, observed!: () => void; const held = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>(resolve => { observed = resolve; });
+  class PausedStorage extends NodeWorkspaceStorage {
+    armed = false;
+    override async readText(path: string): Promise<string> { const result = await super.readText(path); if (this.armed && path.startsWith("topics/") && path.endsWith("/topic.md")) { this.armed = false; observed(); await held; } return result; }
+  }
+  const disk = new PausedStorage(dir), store = new DefaultWorkspaceStore(disk);
+  try {
+    const topic = await store.createTopic({ title: "List race", toolkits: ["feynman"] }); assert.equal(topic.toolkitsOrigin, undefined);
+    const http: PublicHttpPort = { request: async () => { throw new Error("insecure path"); }, requestPublic: async () => { disk.armed = true; return response("An English article about learning.", "text/plain"); } };
+    const tool = createGuideWorkspaceTools(store, undefined, disk, http).find(item => item.name === "pith_ingest_external")!;
+    const importing = tool.execute({ url: "https://public.com/race", topicId: topic.id }); await ready;
+    const changed = await store.updateTopic(topic.id, { toolkits: ["shadowing"] }); assert.equal(changed.toolkitsOrigin, undefined); release(); await importing;
+    const actual = await store.getTopic(topic.id); assert.deepEqual(actual!.toolkits, ["shadowing", "interline"]); assert.equal(actual!.toolkitsOrigin, undefined); assert.ok(actual!.materialId);
+  } finally { release(); await rm(dir, { recursive: true, force: true }); }
+});
