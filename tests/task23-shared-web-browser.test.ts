@@ -51,7 +51,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     assert.equal(mobileBounds.width, mobileBounds.viewport);
     await page.setViewportSize({ width: 1400, height: 900 });
     assert.equal(await page.locator('.pith-guide [data-voice]').count(), 0);
-    await page.locator('#open-dojo').click(); await page.locator('[data-toolkit-toggle="shadowing"]').check(); await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLInputElement>('[data-toolkit-toggle]')).every(item => !item.disabled)); await page.locator('[data-dojo-choose="shadowing"]').click();
+    await page.locator('#open-dojo').click(); await page.locator('[data-dojo-choose="shadowing"]').click();
     await page.locator('[data-voice="dojo"]').click();
     await page.waitForFunction(() => document.querySelector('[data-voice="dojo"]')?.getAttribute("aria-pressed") === "true");
     await page.waitForTimeout(300);
