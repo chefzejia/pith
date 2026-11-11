@@ -19,7 +19,13 @@
 
 ## [Task #41] MVP 场景 1：纯阅读闭环（网页直投剪藏、结构化净化与行间翻译自动注入）
 
-- **Status**: pending
+- **Status**: blocked
+- **Last-Tested-Commit**: aa09b2fe04341fd6f3a2f58fd66e6adbff912765
+- **阻塞证据**: 三轮真实服务验收未通过（c93d9e4、3fde728、aa09b2f）。最新单独运行隔离 Obsidian，新导入公网英文文章、使用新材料且无旧翻译缓存，真实 dsh 的 `session/prompt` 仍在 60000ms 超时且无译文；已核对运行中的 Agent/model/effort 与授权设置一致，真实执行命令和沙盒工作目录正确。尚不能归因于配置、服务端或产品协议路径。
+- **已修复边界**: 整篇单元改为正文块渐进翻译；单段译文使用纯文本，避免生成式 JSON 的引号解析失败。真实 Web 译文已观察到，但不能替代双端最终通过。
+- **Evidence**: `.tmp/evidence/task-41/final-report.md`、`live-retest-report.md`、`live-final-report.md` 及同目录 `live-*.png`；固定译文截图仅属链路回归，不算真实翻译验收。
+- **未完成**: 最新业务版本 Web 独立复验、原生真实译文与成功后的模式切换、原生显式工具选择后导入保留；不得填写 Verified-Commit。
+- **后续诊断边界**: 需捕获原生实际 ACP 协议阶段和服务响应以区分超时来源；保留现有 Agent/model/effort，禁止回退固定译文或盲目延长超时。依 ROLES 三轮失败规则退回思考环。
 - **Scope**: `src/plugins/guide-acp/externalIngest.ts`, `src/workbench/compass.ts`, `src/workbench/toolkitSlot.ts`, `src/plugins/dojo-interline/index.ts`, `tests/**`
 - **验收摘要**：
   1. Omnibox 支持 URL 直投剪藏，跳过 Agent 生成直接落盘。
