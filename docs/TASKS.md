@@ -1,93 +1,27 @@
 # Pith · 任务调度板（TASKS Queue）
 
-> **仓库根目录**：`/Users/zejiawu/Projects/Project-Atlas/labs/pith`
-> **单文件滑动任务栈与多 Worktree 协同契约（详见 [ROLES.md](ROLES.md) & [PRODUCT.md](PRODUCT.md) & [ARCHITECTURE.md](ARCHITECTURE.md)）**：
-> - **思考环（Brain）**：冻结 `src/core/` 与 `docs/PRODUCT.md` / `docs/ARCHITECTURE.md` 契约后，以独立编号区块 `## [Task #N] <标题>`（标记 `- **Status**: pending` 与 `- **Scope**: ...`）写入本文件，并执行隔离提交 `git commit --only docs/TASKS.md`（若上一轮 `#N-1` 仍在执行，直接在末尾追加 `## [Task #N]` 绝不覆盖 `#N-1`；若推翻未完旧单，将其改为 `- **Status**: superseded (by #N)` 并追加新单；文件内仅保留未结案区块 + 最近 1~2 个已结案锚点）；
-> - **执行环（无人值守战术法官 Router → Worker & Tester）**：由 `.git/hooks/post-commit` 的 `[AUTO-WAKEUP]` 信号唤醒（监听 `HEAD:docs/TASKS.md`），取单先置 `Status: in_progress`（若主目录忙于验收或多任务 `Scope` 正交，则在 `.tmp/worktrees/task-<N>` 开启隔离 Worktree 并行派发 Worker 并在内环单测通过后变基合回 `main` 销毁临时目录），串联调度常驻 Worker（必读 [LESSONS.md](LESSONS.md)、完成全仓测试 + 手动破壁 `Broken by hand` 并在业务 Commit Body 记录意图/根因与验证证据）与独立 Tester（在专用沙盒中模拟真实用户操作与截屏审视，首轮穷尽挑刺）：若 Tester 打回显性问题，由 Router 亲自记入 `LESSONS.md`（满 `Seen 3×` 令 Worker 顺手固化为 `tests/` 守卫单测）并在执行环内部直接拍板闭环；**每完成一单必须在进入下一单前立即将该 `[Task #N]` 区块更新为 `- **Status**: verified`（附真实业务 `Verified-Commit`）并执行 `git commit --only docs/TASKS.md`；提交后结束回合前必须再次检查本文件是否仍有新增的 `- **Status**: pending` 区块（Drain-Loop），若有则立即继续执行直至队列彻底排空**。
+> **仓库根目录**：
+> **单文件滑动任务栈与多 Worktree 协同契约**：详见 [ROLES.md](ROLES.md) 等文档。
 
 ---
 
-## [Task #36] 渐进式课程拆解（Just-in-Time 逐章推进）、大纲融入左侧目录树（Curriculum TOC）与点击未生成章节即点即写
+## [Task #40] 架构重整：视图模块化拆解与双壳交互逻辑对称收敛
 
-- **Status**: verified
-- **Verified-Commit**: daeeb44fc82379c094171e29fec805bfb64854bd
-- **Updated**: 2026-11-10
-- **Scope**: `src/plugins/guide-acp/**`, `src/plugins/stage-reader/**`, `src/workbench/view.ts`, `src/shells/obsidian/**`, `src/shells/web/**`, `tests/**`
-- **验收摘要**：渐进课程解析、按需生成、目录状态与草稿保持已独立复验；Web 窄屏生成反馈及 Obsidian 长标题目录修复通过。最终报告：`.tmp/evidence/task-36/final-directory-retest-report.md`；截图：`.tmp/evidence/task-36/final-directory-native-700-light.png`、`.tmp/evidence/task-36/final-directory-native-700-dark.png`、`.tmp/evidence/task-36/final-directory-web-390.png`。
-
----
-
-## [Task #37] 影子跟读（`shadowing`）聚光灯级交互重设计 & 砍掉通用打字框“语音输入”按钮（麦克风仅归属声学实训） & 内嵌托管 `yt-dlp` 声学语料搜索与拉取工具
-
-- **Status**: verified
-- **Verified-Commit**: 59d285e813bd7eb97f6e294cd5b2d72bf071d48c
-- **Updated**: 2026-11-10
-- **Scope**: `src/plugins/dojo-shadowing/**`, `src/plugins/guide-acp/**`, `src/workbench/view.ts`, `src/workbench/voiceInput.ts`, `src/shells/web/nodeMediaCorpus.ts`, `src/shells/web/server.ts`, `src/shells/obsidian/index.ts`, `tests/**`
-- **验收摘要**：独立 Tester 在 Web 与隔离 Obsidian 按原契约验证四镜头、录音转写与漏词反馈、回听保存、原声慢放循环、搜索、已有材料追加和新材料绑定；实际打开字幕并播放新增音轨，保留原材料身份与讲义。报告：`.tmp/evidence/task-37/final-report.md`；截图：`.tmp/evidence/task-37/final-native-shadowing-light.png`、`.tmp/evidence/task-37/final-web-narrow-dark.png`、`.tmp/evidence/task-37/final-native-import-audio.png`。磁盘字节断言审计整改 `a0f6442` 已独立闭环。
+- **Status**: pending
+- **Scope**: `src/workbench/view.ts` (拆解为 `src/workbench/view/*.ts`), `src/shells/`
+- **验收摘要**：将核心视图组件（顶栏、目录、播放、向导、原位工具）模块化，样式归口统一；收敛 Web 与 Obsidian 壳在导入、路由、会话逻辑上的不一致，统一为 HostPort 适配器。
+- **验证门禁**：`npm run typecheck && npm test` 全绿，确保双端体验完全对称。
 
 ---
 
-## [Task #38] Web 端系统主题对齐（干掉绿底色与卡片折行微瑕） & 统一播放控制底座（Unified Transport Dock：砍掉正文原生 `<audio>` 与 `A-B` 冗余、视频/音频/跟读单一进度条联动）
+## [Task #41] MVP 场景 1：纯阅读闭环（网页直投剪藏、结构化净化与行间翻译自动注入）
 
-- **Status**: verified
-- **Verified-Commit**: 681a63411f5a71010c36f4bae272969b5fed9835
-- **验收摘要**：独立 Web 与隔离 Obsidian 验证中性色、日期单行、音视频/TTS/回听统一底座与字幕/跟读定位；332px 原生内容区明暗主题按钮边界及坐标实点通过，双端播放中离页停止归零。报告：`.tmp/evidence/task-38/final-retest-report.md`（首轮通过项见 `final-report.md`）；截图：`.tmp/evidence/task-38/final-retest-native-dark.png`、`.tmp/evidence/task-38/final-retest-native-light.png`、`.tmp/evidence/task-38/final-retest-web-390.png`。
-- **Scope**: `src/shells/web/server.ts`, `src/plugins/stage-timeline/index.ts`, `src/workbench/view.ts`, `src/workbench/compass.ts`, `src/workbench/mediaAssets.ts`, `tests/**`
-- **授权范围**：允许修改 `src/shells/web/server.ts`、`src/plugins/stage-timeline/index.ts`、`src/workbench/view.ts`、`src/workbench/compass.ts`、`src/workbench/mediaAssets.ts` 及 `tests/**`。
-- **不在范围内**：严禁修改 `src/core/`；严禁在音频时间轴舞台的正文中再渲染第二个 `<audio controls>` 播放器或 `"A-B 循环未设置"` 文本；严禁在底部播放底座保留晦涩的手动 `A-B` 按钮。
-- **背景与参考代码**：开工前请阅读 [`docs/subsystems/2-stages.md`](subsystems/2-stages.md) 第 5 节与 [`docs/subsystems/5-spatial-ui-and-slots.md`](subsystems/5-spatial-ui-and-slots.md) 第 1.2 节、第 3 节。
-- **接口与行为契约**：
-  1. **Web 端视觉对齐系统/Obsidian/DSH 原生中性色 & 修复课题卡片日期折行（`src/shells/web/server.ts` & `src/workbench/view.ts` & `src/workbench/compass.ts`）**：
-     - 在 `src/shells/web/server.ts` 的 `APP` 样式中，**彻底删除第 431~432 行覆写的发绿背景色**（`#f7f8f6 / #edf0ed` 与 `#202622 / #2a322d`），使独立 Web 端 100% 跟随纯净的系统/宿主中性色（Light 模式：`--background-primary: #ffffff; --background-secondary: #f6f6f7; --background-modifier-border: #e4e4e7; --background-modifier-hover: #ececef; --text-normal: #18181b; --text-muted: #71717a; --text-faint: #a1a1aa`；Dark 模式：`--background-primary: #18181b; --background-secondary: #202024; --background-modifier-border: #34343a; --background-modifier-hover: #2c2c32; --text-normal: #e4e4e7; --text-muted: #a1a1aa; --text-faint: #71717a`），并在 `workbenchStyles` 中支持优先读取 `--dsh-bg / --dsh-fg` 等宿主变量回退至 `--background-primary / --text-normal`；
-     - 在 `.pith-card-top time` 上增加 `white-space: nowrap; flex-shrink: 0`，确保当课题挂载了 3 个工具标签时，右侧日期（如 `2026/11/10`）永远一行完整展示，绝不被挤断成两行。
-  2. **砍掉正文原生 `<audio controls>` 与 `A-B 循环未设置` 冗余，收敛为全系统唯一的底部播放控制底座（`src/plugins/stage-timeline/index.ts` & `src/workbench/view.ts` & `src/workbench/mediaAssets.ts`）**：
-     - 在 `stage-timeline/index.ts` 的 `renderTimelineView`（以及 `server.ts` 的回退渲染）中：
-       - **彻底移除 `.pith-loop-status`（`"A-B 循环未设置"`）节点**；
-       - 当 `mediaKind === "audio"` 时，**不在正文顶部渲染 `<audio controls>` 标签**（音频统一由底部 `.pith-media-deck` 控制，消除页面上下两个播放器的丑陋重复）；
-       - 当 `mediaKind === "video"` 时，在正文顶部渲染无原生控制条的纯净视频画面 `<video class="pith-timeline-video" playsinline preload="metadata" src="..."></video>`，且 `view.ts` 在检测到页面存在 `.pith-timeline-video`（或视频媒体文件 `videoContentType`）时，将底部 `.pith-media-deck` 直接绑定驱动该 `<video>` 元素（使视频、音频、TTS 伴读与跟读 100% 共用底部同一个 `.pith-media-deck` 控制底座和同一条进度条）！
-  3. **重做底部统一播放控制底座（`.pith-media-deck`）的视觉设计与进度条字幕联动（`src/workbench/view.ts`）**：
-     - **砍掉底部底座上的 `[A-B]` 按钮**（句段循环已由影子跟读聚光灯坞的 `[循环]` 与语义切片自然承担）；
-     - 升级 `.pith-media-deck` 为现代克制的播放控制栏（高 `48px`，内边距 `8px 16px`，左侧为圆润的播放/暂停主按钮 + 等宽数字时间 `00:01 / 00:12` `font-variant-numeric: tabular-nums`，中间为带语义切片/字幕句刻度点容器 `.pith-deck-track` 的自定义外观进度条 `.pith-media-seek`，右侧为 `-15s`、`+15s`、`1.0x` 倍速胶囊与关闭按钮）；
-     - **进度条刻度与字幕/聚光灯双向同步（影视字幕级体验）**：
-       - 当时间轴包含 `.pith-cue[data-locator^="time:"]` 时，在底部进度条轨道 `.pith-deck-track` 上按每段字幕/切片的 `startSec / duration` 百分比渲染轻量刻度锚点（`.pith-deck-marker[data-cue-start]`）；
-       - **点击或拖动底部进度条（或点击进度条上的刻度点）到任意时间点时**：不仅媒体 `currentTime` 跳转到该位置，主舞台自动定位高亮对应的 `.pith-cue.pith-speech-active`；**若当前正处于 `shadowing` 影子跟读激活态，聚光灯卡片自动无缝切换到该时间点对应的字幕句**！
-- **Worker 工程内环门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；更新旧单测中对 `renderTimelineView` 里 `<audio controls` / `A-B 循环未设置` / `[data-media="loop"]` 的过时断言；新增单测与浏览器回归验证：1) Web 端亮暗背景为纯净中性色且卡片日期不折行；2) 音频时间轴无顶部 `<audio controls>` 与 `A-B` 文字，视频时间轴画面由底部统一底座控制；3) 拖动/点击底部唯一进度条（或刻度点）时，自动聚焦对应字幕句并同步切换影子跟读聚光灯目标句；截屏存入 `.tmp/evidence/task-38/` 自检。
+- **Status**: pending
+- **Scope**: `src/plugins/guide-acp/externalIngest.ts`, `src/workbench/compass.ts`, `src/workbench/toolkitSlot.ts`, `src/plugins/dojo-interline/index.ts`, `tests/**`
+- **验收摘要**：
+  1. Omnibox 支持 URL 直投剪藏，跳过 Agent 生成直接落盘。
+  2. 优化 HTML 净化 Markdown，完整保留标题、代码块与引用结构。
+  3. EPUB/Blog 导入自动识别语言并自动挂载 `["interline"]`，开箱即双语模式就绪。
+- **验证门禁**：通过英文博客导入即刻阅读且行间模式即时可用，断言工具组精确包含行间而不混入误报工具。
 
 ---
-
-## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
-
-- **Status**: verified
-- **Verified-Commit**: 7418a54525caf561d5f8275636e4bc6e7f994ee9
-- **F2 验收**: Web 与隔离 Obsidian 均通过删除缓存、重启、真实英文博客导入和重进课题验证；证据：`.tmp/evidence/task-39/final-audit-f2-report.md`。
-- **Updated**: 2026-11-11
-- **上游阻塞已解除说明**：
-  1. `src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库；
-  2. 针对周期审计报告 `.tmp/evidence/audit-39/report.md` 的 **F2（暂定默认工具来源不能仅存于可删 `_cache`）**：上游已在 `src/core/types.ts`、`src/core/store/contract.ts` 与 `src/core/store/WorkspaceStore.ts` 中正式新增并持久化 `Topic.toolkitsOrigin?: "default" | "explicit"`（写入 `topics/<id>/topic.md` frontmatter；当通过 `updateTopic` 更新 `toolkits` 且未显式指定 `toolkitsOrigin` 时自动清除 `"default"` 标记），且本单已获用户授权允许按需修改 `src/core/`。请 Worker 将 `markDefaultToolkit / isDefaultToolkit / clearDefaultToolkit`（及 Web / Obsidian 立项与 `pith_ingest_external`）迁移为基于 Store 持久化字段 `toolkitsOrigin: "default"`，使得即使清空 `_cache` 目录，空白向导立项后首次导入外文材料依然 100% 替换为单一 `["interline"]`（同时保留用户显式配置的 `["feynman"]`）。
-- **Last-Accepted-Commit**: dd5e3d93bee8ebfdaac642001b95bfdec12146c3
-- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。F2 来源字段已迁移到课题账本并通过独立验收。
-- **Scope**: `src/core/**`, `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/**`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `src/shells/dsh/index.ts`, `tests/**`
-- **授权范围**：允许修改 `src/core/**`、`src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/**`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。
-- **不在范围内**：严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴；严禁将不可重建的课题工具来源事实仅保存在 `_cache/` 中。
-- **背景与参考代码**：开工前请阅读 [`docs/subsystems/3-dojos.md`](subsystems/3-dojos.md) 第 2.1 节与第 3 节、[`docs/subsystems/4-guide-speech-shells.md`](subsystems/4-guide-speech-shells.md) 第 2.4 节，以及 `src/core/host.ts` 中的 `MediaCorpusSlice`、`MediaCorpusBundle` 接口定义。
-- **接口与行为契约**：
-  1. **将 `interline` 工具正名为「行间」、砍掉顶栏 `"· 2"` 计数尾巴，并仅在非母语阅读（含网页/Blog 剪藏）时自动注入（`dojo-interline/index.ts` & `toolkitSlot.ts` & `compass.ts` & `view.ts` & `guide-acp/index.ts` & `tools.ts`）**：
-     - **品牌正名（`"行间双语"` $\rightarrow$ `"行间"`）**：`interline` 是 Pith 内嵌的「行间（Interline）」翻译产品，旨在为非母语阅读提供舒适的一行一翻译体验。将 `dojo-interline/index.ts`（`interlineToolkit.label`）、`toolkitSlot.ts`、`compass.ts`、`view.ts`、`guide-acp/index.ts` 中面向用户的工具名称统一简化为 **`"行间"`**；
-     - **砍掉令人费解的 `" · 2"` 数字后缀（`src/workbench/toolkitSlot.ts`）**：
-       - 此前 `toolkitSlot` 在 `ids.length > 1` 时拼接了 `` `${name} · ${ids.length}` ``，导致页面顶栏出现莫名其妙的 `"行间双语 · 2"` 或 `"费曼复述 · 2"`；
-       - 修改 `toolkitSlot` 为始终直接返回当前激活工具的干净名称 `text: ids.length ? name : ""`（不再拼接 ` · ${ids.length}`！同步更新 `tests/wave7-responsive-and-media-deck.test.ts` 等关联测试断言）；
-     - **非母语阅读（外文书籍 / 剪藏英文网页或 Blog）按需单独注入 `["interline"]`**：
-       - 在 `defaultToolkitsForMaterial`（`src/workbench/toolkitSlot.ts`）中：当判定为非母语文本（`foreign / characters.length >= 0.5`）时，**仅默认返回 `["interline"]`**（不再捆绑塞入 `"feynman"` 凑成两个工具）；母语阅读材料默认返回 `["feynman"]`（或不挂翻译工具）；
-       - 在 `pith_ingest_external`（`src/plugins/guide-acp/tools.ts`）或首页 Omnibox 输入公开网页/Blog URL 剪藏导入时：检测抓取到的文章正文（`bundle.files` 中的 Markdown 文本），若为非母语（如剪藏英文网页、英文 Blog），自动为该 Topic 注入 `"interline"` 工具，让用户点进剪藏的英文网页即可直接享受「行间」一行一译体验！
-  2. **支持视频流（`.mp4/.webm`）与音频流拉取 + 无外挂字幕时自动调用 ASR 生成 `.vtt` 字幕（`src/shells/web/nodeMediaCorpus.ts` & 各 Shell）**：
-     - 升级 `NodeMediaCorpusPort`：
-       - 在 `fetchMediaCorpus` 中支持提取轻量视频（如 `mp4/webm` $\le 25\text{MB}$）或音频轨（`m4a/mp3/webm/opus`）及 `.vtt` 字幕；
-       - **无字幕自动 ASR 补齐**：允许在构造 `NodeMediaCorpusPort` 时注入可选的 `transcribeAudio?: (bytes: Uint8Array, mimeType: string, signal?: AbortSignal) => Promise<{ readonly text: string; readonly durationSec?: number }>` 回调（在 `server.ts` 与 `obsidian/index.ts` 中接入当前配置的 `speech.asr` 服务）；当 `yt-dlp` 下载了音视频文件但未能获取到 `.vtt` 字幕文件、且 `transcribeAudio` 可用时，自动调用 `transcribeAudio` 将音频转写为文本，并按自然句读切分生成带时间戳的标准 WebVTT 字幕文件（`<stem>.auto.vtt`）一并收入 `bundle.files`！
-  3. **自动按自然语义与时长（30~60s）生成原子跟读切片 `slices: MediaCorpusSlice[]`（`src/shells/web/nodeMediaCorpus.ts` & `src/plugins/guide-acp/tools.ts`）**：
-     - 新增导出纯函数 `buildMediaCorpusSlices(vttText: string, targetSliceSec = 45): MediaCorpusSlice[]`：
-       - 解析 `.vtt` 中的时间轴字幕句，按自然句末标点与时长阈值（每段约 `25s ~ 60s`）将长音视频切分为有序的 `MediaCorpusSlice[]`（每项含 `id: "slice-1"`, `title: "片段 1 (00:00 - 00:42)"`, `startSec`, `endSec`, `cueCount`, `text`）；
-     - `fetchMediaCorpus` 在拿到或生成 `.vtt` 后，自动调用 `buildMediaCorpusSlices` 计算并填充 `bundle.slices`；
-     - 在 `pith_fetch_media_corpus`（`src/plugins/guide-acp/tools.ts`）执行时：
-       - 除了将音视频与 `.vtt` 写入课题 `Material` 并自动挂载 `["shadowing"]` 外，若 `bundle.slices?.length` 非空，自动生成一份《`00-跟读切片导读.md`》（列出所有语义切片的时间区间、核心台词预览与跟读建议）写入该 `Material`；
-       - 工具返回值中包含 `slices` 摘要，且在 `server.ts` / `obsidian/index.ts` 处理向导工具完成后，前端若检测到当前课题新增了 `.vtt` 字幕材料，自动打开该时间轴视图，让用户零摩擦开启影子跟读旅程！
-- **Worker 工程内环门禁**：`npm run typecheck && npm test && npm run build:obsidian` 全绿；新增单测与回归验证：1) `interline` 标签统一为 `"行间"`，顶栏无 `" · 2"` 后缀，非母语书籍或剪藏英文网页/Blog 自动挂载 `["interline"]` 而中文材料不挂载 `interline`；2) `buildMediaCorpusSlices` 将长 VTT 字幕按语义与时长切分为 `MediaCorpusSlice[]`；3) 当 `yt-dlp` 仅返回音频无字幕时，自动通过注入的 `transcribeAudio`（ASR）生成 `.vtt` 字幕并切出 `slices`；4) `pith_fetch_media_corpus` 自动生成《`00-跟读切片导读.md`》、保存音视频+VTT 并挂载 `shadowing`；完成手动破壁验证并归档证据至 `.tmp/evidence/task-39/`。
