@@ -7,7 +7,10 @@
 
 ## [Task #40] 架构重整：视图模块化拆解与双壳交互逻辑对称收敛
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 77895ee44464140721fb3e4af6ecb7cf1cdfa180
+- **Evidence**: `.tmp/evidence/task-40/final-report.md`；双端正常/窄屏操作截图位于同目录。
+- **验收结果**: 双端材料导入/切换、播放定位/关闭、向导对话隔离/恢复、工具打开/移除通过；全仓 268 通过、70 条件跳过、0 失败。
 - **Scope**: `src/workbench/view.ts` (拆解为 `src/workbench/view/*.ts`), `src/shells/`
 - **验收摘要**：将核心视图组件（顶栏、目录、播放、向导、原位工具）模块化，样式归口统一；收敛 Web 与 Obsidian 壳在导入、路由、会话逻辑上的不一致，统一为 HostPort 适配器。
 - **验证门禁**：`npm run typecheck && npm test` 全绿，确保双端体验完全对称。
