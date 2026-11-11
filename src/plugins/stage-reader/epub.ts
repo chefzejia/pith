@@ -210,6 +210,24 @@ export async function inspectEpubPackage(bytes: Uint8Array): Promise<{ title?: s
   return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}) };
 }
 
+export async function sampleEpubLanguage(bytes: Uint8Array): Promise<string> {
+  const zip = new Zip(bytes), container = xml(await zip.text("META-INF/container.xml"));
+  const root = descendants(container, "rootfile")[0]?.attrs["full-path"];
+  if (!root) throw new Error("EPUB rootfile missing");
+  const opf = xml(await zip.text(root));
+  const manifest = new Map(descendants(opf, "item").flatMap(item => item.attrs.id && item.attrs.href ? [[item.attrs.id, resolve(dir(root), item.attrs.href)] as const] : []));
+  let sample = "";
+  for (const item of descendants(opf, "itemref")) {
+    const path = manifest.get(item.attrs.idref ?? "");
+    if (!path || !zip.has(path) || zip.size(path) > 256 * 1024 || !/\.(?:xhtml|html|htm)$/i.test(path)) continue;
+    sample += ` ${content(xml(await zip.text(path))).slice(0, 16384 - sample.length)}`;
+    if (sample.length >= 16384) break;
+  }
+  if (sample.trim()) return sample.trim();
+  const language = content(descendants(opf, "language")[0] ?? { name: "", attrs: {}, children: [] }).toLowerCase();
+  return language && !/^zh(?:-|$)/.test(language) ? "foreign language" : language ? "中文" : "";
+}
+
 export async function inspectMaterialCover(name: string, bytes: Uint8Array): Promise<string | undefined> {
   if (/\.epub$/i.test(name)) return (await inspectEpubPackage(bytes)).coverDataUrl;
   if (/\.cbz$/i.test(name)) {

@@ -6,7 +6,7 @@ import { pithIcon } from "./icons.ts";
 
 export interface CompassActions {
   open(id: string): void;
-  create(data: { title: string; files: File[]; repoPath: string; guide: boolean }): Promise<void> | void;
+  create(data: { title: string; files: File[]; repoPath: string; url: string; guide: boolean }): Promise<void> | void;
   settings?(): void;
   materials?: readonly BoardMaterial[];
 }
@@ -37,7 +37,7 @@ export function renderCompass(root: HTMLElement, compass: AttentionCompassSnapsh
   files.onchange = () => { addFiles(files.files); files.value = ""; };
   form.ondragover = event => { event.preventDefault(); };
   form.ondrop = event => { event.preventDefault(); addFiles(event.dataTransfer?.files ?? null); };
-  form.onsubmit = event => { event.preventDefault(); const input = (form.elements.namedItem("title") as HTMLInputElement).value.trim(); const repoPath = !selected.length && /^(?:\/|~\/|[a-z]:[\\/])/i.test(input) ? input : ""; if (!input && !selected.length) { status.textContent = "请输入课题或添加材料"; return; } const buttons = Array.from(form.querySelectorAll<HTMLButtonElement>("button")); buttons.forEach(button => button.disabled = true); status.textContent = ""; void Promise.resolve().then(() => actions.create({ title: repoPath ? "" : input, files: [...selected], repoPath, guide: !!input })).catch(error => { status.textContent = error instanceof Error ? error.message : String(error); }).finally(() => { buttons.forEach(button => button.disabled = false); }); };
+  form.onsubmit = event => { event.preventDefault(); const input = (form.elements.namedItem("title") as HTMLInputElement).value.trim(); const repoPath = !selected.length && /^(?:\/|~\/|[a-z]:[\\/])/i.test(input) ? input : ""; const url = !selected.length && /^https?:\/\/\S+$/i.test(input) ? input : ""; if (!input && !selected.length) { status.textContent = "请输入课题或添加材料"; return; } const buttons = Array.from(form.querySelectorAll<HTMLButtonElement>("button")); buttons.forEach(button => button.disabled = true); status.textContent = ""; void Promise.resolve().then(() => actions.create({ title: repoPath || url ? "" : input, files: [...selected], repoPath, url, guide: !!input && !url })).catch(error => { status.textContent = error instanceof Error ? error.message : String(error); }).finally(() => { buttons.forEach(button => button.disabled = false); }); };
   const settings = root.querySelector<HTMLButtonElement>("[data-home-settings]");
   if (settings && actions.settings) settings.onclick = actions.settings;
   for (const button of root.querySelectorAll<HTMLButtonElement>("[data-topic]")) button.onclick = () => { if (button.dataset.topic) actions.open(button.dataset.topic); };

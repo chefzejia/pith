@@ -31,6 +31,7 @@ function home(): void {
     create: async data => {
       let material: Material | undefined; let target = "";
       if (data.repoPath) { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath: data.repoPath }); material = result; target = result.intakeDescription; }
+      else if (data.url) material = await api<Material>("/api/materials/url", { url: data.url });
       else if (data.files.length) material = await importFiles(data.files);
       const title = material?.title || data.title;
       const item = await api<Topic>("/api/topics", { title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { guideDefault: true } : {}) });

@@ -21,27 +21,29 @@ export function isPublicHttpUrl(value: string): boolean {
 }
 
 function extractHtmlTitleAndMarkdown(html: string, fallbackTitle: string): { title: string; markdown: string } {
-  if (typeof DOMParser !== "undefined") {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    doc.querySelectorAll("script,style,iframe,object,embed,form,nav,footer,noscript,svg,math,template").forEach(node => node.remove());
-    const root = doc.querySelector("article") ?? doc.querySelector("main") ?? doc.body;
-    if (!root) throw new Error("HTML body unavailable");
-    const documentTitle = (doc.title || fallbackTitle).replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 200) || fallbackTitle;
-    return { title: documentTitle, markdown: root.textContent ?? "" };
-  }
+  const decode = (value: string) => value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (entity, key: string) => { const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }; if (key[0] !== "#") return named[key.toLowerCase()] ?? entity; const n = Number.parseInt(key.slice(key[1]?.toLowerCase() === "x" ? 2 : 1), key[1]?.toLowerCase() === "x" ? 16 : 10); return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "\ufffd"; });
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  const documentTitle = (titleMatch?.[1] ?? fallbackTitle).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, 200) || fallbackTitle;
-  const cleaned = html
-    .replace(/<(script|style|iframe|object|embed|form|nav|footer|noscript|svg|math|template)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<(?:article|main|section|div|p|br|li|h[1-6])\b[^>]*>/gi, "\n")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
-  return { title: documentTitle, markdown: cleaned };
+  const documentTitle = decode((titleMatch?.[1] ?? fallbackTitle).replace(/<[^>]*>/g, " ")).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || fallbackTitle;
+  const source = (/<article\b[^>]*>([\s\S]*?)<\/article\s*>/i.exec(html) ?? /<main\b[^>]*>([\s\S]*?)<\/main\s*>/i.exec(html) ?? /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html))?.[1] ?? html;
+  const cleaned = source.replace(/<(script|style|iframe|object|embed|form|nav|footer|head|noscript|svg|math|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+  let fenceLength = 3;
+  for (const match of cleaned.matchAll(/`+/g)) { fenceLength = Math.max(fenceLength, match[0].length + 1); if (fenceLength > 128) throw new Error("HTML code fence exceeds limit"); }
+  const fence = "`".repeat(fenceLength);
+  let output = "", code = false, quote = 0, lineStart = true;
+  const boundary = () => { if (output && !output.endsWith("\n\n")) output += output.endsWith("\n") ? "\n" : "\n\n"; lineStart = true; };
+  const prefix = (value = "") => { if (lineStart) { output += "> ".repeat(quote) + value; lineStart = false; } };
+  for (const token of cleaned.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+|</g) ?? []) {
+    if (!token.startsWith("<") || token === "<") { const text = decode(token).replace(/\u0000/g, ""); if (code) output += text.replace(/\n/g, `\n${"> ".repeat(quote)}`); else if (text.trim()) { prefix(); output += text.replace(/\s+/g, " "); } continue; }
+    const tag = /^<\s*(\/?)\s*([\w-]+)/.exec(token); if (!tag) continue;
+    const end = !!tag[1], name = tag[2]!.toLowerCase();
+    if (name === "pre") { if (end) { output += `\n${"> ".repeat(quote)}${fence}`; code = false; boundary(); } else { boundary(); prefix(fence); output += `\n${"> ".repeat(quote)}`; code = true; } continue; }
+    if (code) continue;
+    if (name === "blockquote") { boundary(); quote = Math.max(0, quote + (end ? -1 : 1)); continue; }
+    if (/^h[1-6]$/.test(name)) { boundary(); if (!end) prefix(`${"#".repeat(Number(name[1]))} `); }
+    else if (["p", "div", "section", "li"].includes(name)) { boundary(); if (!end && name === "li") prefix("- "); }
+    else if (name === "br") { output += "\n"; lineStart = true; }
+  }
+  return { title: documentTitle, markdown: output.trim() };
 }
 const encoder = new TextEncoder();
 function safeMarkdown(value: string): string {
@@ -73,7 +75,7 @@ export async function ingestExternalUrl(input: ExternalIngestInput, http: HttpPo
     documentTitle = parsed.title;
     text = parsed.markdown;
   } else if (type !== "text/markdown" && type !== "text/plain") throw new Error("Unsupported document type");
-  text = safeMarkdown(text);
+  text = type === "text/html" || type === "application/xhtml+xml" ? text.trim() : safeMarkdown(text);
   if (!text) throw new Error("External document is empty");
   return { title: documentTitle, kind, files: [{ name: "article.md", mimeType: "text/markdown", bytes: encoder.encode(text) }], warnings: kind === "discussion" ? ["Discussion may be incomplete"] : [] };
 }

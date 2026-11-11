@@ -22,6 +22,7 @@ import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { MaterialSession } from "../../workbench/materialSession.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { prepareMaterialImport } from "../../workbench/importMaterial.ts";
+import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
@@ -377,12 +378,13 @@ export class PithWorkspaceView extends obsidian.ItemView {
         let material; let target = "";
         let sampleText: string | undefined;
         if (data.repoPath) { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const resolved = await resolveRepositoryIntake(data.repoPath, this.host.repository); const info = resolved.info; target = resolved.description; material = await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha }); }
+        else if (data.url) { const bundle = await ingestExternalUrl({ url: data.url }, this.host.http); sampleText = new TextDecoder().decode(bundle.files[0]!.bytes); material = await this.controller.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files }); }
         else if (data.files.length) {
           const prepared = await prepareMaterialImport(data.files); sampleText = prepared.sampleText;
           material = await this.controller.importMaterial({ title: prepared.title, kind: prepared.kind, files: prepared.files });
         }
         const toolkits = material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guide ? ["feynman"] : undefined;
-        const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}), ...(!material && data.guide ? { toolkitsOrigin: "default" as const } : {}) });
+        const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits, toolkitsOrigin: "default" as const } : {}) });
         if (generation === this.generation) try { await this.openTopic(topic.id, data.guide, intakeGuidePrompt(target || data.title, data.files)); } catch (error) { this.report(error); }
       },
     });
@@ -425,6 +427,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
+      autoInterline: topic.toolkitsOrigin === "default" && topic.toolkits.length === 1 && topic.toolkits[0] === "interline",
       guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView, topic.id).catch(error => this.report(error)); },
       home: () => this.onOpen(),
       openSettings: () => { if (!this.openSettings) throw new Error("设置面板不可用"); this.openSettings(); },

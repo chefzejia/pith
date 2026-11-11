@@ -17,12 +17,14 @@ import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
+import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
+import { sampleEpubLanguage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
-import type { ManagedSpeechRuntimePort } from "../../core/index.ts";
+import type { HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }
-export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort }
+export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let raw = "";
@@ -83,7 +85,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona } } } });
   const processPort = new NodeAgentProcessPort();
   const repository = new NodeRepositoryPort();
-  const http = new NodeHttpPort();
+  const http = options.http ?? new NodeHttpPort();
   const mediaCorpus = new NodeMediaCorpusPort({ transcribeAudio: async (bytes, mimeType, signal) => { const asr = runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); } });
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
@@ -162,6 +164,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (data.materialId && !material) throw new Error("Material not found");
         let sampleText = material?.title;
         const first = material?.files[0];
+        if (material && first && /\.epub$/i.test(first.name)) sampleText = await sampleEpubLanguage(await storage.readBinary(`materials/${material.id}/files/${first.name}`)) || sampleText;
         if (material && first && !/\.(?:epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(first.name) && (isSourceTextFile(first.name) || !/^(?:audio|video|image)\//.test(first.mimeType))) {
           const bytes = await storage.readBinary(`materials/${material.id}/files/${first.name}`);
           try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
@@ -169,7 +172,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (data.guideDefault !== undefined && (data.guideDefault !== true || material || data.toolkits !== undefined)) throw new Error("Invalid guide default");
         const toolkits = data.toolkits !== undefined ? data.toolkits as string[] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guideDefault ? ["feynman"] : undefined;
         const topic = await store.createTopic({ title: str(data, "title"), target: typeof data.target === "string" ? data.target : "", nextAction: typeof data.nextAction === "string" ? data.nextAction : undefined,
-          materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}), ...(data.guideDefault ? { toolkitsOrigin: "default" as const } : {}) });
+          materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}), ...((data.guideDefault || (material && data.toolkits === undefined)) ? { toolkitsOrigin: "default" as const } : {}) });
         await refresh(); return send(res, 201, topic);
       }
       const toolkitPath = /^\/api\/topics\/([^/]+)\/toolkits$/.exec(url.pathname);
@@ -246,6 +249,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const data = await body(req), { info, description } = await resolveRepositoryIntake(str(data, "repoPath"), repository);
         const material = await store.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha });
         await refresh(); return send(res, 201, { ...material, intakeDescription: description });
+      }
+      if (method === "POST" && url.pathname === "/api/materials/url") {
+        const data = await body(req), bundle = await ingestExternalUrl({ url: str(data, "url") }, http);
+        const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
+        await refresh(); return send(res, 201, material);
       }
       if (method === "POST" && url.pathname === "/api/materials") {
         const data = await body(req);

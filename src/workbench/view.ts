@@ -35,6 +35,7 @@ export interface ObsidianReaderDocument {
 }
 
 export interface ObsidianViewActions {
+  autoInterline?: boolean;
   openFile(name: string): void | Promise<void>;
   generateLesson?(fileName: string, title: string): Promise<void>;
   home?(): void | Promise<void>;
@@ -290,6 +291,7 @@ export class PithWorkbenchView {
     this.renderNavigation(document);
     this.closeNavigation();
     this.markExisting(); this.applyPageMode();
+    if (this.actions.autoInterline && this.interline && this.mountedToolkits.includes("interline")) { this.interlineMode = "bilingual"; this.interline.setMode("bilingual"); }
     const active = this.doc.activeElement;
     if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const typeOf = (file: ObsidianReaderDocument["files"][number]) => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name: file.name, mimeType: file.mimeType ?? "" });

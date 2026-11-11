@@ -41,6 +41,7 @@ export class WebWorkbench {
       return response;
     };
     this.view = mountPithWorkbench(options.root, {
+      autoInterline: options.topic.toolkitsOrigin === "default" && options.topic.toolkits.length === 1 && options.topic.toolkits[0] === "interline",
       home: options.home,
       openSettings: options.settings,
       importMaterial: options.importMaterial,

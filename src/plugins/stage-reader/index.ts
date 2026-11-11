@@ -44,12 +44,25 @@ function markdownBlocks(markdown: string): MarkdownBlock[] {
       i = range.end;
       continue;
     }
+    const quotedFence = /^((?: {0,3}> ?)+)(`{3,}|~{3,})/.exec(line);
+    if (quotedFence) {
+      const start = i++, depth = (quotedFence[1]!.match(/>/g) ?? []).length, marker = quotedFence[2]!, body: string[] = [];
+      while (i < lines.length) {
+        let text = lines[i]!, prefixes = 0;
+        while (prefixes < depth) { const prefix = /^ {0,3}> ?/.exec(text); if (!prefix) break; text = text.slice(prefix[0].length); prefixes++; }
+        if (prefixes !== depth) break;
+        i++;
+        if (new RegExp(`^\\s{0,3}${marker[0]}{${marker.length},}\\s*$`).test(text)) break;
+        body.push(text);
+      }
+      add(start, lines.slice(start, i).join("\n"), "code", false, depth, body.join("\n")); continue;
+    }
     const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
       const start = i++;
       while (i < lines.length && !new RegExp(`^\\s{0,3}${fence[1]![0]}{${fence[1]!.length},}\\s*$`).test(lines[i]!)) i++;
-      if (i < lines.length) i++;
-      add(start, lines.slice(start, i).join("\n"), "code", false); continue;
+      const body = lines.slice(start + 1, i).join("\n"); if (i < lines.length) i++;
+      add(start, lines.slice(start, i).join("\n"), "code", false, undefined, body); continue;
     }
     if (/^\s*\$\$/.test(line)) {
       const start = i++;
@@ -70,12 +83,12 @@ function markdownBlocks(markdown: string): MarkdownBlock[] {
     if (/^\s{0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(line) || tableDivider.test(line)) { add(i++, line, "rule", false); continue; }
     const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) { add(i++, heading[2]!, "heading", true, heading[1]!.length); continue; }
-    const quote = /^\s*>\s?(.*)$/.exec(line);
+    const quote = /^((?: {0,3}> ?)+)(.*)$/.exec(line);
     const list = /^\s*(?:[-+*]|\d+[.)])\s+(.+)$/.exec(line);
-    const text = quote ? quote[1]! : list ? list[1]! : line.trim();
+    const text = quote ? quote[2]! : list ? list[1]! : line.trim();
     const clean = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "").trim();
     const isProse = /[\p{L}\p{N}]/u.test(clean) && !/^\s*\$.*\$\s*$/.test(text) && !/^\s*<[^>]+>/.test(text);
-    add(i++, clean, quote ? "quote" : "paragraph", isProse, undefined, text);
+    add(i++, clean, quote ? "quote" : "paragraph", isProse, quote ? (quote[1]!.match(/>/g) ?? []).length : undefined, text);
   }
   return blocks;
 }
@@ -108,11 +121,12 @@ export function renderMarkdown(markdown: string): string {
     if (block.kind === "meta") return "";
     if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title)}</h3><p>${inline(block.teaching.body).replace(/\n/g, "<br>")}</p></section>`;
     if (block.kind === "table") return renderTableHtml(block.text, attrs);
-    if (block.kind === "code" || block.kind === "math") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
+    if (block.kind === "code") { const depth = block.level ?? 0; return `${"<blockquote>".repeat(depth)}<pre ${attrs}><code>${escape(block.display ?? block.text)}</code></pre>${"</blockquote>".repeat(depth)}`; }
+    if (block.kind === "math") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
     if (block.kind === "rule") return `<hr ${attrs}>`;
     if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
-    const tag = block.kind === "quote" ? "blockquote" : "p";
-    return `<${tag} ${attrs}>${inline(block.display ?? block.text)}</${tag}>`;
+    if (block.kind === "quote") { const depth = block.level ?? 1; return `<blockquote ${attrs}>${"<blockquote>".repeat(depth - 1)}${inline(block.display ?? block.text)}${"</blockquote>".repeat(depth - 1)}</blockquote>`; }
+    return `<p ${attrs}>${inline(block.display ?? block.text)}</p>`;
   }).join("");
 }
 
