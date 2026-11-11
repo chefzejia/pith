@@ -183,5 +183,5 @@ Layer 4: inUse 守卫 + 传递依赖提权（Transitive Requirement Propagation�
 ## 6. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/pluginrt.test.ts tests/store.test.ts tests/engine.test.ts
+npm run test:file -- tests/pluginrt.test.ts tests/store.test.ts tests/engine.test.ts
 ```

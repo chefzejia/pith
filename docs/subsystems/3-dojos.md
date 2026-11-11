@@ -55,5 +55,5 @@ Pith 严格遵循**“Agent 介入前有聪明默认，Agent 介入后可完全�
 ## 4. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/wave2-trackA-plugins.test.ts tests/wave5-trackA-dojo-feynman.test.ts tests/dojo-interline.test.ts
+npm run test:file -- tests/wave2-trackA-plugins.test.ts tests/wave5-trackA-dojo-feynman.test.ts tests/dojo-interline.test.ts
 ```

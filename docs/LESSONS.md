@@ -89,9 +89,9 @@
 - `[Task #34]` 双宿主在英文正文处打开跟读，工具定位于正文却显示并合成标题。Worker 的固定时间轴与组件回归未覆盖“标题在上、用户指定正文在下”的目标选择链路；应同时核对原位块、展示引文与实际 TTS 输入。
 - Seen 1× (2026-11-10).
 
-**语音相关工程门禁必须显式使用沙盒 HOME 与语音目录，不能继承真实本机运行时状态。**
-- `[Task #33]` Worker 门禁与 `[Task #34]` Tester Web 服务分别漏隔离语音目录，调用了或可能调用已有本机运行时；两次后续隔离重跑通过。工程检查与受控终验服务均应显式隔离环境，并以实际下游请求记录确认未绕过受控端点。
-- Seen 2× (2026-11-10).
+**测试进程之外启动的受控终验服务（`npm run web` 等）必须显式使用沙盒 HOME 与语音目录。**
+- `[Task #34]` Tester Web 服务漏隔离语音目录，可能调用已有本机运行时；隔离重跑通过。测试进程由 [`tests/setup.ts`](../tests/setup.ts) 强制隔离，测试进程之外启动的服务仍须显式设置 `HOME` 与 `PITH_SPEECH_HOME`，并以实际下游请求记录确认未绕过受控端点。
+- Seen 1× (2026-11-10).
 
 **文件导入的类型判断必须覆盖宿主 MIME 与源码后缀冲突，不能用浏览器夹具的空 MIME 代表原生文件选择器。**
 - `[Task #33]` 原生验收中 `.ts` 被系统标为 `video/mp2t`，走入时间轴和影子跟读；Worker 自检只覆盖按文本 MIME 导入的源码，没有覆盖真实宿主的冲突值。已知源码应优先按文本处理，二进制内容仍拒绝。
@@ -179,6 +179,7 @@
 
 ## Moved to Guard Tests / Standards
 
+- **测试进程不得继承真实 HOME 与本机语音运行时**（`[Task #33]` Worker 门禁、`[Task #34]` 同模式、2026-11-11 评审中裸跑 `npm test` 改写真实语音目录的 `gateway.cjs` 并产生 5 个假失败，Seen 3×）→ 已固化为测试预加载 [`tests/setup.ts`](../tests/setup.ts)（`npm test` 与 `npm run test:file` 注入一次性沙盒）、守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`every test entry point loads the sandbox preload`）与行为测试 [`tests/test-sandbox.test.ts`](../tests/test-sandbox.test.ts)。
 - **禁止同名函数重赋值包装链（`const xBase = x; x = ...`）与 `stopImmediatePropagation()` 截胡死代码** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`source does not retain Base aliases for function wrappers` & `Web reader entry points have one definition and are never reassigned`）。
 - **禁止通过 `readFile("src/...")` 抠取源码字符串塞入 `vm.runInContext` 跑假测试** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`tests do not execute extracted source in a VM`）。
 - **禁止在 ACP 插件中硬编码读取 `~/.dsh/` 私有配置，禁止在语音运行时调用 `python3 / pip` 或使用纯英文 `Piper / whisper-tiny.en` 模型** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`managed speech uses native multilingual models and ACP never reads dsh private configuration`）。

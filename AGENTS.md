@@ -22,7 +22,8 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
 
 ```bash
 npm run typecheck          # TypeScript 全仓零报错检查
-npm test                   # 运行全仓单测与架构边界守卫（tests/boundaries.test.ts）
+npm test                   # 运行全仓单测与架构边界守卫（tests/boundaries.test.ts）；tests/setup.ts 把 HOME 与 PITH_SPEECH_HOME 指向一次性沙盒
+npm run test:file -- tests/store.test.ts   # 在同一沙盒下运行指定测试文件（单跑文件一律走此入口）
 npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault/.obsidian/plugins/pith/（不写仓库之外的任何路径）
 npm run install:obsidian   # 构建后把三个插件文件安装进真实 Vault（参数 > PITH_OBSIDIAN_VAULT > 默认 Vault）；仅在人类明确要求时执行
 npm run verify:obsidian    # 拉起真实 /Applications/Obsidian.app (.dev-vault) 执行 CDP 端到端真机验收

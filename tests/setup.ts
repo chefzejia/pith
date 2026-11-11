@@ -1,0 +1,14 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/**
+ * Test-process sandbox, loaded through `--import` by the npm test scripts.
+ * HOME and PITH_SPEECH_HOME point at one throwaway directory per test process, whatever the caller exported,
+ * so no test reads or starts anything under the developer's real home directory.
+ * A test that needs a specific home sets it inside the test and restores the sandbox value afterwards.
+ */
+const sandbox = mkdtempSync(join(tmpdir(), "pith-test-home-"));
+process.env.HOME = sandbox;
+process.env.PITH_SPEECH_HOME = join(sandbox, "speech");
+process.on("exit", () => rmSync(sandbox, { recursive: true, force: true }));

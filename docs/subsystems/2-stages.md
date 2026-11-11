@@ -72,5 +72,5 @@ Pith 的输入不局限于电子书，[`stage-reader`](../../src/plugins/stage-r
 ## 6. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/core-epub-and-typography.test.ts tests/wave3-track1-reader-formats.test.ts tests/wave13-pagination-browser.test.ts
+npm run test:file -- tests/core-epub-and-typography.test.ts tests/wave3-track1-reader-formats.test.ts tests/wave13-pagination-browser.test.ts
 ```

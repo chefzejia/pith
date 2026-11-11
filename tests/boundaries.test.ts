@@ -43,6 +43,26 @@ test("the Obsidian build script resolves every path from the repository root", (
   for (const [name, command] of Object.entries(scripts)) if (name !== "install:obsidian") assert.doesNotMatch(command, /install-obsidian/, name);
 });
 
+test("every test entry point loads the sandbox preload", () => {
+  const preload = /--import \.\/tests\/setup\.ts(?:\s|$)/;
+  const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts as Record<string, string>;
+  const runners = Object.entries(scripts).filter(([, command]) => /\s--test(?:\s|$)/.test(command));
+  assert.ok(runners.some(([name]) => name === "test"));
+  for (const [name, command] of runners) assert.match(command, preload, name);
+  const bareRunner = /node --experimental-strip-types --test(?:\s|$)/;
+  assert.match("node --experimental-strip-types --test tests/store.test.ts", bareRunner);
+  for (const file of [join(ROOT, "AGENTS.md"), join(ROOT, "README.md"), join(ROOT, "README.zh-CN.md"), ...walkMdFiles(join(ROOT, "docs"))]) {
+    assert.doesNotMatch(readFileSync(file, "utf8"), bareRunner, relative(ROOT, file));
+  }
+});
+
+function walkMdFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? walkMdFiles(full) : entry.isFile() && full.endsWith(".md") ? [full] : [];
+  });
+}
+
 function walkTsFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -275,11 +295,6 @@ test("Documentation links in README.md, AGENTS.md, and docs/ resolve cleanly", (
   checkLinksIn(join(ROOT, "README.md"));
   checkLinksIn(join(ROOT, "README.zh-CN.md"));
   checkLinksIn(join(ROOT, "AGENTS.md"));
-  const walkMdFiles = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-      const full = join(dir, entry.name);
-      return entry.isDirectory() ? walkMdFiles(full) : entry.isFile() && full.endsWith(".md") ? [full] : [];
-    });
   for (const file of walkMdFiles(docsDir)) {
     checkLinksIn(file);
   }

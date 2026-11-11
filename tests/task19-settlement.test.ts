@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { rm } from "node:fs/promises";
+import test, { after } from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { buildScenePrompt, createGuideWorkspaceTools } from "../src/plugins/guide-acp/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -15,8 +16,13 @@ class FaultStorage extends NodeWorkspaceStorage {
   }
 }
 
+const sandboxes: string[] = [];
+after(async () => { for (const dir of sandboxes) await rm(dir, { recursive: true, force: true }); });
+
 async function fixture(withNote = true) {
-  const storage = new FaultStorage(await testSandbox("task19-settlement-"));
+  const dir = await testSandbox("task19-settlement-");
+  sandboxes.push(dir);
+  const storage = new FaultStorage(dir);
   const store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
   await store.writeProfile("# Original profile");

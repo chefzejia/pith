@@ -43,6 +43,7 @@ npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault
 | :--- | :--- |
 | `npm run typecheck` | TypeScript 全仓静态类型检查 |
 | `npm test` | 运行全仓单元测试与架构边界守卫（[`tests/boundaries.test.ts`](tests/boundaries.test.ts)） |
+| `npm run test:file -- <文件>` | 在与 `npm test` 相同的一次性 `HOME` / `PITH_SPEECH_HOME` 沙盒下运行指定测试文件 |
 | `npm run build:obsidian` | 构建 Obsidian 插件产物并同步至 `.dev-vault` 沙盒 |
 | `npm run install:obsidian` | 构建后把 `main.js`、`styles.css`、`manifest.json` 安装进真实 Vault 的 `.obsidian/plugins/pith/`（Vault 路径取命令参数、`PITH_OBSIDIAN_VAULT` 或默认 Vault） |
 | `npm run verify:obsidian` | 拉起隔离的真实 `/Applications/Obsidian.app`（`.dev-vault`）执行端到端真机验证 |

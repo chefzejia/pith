@@ -40,6 +40,7 @@ npm run build:obsidian     # Build dist/obsidian/ and sync to .dev-vault/.obsidi
 | :--- | :--- |
 | `npm run typecheck` | Full-repo TypeScript static typecheck |
 | `npm test` | Run unit tests and architecture boundary guards ([`tests/boundaries.test.ts`](tests/boundaries.test.ts)) |
+| `npm run test:file -- <files>` | Run selected test files inside the same throwaway `HOME` / `PITH_SPEECH_HOME` sandbox as `npm test` |
 | `npm run build:obsidian` | Build Obsidian plugin bundle and sync to `.dev-vault` sandbox |
 | `npm run install:obsidian` | Build, then install `main.js`, `styles.css` and `manifest.json` into a real vault's `.obsidian/plugins/pith/` (vault path from the argument, `PITH_OBSIDIAN_VAULT`, or the default vault) |
 | `npm run verify:obsidian` | Launch isolated `/Applications/Obsidian.app` (`.dev-vault`) for live CDP E2E verification |

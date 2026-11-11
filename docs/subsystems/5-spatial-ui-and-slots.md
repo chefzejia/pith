@@ -122,5 +122,5 @@ Pith 的所有宿主壳（[`src/shells/obsidian/`](../../src/shells/obsidian/)�
 ## 4. 验证命令
 
 ```bash
-node --experimental-strip-types --test tests/track3-spatial-ui-and-obsidian.test.ts tests/wave7-responsive-and-media-deck.test.ts tests/wave11-popover-browser.test.ts
+npm run test:file -- tests/track3-spatial-ui-and-obsidian.test.ts tests/wave7-responsive-and-media-deck.test.ts tests/wave11-popover-browser.test.ts
 ```

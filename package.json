@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit --typeRoots ./node_modules/@types",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --import ./tests/setup.ts --test tests/*.test.ts",
+    "test:file": "node --experimental-strip-types --import ./tests/setup.ts --test",
     "build:obsidian": "node scripts/build-obsidian.mjs",
     "install:obsidian": "npm run build:obsidian && node scripts/install-obsidian.mjs",
     "verify:obsidian": "npm run build:obsidian && node --experimental-strip-types scripts/verify-obsidian-e2e.ts",
