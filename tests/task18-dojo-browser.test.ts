@@ -112,7 +112,8 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     await page.locator("[data-dojo-display] mark").waitFor(); assert.equal(await page.locator("[data-dojo-display] mark").textContent(), "two");
     await page.locator('[data-dojo-stage="guided-follow"]').click();
     await page.locator('[data-dojo-stage="blind-produce"]').click(); await page.waitForFunction(() => document.querySelector("[data-dojo-display]")?.textContent?.includes("One two three four")); assert.equal(await page.locator("[data-dojo-display] mark").count(), 0);
-    await page.locator("#open-dojo").click(); await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
+    await page.locator("#open-dojo").click(); await page.locator("#open-dojo").click(); assert.equal(await page.locator(".pith-dojo-panel").isHidden(), true);
+    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click();
     assert.equal(await page.locator('[data-dojo-produced]').inputValue(), "");
     await page.locator("[data-dojo-produced]").fill("My explanation"); await page.locator("[data-dojo-submit]").click();
     await page.waitForFunction(() => document.querySelector(".pith-guide-content")?.textContent?.includes("My explanation") && document.querySelector(".pith-guide-content")?.textContent?.includes("受控追问"));

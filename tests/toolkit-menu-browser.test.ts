@@ -22,6 +22,12 @@ test("toolkit menu opens, enables and removes tools without stale actions", { ti
     const panel = page.locator(".pith-dojo-panel"); assert.equal(await panel.locator('input[type="checkbox"]').count(), 0); assert.equal(await panel.getByRole("button", { name: "打开", exact: true }).count(), 0);
     assert.equal(await panel.getByRole("button", { name: "移除费曼复述" }).count(), 1); assert.equal(await panel.getByRole("button", { name: "移除行间" }).count(), 0);
     assert.equal(await panel.evaluate((element: HTMLElement) => element.scrollWidth <= element.clientWidth && Array.from(element.querySelectorAll('button')).every(button => { const rect = button.getBoundingClientRect(), outer = element.getBoundingClientRect(); return rect.left >= outer.left && rect.right <= outer.right; })), true);
+    await page.keyboard.press("Escape"); assert.equal(await panel.isHidden(), true, "Escape closes the tool menu");
+    await page.locator("#open-dojo").click(); assert.equal(await panel.isVisible(), true);
+    const readerBox = await page.locator(".pith-reader").boundingBox(); assert.ok(readerBox);
+    await page.mouse.click(readerBox.x + 10, readerBox.y + readerBox.height - 10); assert.equal(await panel.isHidden(), true, "a press outside closes the tool menu");
+    await page.locator("#open-dojo").click(); await page.locator("#open-dojo").click(); assert.equal(await panel.isHidden(), true, "the tool button toggles the menu");
+    await page.locator("#open-dojo").click(); assert.equal(await panel.isVisible(), true);
     const evidence = resolve(".tmp/evidence/toolkit-menu"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-narrow-light.png") }); await page.emulateMedia({ colorScheme: "dark" }); await page.screenshot({ path: join(evidence, "web-narrow-dark.png") }); await page.emulateMedia({ colorScheme: "light" });
     const before = await (await fetch(base + "/api/state")).json() as any;
     await panel.getByRole("button", { name: "费曼复述", exact: true }).click(); await page.locator("[data-dojo-close]").waitFor(); assert.equal(updates, 0);

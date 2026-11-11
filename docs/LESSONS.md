@@ -3,6 +3,10 @@
 
 ## Active Lessons
 
+**改动共享容器的显隐前，先列出它承载的全部内容，并跑全量浏览器回归。**
+- `[2026-11-11 自用准备]` 工具菜单收起修复的首版把 `.pith-dojo-panel` 一律当作工具菜单：再点按钮、按 `Esc`、点面板外会连同行间模式条与选段后的工具选择一起收起。当时只跑了菜单相关的 3 个文件就判定通过，全量浏览器回归才暴露 4 个用例失败。改动共享容器的行为须先核对它的全部渲染入口，提交前跑 `npm run test:browser` 全量。
+- Seen 1× (2026-11-11).
+
 **宿主验收须核对实际加载目录的构建产物。**
 - `[Task #41]` 隔离 Obsidian 使用 `.pith-e2e-*` 配置目录；仓库 HEAD 和 `dist/obsidian` 正确不能证明沙盒已加载同版插件。验收前同步实际插件目录并核对 `main.js`、`manifest.json`、`styles.css` 哈希，证据绑定业务提交与运行目录。旧失败进程缺少加载哈希时，不把本轮同步后成功推断成旧故障的确定根因。
 - Seen 1× (2026-11-11).
@@ -179,6 +183,7 @@
 
 ## Moved to Guard Tests / Standards
 
+- **浏览器用例不得因缺少环境变量而在门禁中静默跳过**（2026-11-11：默认门禁跳过全部浏览器用例，`2b8acbe`、`8e411ca`、`07fe545`、`187f9e6`、`2a569fa`、`3f8d2ac`、`35d00d6` 七个提交先后使 11 个浏览器用例过期而无人察觉）→ 已固化为 `npm run test:browser`（[`scripts/test-browser.mjs`](../scripts/test-browser.mjs) 缺 Playwright 或 Chrome 即报错退出）与守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`the browser test command runs every test file that launches a browser, inside the sandbox preload, and never without a browser`）。
 - **测试进程不得继承真实 HOME 与本机语音运行时**（`[Task #33]` Worker 门禁、`[Task #34]` 同模式、2026-11-11 评审中裸跑 `npm test` 改写真实语音目录的 `gateway.cjs` 并产生 5 个假失败，Seen 3×）→ 已固化为测试预加载 [`tests/setup.ts`](../tests/setup.ts)（`npm test` 与 `npm run test:file` 注入一次性沙盒）、守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`every test entry point loads the sandbox preload`）与行为测试 [`tests/test-sandbox.test.ts`](../tests/test-sandbox.test.ts)。
 - **禁止同名函数重赋值包装链（`const xBase = x; x = ...`）与 `stopImmediatePropagation()` 截胡死代码** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`source does not retain Base aliases for function wrappers` & `Web reader entry points have one definition and are never reassigned`）。
 - **禁止通过 `readFile("src/...")` 抠取源码字符串塞入 `vm.runInContext` 跑假测试** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`tests do not execute extracted source in a VM`）。

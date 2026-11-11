@@ -21,7 +21,7 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
         const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; setToolkits(ids: string[]): void; openDojo(dojos: object[]): void } } }).PithView;
         let view: InstanceType<typeof pith.PithObsidianView>;
         const dojos = [{ id: "feynman", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
-        view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openDojo() { view.openDojo(dojos); } });
+        view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openDojo() { view.openDojo(dojos); }, toggleToolkit: async () => {} });
         view.render({ title: "测试文章", html: "<p>正文</p>", currentFile: format === "epub" ? "book.epub" : "article.md", format, files: [], sections: [] });
         view.setToolkits(["feynman"]);
       }, format);
@@ -43,6 +43,12 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
         await page.locator(button).click();
         assert.equal(await page.locator(panel).isHidden(), true);
       }
+      const menu = page.locator(".pith-dojo-panel"), reader = await page.locator(".pith-reader").boundingBox();
+      assert.ok(reader);
+      await page.locator("#open-dojo").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens`);
+      await page.keyboard.press("Escape"); assert.equal(await menu.isHidden(), true, `${width}: Escape closes the tool menu`);
+      await page.locator("#open-dojo").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens after Escape`);
+      await page.mouse.click(reader.x + 10, reader.y + reader.height - 10); assert.equal(await menu.isHidden(), true, `${width}: a press outside closes the tool menu`);
     }
   } finally {
     if (browser) await browser.close();
