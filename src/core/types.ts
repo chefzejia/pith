@@ -49,6 +49,8 @@ export interface Topic {
   readonly nextAction?: string;
   /** Dynamically injected dojo/practice toolkit plugin IDs (e.g. ["shadowing"]). */
   readonly toolkits: readonly string[];
+  /** Whether `toolkits` was provisionally pre-filled by intake defaults before material binding (`"default"`) or explicitly configured (`"explicit"`). */
+  readonly toolkitsOrigin?: "default" | "explicit";
   readonly notes: readonly TopicNote[];
   readonly createdAt: string;
   readonly updatedAt: string;

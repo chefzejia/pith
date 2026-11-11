@@ -28,6 +28,7 @@ export interface CreateTopicInput {
   readonly materialId?: string;
   readonly nextAction?: string;
   readonly toolkits?: readonly string[];
+  readonly toolkitsOrigin?: "default" | "explicit";
 }
 
 export interface UpdateTopicPatch {
@@ -37,6 +38,7 @@ export interface UpdateTopicPatch {
   readonly materialId?: string;
   readonly nextAction?: string;
   readonly toolkits?: readonly string[];
+  readonly toolkitsOrigin?: "default" | "explicit" | null;
 }
 
 export interface ImportMaterialFileInput {

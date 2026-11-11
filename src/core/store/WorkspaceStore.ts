@@ -101,6 +101,8 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
   const status = required(a, "status");
   if (status !== "exploring" && status !== "settled") throw new Error("Invalid topic status");
   if (!Array.isArray(a.toolkits) || !a.toolkits.every(item => typeof item === "string")) throw new Error("Invalid toolkits");
+  const toolkitsOrigin = optional(a, "toolkitsOrigin");
+  if (toolkitsOrigin !== undefined && toolkitsOrigin !== "default" && toolkitsOrigin !== "explicit") throw new Error("Invalid toolkitsOrigin");
   const material = optional(a, "material");
   const materialId = material?.startsWith("[[") ? /^\[\[materials\/([^/]+)\/material\]\]$/.exec(material)?.[1] : material;
   if (material && !materialId) throw new Error("Invalid material link");
@@ -108,6 +110,7 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
   return { attributes: a, body, topic: {
     id: name(required(a, "id")), title: required(a, "title"), target: text(a, "target"), status,
     materialId, nextAction: optional(a, "nextAction"), toolkits: a.toolkits as string[],
+    ...(toolkitsOrigin ? { toolkitsOrigin } : {}),
     createdAt: required(a, "createdAt"), updatedAt: required(a, "updatedAt"), notes: parseNotes(body),
   } };
 }
@@ -202,6 +205,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       if (await this.storage.exists(path)) throw new Error("Topic already exists");
       const now = new Date().toISOString();
       const a: Frontmatter = { type: "pith-topic", id, title: input.title, target: input.target ?? "", status: "exploring", toolkits: [...(input.toolkits ?? [])], createdAt: now, updatedAt: now };
+      if (input.toolkitsOrigin !== undefined) a.toolkitsOrigin = input.toolkitsOrigin;
       if (input.materialId !== undefined) a.material = `[[materials/${name(input.materialId)}/material]]`;
       if (input.nextAction !== undefined) a.nextAction = input.nextAction;
       const markdown = stringifyFrontmatter(a, "\n");
@@ -217,7 +221,12 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const { attributes: a, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
       for (const key of ["title", "target", "status", "nextAction"] as const) if (patch[key] !== undefined) a[key] = patch[key]!;
-      if (patch.toolkits !== undefined) a.toolkits = [...patch.toolkits];
+      if (patch.toolkits !== undefined) {
+        a.toolkits = [...patch.toolkits];
+        if (patch.toolkitsOrigin === undefined) delete a.toolkitsOrigin;
+      }
+      if (patch.toolkitsOrigin === null) delete a.toolkitsOrigin;
+      else if (patch.toolkitsOrigin !== undefined) a.toolkitsOrigin = patch.toolkitsOrigin;
       if (patch.materialId !== undefined) a.material = `[[materials/${name(patch.materialId)}/material]]`;
       a.updatedAt = new Date().toISOString();
       const markdown = stringifyFrontmatter(a, body);

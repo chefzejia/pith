@@ -83,7 +83,7 @@
 
 ### 3.2 `topic.md` 与 `material.md` 持久化格式
 
-- **`topic.md`**：Frontmatter 固定 `type: pith-topic`；正文每条记录以 `## [highlight|note|practice] <timestamp>` 开头，并用 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界，确保多行原文引用（`quote`）、思考正文（`body`）与向导评注（`guideRemark`）无损往返：
+- **`topic.md`**：Frontmatter 固定 `type: pith-topic`（可选 `toolkitsOrigin: "default" | "explicit"` 用于持久化标记暂定默认工具来源，避免依赖 `_cache/`）；正文每条记录以 `## [highlight|note|practice] <timestamp>` 开头，并用 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界，确保多行原文引用（`quote`）、思考正文（`body`）与向导评注（`guideRemark`）无损往返：
 
 ```markdown
 ---
