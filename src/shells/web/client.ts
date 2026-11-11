@@ -1,10 +1,10 @@
 import { WebWorkbench } from "./workbench.ts";
-import { importedMaterialKind, intakeGuidePrompt, renderAcpSelect, renderCompass } from "../../workbench/index.ts";
+import { intakeGuidePrompt, renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 import { pithIcon } from "../../workbench/icons.ts";
 import { speechMode } from "../speech/speechSettings.ts";
-import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
+import { prepareMaterialImport } from "../../workbench/importMaterial.ts";
 import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
 import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
 
@@ -62,10 +62,9 @@ document.addEventListener("click", event => {
 });
 document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" multiple hidden>');
 async function importFiles(files: File[], topicId?: string): Promise<Material> {
-  const entries = await Promise.all(files.map(async f => { const bytes = new Uint8Array(await f.arrayBuffer()); let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { name: f.name, mimeType: f.type || "application/octet-stream", data: btoa(binary), bytes }; }));
-  const kind = importedMaterialKind(entries);
-  const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
-  return api<Material>("/api/materials", { title: metadata.title || cleanMaterialTitle(first.name), kind, files: entries.map(({ bytes: _bytes, ...entry }) => entry), topicId });
+  const prepared = await prepareMaterialImport(files);
+  const entries = prepared.files.map(({ bytes, ...entry }) => { let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { ...entry, data: btoa(binary) }; });
+  return api<Material>("/api/materials", { title: prepared.title, kind: prepared.kind, files: entries, topicId });
 }
 document.addEventListener("change", event => {
   if (!(event.target instanceof HTMLInputElement) || event.target.id !== "material-files" || !event.target.files?.length) return;

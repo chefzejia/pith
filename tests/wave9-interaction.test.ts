@@ -150,8 +150,8 @@ test("Obsidian maps a TTS connection failure to the configuration guidance", asy
 });
 
 test("both shells remove single-click speech and expose the four selection actions", async () => {
-  for (const path of ["../src/workbench/view.ts"]) {
-    const source = await readFile(new URL(path, import.meta.url), "utf8");
+  {
+    const source = (await Promise.all(["../src/workbench/view.ts", "../src/workbench/view/toolbar.ts"].map(path => readFile(new URL(path, import.meta.url), "utf8")))).join("\n");
     assert.doesNotMatch(source, /从此句朗读|caretRangeFromPoint|data-(?:action|selection)="speak"/);
     for (const action of ["highlight", "note", "ask", "copy"]) assert.match(source, new RegExp(`data-(?:action|selection)="${action}"`));
   }

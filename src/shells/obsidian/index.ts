@@ -10,7 +10,7 @@ import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { NodeMediaCorpusPort } from "../web/nodeMediaCorpus.ts";
 import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type ObsidianViewActions } from "./plugin.ts";
-import { audioContentType, videoContentType, importedMaterialKind, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
+import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
@@ -18,10 +18,10 @@ import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-in
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { intakeGuidePrompt, renderCompass } from "../../workbench/compass.ts";
 import { pithIcon } from "../../workbench/icons.ts";
-import { emptyMaterialHtml, resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
-import { parseCurriculumOutline } from "../../plugins/stage-reader/pagination.ts";
+import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
+import { MaterialSession } from "../../workbench/materialSession.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
-import { cleanMaterialTitle, inspectEpubPackage } from "../../plugins/stage-reader/epub.ts";
+import { prepareMaterialImport } from "../../workbench/importMaterial.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
@@ -378,13 +378,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
         let sampleText: string | undefined;
         if (data.repoPath) { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const resolved = await resolveRepositoryIntake(data.repoPath, this.host.repository); const info = resolved.info; target = resolved.description; material = await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha }); }
         else if (data.files.length) {
-          const entries = await Promise.all(data.files.map(async file => ({ name: file.name, mimeType: file.type || "application/octet-stream", bytes: new Uint8Array(await file.arrayBuffer()) })));
-          const first = entries[0]!, metadata = /\.epub$/i.test(first.name) ? await inspectEpubPackage(first.bytes) : {};
-          const kind = importedMaterialKind(entries);
-          const title = metadata.title || cleanMaterialTitle(first.name);
-          sampleText = title;
-          if (kind === "article") try { const text = new TextDecoder("utf-8", { fatal: true }).decode(first.bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
-          material = await this.controller.importMaterial({ title, kind, files: entries });
+          const prepared = await prepareMaterialImport(data.files); sampleText = prepared.sampleText;
+          material = await this.controller.importMaterial({ title: prepared.title, kind: prepared.kind, files: prepared.files });
         }
         const toolkits = material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guide ? ["feynman"] : undefined;
         const topic = await this.controller.store.createTopic({ title: material?.title || data.title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(toolkits ? { toolkits } : {}), ...(!material && data.guide ? { toolkitsOrigin: "default" as const } : {}) });
@@ -421,67 +416,31 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const topic = await this.controller.openTopic(id);
     if (generation !== this.generation) return;
     if (!topic) throw new Error("课题不存在");
-    let material = topic.materialId ? await this.controller.store.getMaterial(topic.materialId) : null;
+    const material = topic.materialId ? await this.controller.store.getMaterial(topic.materialId) : null;
     if (generation !== this.generation) return;
     if (topic.materialId && !material) throw new Error("课题材料不存在");
-    let currentFile = material?.files[0]?.name || "";
     let interlineSession: { file: string; signature: string; session: InterlineSession } | undefined;
-    let renderGeneration = 0;
-    let materialGeneration = 0;
-    let lessonRequest: number | null = null;
+    let session: MaterialSession;
     const dojos = (): DojoToolkitDescriptor[] => ["shadowing", "feynman", "interline"].flatMap(id => { const service = this.controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [service] : []; });
-    const render = async (name: string): Promise<void> => {
-      lessonRequest = null;
-      const request = ++renderGeneration;
-      if (!material) throw new Error("材料不存在");
-      const document = await this.controller.renderMaterialFile(material.id, name);
-      const outline = material.files.some(file => file.name === "00-课程大纲.md") ? await this.host.storage.readText(`materials/${material.id}/files/00-课程大纲.md`) : undefined;
-      if (generation === this.generation && request === renderGeneration && this.view) { currentFile = name; this.view.render({ title: topic.title, html: document.html, files: material.files, currentFile: name, sections: document.sections, ...("mediaFile" in document ? { mediaFile: document.mediaFile } : {}), ...(outline !== undefined ? { curriculum: parseCurriculumOutline(outline, material.files.map(file => file.name)) } : {}), ...("format" in document ? { format: document.format } : {}) }); }
-    };
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
       guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); if (this.workspace) void this.showNativeGuide(visible, originatingView, topic.id).catch(error => this.report(error)); },
       home: () => this.onOpen(),
       openSettings: () => { if (!this.openSettings) throw new Error("设置面板不可用"); this.openSettings(); },
-      openFile: render,
+      openFile: name => session.openFile(name),
       generateLesson: async (name, title) => {
         if (!this.controller.hasGuideProvider()) throw new Error("向导不可用，无法生成讲义");
-        const request = ++renderGeneration, previous = currentFile; let opening = false; lessonRequest = request;
-        originatingView.showLessonLoading(title); originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true);
-        try {
-          if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id);
-          if (generation !== this.generation || request !== renderGeneration) return;
-          await this.controller.engine.sendMessage({ topicId: topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` });
-          if (generation !== this.generation) return;
-          const refresh = ++materialGeneration;
-          const updated = await this.controller.store.getTopic(topic.id);
-          const next = updated?.materialId ? await this.controller.store.getMaterial(updated.materialId) : null;
-          if (generation !== this.generation || refresh !== materialGeneration) return;
-          if (next) {
-            const outline = next.files.some(file => file.name === "00-课程大纲.md") ? await this.host.storage.readText(`materials/${next.id}/files/00-课程大纲.md`) : undefined;
-            if (generation !== this.generation || refresh !== materialGeneration) return;
-            material = next; originatingView.updateMaterialNavigation(next.files, outline !== undefined ? parseCurriculumOutline(outline, next.files.map(file => file.name)) : undefined);
-          }
-          if (request !== renderGeneration) return;
-          if (!next || !next.files.some(file => file.name === name)) throw new Error(`讲义未保存：${name}`);
-          opening = true; await render(name); await originatingView.refreshGuide();
-        } catch (error) {
-          if (generation !== this.generation || renderGeneration !== request + (opening ? 1 : 0)) return;
-          if (previous) await render(previous);
-          throw error;
-        } finally {
-          if (lessonRequest === request) lessonRequest = null;
-        }
+        await session.generateLesson(name, title);
       },
-      loadAudio: name => { if (!material) throw new Error("材料不存在"); return this.controller.readAudioAsset(material.id, name); },
+      loadAudio: name => { if (!session.material) throw new Error("材料不存在"); return this.controller.readAudioAsset(session.material.id, name); },
       transcribeAudio: async (bytes, mimeType, signal) => { const asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr || !asr.transcribeAudio) throw new Error("请先在设置中配置语音识别服务"); return asr.transcribeAudio(bytes, mimeType, signal); },
-      prepareInterline: async (units, index, mode) => { const current = await this.controller.store.getTopic(topic.id); if (!material || !current || current.materialId !== material.id || !topicUsesToolkit(current, [], "interline")) throw new Error("行间未挂载"); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); const signature = JSON.stringify(units); if (!interlineSession || interlineSession.file !== currentFile || interlineSession.signature !== signature) interlineSession = { file: currentFile, signature, session: this.controller.createInterlineSession(material.id, currentFile, units) }; return interlineSession.session.render(index, mode); },
+      prepareInterline: async (units, index, mode) => { const current = await this.controller.store.getTopic(topic.id), material = session.material, currentFile = session.file; if (!material || !current || current.materialId !== material.id || !topicUsesToolkit(current, [], "interline")) throw new Error("行间未挂载"); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); const signature = JSON.stringify(units); if (!interlineSession || interlineSession.file !== currentFile || interlineSession.signature !== signature) interlineSession = { file: currentFile, signature, session: this.controller.createInterlineSession(material.id, currentFile, units) }; return interlineSession.session.render(index, mode); },
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
-      openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: currentFile, locator: locator || "text:offset:0", quote: text }); },
-      selection: (action, text, locator) => { const anchor = { file: currentFile, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
+      openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: session.file, locator: locator || "text:offset:0", quote: text }); },
+      selection: (action, text, locator) => { const anchor = { file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
       guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, dojos()) : [] }; },
-      sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); if (!saveAsNote) await refreshMaterial(); },
+      sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); if (!saveAsNote) await session.refresh(); },
       toggleToolkit: async (id, enabled) => { const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const toolkits = current.toolkits.filter(item => item !== id && item !== `dojo-${id}` && item !== "none"); if (enabled) toolkits.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => {
@@ -494,15 +453,23 @@ export class PithWorkspaceView extends obsidian.ItemView {
       mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits.filter(item => item !== "none"), id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
-    const refreshMaterial = async () => { const request = renderGeneration; if (lessonRequest !== null) return; const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const next = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; if (generation !== this.generation || request !== renderGeneration || lessonRequest !== null) return; if (updated.materialId && !next) throw new Error("课题材料不存在"); if (JSON.stringify(material) === JSON.stringify(next)) return; const previousFiles = new Set(material?.id === next?.id ? material?.files.map(file => file.name) : []); const newSubtitle = next?.files.find(file => /\.vtt$/i.test(file.name) && !previousFiles.has(file.name)); material = next; const file = newSubtitle || material?.files.find(item => item.name === currentFile) || material?.files.find(item => item.name === "00-课程大纲.md") || material?.files[0]; if (file) await render(file.name); };
+    session = new MaterialSession(material ?? undefined, {
+      title: topic.title, active: () => generation === this.generation && this.view === originatingView,
+      loadMaterial: async () => { const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const next = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; if (updated.materialId && !next) throw new Error("课题材料不存在"); return next ?? undefined; },
+      readFile: (item, name) => this.controller.renderMaterialFile(item.id, name),
+      readOutline: item => item.files.some(file => file.name === "00-课程大纲.md") ? this.host.storage.readText(`materials/${item.id}/files/00-课程大纲.md`) : Promise.resolve(undefined),
+      render: document => originatingView.render(document), updateNavigation: (files, curriculum) => originatingView.updateMaterialNavigation(files, curriculum),
+      beforeLesson: async title => { originatingView.showLessonLoading(title); originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id); },
+      sendLesson: async (name, title) => { await this.controller.engine.sendMessage({ topicId: topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` }); },
+      afterLesson: () => originatingView.refreshGuide(),
+    });
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;
     this.view.setGuideVisible(guideVisible);
     if (this.workspace) await this.showNativeGuide(guideVisible, this.view, topic.id);
     this.view.setToolkits(topic.toolkits);
-    if (material?.files.length) await render(material.files[0]!.name);
-    else this.view.render({ title: topic.title, html: emptyMaterialHtml(material), files: [], currentFile: "", sections: [] });
+    await session.open();
     if (generation === this.generation && this.view) await this.view.refreshGuide();
-    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await refreshMaterial(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
+    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await session.refresh(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
   }
 }
 
