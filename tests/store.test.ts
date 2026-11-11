@@ -148,6 +148,10 @@ test("isolates malformed topics and materials", async () => {
   await storage.writeText("materials/material-corrupt/material.md", "not frontmatter");
   assert.deepEqual((await store.listTopics()).map(topic => topic.id), ["topic-good"]);
   assert.deepEqual((await store.listMaterials()).map(material => material.id), ["material-good"]);
+  const created = await store.createTopic({ id: "topic-origin", title: "Origin", toolkits: ["feynman"], toolkitsOrigin: "default" });
+  assert.equal(created.toolkitsOrigin, "default");
+  assert.equal((await store.updateTopic("topic-origin", { title: "Renamed" })).toolkitsOrigin, "default");
+  assert.equal((await store.updateTopic("topic-origin", { toolkits: ["feynman"] })).toolkitsOrigin, undefined);
   await assert.rejects(store.getTopic("topic-corrupt"));
 });
 
