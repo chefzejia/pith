@@ -71,6 +71,7 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
     await page.locator('[data-page="next"]').click(); await page.waitForFunction((selector: string) => (document.querySelector(selector) as HTMLElement).scrollLeft > 0, reader);
     const thirdVisible = await page.locator(`${article} > .pith-epub-chapter`).nth(2).evaluate((chapter: HTMLElement, selector: string) => { const viewport = document.querySelector(selector)!.getBoundingClientRect(); return Array.from(chapter.getClientRects()).some(rect => rect.left < viewport.right && rect.right > viewport.left && rect.top < viewport.bottom && rect.bottom > viewport.top); }, reader);
     assert.equal(thirdVisible, true, "third chapter must be visible after turning the page");
+    await page.locator(`${article} > .pith-epub-chapter`).nth(2).locator('.pith-interline-subtitle').first().waitFor({ timeout: 5000 });
     await page.locator('[data-page="previous"]').click(); await page.waitForFunction((selector: string) => (document.querySelector(selector) as HTMLElement).scrollLeft === 0, reader);
     assert.match((await second.locator(".pith-interline-subtitle").first().textContent())!, /译文第2章/);
     assert.equal(calls.filter(index => index === 1).length, 1);

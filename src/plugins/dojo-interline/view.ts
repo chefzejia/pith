@@ -33,6 +33,7 @@ export class InterlineView {
   private readonly report: (message: string) => void;
   private readonly elements: HTMLElement[];
   private readonly units: InterlineViewUnit[];
+  private readonly outer: boolean[];
   private mode: InterlineDisplayMode = "original";
   private version = 0;
   private processingVersion: number | null = null;
@@ -41,13 +42,28 @@ export class InterlineView {
   constructor(reader: HTMLElement, article: HTMLElement, prepare: InterlineViewPrepare, update: (change: () => void) => void, report: (message: string) => void, proseTextNodes: (block: Element) => Text[]) {
     this.reader = reader; this.article = article; this.prepare = prepare; this.update = update; this.report = report;
     const chapters = Array.from(article.children).filter(element => element.matches(".pith-epub-chapter")) as HTMLElement[];
-    this.elements = chapters.length ? chapters : [article];
-    this.units = this.elements.map(element => ({ html: element.innerHTML, segments: Array.from(element.querySelectorAll<HTMLElement>('[data-prose="true"][data-locator]')).map((block, blockIndex) => ({ locator: block.dataset.locator!, blockIndex, sourceText: proseTextNodes(block).map(text => text.data).join(""), sourceHash: "" })).filter(segment => segment.sourceText.trim()) }));
+    const roots = chapters.length ? chapters : [article];
+    const entries = roots.flatMap(root => {
+      const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-prose="true"][data-locator]')).filter(block => !block.parentElement?.closest('[data-prose="true"][data-locator]'));
+      const size = blocks.reduce((sum, block) => sum + proseTextNodes(block).reduce((length, text) => length + text.length, 0), 0);
+      return chapters.length && size <= 1200 ? [{ element: root, outer: false }] : blocks.map(element => ({ element, outer: true }));
+    });
+    this.elements = entries.map(entry => entry.element); this.outer = entries.map(entry => entry.outer);
+    this.units = entries.map(({ element, outer }) => ({ html: outer ? element.outerHTML : element.innerHTML, segments: (outer ? [element] : Array.from(element.querySelectorAll<HTMLElement>('[data-prose="true"][data-locator]'))).map((block, blockIndex) => ({ locator: block.dataset.locator!, blockIndex, sourceText: proseTextNodes(block).map(text => text.data).join(""), sourceHash: "" })).filter(segment => segment.sourceText.trim()) }));
+  }
+  private apply(index: number, html: string): void {
+    const element = this.elements[index]!;
+    if (!this.outer[index]) { element.innerHTML = html; return; }
+    const template = this.article.ownerDocument.createElement("template"); template.innerHTML = html;
+    const rendered = template.content.firstElementChild;
+    if (!rendered) throw new Error("行间内容无效");
+    element.innerHTML = rendered.innerHTML;
+    const mode = rendered.getAttribute("data-interline-mode"); if (mode === null) element.removeAttribute("data-interline-mode"); else element.setAttribute("data-interline-mode", mode);
   }
   dispose(): void { this.disposed = true; this.version++; }
   setMode(mode: InterlineDisplayMode): void {
     this.mode = mode; this.version++; this.requested.clear();
-    this.update(() => { for (let i = 0; i < this.elements.length; i++) this.elements[i]!.innerHTML = this.units[i]!.html; });
+    this.update(() => { for (let i = 0; i < this.elements.length; i++) this.apply(i, this.units[i]!.html); });
     if (mode !== "original") this.activate();
   }
   activate(): void {
@@ -70,7 +86,7 @@ export class InterlineView {
       void this.prepare(this.units, index, mode).then(result => {
         if (this.disposed || !this.article.isConnected || version !== this.version) return;
         if (result.status !== "ready" && result.status !== "partial") { this.report(result.error || "翻译暂不可用"); return; }
-        this.update(() => { this.elements[index]!.innerHTML = result.html; });
+        this.update(() => { this.apply(index, result.html); });
         if (result.status === "partial") this.report(result.error || "部分翻译不可用");
       }).catch(error => { if (!this.disposed && version === this.version) this.report(error instanceof Error ? error.message : String(error)); }).finally(() => {
         if (this.processingVersion === version) this.processingVersion = null;
