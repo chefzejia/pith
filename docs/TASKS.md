@@ -57,15 +57,16 @@
 
 ## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
 
-- **Status**: blocked
-- **审计阻塞**：周期审计复现默认工具唯一来源仅在可删 `_cache/toolkit-defaults`，删缓存后首次外文导入重现双工具；来源事实属于冻结核心账本，需上游冻结持久化来源字段/存储契约。本单禁止修改 `src/core/`，执行环不擅自改核心。证据：`.tmp/evidence/audit-39/report.md` F2。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。报告：`.tmp/evidence/task-39/final-audit-f1-report.md`；截图：`.tmp/evidence/task-39/final-audit-f1-web-audio-video.png`、`.tmp/evidence/task-39/final-audit-f1-native-video-audio-auto.png`。F2 未解除前不标整单 verified，审计水位保持原值。
-- **Last-Accepted-Commit**: 3056f1e04a4c8ca5050c05195bc52594672772f3
-- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。自动字幕时间按文本比例估算；公网视频站点和真实语音引擎未验。报告：`.tmp/evidence/task-39/final-retest-report.md`（媒体与书籍见 `final-report.md`）；截图：`.tmp/evidence/task-39/final-retest-web-default.png`、`.tmp/evidence/task-39/final-retest-native-default.png`、`.tmp/evidence/task-39/final-native-asr-follow.png`。
-- **Updated**: 2026-11-10
-- **上游阻塞已解除说明**：`src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库。
-- **Scope**: `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/tools.ts`, `src/plugins/guide-acp/index.ts`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `tests/**`
-- **授权范围**：允许修改 `src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/tools.ts`、`src/plugins/guide-acp/index.ts`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts`、`src/core/` 及 `tests/**`。
-- **不在范围内**：严禁修改 `src/core/`；严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴。
+- **Status**: pending
+- **Updated**: 2026-11-11
+- **上游阻塞已解除说明**：
+  1. `src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库；
+  2. 针对周期审计报告 `.tmp/evidence/audit-39/report.md` 的 **F2（暂定默认工具来源不能仅存于可删 `_cache`）**：上游已在 `src/core/types.ts`、`src/core/store/contract.ts` 与 `src/core/store/WorkspaceStore.ts` 中正式新增并持久化 `Topic.toolkitsOrigin?: "default" | "explicit"`（写入 `topics/<id>/topic.md` frontmatter；当通过 `updateTopic` 更新 `toolkits` 且未显式指定 `toolkitsOrigin` 时自动清除 `"default"` 标记），且本单已获用户授权允许按需修改 `src/core/`。请 Worker 将 `markDefaultToolkit / isDefaultToolkit / clearDefaultToolkit`（及 Web / Obsidian 立项与 `pith_ingest_external`）迁移为基于 Store 持久化字段 `toolkitsOrigin: "default"`，使得即使清空 `_cache` 目录，空白向导立项后首次导入外文材料依然 100% 替换为单一 `["interline"]`（同时保留用户显式配置的 `["feynman"]`）。
+- **Last-Accepted-Commit**: dd5e3d93bee8ebfdaac642001b95bfdec12146c3
+- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。待 F2（`toolkitsOrigin` 持久化账本替代仅靠 `_cache/toolkit-defaults`）闭环并推进审计水位后核销整单。
+- **Scope**: `src/core/**`, `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/**`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `src/shells/dsh/index.ts`, `tests/**`
+- **授权范围**：允许修改 `src/core/**`、`src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/**`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。
+- **不在范围内**：严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴；严禁将不可重建的课题工具来源事实仅保存在 `_cache/` 中。
 - **背景与参考代码**：开工前请阅读 [`docs/subsystems/3-dojos.md`](subsystems/3-dojos.md) 第 2.1 节与第 3 节、[`docs/subsystems/4-guide-speech-shells.md`](subsystems/4-guide-speech-shells.md) 第 2.4 节，以及 `src/core/host.ts` 中的 `MediaCorpusSlice`、`MediaCorpusBundle` 接口定义。
 - **接口与行为契约**：
   1. **将 `interline` 工具正名为「行间」、砍掉顶栏 `"· 2"` 计数尾巴，并仅在非母语阅读（含网页/Blog 剪藏）时自动注入（`dojo-interline/index.ts` & `toolkitSlot.ts` & `compass.ts` & `view.ts` & `guide-acp/index.ts` & `tools.ts`）**：
