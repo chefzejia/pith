@@ -19,13 +19,13 @@
 
 ## [Task #41] MVP 场景 1：纯阅读闭环（网页直投剪藏、结构化净化与行间翻译自动注入）
 
-- **Status**: blocked
-- **Last-Tested-Commit**: aa09b2fe04341fd6f3a2f58fd66e6adbff912765
-- **阻塞证据**: 三轮真实服务验收未通过（c93d9e4、3fde728、aa09b2f）。最新单独运行隔离 Obsidian，新导入公网英文文章、使用新材料且无旧翻译缓存，真实 dsh 的 `session/prompt` 仍在 60000ms 超时且无译文；已核对运行中的 Agent/model/effort 与授权设置一致，真实执行命令和沙盒工作目录正确。尚不能归因于配置、服务端或产品协议路径。
-- **已修复边界**: 整篇单元改为正文块渐进翻译；单段译文使用纯文本，避免生成式 JSON 的引号解析失败。真实 Web 译文已观察到，但不能替代双端最终通过。
-- **Evidence**: `.tmp/evidence/task-41/final-report.md`、`live-retest-report.md`、`live-final-report.md` 及同目录 `live-*.png`；固定译文截图仅属链路回归，不算真实翻译验收。
-- **未完成**: 最新业务版本 Web 独立复验、原生真实译文与成功后的模式切换、原生显式工具选择后导入保留；不得填写 Verified-Commit。
-- **后续诊断边界**: 需捕获原生实际 ACP 协议阶段和服务响应以区分超时来源；保留现有 Agent/model/effort，禁止回退固定译文或盲目延长超时。依 ROLES 三轮失败规则退回思考环。
+- **Status**: verified
+- **Verified-Commit**: aa09b2fe04341fd6f3a2f58fd66e6adbff912765
+- **Evidence**: `.tmp/evidence/task-41/live-after-user-exit-report.md`；同目录 `live-after-user-exit-native-paragraph-visible.png`、`live-after-user-exit-web-paragraph-visible.png` 及 original/restored 截图为本轮真实服务证据；早期固定译文仅属链路回归。
+- **验收结果**: 独立 Tester 串行使用真实配置的 dsh，在隔离 Obsidian 与 Web 新材料中确认引文、实质正文的对应中文译文，原文/行间切换及缓存恢复通过；原生直接导入后明确改选费曼并重开保持。导入前显式选择的条件分支以工程回归覆盖，不虚构缺少入口的原生操作。Worker 类型检查、构建通过，全仓 274 通过、71 条件跳过、0 失败。
+- **已修复边界**: URL 直接剪藏、结构净化、外文默认仅行间；正文块渐进翻译，单段纯文本响应避免生成式 JSON 引号解析失败。未修改 Agent/model/effort。
+- **已知限制**: 双端采样通过不代表整篇稳定。Web 引文约 69 秒、正文约 145 秒出现，后续另一段发生一次 60000ms session/prompt 超时；未确认该失败提示的实际可见性与重试入口，未证明该段完成。自然语言向导剪藏另有超时，与 URL 直接导入分开记录。
+- **产物核对**: 本轮同步并核对隔离 configDir 实际插件三文件哈希。此前原生失败进程缺少加载哈希，旧报告不能作为最新业务 SHA 原生失败的有效结论；不推断旧产物或用户退出是先前超时的确定原因。
 - **Scope**: `src/plugins/guide-acp/externalIngest.ts`, `src/workbench/compass.ts`, `src/workbench/toolkitSlot.ts`, `src/plugins/dojo-interline/index.ts`, `tests/**`
 - **验收摘要**：
   1. Omnibox 支持 URL 直投剪藏，跳过 Agent 生成直接落盘。
