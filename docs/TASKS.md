@@ -57,13 +57,15 @@
 
 ## [Task #39] 长音视频跟读旅程闭环（`yt-dlp` 视频/音频双模态拉取 + 无字幕自动 ASR 生成 `.vtt` + `MediaCorpusSlice` 语义切片） & 「行间」翻译工具正名与非母语阅读按需注入（砍掉 `"· 2"` 数字尾巴）
 
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 7418a54525caf561d5f8275636e4bc6e7f994ee9
+- **F2 验收**: Web 与隔离 Obsidian 均通过删除缓存、重启、真实英文博客导入和重进课题验证；证据：`.tmp/evidence/task-39/final-audit-f2-report.md`。
 - **Updated**: 2026-11-11
 - **上游阻塞已解除说明**：
   1. `src/core/host.ts` 中的 `MediaCorpusSlice` 与 `MediaCorpusBundle.slices` 已正式提交入库；
   2. 针对周期审计报告 `.tmp/evidence/audit-39/report.md` 的 **F2（暂定默认工具来源不能仅存于可删 `_cache`）**：上游已在 `src/core/types.ts`、`src/core/store/contract.ts` 与 `src/core/store/WorkspaceStore.ts` 中正式新增并持久化 `Topic.toolkitsOrigin?: "default" | "explicit"`（写入 `topics/<id>/topic.md` frontmatter；当通过 `updateTopic` 更新 `toolkits` 且未显式指定 `toolkitsOrigin` 时自动清除 `"default"` 标记），且本单已获用户授权允许按需修改 `src/core/`。请 Worker 将 `markDefaultToolkit / isDefaultToolkit / clearDefaultToolkit`（及 Web / Obsidian 立项与 `pith_ingest_external`）迁移为基于 Store 持久化字段 `toolkitsOrigin: "default"`，使得即使清空 `_cache` 目录，空白向导立项后首次导入外文材料依然 100% 替换为单一 `["interline"]`（同时保留用户显式配置的 `["feynman"]`）。
 - **Last-Accepted-Commit**: dd5e3d93bee8ebfdaac642001b95bfdec12146c3
-- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。待 F2（`toolkitsOrigin` 持久化账本替代仅靠 `_cache/toolkit-defaults`）闭环并推进审计水位后核销整单。
+- **验收摘要**：独立双端验证行间正名、外文书与中文书分流、真实公网英文博客首次导入仅挂载行间及明确配置跨重启保留；受控下载/ASR 验证音视频、VTT 自动生成、切片导读实际落盘、自动打开字幕与播放跟读。F1 新字幕绑定旧媒体已修复并独立双端复验通过：`dd5e3d93bee8ebfdaac642001b95bfdec12146c3`。F2 来源字段已迁移到课题账本并通过独立验收。
 - **Scope**: `src/core/**`, `src/shells/web/nodeMediaCorpus.ts`, `src/plugins/guide-acp/**`, `src/plugins/dojo-interline/index.ts`, `src/workbench/toolkitSlot.ts`, `src/workbench/compass.ts`, `src/workbench/view.ts`, `src/shells/web/server.ts`, `src/shells/web/client.ts`, `src/shells/obsidian/index.ts`, `src/shells/dsh/index.ts`, `tests/**`
 - **授权范围**：允许修改 `src/core/**`、`src/shells/web/nodeMediaCorpus.ts`、`src/plugins/guide-acp/**`、`src/plugins/dojo-interline/index.ts`、`src/workbench/toolkitSlot.ts`、`src/workbench/compass.ts`、`src/workbench/view.ts`、`src/shells/web/server.ts`、`src/shells/web/client.ts`、`src/shells/obsidian/index.ts`、`src/shells/dsh/index.ts` 及 `tests/**`。
 - **不在范围内**：严禁在顶栏工具胶囊上拼接令人费解的 `" · 2"` / `" · N"` 数字尾巴；严禁将不可重建的课题工具来源事实仅保存在 `_cache/` 中。
