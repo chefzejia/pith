@@ -344,6 +344,8 @@ export interface GuideAgentService {
       readonly commitSha?: string;
     } | null;
     readonly userMessage: string;
+    /** Turns before `userMessage`, oldest first. */
+    readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];
     readonly anchor?: SelectionAnchor;
     readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };

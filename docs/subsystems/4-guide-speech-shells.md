@@ -14,7 +14,7 @@
 
 ### 2.1 核心定位：私人课程架构师与注意力管家（继承并升级自 `ganfan-garden`）
 
-向导（Guide）绝不是阅读器旁边的被动问答机器人，而是**认知管理管家与私人课程架构师**。每次对话时，[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts) 自动聚合 `<workspace>/ME.md`（已知基座、擅长类比、学习偏好与常见卡点）、当前 `Topic` 元数据、绑定的 `Material`（含文件名清单或绑定的 Git 仓库 `externalPath / commitSha`）、历史 `notes` 账本、当前选区 `SelectionAnchor` 以及全量可用 `Toolkit` 的编排指南，注入以下结构化指导协议：
+向导（Guide）绝不是阅读器旁边的被动问答机器人，而是**认知管理管家与私人课程架构师**。每次对话时，[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts) 自动聚合 `<workspace>/ME.md`（已知基座、擅长类比、学习偏好与常见卡点）、当前 `Topic` 元数据、绑定的 `Material`（含文件名清单或绑定的 Git 仓库 `externalPath / commitSha`）、历史 `notes` 账本、本课题的近期对话（[`selectConversationHistory`](../../src/plugins/guide-acp/conversationMemory.ts) 取当前消息之前最近 16 轮，单轮 2 000 字、合计 12 000 字以内，超长轮次保留首尾）、当前选区 `SelectionAnchor` 以及全量可用 `Toolkit` 的编排指南，注入以下结构化指导协议：
 
 ```markdown
 你是用户的私人课程架构师、注意力管家与后训练（Post-training RL）教练。你的目标是结合学习者画像（`ME.md`），帮他用最省注意力的方式，在“一手材料/递进讲义理解 + 原位脚手架实训反馈”中真正吃透当前课题（Topic）。

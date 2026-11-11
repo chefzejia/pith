@@ -18,6 +18,7 @@ import type {
   WorkspaceStoragePort,
 } from "../../core/index.ts";
 import { createGuideWorkspaceTools, normalizeToolkits } from "./tools.ts";
+import { parsePracticePayload, selectConversationHistory, type GuideHistoryTurn } from "./conversationMemory.ts";
 
 export { normalizeToolkits } from "./tools.ts";
 
@@ -425,6 +426,7 @@ export interface LocalAcpGuideProviderOptions {
     readonly material?: Material | null;
     readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly userMessage: string;
+    readonly conversation?: readonly GuideHistoryTurn[];
     readonly anchor?: SelectionAnchor;
     readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
   }) => string;
@@ -465,17 +467,10 @@ export class LocalAcpGuideProvider implements GuideProvider {
     const lastUserEntry = [...input.conversation].reverse().find((item) => item.role === "user");
     let userMessage = lastUserEntry?.text ?? "请结合当前课题给出指导。";
     let activeRubric: { id: string; label: string; rubric: string } | undefined;
-    if (userMessage.startsWith("PITH_PRACTICE:")) {
-      try {
-        const value: unknown = JSON.parse(userMessage.slice("PITH_PRACTICE:".length));
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          const record = value as Record<string, unknown>;
-          if (record.id === "feynman" && typeof record.text === "string" && typeof record.label === "string" && typeof record.rubric === "string") {
-            userMessage = record.text;
-            activeRubric = { id: record.id, label: record.label, rubric: record.rubric };
-          }
-        }
-      } catch { /* Treat malformed practice payload as an ordinary message. */ }
+    const practice = parsePracticePayload(userMessage);
+    if (practice) {
+      userMessage = practice.text;
+      activeRubric = { id: practice.id, label: practice.label, rubric: practice.rubric };
     }
     const material = topic.materialId ? await this.options.store.getMaterial(topic.materialId) : null;
     let promptText = this.options.buildScenePrompt({
@@ -484,6 +479,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       material,
       availableToolkits: this.options.getToolkits ? this.options.getToolkits() : undefined,
       userMessage,
+      conversation: selectConversationHistory(input.conversation, lastUserEntry),
       anchor: input.anchor ?? lastUserEntry?.anchor,
       ...(activeRubric ? { activeRubric } : {}),
     });
