@@ -216,10 +216,17 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     });
   }
   updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic> {
+    return this.patchTopic(topicId, patch).then(topic => { if (!topic) throw new Error("Topic update failed"); return topic; });
+  }
+  updateTopicIfUnchanged(topicId: string, expected: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">, patch: UpdateTopicPatch): Promise<Topic | null> {
+    return this.patchTopic(topicId, patch, expected);
+  }
+  private patchTopic(topicId: string, patch: UpdateTopicPatch, expected?: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">): Promise<Topic | null> {
     return this.queue.run(async () => {
       const path = `topics/${name(topicId)}/topic.md`;
       const { attributes: a, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
+      if (expected && (topic.materialId !== expected.materialId || topic.toolkitsOrigin !== expected.toolkitsOrigin || topic.toolkits.length !== expected.toolkits.length || topic.toolkits.some((id, index) => id !== expected.toolkits[index]))) return null;
       for (const key of ["title", "target", "status", "nextAction"] as const) if (patch[key] !== undefined) a[key] = patch[key]!;
       if (patch.toolkits !== undefined) {
         a.toolkits = [...patch.toolkits];

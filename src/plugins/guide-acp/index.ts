@@ -19,7 +19,6 @@ import {
 } from "../../core/index.ts";
 import { LocalAcpGuideProvider, buildReadOnlyAgentEnv, createGuidePermissionGate, normalizeToolkits, parseToolkitDirective, runOneShotAcpPrompt } from "./acpSession.ts";
 import { createGuideWorkspaceTools } from "./tools.ts";
-import { clearDefaultToolkit } from "./toolkitDefaults.ts";
 import { BUILTIN_LOCAL_AGENTS, CachedAgentDetector, discoverLocalAgents } from "./discovery.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
 export { ingestExternalUrl, isPublicHttpUrl } from "./externalIngest.ts";
@@ -149,7 +148,7 @@ registerPlugin({
       ingestExternalUrl: input => ingestExternalUrl(input, host?.http),
       configureTopicToolkits: async (topicId, toolkits) => {
         if (!store || typeof store.updateTopic !== "function") throw new Error("Workspace store unavailable");
-        const normalized = normalizeToolkits(toolkits); await clearDefaultToolkit(host?.storage, topicId); return store.updateTopic(topicId, { toolkits: normalized });
+        return store.updateTopic(topicId, { toolkits: normalizeToolkits(toolkits) });
       },
     };
     ctx.provide("guide.agent", service);

@@ -62,7 +62,9 @@ test("yt-dlp subprocess uses isolated public proxy and appends or imports real m
     await assert.rejects(corpus.fetchMediaCorpus("https://user@8.8.8.8/watch"), /public/);
     await assert.rejects(corpus.fetchMediaCorpus("https://8.8.8.8/symlink"), /Unsafe/);
     const abort = new AbortController(); const started = new Promise<void>((ok, fail) => { const watcher = watch(root, (_event, name) => { if (name === "started") { watcher.close(); ok(); } }); watcher.on("error", fail); });
-    const cancelled = corpus.fetchMediaCorpus("https://8.8.8.8/cancel", {}, abort.signal); await started; abort.abort(); await assert.rejects(cancelled); assert.equal(await readFile(join(root, "stopped"), "utf8"), "yes");
+    const cancelled = corpus.fetchMediaCorpus("https://8.8.8.8/cancel", {}, abort.signal); await started;
+    const stopped = new Promise<void>((ok, fail) => { const timer = setTimeout(() => { watcher.close(); fail(new Error("cancelled process did not exit")); }, 5000); const watcher = watch(root, (_event, name) => { if (name === "stopped") void readFile(join(root, "stopped"), "utf8").then(value => { if (value === "yes") { clearTimeout(timer); watcher.close(); ok(); } }).catch(error => { if (error.code !== "ENOENT") { clearTimeout(timer); watcher.close(); fail(error); } }); }); watcher.on("error", error => { clearTimeout(timer); watcher.close(); fail(error); }); });
+    abort.abort(); await assert.rejects(cancelled); await stopped; assert.equal(await readFile(join(root, "stopped"), "utf8"), "yes");
     await mkdir(join(root, "workspace")); const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const existing = await store.importMaterial({ title: "Existing", kind: "article", files: [{ name: "lesson.md", bytes: new TextEncoder().encode("original") }] });
     const topic = await store.createTopic({ title: "Existing topic", materialId: existing.id, toolkits: ["feynman"] });

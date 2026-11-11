@@ -73,6 +73,8 @@ export interface WorkspaceStore {
   getTopic(topicId: string): Promise<Topic | null>;
   createTopic(input: CreateTopicInput): Promise<Topic>;
   updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic>;
+  /** Compares material binding and toolkit state inside the mutation queue; null indicates a conflict. */
+  updateTopicIfUnchanged?(topicId: string, expected: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">, patch: UpdateTopicPatch): Promise<Topic | null>;
   appendNote(topicId: string, note: AppendNoteInput): Promise<TopicNote>;
 
   listMaterials(): Promise<readonly Material[]>;
