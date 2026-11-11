@@ -22,6 +22,11 @@ import { parsePracticePayload, selectConversationHistory, type GuideHistoryTurn 
 
 export { normalizeToolkits } from "./tools.ts";
 
+/** Deadline of one agent prompt (one round of a guide turn, one translation request) when the caller configures none. */
+export const AGENT_REQUEST_TIMEOUT_MS = 300_000;
+/** Upper bound of each handshake request (initialize, session/new, configuration), so an executable that does not speak ACP fails early. */
+export const AGENT_HANDSHAKE_TIMEOUT_MS = 60_000;
+
 export interface JsonRpcRequestMessage {
   readonly jsonrpc: "2.0";
   readonly id?: number | string;
@@ -193,7 +198,8 @@ export async function runOneShotAcpPrompt(
   }
   signal?.throwIfAborted();
 
-  const timeoutMs = Math.min(600_000, Math.max(1_000, options.timeoutMs ?? 60_000));
+  const timeoutMs = Math.min(600_000, Math.max(1_000, options.timeoutMs ?? AGENT_REQUEST_TIMEOUT_MS));
+  const handshakeTimeoutMs = Math.min(timeoutMs, AGENT_HANDSHAKE_TIMEOUT_MS);
   const spawnSpec: AgentProcessSpawnSpec = {
     command: options.descriptor.command,
     args: options.descriptor.args,
@@ -294,13 +300,13 @@ export async function runOneShotAcpPrompt(
       rejectAll(new Error(`ACP agent exited unexpectedly (${sig ?? code ?? "closed"})`)),
     ) ?? (() => {});
 
-  const callRpc = (method: string, params: Record<string, unknown>): Promise<unknown> => {
+  const callRpc = (method: string, params: Record<string, unknown>, deadlineMs = handshakeTimeoutMs): Promise<unknown> => {
     const id = ++nextId;
     return new Promise((resolveCall, rejectCall) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        rejectCall(new Error(`ACP request ${method} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+        rejectCall(new Error(`ACP request ${method} timed out after ${deadlineMs}ms`));
+      }, deadlineMs);
       pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
       Promise.resolve(
         handle.writeLine(
@@ -371,7 +377,7 @@ export async function runOneShotAcpPrompt(
     const promptResult = await callRpc("session/prompt", {
       sessionId,
       prompt: [{ type: "text", text: promptText }],
-    });
+    }, timeoutMs);
 
     const extracted = extractTextFromPromptResult(promptResult);
     const finalText = extracted.text || streamedText;

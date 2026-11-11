@@ -55,6 +55,7 @@
 为了让向导在拆解代码仓库或长文档时能够**“先读取目录/源码，拿到真实内容后再撰写讲义”**，[`LocalAcpGuideProvider.reply`](../../src/plugins/guide-acp/acpSession.ts) 支持多步工具循环（最多 4 轮）：
 1. 若向导在某轮回复末尾输出了只读查询类 `pith-tool`（如 `pith_get_context`、`pith_read_material_section`、`pith_list_repository_files`、`pith_read_repository_file`），宿主立即在受控沙盒内执行该工具，并将工具返回的 JSON 结果作为下一拍上下文回喂给向导继续生成最终讲义与回复；
 2. 写操作工具（`pith_write_lesson`、`pith_save_note`、`pith_configure_toolkits`、`pith_settle_topic`、`pith_ingest_external`）与尾部围栏（`pith-toolkits`、`pith-choices`）在校验课题作用域后落盘执行，触发左侧 Stage 与顶栏工具槽即时刷新。
+3. 每轮向导请求与每次行间翻译请求的 `session/prompt` 期限取 `guide-acp` 插件的 `timeoutMs`（默认 [`AGENT_REQUEST_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts) 300 秒，范围 5～600 秒），两个宿主壳从设置文件 `_cache/web-settings.json` 的 `agentTimeoutMs` 读取；握手请求（`initialize`、`session/new`、配置项）各自以 [`AGENT_HANDSHAKE_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts) 60 秒为上限，使不支持 ACP 的可执行文件尽早失败。
 
 ### 2.4 受控工作区工具表（[`tools.ts`](../../src/plugins/guide-acp/tools.ts)）
 

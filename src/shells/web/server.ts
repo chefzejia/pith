@@ -21,10 +21,10 @@ import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
 import { sampleEpubLanguage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
-import type { HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
+import type { AgentProcessPort, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
-interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }
-export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort }
+interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
+export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let raw = "";
@@ -82,21 +82,22 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
     settings = { ...value, ...(value.speech ? { speech: migrateLegacySpeech(value.speech, value.speechSettingsVersion, value.speechProfiles) } : {}), preset: value.preset, persona: value.persona, plugins: value.plugins, agentId: value.agentId ?? "", agentConfigured: value.agentConfigured ?? value.agentId !== undefined, model: value.model ?? "", effort: value.effort ?? "" };
   }
   await loadSettings();
-  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona } } } });
-  const processPort = new NodeAgentProcessPort();
+  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona, ...(settings.agentTimeoutMs === undefined ? {} : { timeoutMs: settings.agentTimeoutMs }) } } } });
+  const processPort = options.processPort ?? new NodeAgentProcessPort();
   const repository = new NodeRepositoryPort();
   const http = options.http ?? new NodeHttpPort();
   const mediaCorpus = new NodeMediaCorpusPort({ transcribeAudio: async (bytes, mimeType, signal) => { const asr = runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); } });
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
-  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort }), resolveDescriptor: async id => {
+  const agentTimeoutMs = (): number => { const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; };
+  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;
   }, buildScenePrompt });
   const interlineSessions = new Map<string, { signature: string; session: InterlineSession }>();
-  const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ process: processPort, resolveAgent: async () => { if (!settings.agentId) throw new Error("请先配置向导 Agent"); const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("向导 Agent 不可用"); const descriptor = (await guide.detectAgents()).find(item => item.id === settings.agentId); if (!descriptor || !descriptor.available) throw new Error("向导 Agent 不可用"); return { descriptor, model: settings.model, effort: settings.effort }; } });
+  const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ process: processPort, resolveAgent: async () => { if (!settings.agentId) throw new Error("请先配置向导 Agent"); const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("向导 Agent 不可用"); const descriptor = (await guide.detectAgents()).find(item => item.id === settings.agentId); if (!descriptor || !descriptor.available) throw new Error("向导 Agent 不可用"); return { descriptor, model: settings.model, effort: settings.effort, timeoutMs: guide.timeoutMs }; } });
   const processEffects = (): void => {
     if (options.guideProvider || settings.agentId) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
   };

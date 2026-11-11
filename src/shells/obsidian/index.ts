@@ -195,6 +195,7 @@ export class PithObsidianController {
   private agentConfigured = false;
   private model = "";
   private effort = "";
+  private agentTimeoutSetting: unknown;
   private speechConfig: Record<string, string> = {};
   private speechProfiles: SpeechProfiles = {};
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
@@ -220,14 +221,14 @@ export class PithObsidianController {
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
     if (host.mediaCorpus instanceof NodeMediaCorpusPort) host.mediaCorpus.setTranscriber(async (bytes, mimeType, signal) => { const asr = this.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); });
-    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
     if (await this.host.storage.exists("_cache/web-settings.json")) {
       const data: unknown = JSON.parse(await this.host.storage.readText("_cache/web-settings.json"));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
-      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown };
+      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown; agentTimeoutMs?: unknown };
       if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
       if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.persona = value.persona;
@@ -235,6 +236,7 @@ export class PithObsidianController {
       this.agentConfigured = value.agentConfigured ?? value.agentId !== undefined;
       this.model = (value.model ?? "") as string;
       this.effort = (value.effort ?? "") as string;
+      this.agentTimeoutSetting = value.agentTimeoutMs;
       if (value.speechSettingsVersion !== undefined && value.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
       if (value.speech !== undefined) { if (!value.speech || typeof value.speech !== "object" || Array.isArray(value.speech) || Object.values(value.speech).some(item => typeof item !== "string")) throw new Error("Invalid speech settings"); this.speechConfig = migrateLegacySpeech(value.speech as Record<string, string>, value.speechSettingsVersion, value.speechProfiles); }
       if (value.speechProfiles !== undefined) { if (!validSpeechProfiles(value.speechProfiles)) throw new Error("Invalid speech profiles"); this.speechProfiles = value.speechProfiles; }
@@ -243,11 +245,12 @@ export class PithObsidianController {
     await this.refresh();
   }
   hasGuideProvider(): boolean { return this.injectedGuide || Boolean(this.agentId); }
+  private agentTimeoutMs(): number { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; }
   private async refresh(): Promise<void> {
     this.topics = null; this.materials = null;
     try { [this.topics, this.materials] = await Promise.all([this.store.listTopics(), this.store.listMaterials()]); }
     finally {
-      const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona };
+      const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona, ...(this.agentTimeoutSetting === undefined ? {} : { timeoutMs: this.agentTimeoutSetting }) };
       const config: PluginsConfigFile = { ...this.config, plugins: { ...this.config.plugins, "speech-service": { ...this.config.plugins?.["speech-service"], config: this.speechConfig }, "guide-acp": { ...this.config.plugins?.["guide-acp"], config: guideConfig } } };
       this.runtime.reconcile(config);
     }
@@ -272,7 +275,7 @@ export class PithObsidianController {
       if (!this.agentId) throw new Error("请先配置向导 Agent");
       const descriptor = (await this.detectAgents()).find(item => item.id === this.agentId);
       if (!descriptor || !descriptor.available) throw new Error("向导 Agent 不可用");
-      return { descriptor, model: this.model, effort: this.effort };
+      return { descriptor, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() };
     } }) : async () => { throw new Error("请先配置向导 Agent"); });
     return new InterlineSession(service, this.host.storage, translator, materialId, file, units);
   }
