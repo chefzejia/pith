@@ -84,7 +84,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") {
         await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
-        assert.equal(await page.locator("#open-dojo").isHidden(), true);
+        assert.equal(await page.locator("#open-dojo").evaluate((node: HTMLElement) => node.classList.contains("pith-dojo-add") && !node.hidden), true);
       } else {
         await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.evaluate((doc: unknown) => {
@@ -95,7 +95,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
           view.render({ ...(doc as object), currentFile: "links.epub", files: [], title: "链接书" });
           (window as unknown as { testView: typeof view }).testView = view;
         }, documentView);
-        assert.equal(await page.locator("#open-dojo").isHidden(), true);
+        assert.equal(await page.locator("#open-dojo").evaluate((node: HTMLElement) => node.classList.contains("pith-dojo-add") && !node.hidden), true);
       }
       const reader = ".pith-reader";
       const link = (name: string) => page.locator(".pith-epub-chapter a").filter({ hasText: name }).first();
@@ -140,7 +140,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
       } else await page.evaluate(() => (window as unknown as { testView: { setToolkits(ids: string[]): void } }).testView.setToolkits(["feynman", "shadowing"]));
       await page.locator("#open-dojo").click();
       const chooser = "[data-dojo-choose]";
-      assert.equal(await page.locator(chooser).count(), 2);
+      assert.equal(await page.locator(chooser).count(), shell === "web" ? 3 : 2);
       await page.locator(chooser).first().click();
       assert.equal(await page.locator("#dojo-toolkit, [data-dojo-tool]").count(), 0);
     }

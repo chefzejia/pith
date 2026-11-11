@@ -21,10 +21,10 @@ test("closing settings invalidates a scan before an explicit offline choice, inc
     const offlineSave = new Promise<any>(resolve => { resolveOfflineSave = resolve; });
     await page.route("**/api/agents?force=true", async (route: any) => { if (++scanCount === 1) resolveFirstScan(route); else await route.fulfill({ status: 200, contentType: "application/json", body: "[]" }); });
     await page.route("**/api/settings", async (route: any) => { const value = route.request().postDataJSON(); if (value.agentId === "") resolveOfflineSave(route); else { if (value.agentId === "dsh") unexpectedAgentSave = true; await route.continue(); } });
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => (document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     await page.evaluate(() => { (window as any).oldScan = document.querySelector("#simple-scan"); });
-    await page.locator("#close-drawer").click(); await page.locator("#settings").click();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
     await page.locator("#simple-agent").selectOption("");
     await page.waitForFunction(() => (window as any).oldScan !== document.querySelector("#simple-scan"));
     const scanRoute = await firstScan, saveRoute = await offlineSave;
@@ -34,7 +34,7 @@ test("closing settings invalidates a scan before an explicit offline choice, inc
     await saveRoute.continue();
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.agentConfigured === true);
     await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined;
-    base = await start(); await page.goto(base); await page.locator("#settings").click();
+    base = await start(); await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     assert.equal(await page.locator("#simple-agent").inputValue(), "");
     assert.equal((await (await fetch(`${base}/api/state`)).json()).settings.agentConfigured, true);
@@ -60,17 +60,17 @@ test("offline intent survives closing and reopening while its save is pending", 
     const pendingSave = new Promise<any>(resolve => { resolveSave = resolve; });
     await page.route("**/api/settings", async (route: any) => { const data = route.request().postDataJSON(); if (data.agentId === "") resolveSave(route); else { if (data.agentId === "dsh") dshSaves++; await route.continue(); } });
     await page.route("**/api/agents?force=true", async (route: any) => { scans++; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(scans === 1 ? [] : [{ id: "dsh", available: true }]) }); });
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     await page.locator("#simple-agent").selectOption("");
     const save = await pendingSave;
-    await page.locator("#close-drawer").click(); await page.locator("#settings").click();
+    await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     assert.equal(scans, 2); assert.equal(await page.locator("#simple-agent").inputValue(), ""); assert.equal(dshSaves, 0);
     await save.continue();
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.agentConfigured === true);
     await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined;
-    base = await start(); await page.goto(base); await page.locator("#settings").click();
+    base = await start(); await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     assert.equal(await page.locator("#simple-agent").inputValue(), ""); assert.equal(dshSaves, 0);
   } finally {

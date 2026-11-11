@@ -237,7 +237,7 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
         await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
         assert.equal(await rememberedVisible(), true, `${shell}: guide toggle`);
       }
-      await page.setViewportSize({ width: 1300, height: 610 });
+      await remember(); await page.setViewportSize({ width: 1300, height: 610 });
       await page.waitForFunction(() => { const position = (window as any).pithPosition, r = document.createRange(); r.setStart(position.text, position.offset); r.setEnd(position.text, position.offset + 1); const a = r.getBoundingClientRect(), b = document.querySelector(".reader,.pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
       assert.equal(await rememberedVisible(), true, `${shell}: viewport resize`);
       await page.setViewportSize({ width: 1500, height: 700 });

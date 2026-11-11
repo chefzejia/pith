@@ -37,7 +37,7 @@ test("Obsidian speech retains only actual completion or failure and isolates imm
     await page.evaluate(() => (window as any).speechTest.resolve(0));
     await page.waitForFunction(() => (window as any).speechTest.events.includes("playing"));
     await page.waitForFunction(() => (window as any).speechTest.events.filter((event: string) => event === "ended").length === 1);
-    assert.notEqual(await result.textContent(), "本章听读完成");
+    assert.equal(await result.getByText("本章听读完成").count(), 0);
     await page.evaluate(() => (window as any).speechTest.resolve(1));
     await result.getByText("本章听读完成").waitFor();
     assert.equal(await page.evaluate(() => (window as any).speechTest.events.filter((event: string) => event === "ended").length), 2);

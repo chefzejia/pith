@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -41,11 +41,12 @@ test("Web import and Obsidian board render a real cover in light and dark", { ti
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 850 } });
     const page = await browser.newPage(); page.setDefaultTimeout(15000); await page.goto(base);
-    const real = await readFile(resolve(".tmp/task27-real-book/WhyWomenHaveSex.epub"));
+    const book = Buffer.from(coveredEpub());
     const filename = "女人的性爱动机 = Why Women Have Sex (z-library.sk, 1lib.sk, z-lib.sk).epub";
-    await page.locator("#material-files").setInputFiles({ name: filename, mimeType: "application/epub+zip", buffer: real });
-    const card = page.locator(".pith-topic-card").filter({ hasText: "女人的性爱动机" }); await card.waitFor();
-    assert.equal(await card.locator("strong").textContent(), "女人的性爱动机");
+    await page.locator("#material-files").setInputFiles({ name: filename, mimeType: "application/epub+zip", buffer: book });
+    await page.locator(".pith-reader").waitFor(); await page.locator('[data-command="home"]').click();
+    const card = page.locator(".pith-topic-card").filter({ hasText: "真实书名" }); await card.waitFor();
+    assert.equal(await card.locator("strong").textContent(), "真实书名");
     await page.waitForFunction(() => { const image = document.querySelector('.pith-card-cover') as HTMLImageElement | null; return !!image && image.naturalWidth > 0; });
     assert.match(await card.textContent(), /暂无笔记/); assert.equal(await card.locator(".pith-card-suggestion").evaluate((node: HTMLElement) => getComputedStyle(node).borderTopStyle), "dashed");
     assert.equal(await page.locator(".pith-settled-row").count(), 1);

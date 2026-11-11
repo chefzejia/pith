@@ -16,7 +16,7 @@ test("Web controls and speech endpoints use the installed real gateway", { timeo
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true });
     const page = await browser.newPage(); await page.route("**/api/agents?**", (route: any) => route.fulfill({ json: [] }));
-    await page.goto(base); await page.locator("#settings").click();
+    await page.goto(base); await page.locator("[data-home-settings]").click();
     await page.locator("#speech-runtime-status").getByText("已安装，按需启动").waitFor();
     await page.locator('[data-runtime="ensureRunning"]').click(); await page.locator("#speech-runtime-status").getByText("本机语音运行中").waitFor();
     await page.locator('[data-runtime="stop"]').click(); await page.locator("#speech-runtime-status").getByText("已安装，按需启动").waitFor();

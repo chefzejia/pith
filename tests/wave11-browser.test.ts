@@ -23,7 +23,6 @@ test("settings labels and controls fit the drawer at desktop and narrow widths",
       await page.setViewportSize({ width, height: 700 });
       for (const mode of ["local", "cloud"]) {
         await page.locator("#simple-mode").selectOption(mode);
-        if (!(await page.locator("details").evaluate((node: HTMLDetailsElement) => node.open))) await page.locator("details summary").click();
         if (process.env.PITH_SETTINGS_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_SETTINGS_SCREENSHOT_DIR, `settings-${width}-${mode}.png`) });
         const rows = await page.locator("#drawer label:visible").evaluateAll((labels: HTMLLabelElement[]) => labels.map(label => {
           const text = label.firstChild!, range = label.ownerDocument.createRange(); range.selectNodeContents(text);
@@ -70,11 +69,9 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     await page.waitForFunction(() => !(document.querySelector("#simple-scan") as HTMLButtonElement).disabled);
     assert.equal(await page.locator("#simple-agent").inputValue(), "");
     assert.equal((await (await fetch(`${base}/api/state`)).json()).settings.agentId, "");
-    assert.equal(await page.locator("details").evaluate((node: HTMLDetailsElement) => node.open), false);
     assert.equal(await page.locator("#simple-key-row").isHidden(), true);
     await page.locator("#simple-mode").selectOption("cloud");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsProvider === "openai-tts");
-    await page.locator("details summary").click();
     await page.locator('[data-speech-field="ttsEndpoint"]').fill("https://speech.example.com/v1/audio/speech");
     await page.locator('[data-speech-field="ttsEndpoint"]').dispatchEvent("change");
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");

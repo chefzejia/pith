@@ -73,7 +73,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.evaluate(() => { (window as any).fixture.runtime = { supported: true, status: "failed", note: "reopened failure" }; });
     await page.getByText("安装异常：reopened failure").waitFor();
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
-    assert.equal(await page.getByRole("button", { name: "刷新本机 Agent" }).textContent(), "↻");
+    assert.equal(await page.getByRole("button", { name: "刷新本机 Agent" }).locator("svg").count(), 1);
     const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "obsidian-settings.png") });
     await page.getByLabel("语音服务模式").selectOption("cloud");
@@ -115,7 +115,7 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     await page.goto(`http://127.0.0.1:${address.port}`); await page.locator("[data-home-settings]").click();
     const scan = page.getByRole("button", { name: "刷新本机 Agent" });
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
-    assert.equal(await scan.textContent(), "↻");
+    assert.equal(await scan.locator("svg").count(), 1);
     assert.equal(await scan.locator(".. ").evaluate((el: HTMLElement) => getComputedStyle(el).justifyContent), "flex-end");
     await page.locator("#simple-mode").selectOption("local");
     await page.getByRole("button", { name: "安装引擎" }).waitFor();
