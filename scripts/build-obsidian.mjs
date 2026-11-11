@@ -1,8 +1,6 @@
 import { builtinModules } from "node:module";
-import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
@@ -34,25 +32,4 @@ if (vaultInfo) {
   await mkdir(destination, { recursive: true });
   for (const name of ["main.js", "styles.css", "manifest.json"]) await copyFile(resolve(output, name), resolve(destination, name));
   console.log("Obsidian plugin synchronized");
-}
-
-const userDestination = resolve(homedir(), "Library/Mobile Documents/iCloud~md~obsidian/Documents/ganfan-media/.obsidian/plugins/pith");
-let userDestinationInfo;
-try { userDestinationInfo = await lstat(userDestination); } catch (error) { if (error.code !== "ENOENT") throw error; }
-if (userDestinationInfo) {
-  if (!userDestinationInfo.isDirectory() || userDestinationInfo.isSymbolicLink()) throw new Error("User plugin destination must be a directory");
-  const names = ["main.js", "styles.css", "manifest.json"];
-  for (const name of names) {
-    try { const info = await lstat(resolve(userDestination, name)); if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error(`Invalid plugin file: ${name}`); }
-    catch (error) { if (error.code !== "ENOENT") throw error; }
-  }
-  for (const name of names) {
-    const file = await open(resolve(userDestination, name), constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o666);
-    try {
-      const info = await file.stat();
-      if (!info.isFile() || info.nlink !== 1) throw new Error(`Invalid plugin file: ${name}`);
-      await file.truncate(0); await file.writeFile(await readFile(resolve(output, name)));
-    } finally { await file.close(); }
-  }
-  console.log("User Obsidian plugin synchronized");
 }

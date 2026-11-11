@@ -34,6 +34,15 @@ test("managed speech uses native multilingual models and ACP never reads dsh pri
   for (const file of walkTsFiles(join(SRC, "plugins/guide-acp"))) assert.doesNotMatch(readFileSync(file, "utf8"), privateConfig);
 });
 
+test("the Obsidian build script resolves every path from the repository root", () => {
+  const outsideRepository = /node:os|\bhomedir\b|process\.env\.HOME\b|Mobile Documents/;
+  assert.match('import { homedir } from "node:os";', outsideRepository);
+  assert.match('resolve(process.env.HOME, "Library/Mobile Documents")', outsideRepository);
+  assert.doesNotMatch(readFileSync(join(ROOT, "scripts/build-obsidian.mjs"), "utf8"), outsideRepository);
+  const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts as Record<string, string>;
+  for (const [name, command] of Object.entries(scripts)) if (name !== "install:obsidian") assert.doesNotMatch(command, /install-obsidian/, name);
+});
+
 function walkTsFiles(dir: string): string[] {
   const results: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
