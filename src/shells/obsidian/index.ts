@@ -446,7 +446,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: session.file, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
       guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, dojos()) : [] }; },
-      sendGuide: async (text, anchor, saveAsNote) => { await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor, saveAsNote }); if (!saveAsNote) await session.refresh(); },
+      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "note", body: text, anchor }); return; } await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor }); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const toolkits = current.toolkits.filter(item => item !== id && item !== `dojo-${id}` && item !== "none"); if (enabled) toolkits.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => {
@@ -466,7 +466,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       readOutline: item => item.files.some(file => file.name === "00-课程大纲.md") ? this.host.storage.readText(`materials/${item.id}/files/00-课程大纲.md`) : Promise.resolve(undefined),
       render: document => originatingView.render(document), updateNavigation: (files, curriculum) => originatingView.updateMaterialNavigation(files, curriculum),
       beforeLesson: async title => { originatingView.showLessonLoading(title); originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id); },
-      sendLesson: async (name, title) => { await this.controller.engine.sendMessage({ topicId: topic.id, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` }); },
+      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await originatingView.guideTurn(text, () => this.controller.engine.sendMessage({ topicId: topic.id, text })); },
       afterLesson: () => originatingView.refreshGuide(),
     });
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;
@@ -475,7 +475,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.view.setToolkits(topic.toolkits);
     await session.open();
     if (generation === this.generation && this.view) await this.view.refreshGuide();
-    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); try { await this.controller.engine.sendMessage({ topicId: topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await session.refresh(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
+    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); const text = prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。"; try { await originatingView.guideTurn(text, () => this.controller.engine.sendMessage({ topicId: topic.id, text })); await session.refresh(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
   }
 }
 

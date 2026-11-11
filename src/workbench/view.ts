@@ -192,6 +192,8 @@ export class PithWorkbenchView {
   private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideConversationEntry[]; actions: readonly GuideQuickAction[] } = { notes: [], conversation: [], actions: [] };
   private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
   private guideSending = false;
+  private guidePending: { readonly text: string; readonly from: number } | undefined;
+  private guideError = "";
   private dojos: readonly DojoToolkitDescriptor[] = [];
   private mountedToolkits: readonly string[] = [];
   private configuredToolkits: readonly string[] = [];
@@ -375,10 +377,21 @@ export class PithWorkbenchView {
   private applyPageMode(position: ReaderPosition | null = null): void { const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches }); this.root.dataset.formFactor = decision.formFactor; this.root.dataset.sheetMode = decision.sheetMode; this.root.dataset.hitTarget = String(decision.hitTargetPx); const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]'); if (double) double.disabled = decision.maxColumns < 2; if (triple) triple.disabled = decision.maxColumns < 3; const controls = this.root.querySelector<HTMLElement>("[data-pages]"); if (controls) controls.hidden = !this.paged; const modes = this.root.querySelector<HTMLElement>("[data-page-modes]"); if (modes) modes.hidden = !this.paged; this.reader.classList.toggle("pith-paged", this.paged); if (this.paged) { applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded); restoreReaderPosition(this.reader, this.article, position); this.restoredScrollLeft = position ? this.reader.scrollLeft : null; this.readerPosition = position ?? captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else { for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height"]) this.article.style.removeProperty(property); this.reader.style.removeProperty("overflow-x"); this.reader.style.removeProperty("overflow-y"); } if (this.interline) this.interline.activate(); }
   private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (note.kind === "practice" || !anchor || anchor.file !== this.currentFile || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-dojo,[data-dojo-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
+  /**
+   * Runs one guide turn. Until `run` settles the guide panel shows `text` as sent with a waiting status, and no second turn starts.
+   * A failure stays visible in the panel until the next turn starts and reaches the caller unchanged.
+   */
+  async guideTurn<T>(text: string, run: () => Promise<T>): Promise<T> {
+    if (this.guideSending) throw new Error("向导正在回应上一条消息");
+    this.guideSending = true; this.guideError = ""; this.guidePending = { text, from: this.guideData.conversation.length }; this.guideTab = "chat"; this.renderGuide();
+    try { const value = await run(); await this.refreshGuide(); return value; }
+    catch (error) { this.guideError = error instanceof Error ? error.message : String(error); throw error; }
+    finally { this.guideSending = false; this.guidePending = undefined; if (!this.disposed) this.renderGuide(); }
+  }
   quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
   private renderGuide(): void {
     this.voice.cancel("guide");
-    renderGuide(this.guide, this.guideData, this.guideTab, this.pendingAnchor, this.guideSending);
+    renderGuide(this.guide, this.guideData, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError);
   }
   openDojo(dojos: readonly DojoToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
     this.dojos = dojos;
@@ -565,7 +578,22 @@ export class PithWorkbenchView {
     if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
     if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) { input.value = button.dataset.guidePrompt; input.focus(); } return; }
-    if (button.hasAttribute("data-guide-send")) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), errorBox = this.guide.querySelector<HTMLElement>("[data-guide-error]"); if (!input || !input.value.trim() || !this.actions.sendGuide || this.guideSending) return; const message = input.value, anchor = this.pendingAnchor; input.value = ""; this.pendingAnchor = undefined; if (errorBox) errorBox.textContent = ""; this.guideSending = true; button.disabled = true; try { await this.actions.sendGuide(message.trim(), anchor, this.guideTab === "notes"); await this.refreshGuide(); } catch (error) { const current = this.guide.querySelector<HTMLTextAreaElement>("textarea"), currentError = this.guide.querySelector<HTMLElement>("[data-guide-error]"); if (current && !current.value) { current.value = message; this.pendingAnchor = anchor; } if (currentError) currentError.textContent = error instanceof Error ? error.message : String(error); } finally { this.guideSending = false; const send = this.guide.querySelector<HTMLButtonElement>("[data-guide-send]"); if (send) send.disabled = false; } return; }
+    if (button.hasAttribute("data-guide-send")) {
+      const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), sendGuide = this.actions.sendGuide;
+      if (!input || !input.value.trim() || !sendGuide || this.guideSending) return;
+      const message = input.value, anchor = this.pendingAnchor, asNote = this.guideTab === "notes";
+      input.value = ""; this.pendingAnchor = undefined;
+      try {
+        // A note is captured without a guide turn; a chat message is one guide turn.
+        if (asNote) { this.guideError = ""; this.guideSending = true; button.disabled = true; try { await sendGuide(message.trim(), anchor, true); } finally { this.guideSending = false; } await this.refreshGuide(); }
+        else await this.guideTurn(message.trim(), () => sendGuide(message.trim(), anchor, false));
+      } catch (error) {
+        if (asNote) this.guideError = error instanceof Error ? error.message : String(error);
+        const current = this.guide.querySelector<HTMLTextAreaElement>("textarea");
+        if (current && !current.value) { current.value = message; this.pendingAnchor = anchor; }
+      } finally { if (!this.disposed) this.renderGuide(); }
+      return;
+    }
     if (button.dataset.dojoStage || button.hasAttribute("data-dojo-diagnose") || button.hasAttribute("data-dojo-save") || button.hasAttribute("data-dojo-submit")) {
       try {
         this.readDojo(); const toolkit = this.dojos.find(item => item.id === this.dojoId); if (!toolkit) throw new Error("工坊不可用");
@@ -579,7 +607,11 @@ export class PithWorkbenchView {
           if (this.disposed || version !== this.dojoVersion) return;
           this.dojoStatus = "已记入实训账本"; this.dojoResult = null; await this.refreshGuide();
         } else if (button.hasAttribute("data-dojo-submit") && this.actions.submitPractice) {
-          const result = await this.actions.submitPractice(this.dojoProduced, this.dojoAnchor, toolkit);
+          const status = this.inlineDojo ? this.inlineDojo.querySelector<HTMLElement>('[role="status"]') : null;
+          if (status) status.textContent = "已提交，正在等待结果；向导回应可能需要几分钟…";
+          let result: Awaited<ReturnType<NonNullable<ObsidianViewActions["submitPractice"]>>>;
+          try { result = await this.actions.submitPractice(this.dojoProduced, this.dojoAnchor, toolkit); }
+          finally { if (status && status.isConnected) status.textContent = this.dojoStatus; }
           if (this.disposed || version !== this.dojoVersion) return;
           this.dojoStatus = result.guided ? "已提交并记入实训账本" : result.guideError ? `已记入实训账本，向导追问失败：${result.guideError}` : "已记入实训账本。向导未配置，请对照原文检查因果链、前提和边界，并尝试举一个反例。";
           if (result.guided) { this.guideTab = "chat"; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); }
@@ -596,7 +628,7 @@ export class PithWorkbenchView {
     else if (button.dataset.command === "import" && this.actions.importMaterial) this.actions.importMaterial();
     else if (button === this.navigationButton) { this.navigation.hidden = !this.navigation.hidden; button.setAttribute("aria-expanded", String(!this.navigation.hidden)); if (!this.navigation.hidden) updateTocLocation(this.navigation, this.article, this.reader, this.paged); }
     else if (button === this.guideButton) { const visible = this.guide.hidden; this.setGuideVisible(visible); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(visible); }
-    else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.actions.generateLesson) { this.tip("向导不可用，无法生成讲义"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
+    else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.actions.generateLesson) { this.tip("向导不可用，无法生成讲义"); return; } if (this.guideSending) { this.tip("向导正在回应上一条消息"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.locator) { this.closeNavigation(); const heading = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === button.dataset.locator); if (heading) heading.scrollIntoView({ block: "start" }); }
     else if (button.dataset.command === "dojo") { if (this.toolkitMenuOpen()) { this.dojo.hidden = true; return; } const range = this.selectionRange; if (this.dojo.hidden && range && !range.collapsed && this.article.contains(range.startContainer)) { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(range.startContainer, range.startOffset); this.requestedDojoBlock = (range.startContainer.parentElement?.closest<HTMLElement>('[data-prose="true"],[data-trainable="true"],.pith-cue') ?? null); this.actions.openDojo(range.toString(), `text:offset:${prefix.toString().length}`); } else this.actions.openDojo(); }

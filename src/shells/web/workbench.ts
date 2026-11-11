@@ -81,7 +81,7 @@ export class WebWorkbench {
       readOutline: async (material, name, document) => !material.files.some(file => file.name === "00-课程大纲.md") ? undefined : (name === "00-课程大纲.md" && document ? document : await options.request<SessionDocument>(fileUrl(material, "00-课程大纲.md"))).text || "",
       render: document => this.view.render(document), updateNavigation: (files, curriculum) => this.view.updateMaterialNavigation(files, curriculum), afterOpen: () => this.view.refreshGuide(),
       beforeLesson: async title => { this.view.showLessonLoading(title); this.view.setGuideVisible(true); this.updateGuideLayout(true); options.visibility(true); },
-      sendLesson: (name, title) => options.request("/api/chat", { topicId, text: `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。` }).then(() => {}),
+      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await this.view.guideTurn(text, () => options.request("/api/chat", { topicId, text })); },
     });
     this.view.setGuideAvailable(options.guideAvailable);
     this.view.setGuideVisible(options.guideAvailable && options.guideVisible);
@@ -98,7 +98,8 @@ export class WebWorkbench {
 
   async startCurriculum(prompt = ""): Promise<void> {
     this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true);
-    try { await this.options.request("/api/chat", { topicId: this.options.topic.id, text: prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。" }); await this.session.refresh(); await this.view.refreshGuide(); }
+    const text = prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。";
+    try { await this.view.guideTurn(text, () => this.options.request("/api/chat", { topicId: this.options.topic.id, text })); await this.session.refresh(); await this.view.refreshGuide(); }
     catch (error) { this.options.report(error); }
   }
 

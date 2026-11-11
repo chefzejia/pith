@@ -121,6 +121,7 @@ test("Web dojo anchors source, aligns omissions, and persists guided practice", 
     const state = await (await fetch(`${base}/api/state`)).json(); const updated = state.compass.exploring.find((item: any) => item.id === topic.id); assert.ok(updated.notes.some((note: any) => note.kind === "practice" && note.body === "My explanation"));
     assert.equal(await page.locator(".pith-guide-content").textContent().then((text: string) => text.includes("PITH_PRACTICE:")), false);
     await page.locator("[data-dojo-produced]").fill("late explanation"); await page.locator("[data-dojo-submit]").click(); await lateArrived;
+    assert.match(await page.locator('.pith-inline-dojo [role="status"]').textContent(), /正在等待结果/);
     await page.locator('[data-command="home"]').click(); await page.locator(".pith-home").waitFor();
     const lateResponse = page.waitForResponse((response: any) => response.url().endsWith("/api/dojo/submit")); releaseLate(); await lateResponse;
     assert.equal(await page.locator(".pith-home").count(), 1); assert.equal(await page.locator(".pith-guide-content").count(), 0);
