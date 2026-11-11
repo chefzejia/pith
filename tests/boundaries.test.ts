@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
@@ -54,6 +55,22 @@ test("every test entry point loads the sandbox preload", () => {
   for (const file of [join(ROOT, "AGENTS.md"), join(ROOT, "README.md"), join(ROOT, "README.zh-CN.md"), ...walkMdFiles(join(ROOT, "docs"))]) {
     assert.doesNotMatch(readFileSync(file, "utf8"), bareRunner, relative(ROOT, file));
   }
+});
+
+test("the browser test command runs every test file that launches a browser, inside the sandbox preload, and never without a browser", () => {
+  const launcher = join(ROOT, "scripts/test-browser.mjs");
+  assert.match(readFileSync(launcher, "utf8"), /\["--experimental-strip-types", "--import", "\.\/tests\/setup\.ts", "--test", "--test-concurrency=1"/);
+  const listing = spawnSync(process.execPath, [launcher, "--list"], { cwd: ROOT, encoding: "utf8" });
+  assert.equal(listing.status, 0, listing.stderr);
+  const listed = listing.stdout.trim().split("\n");
+  const launching = walkTsFiles(join(ROOT, "tests")).filter(file => /\bchromium\.launch/.test(readFileSync(file, "utf8"))).map(file => relative(ROOT, file).replace(/\\/g, "/"));
+  assert.ok(launching.length > 0);
+  assert.deepEqual(launching.filter(file => !listed.includes(file)), []);
+  const missing = spawnSync(process.execPath, [launcher], { cwd: ROOT, encoding: "utf8", env: { ...process.env, PITH_PLAYWRIGHT_MODULE: join(ROOT, "missing-playwright.mjs"), PITH_CHROME_PATH: join(ROOT, "missing-chrome") } });
+  assert.equal(missing.status, 1);
+  assert.equal(missing.stdout, "");
+  assert.match(missing.stderr, /PITH_PLAYWRIGHT_MODULE/);
+  assert.match(missing.stderr, /PITH_CHROME_PATH/);
 });
 
 function walkMdFiles(dir: string): string[] {
