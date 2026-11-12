@@ -28,7 +28,7 @@ Pith（guide-acp 插件）                       本机 Agent 进程
 ### 2.1 一个回合
 
 1. 引擎调用 [`GuideProvider.run`](../../src/core/engine/contract.ts)，作用域是「立项」或某个课题。
-2. 插件经 [`ToolServerPort`](../../src/core/host.ts) 打开一个只服务本回合的工具端点。作用域在打开时确定，所以工具没有 `topicId` 参数，向导无法指向别的课题。端点实现 MCP 的 HTTP 方式的最小子集：每个请求一条 JSON-RPC 消息，以 JSON 回应，不开事件流；支持 `initialize`、`notifications/initialized`、`ping`、`tools/list` 与 `tools/call`，其余方法回「方法不存在」。协议逻辑在插件里，宿主只负责收发。
+2. 插件经 [`ToolServerPort`](../../src/core/host.ts) 打开一个只服务本回合的工具端点。作用域在打开时确定，所以工具没有 `topicId` 参数，向导无法指向别的课题。端点实现 MCP 的 HTTP 方式的最小子集：每个请求一条 JSON-RPC 消息，以 JSON 回应，不开事件流；支持 `initialize`（协议版本回应客户端请求的那一个）、`ping`、`tools/list` 与 `tools/call`，其余带 `id` 的方法回「方法不存在」；不带 `id` 的通知一律接受，其中 `notifications/cancelled` 中止它所指的进行中调用。协议逻辑在插件里，宿主只负责收发。MCP 服务的名字固定为 `pith`。
 3. 启动 Agent 进程，`initialize`、`session/new`（`mcpServers` 里是这个端点的地址与请求头），按设置选定模型与思考强度。
 4. 发送一次 `session/prompt`，内容是场景提示词。整个回合只有这一次请求；Agent 在其中想调多少次工具就调多少次。
 5. 把 `session/update` 与工具端点收到的调用，按到达顺序变成回合步骤（2.3）。
@@ -41,6 +41,7 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 - 设置里选了 Agent，且可执行文件可用。
 - 宿主提供了 `process` 与 `toolServer`。
 - `initialize` 的回应声明了 `mcpCapabilities.http`。
+- 这个 Agent 登记了工具标题的形状（2.3）。目前只有 dsh 登记；claude 与 codex 的适配器都声明支持 HTTP 方式，但没有实测过工具调用、标题与权限，登记之前报不可用。
 
 ### 2.2 场景提示词
 
@@ -53,7 +54,7 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 | 课题 | 标题、目标、状态、下一步、已挂载的训练工具；立项作用域下改为「尚未创建」 |
 | 材料 | 课题引用的每份材料：ID、标题、类型、文件清单或仓库的路径与提交。立项作用域下列出用户带来的材料和材料库的全部条目 |
 | 讲义 | 本课题已有讲义的文件名 |
-| 记录 | 课题的高亮、笔记与实训记录，加上所引用材料上的材料级记录 |
+| 记录 | 课题的高亮、笔记与实训记录，加上所引用材料上的材料级记录；每条标明作者是用户还是向导 |
 | 当前选区 | 用户这条消息引用的原文及其来源 |
 | 可用训练工具 | 每个已注册训练工具的 ID 与 `whenToUse` |
 | 近期对话 | [`selectConversationHistory`](../../src/plugins/guide-acp/conversationMemory.ts) 从此前的回合里取：只取每个回合的用户消息与回复正文，最近 16 条，单条 2 000 字、合计 12 000 字以内，超长的保留首尾；最近一个回合附上当时给出的选项 |
@@ -68,7 +69,7 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 - **技能训练**：依据实训记录诊断，每次安排一个 15 分钟内能完成的练习。
 - **工具**：按用户的真实目标增删训练工具。
 - **选项**：每个回合结束前调用 `pith_offer_choices` 给出 2 到 4 个具体的下一步。
-- **记住**：只有用户明确要求记住某件事时才调用 `pith_remember`。
+- **记住**：用户要求记住某件事时，用 `pith_save_note` 把它记成本课题的一条笔记，并说明画像在结题时才更新；不声称已写入画像。
 - **结题**：用户提出总结沉淀时，先提一道需要独立解释因果、辨析反例或迁移应用的问题，这一回合不调用 `pith_settle_topic`；用户的回答证明理解之后才调用。不替用户作答。
 
 ### 2.3 回合步骤的来源
@@ -77,20 +78,26 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 | :--- | :--- |
 | `agent_message_chunk` | `reply`。带相同 `messageId` 的分块并入同一步；没有 `messageId` 时并入紧邻的上一个 `reply`。Agent 逐字发就逐字显示，整条发就整条显示 |
 | `agent_thought_chunk` | `thought`，合并规则同上 |
-| 工具端点收到 `tools/call` | `tool`。开始时 `running`，处理完成后带上摘要和可点开的结果（`TurnEffect`）。Pith 工具的步骤只由这一来源产生 |
+| 工具端点收到 `tools/call` | `tool`。开始时 `running`，处理完成后带上摘要和可点开的结果（`TurnEffect`，可以有多个）。Pith 工具的步骤只由这一来源产生 |
 | `tool_call` / `tool_call_update`，且不是 Pith 工具 | `tool`，只有名称与状态，没有可点开的结果 |
 | `usage_update` 及其余更新 | 忽略 |
 
-判断「是不是 Pith 工具」的依据是标题以某个已注册的 Pith 工具名结尾；Pith 工具名一律以 `pith_` 开头。
+Pith 工具有没有被调用、结果是什么，以工具端点为准，不以 Agent 发来的更新为准。Agent 的 `tool_call` 更新只用于两件事：不重复显示 Pith 工具的步骤，以及回答权限请求（2.4）。
+
+一条更新算作 Pith 工具，当且仅当它的标题与该 Agent 登记的形状完全相等。形状登记在 Agent 描述里（[`discovery.ts`](../../src/plugins/guide-acp/discovery.ts)），dsh 的是 `mcp__pith__<工具名>`，其中 `<工具名>` 必须是本回合提供的工具之一。不做后缀或包含匹配。
 
 ### 2.4 权限与只读
 
-- Agent 改动工作区的唯一途径是 Pith 工具。为此有三层约束：
-  - 对 dsh，进程以只读权限模式启动（[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)）。其余 Agent 没有等价的启动开关，靠下一条约束。
-  - 对 `session/request_permission`：请求所指的工具调用是 Pith 工具时选择一次性允许，其余一律选择一次性拒绝。判断依据是此前收到的、带同一 `toolCallId` 的 `tool_call` 更新；没有收到过的一律拒绝。
-  - 工作目录是宿主提供的临时目录；绑定的本地仓库路径由宿主用系统沙盒禁止写入（目前只有 macOS 实现）。
-- 工具端点只监听本机回环地址，只接受带本回合随机令牌的请求，回合结束即关闭。
-- 每个工具在执行前校验作用域：`materialId` 必须属于本课题引用的材料（立项作用域下是材料库里的材料）；文件名与路径按 [1-core-store-engine.md](1-core-store-engine.md) 的规则校验。
+目标是：Agent 改动工作区与绑定仓库的唯一途径是 Pith 工具。各层各管一件事，互不替代：
+
+| 层 | 管什么 | 不管什么 |
+| :--- | :--- | :--- |
+| **工具端点** | Pith 工具的全部写入。只监听回环地址，只接受带本回合随机令牌的请求，回合结束即关闭；每个工具执行前校验作用域：`materialId` 必须属于本课题引用的材料（立项作用域下是材料库里的材料），文件名与路径按 [1-core-store-engine.md](1-core-store-engine.md) 的规则校验 | 这是 Pith 工具唯一的安全边界。实测 dsh 在只读模式下对 MCP 工具直接放行，不发权限请求 |
+| **宿主沙盒** | Agent 进程及其子进程对文件的直接写入。宿主以系统沙盒启动 Agent，禁止写入工作区根目录与本回合涉及的绑定仓库路径。工作区根目录由宿主的进程端口自己加入（插件不知道它的绝对路径），绑定仓库路径由插件经 `readOnlyPaths` 传入。工作目录是宿主为本回合新建的临时目录，回合结束即删除 | 目前只有 macOS 有实现；其他系统上这一层不存在 |
+| **只读启动** | dsh 自带的写文件与执行命令工具：进程以只读权限模式启动（[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)），首次写入被它自己的沙盒拒绝 | 不拦 MCP 工具；模型可以申请提权，由下一层拒绝 |
+| **权限请求** | 对 `session/request_permission`：请求所指的调用是 Pith 工具（按 2.3 的规则，依据此前收到的、带同一 `toolCallId` 的 `tool_call` 更新）时选择一次性允许；其余一律选择一次性拒绝，包括没收到过对应更新的 | 实测 dsh 在只读模式下不为 MCP 工具发权限请求，所以对 dsh 这一层的实际作用是拒绝自带工具的提权 |
+
+用户自己在 Agent 里配置的其他 MCP 服务不在 Pith 的控制之内：它们运行在 Agent 进程之外时，宿主沙盒也管不到。Pith 不声称能约束它们。
 
 ### 2.5 工具表（[`tools.ts`](../../src/plugins/guide-acp/tools.ts)）
 
@@ -109,19 +116,18 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 | :--- | :--- | :--- |
 | `pith_create_topic` | 创建课题：标题、目标、引用的材料、训练工具。只在立项作用域可用，一个回合一次；成功后本回合的作用域变为这个课题 | `topic` |
 | `pith_write_lesson` | 写入或覆盖本课题的一份讲义 | `lesson` |
-| `pith_save_note` | 向本课题追加一条记录，可带锚点与向导批注 | `note` |
+| `pith_save_note` | 向本课题追加一条记录，可带锚点与向导批注。记录的作者是 `guide` | `note` |
 | `pith_configure_toolkits` | 把本课题的训练工具设为给定列表 | `toolkits` |
 | `pith_ingest_external` | 抓取一个公开网页或讨论，导入为材料；在课题作用域下同时引用它 | `material` |
 | `pith_fetch_media_corpus` | 拉取公开音视频与字幕，导入为材料并引用，挂载 `shadowing`，把切片导读写成讲义（宿主提供 `mediaCorpus` 时才有） | `material` |
 | `pith_offer_choices` | 给出本回合的下一步选项 | 无 |
-| `pith_remember` | 向画像追加一条观察，可带证据笔记 | `observation` |
-| `pith_settle_topic` | 结题：写入《核心认知总结》，把课题置为 `settled`，可同时追加和撤回观察 | `topic`，每条新增观察各一个 `observation` |
+| `pith_settle_topic` | 结题：写入《核心认知总结》（作者是 `guide`），把课题置为 `settled`，可同时追加和撤回观察 | `topic`，每条新增观察各一个 `observation` |
 
 规则：
 
 - 立项作用域下，在 `pith_create_topic` 成功之前只有三个写入工具可用：两个导入工具（此时只把内容导入材料库，不引用、不挂工具、不写讲义）与 `pith_offer_choices`。其余写入工具被拒绝，原因是「先创建课题」。
-- `pith_settle_topic` 的门禁：课题处于 `exploring`，至少有一条用户的笔记或实训记录，`verificationSummary` 非空。
-- 画像只有 `pith_remember` 与 `pith_settle_topic` 两个写入口，二者都只增删观察条目，都在对话里留下一行可撤销的记录。提交整篇画像的参数不存在。
+- `pith_settle_topic` 的门禁：课题处于 `exploring`，至少有一条作者是 `user` 的笔记或实训记录，`verificationSummary` 非空。向导自己写的记录不算。
+- 画像只有 `pith_settle_topic` 一个写入口。它只增删观察条目，每条新增在对话里留下一行可撤销的记录；新增观察引用的证据笔记必须是本课题里作者为 `user` 的记录。没有在课题进行中写画像的工具，提交整篇画像的参数也不存在。「什么时候该结题」是写给模型的规则；程序保证的是上面这道门禁，以及写入只发生在这一个工具里。
 - 工具失败时把原因作为工具结果返回给模型，由它决定下一步；回合不因此中止。
 
 ### 2.6 期限、停止与重新请求
@@ -144,7 +150,7 @@ export interface AgentPromptService {
 
 **下一步行动**（后台任务 `prepare-next-action`）也走这条通道，不是一个回合，不进对话：提示词由课题目标、已有讲义的文件名和最近 5 条记录组成，要求只返回一个 15 分钟内能完成的具体行动；返回的文本去掉首尾空白后写入 `nextAction`，为空则任务失败。
 
-- **停止**：发送 `session/cancel`，等这次 `session/prompt` 返回，最多 5 秒，然后关闭进程。回合以 `stopped` 结算，已经收到的步骤和已经生效的写入都保留。
+- **停止**：发送 `session/cancel`，等这次 `session/prompt` 返回，最多 5 秒，然后关闭进程。回合以 `stopped` 结算，已经收到的步骤和已经生效的写入都保留。停止时还在进行的工具调用按工具端点上的事实结算：写入类工具一旦开始落盘就做完，记为完成并带上结果；还没开始落盘的不再执行，记为失败，原因是已停止。Agent 在停止后补发的失败更新不改变这个结果。
 - **失败**：进程退出、协议错误或握手超时，回合以 `failed` 结算，`error` 是原始原因。用户消息保留。
 - **重新请求**：对 `failed` 或 `stopped` 的回合，用同一条用户消息再跑一次，替换原回合，不产生第二条用户消息。
 
@@ -154,7 +160,7 @@ export interface AgentPromptService {
 
 - 课题还没有讲义：`规划课程大纲与第一讲`。
 - 已有讲义：`导读这一节`、`下一讲 / 考考我`。
-- 课题至少有一条用户的笔记或实训记录：`总结沉淀`。
+- 课题至少有一条作者是 `user` 的笔记或实训记录：`总结沉淀`。
 - 已挂载的训练工具各自贡献的动作。
 
 ---

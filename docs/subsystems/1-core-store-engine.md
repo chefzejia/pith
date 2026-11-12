@@ -41,7 +41,9 @@
 4. **课题只增加材料引用，不移除。** 笔记锚点指向材料，移除引用会让锚点失效。
 5. **锚点自带来源。** 每个锚点指明文件属于哪份材料，或属于本课题的讲义。
 6. **画像分区。** 程序只改 `ME.md` 里「向导的观察」一节，其余内容原样保留。
-7. **Pith 不删除任何课题或材料。** 工作区是普通文件，可以在文件管理器里删除；删除后悬空的引用由看板的「无法读取」分区报告，不自动修复。
+7. **记录标明作者。** 每条高亮、笔记与实训记录带 `author`：经工作台界面写入的是 `user`，经向导工具写入的是 `guide`，由写入的通道决定，调用方不能自行指定。要求「用户自己的记录」的地方（结题门禁、「总结沉淀」快捷动作）只数 `author` 为 `user` 的笔记与实训记录。
+8. **画像只在结题时由向导写入。** 观察条目的新增只发生在 `pith_settle_topic` 里；撤回发生在 `pith_settle_topic` 里，或由用户在对话里撤销。
+9. **Pith 不删除任何课题或材料。** 工作区是普通文件，可以在文件管理器里删除；删除后悬空的引用由看板的「无法读取」分区报告，不自动修复。
 
 内核代码、存储协议与工具接口固定使用中性领域词，界面文案由 [`SurfacePersona`](../../src/core/types.ts) 决定：
 
@@ -116,6 +118,7 @@ updatedAt: "2026-11-12T10:15:00.000Z"
 ## [note] 2026-11-12T10:15:00.000Z
 <!-- pith-note:v1 -->
 - id: "note-1"
+- author: "user"
 - material: "material-dsh"
 - file: "packages/core/README.md"
 - locator: "text:line:12"
@@ -130,7 +133,7 @@ updatedAt: "2026-11-12T10:15:00.000Z"
 ```
 
 - `target` 必填且非空。`materials`、`toolkits`、`lessons` 三个列表必须出现，可以为空；`toolkits` 只含训练工具。
-- 记录以 `## [highlight|note|practice] <timestamp>` 开头，以 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界。带锚点的记录有三行：来源（`- material: "<id>"` 或 `- lesson: true`，二者必居其一）、`- file` 与 `- locator`；不带锚点的记录三行都没有。
+- 记录以 `## [highlight|note|practice] <timestamp>` 开头，以 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界。每条记录有 `- id` 与 `- author: "user"` 或 `- author: "guide"` 两行。带锚点的记录另有三行：来源（`- material: "<id>"` 或 `- lesson: true`，二者必居其一）、`- file` 与 `- locator`；不带锚点的记录这三行都没有。
 - 实训记录可带 `<!-- pith-note:result -->` 块，内容是一行 JSON：训练工具的结构化结果（费曼复述的要点清单与逐条状态见 [3-toolkits.md](3-toolkits.md)）。
 - 向导批注放在 `<!-- pith-note:remark -->` 块。
 
@@ -152,7 +155,7 @@ files: []
 
 - `kind` 为 `book | article | media | discussion | repo`。`aids` 与 `files` 两个列表必须出现，可以为空。`files` 每项含 `name`、`mimeType`、`bytes`、64 位十六进制 `sha256`、可选的 `locator` 与 `lastActiveAt`。
 - `aids` 是在这份材料上开启的阅读辅助 ID 列表（目前只有 `interline`）。导入时按材料语言预置，见 [3-toolkits.md](3-toolkits.md)。
-- 正文是材料级记录，格式与 `topic.md` 的记录相同，只允许 `highlight` 与 `note`，来源行固定指向材料自身。
+- 正文是材料级记录，格式与 `topic.md` 的记录相同，只允许 `highlight` 与 `note`，来源行固定指向材料自身，`author` 固定为 `user`。
 
 ### 3.4 `ME.md`
 
@@ -169,6 +172,7 @@ files: []
 ```
 
 - 程序只读写两个标记之间的内容。标记不存在时在文件末尾追加这一节；标记残缺或重复时拒绝写入并报告原因。
+- 向导只在结题时写入（第 2 节不变量 8）。
 - 每条观察占两行。第一行是 `- id: "<id>" · <日期> · <课题 ID>`，有证据笔记时再接 ` · <笔记 ID>`；第二行缩进两个空格，是观察正文。正文是单行文本，不超过 500 字，写入前把换行折成空格。日期取写入时刻 ISO 时间戳的日期部分（UTC）。
 - 每次写入前，把当前 `ME.md` 复制到 `history/ME-<timestamp>.md`，`<timestamp>` 形如 `20261112T101500123Z`。复制失败则不写入。
 
@@ -212,6 +216,8 @@ export interface SelectionAnchor {
 export interface Note {
   readonly id: string;
   readonly kind: NoteKind;
+  /** Who wrote the record; set by the channel it came through, never by the caller's input. */
+  readonly author: "user" | "guide";
   readonly createdAt: string;
   readonly anchor?: SelectionAnchor;
   readonly body: string;
@@ -301,6 +307,7 @@ export interface WorkspaceStore {
 
 export interface AppendNoteInput {
   readonly kind: NoteKind;
+  readonly author: "user" | "guide";
   readonly body: string;
   readonly anchor?: SelectionAnchor;
   readonly guideRemark?: string;
@@ -318,7 +325,7 @@ export interface ImportMaterialInput {
 }
 ```
 
-`updateTopic` 只接受 `exploring ⇄ shelved` 与 `exploring → settled` 两种状态变化，其余抛错。`appendMaterialNote` 拒绝 `practice`。原有的 `writeProfile`、`writeGeneratedFile`、`appendMaterialFiles`、`updateTopicIfUnchanged` 与 `toolkitsOrigin` 不再存在。
+`updateTopic` 只接受 `exploring ⇄ shelved` 与 `exploring → settled` 两种状态变化，其余抛错。`appendMaterialNote` 拒绝 `practice` 与 `author` 为 `guide` 的记录。原有的 `writeProfile`、`writeGeneratedFile`、`appendMaterialFiles`、`updateTopicIfUnchanged` 与 `toolkitsOrigin` 不再存在。
 
 ```ts
 // src/core/engine/contract.ts
@@ -336,7 +343,7 @@ export type TurnEffect =
 export type TurnStep =
   | { readonly kind: "thought"; readonly text: string }
   | { readonly kind: "tool"; readonly callId: string; readonly name: string; readonly inputPreview: string;
-      readonly status: "running" | "completed" | "failed"; readonly summary?: string; readonly effect?: TurnEffect }
+      readonly status: "running" | "completed" | "failed"; readonly summary?: string; readonly effects: readonly TurnEffect[] }
   | { readonly kind: "reply"; readonly markdown: string };
 
 export interface GuideTurn {
@@ -395,7 +402,7 @@ export interface AttentionEngine {
   /** Runs a failed or stopped turn again with the same user message, replacing that turn. */
   retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn>;
 
-  /** Records a highlight, note or practice result on a topic, or a highlight or note on a material. */
+  /** Records a highlight, note or practice result on a topic, or a highlight or note on a material. The record's author is `user`. */
   capture(input: { owner: { topicId: string } | { materialId: string }; kind: NoteKind; body: string;
     anchor?: SelectionAnchor; result?: Readonly<Record<string, unknown>> }): Promise<Note>;
 

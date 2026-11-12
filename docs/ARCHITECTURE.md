@@ -96,6 +96,9 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
+| 向导只在结题时写画像，没有课题进行中的写入工具 | [4-guide](subsystems/4-guide-speech-shells.md) 2.5，[1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 8 | 有 `pith_remember`，是否调用只靠提示词约束（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #47 |
+| 记录标明作者；结题门禁只认用户写的笔记与实训记录 | [1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 7 | 记录没有作者；门禁只数条数，向导自己存的笔记也算（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #51 |
+| Agent 进程不能直接写工作区；工具标题按登记的形状精确匹配 | [4-guide](subsystems/4-guide-speech-shells.md) 2.3、2.4 | 宿主沙盒只禁止写绑定仓库，没绑仓库时不启用；权限闸的放行名单为空 | #49 |
 | Pith 工具以 MCP 服务提供；一个回合一次 `session/prompt` | [4-guide](subsystems/4-guide-speech-shells.md) 2.1 至 2.5 | `mcpServers` 为空；工具是回复末尾的文本围栏，一个回合最多起四次 Agent 进程（[`acpSession.ts`](../src/plugins/guide-acp/acpSession.ts)） | #49 |
 | 回合带过程步骤、可停止、可重新请求；前台回合不设期限 | [1-core](subsystems/1-core-store-engine.md) 第 4 节，[5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 6 节 | `GuideProvider.reply` 只返回字符串，不接受取消；向导栏按纯文本显示，只有一行等待提示 | #49（引擎与停止）、#50（界面） |
 | 材料与课题分离：课题引用多份材料、讲义与对话归课题、锚点带来源、`shelved` 状态 | [1-core](subsystems/1-core-store-engine.md) 第 2 至 4 节 | 课题最多绑一份材料；讲义写进材料；对话在 `_cache/`；锚点只有文件名 | #49（对话）、#51（其余） |
@@ -106,10 +109,14 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | 仓库文件可在舞台打开 | [2-stages](subsystems/2-stages.md) 第 2 节 | 仓库材料只有空态页，文件只有向导工具能读 | #51 |
 | 看板封面读缓存 | [5-workbench](subsystems/5-spatial-ui-and-slots.md) 2.3 | 每次打开看板读每份材料的整个文件取封面（[`boardMaterials.ts`](../src/workbench/boardMaterials.ts)） | #52 |
 
-**动手之前必须先实测的三个前提**（只读过源码或文档，没有运行过）。前提 1、2 与下面关于其他 Agent 的一句由 #48 实测，前提 3 由 #53 在动界面之前实测：
+**实测过的前提**（任务 #48，记录在 `.tmp/evidence/task-48/`）：
 
-1. dsh 的 ACP 服务声明支持 HTTP 方式的 MCP 服务；任务 #45 实测的是 stdio 方式。工具端点的设计建立在 HTTP 方式可用之上。若实测不可用，改为由宿主提供一个转发用的 stdio 可执行文件，[4-guide](subsystems/4-guide-speech-shells.md) 2.1 的启动检查随之修改。
-2. dsh 在只读权限模式下如何对待 MCP 工具：是向 Pith 发权限请求，还是直接放行或直接拒绝。任务 #45 的实测没有出现权限请求，实测记录里也没有那次运行的权限模式。若是直接拒绝，2.4 的第一层约束要换成别的方式。
-3. 费曼的对照规程能否稳定地区分「说反」「漏掉」与「换了说法但正确」。验收方式写在 [3-toolkits](subsystems/3-toolkits.md) 3.3。
+- dsh 能用回环地址上、不开事件流的 HTTP 方式 MCP 服务，读写工具的结果都回到模型。
+- dsh 在只读权限模式下对 MCP 工具直接放行，不发权限请求；对自带的写文件工具先拒绝，模型申请提权时才发权限请求。所以只读模式不是 Pith 工具的写屏障（[4-guide](subsystems/4-guide-speech-shells.md) 2.4）。
+- 停止一个进行中的工具调用，`session/prompt` 以 `cancelled` 返回。只测了一次，测的是还没落盘的写入。
 
-claude 与 codex 的 ACP 适配器是否支持 HTTP 方式的 MCP 服务也没有核实。不支持的 Agent 在启动检查里报不可用。
+**还没有实测的前提**：
+
+1. claude 与 codex 的 ACP 适配器都声明支持 HTTP 方式的 MCP 服务，但没有实测过工具调用、工具标题的形状与权限请求。实测并登记标题形状之前，这两个 Agent 在启动检查里报不可用。
+2. 宿主沙盒禁止写工作区根目录之后，Agent 是否仍能正常运行，由 #49 用真实 Agent 验证。
+3. 费曼的对照规程能否稳定地区分「说反」「漏掉」与「换了说法但正确」，由 #53 在动界面之前实测。验收方式写在 [3-toolkits](subsystems/3-toolkits.md) 3.3。
