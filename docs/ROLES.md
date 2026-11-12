@@ -18,6 +18,7 @@
      2. **Router 直接拍板**：动态授权 Worker 修改关联支撑文件、明确指出根因修复方向（若某条显性规则已达 `Seen 3×`，直接命令 Worker 在返工时顺手固化为 `tests/` 守卫单测），重跑 `Tester` 直至一鼓作气跑完 `Status: verified`；
    - **路径 B（核心契约冲突或战略二义性退回）**：仅当遇到真正的 `src/core/` 冻结接口自相矛盾、需求存在业务价值二义性需人类取舍、触及严禁修改红线或连续 3 轮战术自愈仍未通过 `Tester` 验收时，`Router` 才将精确阻塞证据写回对应 `## [Task #N]` 区块（状态改为 `- **Status**: blocked`）并执行 `git commit --only docs/TASKS.md` 退回给上游 `Brain`。
 2. **单文件滑动调度板与睡前排空（防并发覆盖与漏触发）**：
+   - **`queued` 不执行**：状态为 `queued` 的任务有未完成的前置任务（见其 `Depends-On`），执行环不执行、不改它的状态，排空判断也不把它算作 `pending`；前置任务 `verified` 后由 Brain 把它改为 `pending`。
    - **Brain 追加与撤单**：当后台仍有 `pending / in_progress` 任务在跑时，Brain 新建任务必须在 `docs/TASKS.md` 末尾追加 `## [Task #N+1]`（绝不覆盖在跑任务；若推翻未完旧单则将其标为 `superseded (by #N+1)`），且必须使用 `git commit --only docs/TASKS.md` 提交；文件内仅保留未结案区块及最近 1~2 个已结案区块。
    - **Router 精准核销与 Drain-Loop（零中间态提交 + 防漏核销守卫）**：Router 严禁为 `in_progress` 单独提交 Git；**每完成一单必须在进入下一单前立即修改对应 `## [Task #N]` 的状态行（`verified` 或 `blocked`）并填写 `Verified-Commit` 执行 `git commit --only docs/TASKS.md`（严禁跨单攒批提交或漏改前序任务状态）**；每次 `git commit` 后、结束回合前，**必须重读 `docs/TASKS.md` 检查是否仍有 `- **Status**: pending` 区块**——若有，立即在当前轮次继续执行下一单，直至全文件 `pending` 清零才休眠（`.git/hooks/post-commit` 的 `DRAIN-GUARD` 分支亦会在发现残留 `pending` 时自动补发唤醒）。
 3. **仓库内 `.tmp/worktrees/task-<ID>` 并行与合入即销毁（Pipelining & Isolation）**：
