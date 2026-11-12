@@ -40,8 +40,8 @@
 - **Status**: verified
 - **Verified-Commit**: c1f6205ab492effb608fce6e68cf2547b183fbe6
 - **Updated**: 2026-11-12
-- **验收结果**: 类型检查通过；单测 288 通过、73 条件跳过、0 失败；浏览器 104 通过、4 可选语音检查跳过、0 失败。Tester 安装前目录核对通过。按 ROLES 第 6 条，verified 提交后从干净 main 执行安装，安装校验结果另记 delivery.txt。
-- **Evidence**: `.tmp/evidence/task-42/worker-report.md`、`tester-readiness.md`、`plugin-before.json`。
+- **验收结果**: 类型检查通过；单测 288 通过、73 条件跳过、0 失败；浏览器 104 通过、4 可选语音检查跳过、0 失败。Tester 安装前后目录核对通过；干净 main `6236f5ecd5e6df15ec92f81039def72ca70d8644` 已执行 install:obsidian，真实 ganfan-media 中三个插件文件 SHA-256 与 dist 一致，无其余文件增删；未操作人类 Obsidian 或读取工作区正文。详见 delivery.txt。
+- **Evidence**: `.tmp/evidence/task-42/worker-report.md`、`tester-readiness.md`、`plugin-before.json`、`tester-final.md`、`delivery.txt`。
 - **Scope**: 无源码改动；只运行门禁、构建与安装命令
 - **背景**：人类在真实 Obsidian 做真机测试，构建与安装归执行环（[ROLES.md](ROLES.md) 第 6 条）。主干 `6017590` 含 10 个未经独立复核的提交（`eac6561..6017590`）。
 - **契约**：
