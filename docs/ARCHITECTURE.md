@@ -97,8 +97,6 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
 | 记录标明作者；结题门禁只认用户写的笔记与实训记录 | [1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 7 | 记录没有作者；门禁只数条数，向导自己存的笔记也算（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #51 |
-| Agent 进程不能直接写工作区；工具标题按登记的形状精确匹配 | [4-guide](subsystems/4-guide-speech-shells.md) 2.3、2.4 | 宿主沙盒只禁止写绑定仓库，没绑仓库时不启用；权限闸的放行名单为空 | #49 |
-| Pith 工具以 MCP 服务提供；一个回合一次 `session/prompt` | [4-guide](subsystems/4-guide-speech-shells.md) 2.1 至 2.5 | `mcpServers` 为空；工具是回复末尾的文本围栏，一个回合最多起四次 Agent 进程（[`acpSession.ts`](../src/plugins/guide-acp/acpSession.ts)） | #49 |
 | 回合带过程步骤、可停止、可重新请求；前台回合不设期限 | [1-core](subsystems/1-core-store-engine.md) 第 4 节，[5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 6 节 | `GuideProvider.reply` 只返回字符串，不接受取消；向导栏按纯文本显示，只有一行等待提示 | #49（引擎与停止）、#50（界面） |
 | 材料与课题分离：课题引用多份材料、讲义与对话归课题、锚点带来源、`shelved` 状态 | [1-core](subsystems/1-core-store-engine.md) 第 2 至 4 节 | 课题最多绑一份材料；讲义写进材料；对话在 `_cache/`；锚点只有文件名 | #49（对话）、#51（其余） |
 | 立项只经向导；材料库；材料阅读场景 | [5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 2、3 节 | 拖入文件即建课题；首页只列课题；没有课题外的阅读 | #52 |

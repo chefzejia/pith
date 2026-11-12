@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, PluginRuntime, type AgentProcessPort, type AgentStdioHandle, type GuideAgentService, type StageReaderService, type StageTimelineService } from "../src/core/index.ts";
 import { builtinRegistry } from "../src/plugins/all.ts";
-import { buildScenePrompt, LocalAcpGuideProvider, parseToolkitDirective } from "../src/plugins/guide-acp/index.ts";
+import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { extractProseBlocks, extractTeachingBlocks, matchTextAnchor, renderMarkdown } from "../src/plugins/stage-reader/index.ts";
 import { filterProseOnly } from "../src/plugins/speech-service/index.ts";
 import { parseTranscript, sliceLoopRange } from "../src/plugins/stage-timeline/index.ts";
@@ -44,8 +44,8 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       const mounted = await store.getTopic(topic.id);
       assert.ok(mounted);
       const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", category: "music" }] });
-      for (const text of ["Toolkits", "custom: Custom", "shadowing"]) assert.ok(prompt.includes(text));
-      assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, userMessage: "Help" }), /shadowing: 4-Stage Language Shadowing/);
+      for (const text of ["可用训练工具", "custom", "Custom", "shadowing"]) assert.ok(prompt.includes(text));
+      assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, userMessage: "Help" }), /shadowing/);
       await assert.rejects(guide.configureTopicToolkits!(topic.id, ["shadowing", "../unsafe"]), /Invalid toolkit/);
       assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["shadowing"]);
       const tool = createDshPluginBundle({ storage }).tools.find(item => item.name === "pith_configure_toolkits")!;
@@ -66,43 +66,6 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["INVALID"] }), /Invalid toolkit/);
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: "shadowing" }), /Invalid toolkits/);
     } finally { runtime.stop(); }
-  } finally { await rm(dir, { recursive: true, force: true }); }
-});
-
-test("ACP toolkit directive is validated and persisted", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pith-wave2-acp-"));
-  try {
-    const storage = new NodeWorkspaceStorage(dir);
-    const store = new DefaultWorkspaceStore(storage);
-    await store.ensureScaffold();
-    const topic = await store.createTopic({ title: "Language", target: "Speak" });
-    let closed = false;
-    const port: AgentProcessPort = {
-      searchPaths: () => [], findExecutable: async () => null, probeExecutable: async () => null,
-      async spawnStdio() {
-        let listener: (line: string) => void = () => {};
-        const handle: AgentStdioHandle & { cwd: string } = {
-          pid: 1,
-          cwd: dir,
-          onLine(fn) { listener = fn; return () => { listener = () => {}; }; },
-          writeLine(line) {
-            const request = JSON.parse(line) as { id?: number; method: string };
-            if (request.id === undefined) return;
-            const result = request.method === "session/new" ? { sessionId: "test" } : request.method === "session/prompt" ? { text: '练习跟读。\n```pith-toolkits\n["shadowing"]\n```' } : {};
-            listener(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
-          },
-          async close() { closed = true; },
-        };
-        return handle;
-      },
-    };
-    const provider = new LocalAcpGuideProvider({ processPort: port, store, getAgentConfig: () => ({ agentId: "dsh" }), resolveDescriptor: async () => ({ id: "dsh", label: "DSH", command: "dsh", args: [], version: "1", available: true, note: "" }), buildScenePrompt });
-    assert.equal(await provider.reply({ topicId: topic.id, conversation: [] }), "练习跟读。");
-    assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["shadowing"]);
-    assert.equal(closed, true);
-    const bad = 'Text\n```pith-toolkits\n["../bad"]\n```';
-    assert.deepEqual(parseToolkitDirective(bad), { text: bad, toolkits: null });
-    assert.deepEqual(parseToolkitDirective('Text\n```pith-toolkits\n[]\n```\nmore'), { text: 'Text\n```pith-toolkits\n[]\n```\nmore', toolkits: null });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

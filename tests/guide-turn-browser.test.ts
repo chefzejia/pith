@@ -9,7 +9,7 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
 
 const browserUnavailable = !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH;
-const reply = "受控向导回复\n\n```pith-choices\n- 继续\n- 考考我\n```";
+const reply = "受控向导回复";
 const closeServer = (server: Server) => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 const occurrences = (locator: any, text: string): Promise<number> => locator.evaluate((node: HTMLElement, needle: string) => (node.textContent ?? "").split(needle).length - 1, text);
 
@@ -18,11 +18,11 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
   await mkdir(join(dir, "workspace"));
   const received: string[] = [];
   let hold = false, release: (() => void) | undefined, arrived: (() => void) | undefined;
-  const provider: GuideProvider = { async reply(input) {
-    const text = input.conversation.at(-1)!.text; received.push(text);
+  const provider: GuideProvider = { async run(input, options) {
+    const text = input.text; received.push(text);
     if (hold) await new Promise<void>(resolve => { release = resolve; if (arrived) arrived(); });
     if (text.includes("触发故障")) throw new Error("受控向导故障");
-    return reply;
+    options.onStep({ kind: "reply", markdown: reply }, 0); options.onChoices(["继续", "考考我"]); return { status: "completed" };
   } };
   const server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: provider });
   let browser: any;
@@ -42,9 +42,9 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     await waiting; await pending.waitFor();
     assert.match(await pending.textContent(), /向导正在回应/);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
-    assert.equal(await send.isDisabled(), true);
+    assert.equal(await page.locator("[data-guide-stop]").count(), 1);
     assert.equal(await page.locator(".pith-quick-actions").count(), 0);
-    letGo(); await replies(1);
+    letGo(); await replies(1); await pending.waitFor({ state: "detached" });
     assert.equal(await pending.count(), 0);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
     assert.equal(await page.locator(".pith-choice-btn").count(), 2);
@@ -54,20 +54,20 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     await waiting; await pending.waitFor();
     assert.equal(await occurrences(content, "网页问题"), 1);
     assert.equal(await page.locator(".pith-choice-btn").count(), 0);
-    assert.equal(await send.isDisabled(), true);
+    assert.equal(await page.locator("[data-guide-stop]").count(), 1);
     assert.equal(await input.inputValue(), "");
-    letGo(); await replies(2);
+    letGo(); await replies(2); await pending.waitFor({ state: "detached" });
     assert.equal(await pending.count(), 0);
     assert.equal(await occurrences(content, "网页问题"), 1);
     assert.equal(await send.isDisabled(), false);
 
     await input.fill("触发故障"); await send.click();
-    await error.getByText("受控向导故障").waitFor();
-    assert.equal(await input.inputValue(), "触发故障");
+    await content.getByText("受控向导故障").waitFor();
+    await pending.waitFor({ state: "detached" });
     assert.equal(await pending.count(), 0);
     await page.locator('[data-guide-tab="notes"]').click(); await page.locator('[data-guide-tab="chat"]').click();
-    assert.match(await error.textContent(), /受控向导故障/);
-    await input.fill("恢复提问"); await send.click(); await replies(3);
+    assert.match(await content.textContent(), /受控向导故障/);
+    await input.fill("恢复提问"); await send.click(); await replies(3); await pending.waitFor({ state: "detached" });
     assert.equal(await error.textContent(), "");
 
     await page.locator('[data-guide-tab="notes"]').click();
@@ -113,8 +113,8 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
       };
       const host = { id: "obsidian", storage };
       let controller: any;
-      const provider = { async reply({ topicId, conversation }: any) {
-        const text: string = conversation.at(-1).text; state.received.push(text);
+      const provider = { async run({ scope, text }: any, options: any) {
+        const topicId = scope.topicId; state.received.push(text);
         if (state.hold) await new Promise<void>(resolve => { state.release = resolve; if (state.arrived) state.arrived(); });
         if (text.includes("触发故障")) throw new Error("受控向导故障");
         if (text.includes("生成《00-课程大纲.md》")) {
@@ -125,7 +125,7 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
         }
         const lesson = /《(0[23]-[^》]+\.md)》/.exec(text);
         if (lesson) { const topic = await controller.store.getTopic(topicId); await controller.store.writeGeneratedFile(topic.materialId, lesson[1], `# ${lesson[1]}\n\n${lesson[1]} 的正文。`); }
-        return guideReply;
+        options.onStep({ kind: "reply", markdown: guideReply }, 0); options.onChoices(["继续", "考考我"]); return { status: "completed" };
       } };
       controller = new native.PithObsidianController(host, undefined, provider); await controller.initialize();
       const leaf: any = { container: document.getElementById("side"), detach() {}, async setViewState() { this.view = new native.PithGuideView(this); } };
@@ -146,12 +146,12 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     await arrived(); await pending.waitFor();
     assert.match(await pending.textContent(), /向导正在回应/);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
-    assert.equal(await send.isDisabled(), true);
+    assert.equal(await page.locator("#side [data-guide-stop]").count(), 1);
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "guide-turn-waiting-obsidian.png") });
     await refresh();
     assert.equal(await occurrences(content, "学习宿主边界"), 1, "a refresh during the turn shows the stored message once");
     assert.equal(await pending.count(), 1);
-    assert.equal(await send.isDisabled(), true);
+    assert.equal(await page.locator("#side [data-guide-stop]").count(), 1);
     await letGo(); await replies(1);
     await article.getByText("课程大纲").first().waitFor();
     assert.equal(await pending.count(), 0);
@@ -159,11 +159,11 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     await page.waitForFunction(() => !(document.querySelector("#side [data-guide-send]") as HTMLButtonElement).disabled);
 
     await input.fill("触发故障"); await send.click();
-    await error.getByText("受控向导故障").waitFor();
-    assert.equal(await input.inputValue(), "触发故障");
+    await content.getByText("受控向导故障").waitFor();
+    assert.equal(await input.inputValue(), "");
     assert.equal(await pending.count(), 0);
     await refresh();
-    assert.match(await error.textContent(), /受控向导故障/);
+    assert.match(await content.textContent(), /受控向导故障/);
     await input.fill("恢复提问"); await send.click(); await replies(2);
     assert.equal(await error.textContent(), "");
 

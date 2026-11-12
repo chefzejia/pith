@@ -67,9 +67,9 @@ test("Guide merges only mounted toolkit actions and defaults to both toolkit des
   assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "feynman-coach", "shadowing-coach"]);
   assert.deepEqual(actions[1], feynmanToolkit.quickActions[0]);
   assert.deepEqual(quickActionsForTopic(topic([]), [feynmanToolkit]).map(action => action.id), ["plan-curriculum"]);
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain" });
-  assert.match(prompt, /shadowing: 4-Stage Language Shadowing \(language\)/);
-  assert.match(prompt, /feynman: 4-Stage Feynman Recall \(comprehension\)/);
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain", availableToolkits: [shadowingToolkit, feynmanToolkit] });
+  assert.match(prompt, /影子跟读/);
+  assert.match(prompt, /费曼复述/);
   const explicit = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain", availableToolkits: [] });
-  assert.doesNotMatch(explicit, /4-Stage Feynman Recall/);
+  assert.doesNotMatch(explicit, /费曼复述/);
 });

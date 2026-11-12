@@ -10,7 +10,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
   const dir = await testSandbox("task23-shared-");
   await mkdir(join(dir, "workspace"));
-  const server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: { reply: async () => "受控向导回复" }, interlineTranslator: async input => new Map(input.segments.map(segment => [segment.locator, "测试译文"])) });
+  const server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: { run: async (_input, options) => { options.onStep({ kind: "reply", markdown: "受控向导回复" }, 0); return { status: "completed" }; } }, interlineTranslator: async input => new Map(input.segments.map(segment => [segment.locator, "测试译文"])) });
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const base = `http://127.0.0.1:${address.port}`;
   const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };

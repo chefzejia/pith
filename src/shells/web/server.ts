@@ -5,6 +5,7 @@ import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type Tool
 import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
+import { NodeToolServerPort } from "./nodeToolServer.ts";
 import { NodeRepositoryPort } from "./nodeRepository.ts";
 import { NodeWorkspaceStorage } from "./nodeStorage.ts";
 import { NodeHttpPort } from "./nodeHttp.ts";
@@ -15,13 +16,11 @@ import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/t
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
-import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
-import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
+import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
 import { sampleEpubLanguage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
-import { practiceMessage } from "../../plugins/toolkit-feynman/index.ts";
-import type { AgentProcessPort, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
+import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
 export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
@@ -83,21 +82,23 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   }
   await loadSettings();
   const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona, ...(settings.agentTimeoutMs === undefined ? {} : { timeoutMs: settings.agentTimeoutMs }) } } } });
-  const processPort = options.processPort ?? new NodeAgentProcessPort();
+  const processPort = options.processPort ?? new NodeAgentProcessPort({ workspaceRoot: options.workspaceDir });
   const repository = new NodeRepositoryPort();
   const http = options.http ?? new NodeHttpPort();
   const mediaCorpus = new NodeMediaCorpusPort({ transcribeAudio: async (bytes, mimeType, signal) => { const asr = runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); } });
   const speechRuntime = options.speechRuntime ?? new NodeManagedSpeechRuntime({ protectedRoot: options.workspaceDir });
   const secrets: Record<string, string> = {};
-  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  const toolServer = new NodeToolServerPort();
+  const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, toolServer, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
   const agentTimeoutMs = (): number => { const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; };
-  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
+  localProvider = new LocalAcpGuideProvider({ processPort, toolServer, store, engine, storage, http, repository, mediaCorpus, getReader: () => runtime.getService<StageReaderService>("stage.reader"), getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;
   }, buildScenePrompt });
   const interlineSessions = new Map<string, { signature: string; session: InterlineSession }>();
-  const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ process: processPort, resolveAgent: async () => { if (!settings.agentId) throw new Error("请先配置向导 Agent"); const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("向导 Agent 不可用"); const descriptor = (await guide.detectAgents()).find(item => item.id === settings.agentId); if (!descriptor || !descriptor.available) throw new Error("向导 Agent 不可用"); return { descriptor, model: settings.model, effort: settings.effort, timeoutMs: guide.timeoutMs }; } });
+  const guideTurns = new Map<string, AbortController>();
+  const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ prompt: async (text, options) => { const service = runtime.getService<AgentPromptService>("guide.prompt"); if (!service) throw new Error("向导 Agent 不可用"); return service.prompt(text, options); } });
   const processEffects = (): void => {
     if (options.guideProvider || settings.agentId) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
   };
@@ -295,7 +296,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const note = await engine.captureSelection({ topicId, kind: "practice", body: producedText, anchor: practiceAnchor });
           processEffects();
           if (!options.guideProvider && !settings.agentId) return send(res, 201, { note, guided: false });
-          try { await engine.sendMessage({ topicId, text: practiceMessage(producedText, toolkit.label, toolkit.evaluationRubric), anchor: practiceAnchor }); return send(res, 201, { note, guided: true }); }
+          try { const turn = await engine.runTurn({ topicId, text: producedText, instruction: toolkit.evaluationRubric, anchor: practiceAnchor }); return send(res, 201, { note, guided: turn.status === "completed", ...(turn.error ? { guideError: turn.error } : {}) }); }
           catch (error) { return send(res, 201, { note, guided: false, guideError: error instanceof Error ? error.message : String(error) }); }
         }
         if (url.pathname === "/api/toolkit/transform") {
@@ -376,9 +377,25 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (url.pathname === "/api/chat" && method === "POST") {
         const data = await body(req);
-        const result = await engine.sendMessage({ topicId: str(data, "topicId"), text: str(data, "text"), anchor: anchor(data.anchor), saveAsNote: data.saveAsNote === true });
-        if (data.saveAsNote === true) processEffects();
-        return send(res, 201, result);
+        const topicId = str(data, "topicId");
+        if (guideTurns.has(topicId)) return send(res, 409, { error: "Topic already has a running turn" });
+        const retryId = data.turnId === undefined ? undefined : str(data, "turnId");
+        const text = retryId ? undefined : str(data, "text"), selection = anchor(data.anchor), instruction = data.instruction === undefined ? undefined : str(data, "instruction");
+        const controller = new AbortController(); guideTurns.set(topicId, controller);
+        const stream = req.headers.accept === "text/event-stream";
+        if (stream) res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+        try {
+          const turnOptions = { signal: controller.signal, onUpdate: (turn: import("../../core/index.ts").GuideTurn) => { if (stream && !res.destroyed) res.write(`data: ${JSON.stringify(turn)}\n\n`); } };
+          const result = retryId ? await engine.retryTurn(topicId, retryId, turnOptions) : await engine.runTurn({ topicId, text: text!, anchor: selection, instruction }, turnOptions);
+          if (stream) { res.end(); return; }
+          return send(res, 201, result);
+        } catch (error) { if (stream) { res.write(`event: error\ndata: ${JSON.stringify(error instanceof Error ? error.message : String(error))}\n\n`); res.end(); return; } throw error; }
+        finally { guideTurns.delete(topicId); }
+      }
+      if (url.pathname === "/api/chat/stop" && method === "POST") {
+        const data = await body(req), topicId = str(data, "topicId");
+        guideTurns.get(topicId)?.abort();
+        return send(res, 200, { stopped: true });
       }
       if (url.pathname === "/api/settings" && method === "POST") {
         const data = await body(req);

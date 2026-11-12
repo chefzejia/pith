@@ -276,6 +276,11 @@ export interface DiscoveredAgentDescriptor {
   readonly available: boolean;
   readonly note: string;
   readonly configOptions?: readonly AcpConfigOptionDescriptor[];
+  readonly pithToolTitlePrefix?: string;
+}
+
+export interface AgentPromptService {
+  prompt(text: string, options?: { readonly signal?: AbortSignal }): Promise<string>;
 }
 
 export type ManagedSpeechStatus = "not-installed" | "installing" | "stopped" | "starting" | "running" | "failed";
@@ -329,7 +334,6 @@ export interface GuideAgentService {
   probeAgentOptions?(agentId: string, force?: boolean): Promise<readonly AcpConfigOptionDescriptor[]>;
   quickActionsForTopic?(topic: Topic, activeToolkits: readonly ToolkitDescriptor[]): readonly GuideQuickAction[];
   configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
-  listWorkspaceTools?(): readonly GuideMcpToolSpec[];
   ingestExternalUrl?(input: ExternalIngestInput): Promise<ExternalIngestBundle>;
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
@@ -347,7 +351,7 @@ export interface GuideAgentService {
     readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];
     readonly anchor?: SelectionAnchor;
     readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
-    readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
+    readonly instruction?: string;
   }): string;
 }
 

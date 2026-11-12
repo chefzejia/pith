@@ -1,4 +1,4 @@
-import type { ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideConversationEntry, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, TopicNote } from "../core/index.ts";
+import type { ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, TopicNote } from "../core/index.ts";
 import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
@@ -45,8 +45,10 @@ export interface ObsidianViewActions {
   transcribeAudio?(bytes: Uint8Array, mimeType: string, signal?: AbortSignal): Promise<{ readonly text: string }>;
   loadAudio?(name: string): Promise<Uint8Array>;
   prepareInterline?: InterlineViewPrepare;
-  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideConversationEntry[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[] }>;
+  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[] }>;
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
+  stopGuide?(): Promise<void>;
+  retryGuide?(turnId: string): Promise<void>;
   savePractice?(body: string, anchor: SelectionAnchor | undefined): Promise<void>;
   submitPractice?(body: string, anchor: SelectionAnchor, toolkit: ToolkitDescriptor): Promise<{ guided: boolean; guideError?: string }>;
   mountToolkit?(id: string): Promise<void>;
@@ -189,7 +191,7 @@ export class PithWorkbenchView {
   private guideTab: "chat" | "notes" = "chat";
   private guideGeneration = 0;
   private pendingAnchor: SelectionAnchor | undefined;
-  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideConversationEntry[]; actions: readonly GuideQuickAction[] } = { notes: [], conversation: [], actions: [] };
+  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[] } = { notes: [], conversation: [], actions: [] };
   private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
   private guideSending = false;
   private guidePending: { readonly text: string; readonly from: number } | undefined;
@@ -377,6 +379,7 @@ export class PithWorkbenchView {
   private applyPageMode(position: ReaderPosition | null = null): void { const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches }); this.root.dataset.formFactor = decision.formFactor; this.root.dataset.sheetMode = decision.sheetMode; this.root.dataset.hitTarget = String(decision.hitTargetPx); const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]'); if (double) double.disabled = decision.maxColumns < 2; if (triple) triple.disabled = decision.maxColumns < 3; const controls = this.root.querySelector<HTMLElement>("[data-pages]"); if (controls) controls.hidden = !this.paged; const modes = this.root.querySelector<HTMLElement>("[data-page-modes]"); if (modes) modes.hidden = !this.paged; this.reader.classList.toggle("pith-paged", this.paged); if (this.paged) { applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded); restoreReaderPosition(this.reader, this.article, position); this.restoredScrollLeft = position ? this.reader.scrollLeft : null; this.readerPosition = position ?? captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else { for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height"]) this.article.style.removeProperty(property); this.reader.style.removeProperty("overflow-x"); this.reader.style.removeProperty("overflow-y"); } if (this.interline) this.interline.activate(); }
   private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (note.kind === "practice" || !anchor || anchor.file !== this.currentFile || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
+  updateGuideTurn(turn: GuideTurn): void { const conversation = [...this.guideData.conversation]; const index = conversation.findIndex(item => item.id === turn.id); if (index < 0) conversation.push(turn); else conversation[index] = turn; this.guideData = { ...this.guideData, conversation }; if (!this.disposed) this.renderGuide(); }
   /**
    * Runs one guide turn. Until `run` settles the guide panel shows `text` as sent with a waiting status, and no second turn starts.
    * A failure stays visible in the panel until the next turn starts and reaches the caller unchanged.
@@ -578,6 +581,8 @@ export class PithWorkbenchView {
     if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
     if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) { input.value = button.dataset.guidePrompt; input.focus(); } return; }
+    if (button.hasAttribute("data-guide-stop")) { if (this.actions.stopGuide) await this.actions.stopGuide(); return; }
+    if (button.dataset.guideRetry) { if (this.actions.retryGuide && !this.guideSending) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
     if (button.hasAttribute("data-guide-send")) {
       const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), sendGuide = this.actions.sendGuide;
       if (!input || !input.value.trim() || !sendGuide || this.guideSending) return;
@@ -610,7 +615,7 @@ export class PithWorkbenchView {
           const status = this.inlineToolkit ? this.inlineToolkit.querySelector<HTMLElement>('[role="status"]') : null;
           if (status) status.textContent = "已提交，正在等待结果；向导回应可能需要几分钟…";
           let result: Awaited<ReturnType<NonNullable<ObsidianViewActions["submitPractice"]>>>;
-          try { result = await this.actions.submitPractice(this.toolkitProduced, this.toolkitAnchor, toolkit); }
+          try { result = await this.guideTurn(this.toolkitProduced, () => this.actions.submitPractice!(this.toolkitProduced, this.toolkitAnchor!, toolkit)); }
           finally { if (status && status.isConnected) status.textContent = this.toolkitStatus; }
           if (this.disposed || version !== this.toolkitVersion) return;
           this.toolkitStatus = result.guided ? "已提交并记入实训账本" : result.guideError ? `已记入实训账本，向导追问失败：${result.guideError}` : "已记入实训账本。向导未配置，请对照原文检查因果链、前提和边界，并尝试举一个反例。";

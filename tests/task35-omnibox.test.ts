@@ -56,7 +56,7 @@ test("web repository intake retains the requested objective and shows the bound 
   const git = promisify(execFile), env = { ...process.env, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" };
   await git("git", ["-C", repo, "init", "-q"], { env }); await writeFile(join(repo, "source.txt"), "sample"); await git("git", ["-C", repo, "add", "."], { env }); await git("git", ["-C", repo, "commit", "-qm", "fixture"], { env });
   const sha = (await git("git", ["-C", repo, "rev-parse", "HEAD"], { env })).stdout.trim(); const received: string[] = [];
-  const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async reply(input) { received.push(input.conversation.at(-1)!.text); return "已收到目标"; } } }); let browser: any;
+  const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async run(input, options) { received.push(input.text); options.onStep({ kind: "reply", markdown: "已收到目标" }, 0); return { status: "completed" }; } } }); let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true });
@@ -75,7 +75,7 @@ test("web repository intake retains the requested objective and shows the bound 
 test("omnibox stages files, routes intent and keeps only current guide choices", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const root = await testSandbox("task35-browser-"), workspace = join(root, "workspace"); await mkdir(workspace);
   const received: string[] = [];
-  const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async reply(input) { received.push(input.conversation.at(-1)!.text); return received.length === 1 ? "第一轮\n```pith-choices\n- 旧选项 A\n- 旧选项 B\n```" : received.length === 2 ? "第二轮\n```pith-choices\n- 新选项 A\n- 新选项 B\n```" : "第三轮"; } } });
+  const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async run(input, options) { received.push(input.text); options.onStep({ kind: "reply", markdown: received.length === 1 ? "第一轮" : received.length === 2 ? "第二轮" : "第三轮" }, 0); if (received.length < 3) options.onChoices(received.length === 1 ? ["旧选项 A", "旧选项 B"] : ["新选项 A", "新选项 B"]); return { status: "completed" }; } } });
   let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string");
@@ -89,10 +89,10 @@ test("omnibox stages files, routes intent and keeps only current guide choices",
     const evidence = resolve('.tmp/evidence/task-35'); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-light-narrow.png') });
     await page.locator('[name="title"]').fill('解释这个材料'); await page.locator('[name="title"]').press('Enter');
     await page.locator('.pith-choice-btn').first().waitFor(); assert.equal(received[0], '解释这个材料'); assert.equal(await page.locator('.pith-quick-actions').count(), 0); assert.equal(await page.locator('.pith-choice-btn').count(), 2);
-    await page.locator('.pith-choice-btn').first().click(); await page.locator('[data-guide-send]').click(); await page.getByText('第二轮').waitFor(); assert.equal(await page.locator('.pith-choice-btn').count(), 2); assert.equal(await page.getByRole('button', { name: /旧选项/ }).count(), 0); assert.equal(await page.locator('.pith-quick-actions').count(), 0);
+    await page.locator('.pith-choice-btn').first().click(); await page.locator('[data-guide-send]').click(); await page.getByText('第二轮').waitFor(); await page.getByRole('button', { name: /新选项 A/ }).waitFor(); assert.equal(await page.locator('.pith-choice-btn').count(), 2); assert.equal(await page.getByRole('button', { name: /旧选项/ }).count(), 0); assert.equal(await page.locator('.pith-quick-actions').count(), 0);
     assert.equal(await page.locator('.pith-view-header button svg').count() > 0, true);
     await page.emulateMedia({ colorScheme: 'dark' }); await page.screenshot({ path: join(evidence, 'web-dark-guide.png') });
-    await page.locator('.pith-choice-btn').first().click(); await page.locator('[data-guide-send]').click(); await page.getByText('第三轮').waitFor(); assert.equal(await page.locator('.pith-choice-btn').count(), 0); assert.equal(await page.locator('.pith-quick-actions').count(), 1);
+    await page.locator('.pith-choice-btn').first().click(); await page.locator('[data-guide-send]').click(); await page.getByText('第三轮').waitFor(); await page.locator('.pith-quick-actions').waitFor(); assert.equal(await page.locator('.pith-choice-btn').count(), 0); assert.equal(await page.locator('.pith-quick-actions').count(), 1);
     assert.equal(await page.getByRole('button', { name: '导读这一节' }).count(), 1); assert.equal(await page.getByRole('button', { name: '下一讲 / 考考我' }).count(), 1);
     await page.getByRole('button', { name: '下一讲 / 考考我' }).scrollIntoViewIfNeeded(); await page.screenshot({ path: join(evidence, 'web-quick-actions-fix.png') });
     await page.getByRole('button', { name: '下一讲 / 考考我' }).click(); assert.match(await page.locator('.pith-guide textarea').inputValue(), /检验.*理解.*下一讲/);

@@ -3,7 +3,8 @@ import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
-import { buildScenePrompt, createGuideWorkspaceTools } from "../src/plugins/guide-acp/index.ts";
+import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { createDshPluginBundle } from "../src/shells/dsh/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";
@@ -18,7 +19,7 @@ async function fixture() {
   await store.ensureScaffold();
   const topic = await store.createTopic({ id: "topic-one", title: "Topic" });
   const note = await store.appendNote(topic.id, { kind: "practice", body: "Evidence" });
-  const tools = createGuideWorkspaceTools(store, undefined);
+  const tools = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} });
   const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
   return { dir, storage, store, topic, note, tool };
 }
@@ -130,11 +131,11 @@ test("guide settlement uses topic evidence and rejects replacement", async () =>
     const before = await readFile(join(f.dir, "ME.md"));
     const settle = f.tool("pith_settle_topic");
     const remembered = await f.store.addObservation({ topicId: f.topic.id, text: "熟悉依赖注入", noteId: f.note.id });
-    await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", profilePatchMarkdown: "replacement" }), /Invalid tool arguments/);
-    await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", observations: [{ text: "ok" }, { text: "bad", noteId: "other-note" }] }), /Note does not belong/);
+    await assert.rejects(settle.execute({ verificationSummary: "Understood", profilePatchMarkdown: "replacement" }), /Invalid tool arguments/);
+    await assert.rejects(settle.execute({ verificationSummary: "Understood", observations: [{ text: "ok" }, { text: "bad", noteId: "other-note" }] }), /Note does not belong/);
     const prompt = buildScenePrompt({ profileMarkdown: "", topic: (await f.store.getTopic(f.topic.id))!, userMessage: "test" });
     assert.ok(prompt.includes(f.note.id)); assert.match(prompt, /用户要求记住[\s\S]*pith_save_note[\s\S]*画像只在结题时更新/); assert.doesNotMatch(prompt, /pith_remember/);
-    const settled = await settle.execute({ topicId: f.topic.id, verificationSummary: "Applied insight", observations: [{ text: "理解边界", noteId: f.note.id }], removeObservationIds: [remembered.id] }) as { status: string };
+    const settled = (await settle.execute({ verificationSummary: "Applied insight", observations: [{ text: "理解边界", noteId: f.note.id }], removeObservationIds: [remembered.id] }) as { topic: { status: string } }).topic;
     assert.equal(settled.status, "settled");
     const profile = await f.store.readProfile(); assert.deepEqual(profile.observations.map(item => [item.text, item.noteId]), [["理解边界", f.note.id]]);
     assert.ok(Buffer.from(profile.markdown).subarray(0, before.length).equals(before));

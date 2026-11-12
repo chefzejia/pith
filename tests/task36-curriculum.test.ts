@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { parseCurriculumOutline } from "../src/plugins/stage-reader/pagination.ts";
-import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -35,19 +35,19 @@ test("web generates the requested lesson after persistence and ignores stale res
   const topic = await store.createTopic({ title: "课程", materialId: material.id });
   await store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲：深入理解异步数据流中的状态更新与并发边界");
   await store.writeGeneratedFile(material.id, "01-intro.md", "# 第一讲\n## 概览\n阅读内容");
-  const write = createGuideWorkspaceTools(store, undefined, storage).find(tool => tool.name === "pith_write_lesson")!;
+  const write = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
   const received: string[] = []; let release: (() => void) | undefined; let started: (() => void) | undefined; let releaseMessage: (() => void) | undefined; let messageStarted: (() => void) | undefined; let releaseSix: (() => void) | undefined; let sixStarted: (() => void) | undefined;
   const waiting = new Promise<void>(resolve => { started = resolve; });
   const messageWaiting = new Promise<void>(resolve => { messageStarted = resolve; });
   const sixWaiting = new Promise<void>(resolve => { sixStarted = resolve; });
-  const server = await createPithWebServer({ workspaceDir: root, guideProvider: { async reply(input) {
-    const text = input.conversation.at(-1)!.text; received.push(text);
+  const server = await createPithWebServer({ workspaceDir: root, guideProvider: { async run(input, options) {
+    const text = input.text; received.push(text);
     if (text.includes("03-runtime.md")) { started!(); await new Promise<void>(resolve => { release = resolve; }); }
     if (text === "切章后的真实草稿") { messageStarted!(); await new Promise<void>(resolve => { releaseMessage = resolve; }); }
     if (text.includes("06-extra.md")) { sixStarted!(); await new Promise<void>(resolve => { releaseSix = resolve; }); }
     const name = text.match(/《(0[234]-[^》]+\.md)》/)?.[1];
-    if (name && name !== "04-error.md") await write.execute({ topicId: topic.id, fileName: name, markdown: `# ${name} 正文\n## 小节\n真实讲义` });
-    return "完成";
+    if (name && name !== "04-error.md") await write.execute({ fileName: name, markdown: `# ${name} 正文\n## 小节\n真实讲义` });
+    options.onStep({ kind: "reply", markdown: "完成" }, 0); return { status: "completed" };
   } } });
   let browser: any;
   try {
@@ -68,10 +68,9 @@ test("web generates the requested lesson after persistence and ignores stale res
     const input = page.locator('.pith-guide textarea'); await input.fill('切章后的真实草稿'); await input.focus(); await input.evaluate((node: HTMLTextAreaElement) => { node.setSelectionRange(1, 4); (window as any).draftBefore = node; });
     releaseGuide(); await page.waitForFunction(() => document.querySelector('.pith-guide textarea') !== (window as any).draftBefore);
     assert.equal(await input.inputValue(), '切章后的真实草稿'); assert.deepEqual(await input.evaluate((node: HTMLTextAreaElement) => [document.activeElement === node, node.selectionStart, node.selectionEnd]), [true, 1, 4]);
-    const completed = page.waitForResponse((response: any) => response.url().endsWith('/api/chat') && response.request().method() === 'POST' && response.request().postData()?.includes('03-runtime.md'));
-    release!(); await completed; await page.waitForLoadState('networkidle'); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
+    release!(); await page.locator('[data-guide-stop]').waitFor({ state: 'detached' }); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-file="03-runtime.md"]').waitFor(); assert.equal(await page.locator('[data-planned-lesson="03-runtime.md"]').count(), 0); assert.equal(await input.inputValue(), '切章后的真实草稿');
-    await page.locator('.pith-nav-toggle').click(); await page.locator('[data-guide-send]').click(); await messageWaiting; assert.equal(await input.inputValue(), ''); await input.fill('请求期间的新草稿'); releaseMessage!(); await page.waitForFunction(() => !(document.querySelector('[data-guide-send]') as HTMLButtonElement).disabled); assert.equal(await input.inputValue(), '请求期间的新草稿'); assert.ok(received.includes('切章后的真实草稿'));
+    await page.locator('.pith-nav-toggle').click(); await page.locator('[data-guide-send]').click(); await messageWaiting; assert.equal(await input.inputValue(), ''); await input.fill('请求期间的新草稿'); releaseMessage!(); await page.locator('[data-guide-send]').waitFor(); assert.equal(await input.inputValue(), '请求期间的新草稿'); assert.ok(received.includes('切章后的真实草稿'));
     await page.locator('.pith-nav-toggle').click();
     await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(evidence, 'fix-web-narrow-light.png') }); await page.emulateMedia({ colorScheme: 'dark' }); await page.screenshot({ path: join(evidence, 'fix-web-narrow-dark.png') });
     await page.setViewportSize({ width: 390, height: 650 }); await page.locator('[data-planned-lesson="06-extra.md"]').click(); await sixWaiting;

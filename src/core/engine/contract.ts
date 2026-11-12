@@ -41,14 +41,39 @@ export type EffectHandler = (
   signal: AbortSignal,
 ) => Promise<void>;
 
-export interface GuideConversationEntry {
+export type TurnStatus = "running" | "completed" | "failed" | "stopped";
+
+export type TurnEffect =
+  | { readonly kind: "topic"; readonly topicId: string }
+  | { readonly kind: "lesson"; readonly fileName: string }
+  | { readonly kind: "note"; readonly noteId: string }
+  | { readonly kind: "material"; readonly materialId: string }
+  | { readonly kind: "toolkits"; readonly toolkits: readonly string[] }
+  | { readonly kind: "observation"; readonly observationId: string; readonly text: string };
+
+export type TurnStep =
+  | { readonly kind: "thought"; readonly text: string }
+  | { readonly kind: "tool"; readonly callId: string; readonly name: string; readonly inputPreview: string; readonly status: "running" | "completed" | "failed"; readonly summary?: string; readonly effects: readonly TurnEffect[] }
+  | { readonly kind: "reply"; readonly markdown: string };
+
+export interface GuideTurn {
   readonly id: string;
-  readonly role: "user" | "guide";
-  readonly text: string;
-  readonly choices?: readonly string[];
-  readonly anchor?: SelectionAnchor;
-  readonly savedNoteId?: string;
-  readonly createdAt: string;
+  readonly status: TurnStatus;
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly user: { readonly text: string; readonly anchor?: SelectionAnchor; readonly instruction?: string };
+  readonly steps: readonly TurnStep[];
+  readonly choices: readonly string[];
+  readonly error?: string;
+}
+
+export interface TurnOptions {
+  readonly signal?: AbortSignal;
+  readonly onUpdate?: (turn: GuideTurn) => void;
+}
+
+export interface GuideProvider {
+  run(input: { scope: { kind: "intake"; materialIds: readonly string[] } | { kind: "topic"; topicId: string }; text: string; anchor?: SelectionAnchor; instruction?: string; history: readonly GuideTurn[] }, options: { signal: AbortSignal; onStep(step: TurnStep, index: number): void; onChoices(choices: readonly string[]): void }): Promise<{ readonly status: "completed" | "stopped" } | { readonly status: "failed"; readonly error: string }>;
 }
 
 export interface AttentionCompassSnapshot {
@@ -75,19 +100,9 @@ export interface AttentionEngine {
     readonly anchor?: SelectionAnchor;
   }): Promise<TopicNote>;
 
-  /** Read persisted cross-day Guide conversation for a Topic (`_cache/conversations/<topicId>.json`). */
-  getConversation(topicId: string): Promise<readonly GuideConversationEntry[]>;
-
-  /** Append a user message/question (and optional Guide reply when a provider is active) to the Topic conversation. */
-  sendMessage(input: {
-    readonly topicId: string;
-    readonly text: string;
-    readonly anchor?: SelectionAnchor;
-    readonly saveAsNote?: boolean;
-  }): Promise<{
-    readonly userEntry: GuideConversationEntry;
-    readonly guideEntry?: GuideConversationEntry;
-  }>;
+  getConversation(topicId: string): Promise<readonly GuideTurn[]>;
+  runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor; instruction?: string }, options?: TurnOptions): Promise<GuideTurn>;
+  retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn>;
 
   /** Durable Effects queue management. */
   enqueueEffect(kind: EffectKind, key: string, payload: Readonly<Record<string, unknown>>): Promise<EffectRecord>;

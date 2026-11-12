@@ -5,13 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { DefaultWorkspaceStore, type AgentProcessPort, type AgentStdioHandle, type DiscoveredAgentDescriptor } from "../src/core/index.ts";
-import { AGENT_HANDSHAKE_TIMEOUT_MS, AGENT_REQUEST_TIMEOUT_MS, agentInterlineTranslator, runOneShotAcpPrompt } from "../src/plugins/guide-acp/index.ts";
+import { AGENT_HANDSHAKE_TIMEOUT_MS, AGENT_REQUEST_TIMEOUT_MS, runOneShotAcpPrompt } from "../src/plugins/guide-acp/index.ts";
+import { agentInterlineTranslator } from "../src/plugins/toolkit-interline/index.ts";
 import { PithObsidianController, createObsidianHostPort, type ObsidianVaultAdapter } from "../src/shells/obsidian/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 
 const descriptor: DiscoveredAgentDescriptor = { id: "dsh", label: "fixture", command: "/fixture/dsh", args: [], available: true, version: null, note: "fixture" };
 const LONGEST_DEADLINE_MS = 600_000;
+const settingsCases: readonly (readonly [Record<string, unknown>, number])[] = [
+  [{ agentTimeoutMs: 7000 }, 7000], [{}, AGENT_REQUEST_TIMEOUT_MS], [{ agentTimeoutMs: 12 }, AGENT_REQUEST_TIMEOUT_MS],
+  [{ agentTimeoutMs: 600001 }, AGENT_REQUEST_TIMEOUT_MS], [{ agentTimeoutMs: "7000" }, AGENT_REQUEST_TIMEOUT_MS],
+];
+const savedSettings = (extra: Record<string, unknown>): string => JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "dsh", ...extra });
+const units = [{ html: '<p data-locator="p:0" data-prose="true">Hello</p>', segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello", sourceHash: "" }] }];
 
 /** ACP agent at the process boundary that answers every request except `silent`, which it leaves pending. */
 function silentAgent(silent: string): { port: AgentProcessPort; reached(): Promise<void> } {
@@ -29,7 +36,7 @@ function silentAgent(silent: string): { port: AgentProcessPort; reached(): Promi
           const message = JSON.parse(line) as { id?: number; method: string };
           if (message.id === undefined) return;
           if (message.method === silent) { const waiter = waiters.shift(); if (waiter) waiter(); else arrived++; return; }
-          const result = message.method === "session/new" ? { sessionId: "fixture" } : {};
+          const result = message.method === "session/new" ? { sessionId: "fixture" } : message.method === "initialize" ? { agentCapabilities: { mcpCapabilities: { http: true } } } : {};
           for (const listener of listeners) listener(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
         async close() {},
@@ -59,15 +66,6 @@ async function afterEveryDeadline<T>(t: TestContext, agent: { reached(): Promise
   } finally { t.mock.timers.reset(); }
 }
 
-const settingsCases: readonly (readonly [string, Record<string, unknown>, number])[] = [
-  ["configured", { agentTimeoutMs: 7000 }, 7000],
-  ["absent", {}, AGENT_REQUEST_TIMEOUT_MS],
-  ["below the minimum", { agentTimeoutMs: 12 }, AGENT_REQUEST_TIMEOUT_MS],
-  ["above the maximum", { agentTimeoutMs: 600_001 }, AGENT_REQUEST_TIMEOUT_MS],
-  ["not a number", { agentTimeoutMs: "7000" }, AGENT_REQUEST_TIMEOUT_MS],
-];
-const savedSettings = (extra: Record<string, unknown>): string => JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "dsh", ...extra });
-
 test("an agent prompt waits for its deadline while each handshake request fails early", async t => {
   assert.equal(AGENT_REQUEST_TIMEOUT_MS, 300_000);
   assert.equal(AGENT_HANDSHAKE_TIMEOUT_MS, 60_000);
@@ -92,122 +90,72 @@ test("an agent prompt waits for its deadline while each handshake request fails 
 test("interline translation requests use the deadline supplied with the agent", async t => {
   for (const [timeoutMs, expected] of [[undefined, AGENT_REQUEST_TIMEOUT_MS], [7_000, 7_000]] as const) {
     const agent = silentAgent("session/prompt");
-    const translate = agentInterlineTranslator({ process: agent.port, resolveAgent: async () => ({ descriptor, ...(timeoutMs === undefined ? {} : { timeoutMs }) }) });
+    const translate = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: agent.port, ...(timeoutMs === undefined ? {} : { timeoutMs }) }, options?.signal)).text });
     const outcome = await afterEveryDeadline(t, agent, () => translate({ materialId: "m", file: "a.md", unitIndex: 0, targetLanguage: "zh-Hans", segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello", sourceHash: "" }] }));
     assert.ok(outcome instanceof Error);
     assert.match(outcome.message, new RegExp(`session/prompt timed out after ${expected}ms`));
   }
 });
 
-async function obsidianShell(settings: Record<string, unknown>) {
-  const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-obsidian-"));
-  const storage = new NodeWorkspaceStorage(dir);
-  const adapter: ObsidianVaultAdapter = {
-    getFullPath: path => join(dir, path),
-    exists: path => storage.exists(path), read: path => storage.readText(path),
-    readBinary: async path => new Uint8Array(await storage.readBinary(path)).buffer,
-    write: (path, data) => storage.writeText(path, data),
-    writeBinary: (path, data) => storage.writeBinary(path, new Uint8Array(data)),
-    mkdir: path => storage.mkdir(path),
-    list: async path => { const entries = await storage.list(path); return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) }; },
-  };
-  const settingsPath = join(dir, "Pith/_cache/web-settings.json");
-  await mkdir(join(dir, "Pith/_cache"), { recursive: true });
-  await writeFile(settingsPath, savedSettings(settings));
-  const agent = silentAgent("session/prompt");
-  const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", agent.port, adapter));
-  await controller.initialize();
-  const topic = await controller.store.createTopic({ title: "Timeout" });
-  const units = [{ html: '<p data-locator="p:0" data-prose="true">Hello</p>', segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello", sourceHash: "" }] }];
-  return { dir, agent, controller, settingsPath, units, turn: () => controller.engine.sendMessage({ topicId: topic.id, text: "hello" }) };
-}
-
-test("the Obsidian shell applies the configured agent deadline to guide turns and translation, and keeps it across saves", async t => {
-  for (const [name, settings, expected] of settingsCases) {
-    const shell = await obsidianShell(settings);
+test("Obsidian translation uses persisted timeout and preserves it across settings changes", async t => {
+  for (const [settings, expected] of settingsCases) {
+    const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-obsidian-")), storage = new NodeWorkspaceStorage(dir), agent = silentAgent("session/prompt");
+    const adapter: ObsidianVaultAdapter = {
+      getFullPath: path => join(dir, path), exists: path => storage.exists(path), read: path => storage.readText(path),
+      readBinary: async path => new Uint8Array(await storage.readBinary(path)).buffer, write: (path, data) => storage.writeText(path, data),
+      writeBinary: (path, data) => storage.writeBinary(path, new Uint8Array(data)), mkdir: path => storage.mkdir(path),
+      list: async path => { const entries = await storage.list(path); return { files: entries.filter(entry => entry.type === "file").map(entry => entry.path), folders: entries.filter(entry => entry.type === "folder").map(entry => entry.path) }; },
+    };
+    const path = join(dir, "Pith/_cache/web-settings.json"); await mkdir(join(dir, "Pith/_cache"), { recursive: true }); await writeFile(path, savedSettings(settings));
+    const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", agent.port, adapter));
     try {
-      const outcome = await afterEveryDeadline(t, shell.agent, shell.turn);
-      assert.ok(outcome instanceof Error, name);
-      assert.match(outcome.message, new RegExp(`session/prompt timed out after ${expected}ms`), name);
-    } finally { shell.controller.dispose(); await rm(shell.dir, { recursive: true, force: true }); }
+      await controller.initialize(); await controller.setPersona("studio");
+      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.persona, "studio");
+      const result = await afterEveryDeadline(t, agent, () => controller.createInterlineSession("material", "a.md", units).render(0, "bilingual"));
+      assert.ok(!(result instanceof Error)); assert.equal(result.status, "failed"); assert.match(result.error ?? "", new RegExp(`session/prompt timed out after ${expected}ms`));
+    } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
   }
-
-  const shell = await obsidianShell({ agentTimeoutMs: 7000 });
-  try {
-    const translation = await afterEveryDeadline(t, shell.agent, () => shell.controller.createInterlineSession("material", "a.md", shell.units).render(0, "bilingual"));
-    assert.ok(!(translation instanceof Error));
-    assert.equal(translation.status, "failed");
-    assert.match(translation.error ?? "", /session\/prompt timed out after 7000ms/);
-
-    await shell.controller.setPersona("studio");
-    const saved = JSON.parse(await readFile(shell.settingsPath, "utf8")) as Record<string, unknown>;
-    assert.equal(saved.persona, "studio");
-    assert.equal(saved.agentTimeoutMs, 7000);
-    const outcome = await afterEveryDeadline(t, shell.agent, shell.turn);
-    assert.ok(outcome instanceof Error);
-    assert.match(outcome.message, /session\/prompt timed out after 7000ms/);
-  } finally { shell.controller.dispose(); await rm(shell.dir, { recursive: true, force: true }); }
 });
 
-/** node:http rather than fetch: fetch schedules its own work through setTimeout and stalls while that timer is mocked. */
 function post(port: number, path: string, value: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const outgoing = request({ host: "127.0.0.1", port, path, method: "POST", agent: false, headers: { "content-type": "application/json" } }, response => {
-      let text = "";
-      response.setEncoding("utf8");
-      response.on("data", chunk => { text += chunk; });
-      response.on("error", reject);
-      response.on("end", () => { try { resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) as Record<string, unknown> }); } catch (error) { reject(error); } });
+      let body = ""; response.setEncoding("utf8"); response.on("data", chunk => { body += chunk; }); response.on("error", reject);
+      response.on("end", () => { try { resolve({ status: response.statusCode ?? 0, body: JSON.parse(body) }); } catch (error) { reject(error); } });
     });
-    outgoing.on("error", reject);
-    outgoing.end(JSON.stringify(value));
+    outgoing.on("error", reject); outgoing.end(JSON.stringify(value));
   });
 }
 
-async function webShell(settings: Record<string, unknown>) {
-  const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-web-"));
-  const settingsPath = join(dir, "_cache/web-settings.json");
-  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir));
-  await store.ensureScaffold();
-  const material = await store.importMaterial({ title: "Article", kind: "article", files: [{ name: "a.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("Hello") }] });
-  const topic = await store.createTopic({ title: "Timeout", materialId: material.id, toolkits: ["interline"] });
-  await writeFile(settingsPath, savedSettings(settings));
-  const agent = silentAgent("session/prompt");
-  const server: Server = await createPithWebServer({ workspaceDir: dir, processPort: agent.port });
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const close = async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); };
-  const units = [{ html: '<p data-locator="p:0" data-prose="true">Hello</p>', segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello", sourceHash: "" }] }];
-  return { agent, settingsPath, port: address.port, close,
-    turn: () => post(address.port, "/api/chat", { topicId: topic.id, text: "hello" }),
-    translate: () => post(address.port, "/api/interline", { topicId: topic.id, file: "a.md", mode: "bilingual", index: 0, units }) };
-}
-
-test("the Web shell applies the configured agent deadline to guide turns and translation, and keeps it across saves", async t => {
-  for (const [name, settings, expected] of settingsCases) {
-    const shell = await webShell(settings);
+test("Web translation uses persisted timeout and preserves it across settings changes", async t => {
+  for (const [settings, expected] of settingsCases) {
+    const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-web-")), storage = new NodeWorkspaceStorage(dir), store = new DefaultWorkspaceStore(storage), agent = silentAgent("session/prompt");
+    await store.ensureScaffold();
+    const material = await store.importMaterial({ title: "Article", kind: "article", files: [{ name: "a.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("Hello") }] });
+    const topic = await store.createTopic({ title: "Timeout", materialId: material.id, toolkits: ["interline"] });
+    const path = join(dir, "_cache/web-settings.json"); await writeFile(path, savedSettings(settings));
+    const server: Server = await createPithWebServer({ workspaceDir: dir, processPort: agent.port }), address = server.address(); assert.ok(address && typeof address !== "string");
     try {
-      const outcome = await afterEveryDeadline(t, shell.agent, shell.turn);
-      assert.ok(!(outcome instanceof Error), name);
-      assert.equal(outcome.status, 400, name);
-      assert.match(String(outcome.body.error), new RegExp(`session/prompt timed out after ${expected}ms`), name);
-    } finally { await shell.close(); }
+      assert.equal((await post(address.port, "/api/settings", { persona: "studio" })).status, 200);
+      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.persona, "studio");
+      const result = await afterEveryDeadline(t, agent, () => post(address.port, "/api/interline", { topicId: topic.id, file: "a.md", mode: "bilingual", index: 0, units }));
+      assert.ok(!(result instanceof Error)); assert.equal(result.status, 200); assert.equal(result.body.status, "failed"); assert.match(String(result.body.error), new RegExp(`session/prompt timed out after ${expected}ms`));
+    } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
   }
+});
 
-  const shell = await webShell({ agentTimeoutMs: 7000 });
+
+test("a foreground prompt has no deadline and cancellation waits at most five seconds", async t => {
+  const agent = silentAgent("session/prompt");
+  const controller = new AbortController();
+  const foreground = { ...descriptor, pithToolTitlePrefix: "mcp__pith__" };
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    const translation = await afterEveryDeadline(t, shell.agent, shell.translate);
-    assert.ok(!(translation instanceof Error));
-    assert.equal(translation.status, 200);
-    assert.equal(translation.body.status, "failed");
-    assert.match(String(translation.body.error), /session\/prompt timed out after 7000ms/);
-
-    assert.equal((await post(shell.port, "/api/settings", { persona: "studio" })).status, 200);
-    const saved = JSON.parse(await readFile(shell.settingsPath, "utf8")) as Record<string, unknown>;
-    assert.equal(saved.persona, "studio");
-    assert.equal(saved.agentTimeoutMs, 7000);
-    const outcome = await afterEveryDeadline(t, shell.agent, shell.turn);
-    assert.ok(!(outcome instanceof Error));
-    assert.match(String(outcome.body.error), /session\/prompt timed out after 7000ms/);
-  } finally { await shell.close(); }
+    const result = runOneShotAcpPrompt("hello", { descriptor: foreground, processPort: agent.port, timeoutMs: 7000,
+      mcp: { url: "http://127.0.0.1:1/", headers: [], toolNames: [], onUpdate: () => {} } }, controller.signal);
+    await agent.reached();
+    t.mock.timers.tick(600001); assert.equal(await settled(result), false);
+    controller.abort(); t.mock.timers.tick(4999); assert.equal(await settled(result), false);
+    t.mock.timers.tick(1); await assert.rejects(result, /cancelled/);
+  } finally { t.mock.timers.reset(); }
 });

@@ -1,25 +1,11 @@
 import type { WorkspaceStoragePort } from "../host.ts";
 import type { WorkspaceStore } from "../store/contract.ts";
 import { MutationQueue } from "../store/MutationQueue.ts";
-import type { AttentionCompassSnapshot, AttentionEngine, EffectHandler, EffectKind, EffectRecord, GuideConversationEntry } from "./contract.ts";
-
-export interface GuideProvider {
-  reply(input: { topicId: string; conversation: readonly GuideConversationEntry[] }): Promise<string>;
-}
+import type { AttentionCompassSnapshot, AttentionEngine, EffectHandler, EffectKind, EffectRecord, GuideProvider, GuideTurn, TurnOptions, TurnStep } from "./contract.ts";
 
 const recovered = new WeakSet<object>();
 
-export function parseGuideReply(reply: string): { text: string; choices: string[] } {
-  const match = /(?:^|\n)```pith-choices\s*\n([\s\S]*?)\n```\s*$/.exec(reply);
-  if (!match) return { text: reply, choices: [] };
-  const lines = match[1]!.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  let choices: unknown = lines.map(line => line.replace(/^[-*]\s+/, ""));
-  if (match[1]!.trim().startsWith("[")) {
-    try { choices = JSON.parse(match[1]!); } catch { return { text: reply, choices: [] }; }
-  }
-  if (!Array.isArray(choices) || !choices.every(item => typeof item === "string" && item.trim())) return { text: reply, choices: [] };
-  return { text: reply.slice(0, match.index).trimEnd(), choices };
-}
+const runningTopics = new WeakMap<object, Set<string>>();
 
 function component(value: string): string {
   if (!value || value === "." || value === ".." || /[/\\\0]/.test(value)) throw new Error("Invalid topic id");
@@ -48,7 +34,6 @@ export class DefaultAttentionEngine implements AttentionEngine {
   }
   private async writeArray(path: string, value: readonly unknown[]): Promise<void> {
     await this.storage.mkdir("_cache");
-    if (path.startsWith("_cache/conversations/")) await this.storage.mkdir("_cache/conversations");
     await this.storage.writeText(path, `${JSON.stringify(value, null, 2)}\n`);
   }
   async compass(): Promise<AttentionCompassSnapshot> {
@@ -64,33 +49,74 @@ export class DefaultAttentionEngine implements AttentionEngine {
     await this.enqueueEffect("prepare-next-action", input.topicId, { topicId: input.topicId, noteId: note.id });
     return note;
   }
-  getConversation(topicId: string): Promise<readonly GuideConversationEntry[]> {
-    const path = `_cache/conversations/${component(topicId)}.json`;
-    return this.queue.run(() => this.readArray<GuideConversationEntry>(path));
+  getConversation(topicId: string): Promise<readonly GuideTurn[]> {
+    const id = component(topicId), path = `topics/${id}/conversation.json`;
+    return this.queue.run(async () => {
+      const turns = await this.readArray<GuideTurn>(path);
+      const active = runningTopics.get(this.storage.mutationIdentity ?? this.storage);
+      return turns.map(turn => turn.status === "running" && !active?.has(id) ? { ...turn, status: "stopped", error: "进程中断" } : turn);
+    });
   }
-  async sendMessage(input: Parameters<AttentionEngine["sendMessage"]>[0]): ReturnType<AttentionEngine["sendMessage"]> {
-    if (!await this.store.getTopic(input.topicId)) throw new Error("Topic not found");
+  runTurn(input: Parameters<AttentionEngine["runTurn"]>[0], options?: TurnOptions): Promise<GuideTurn> {
     if (!input.text.trim()) throw new Error("Message is empty");
-    const note = input.saveAsNote ? await this.captureSelection({ topicId: input.topicId, kind: "note", body: input.text, anchor: input.anchor }) : undefined;
-    const userEntry: GuideConversationEntry = { id: crypto.randomUUID(), role: "user", text: input.text,
-      ...(input.anchor ? { anchor: input.anchor } : {}), ...(note ? { savedNoteId: note.id } : {}), createdAt: new Date().toISOString() };
-    const path = `_cache/conversations/${component(input.topicId)}.json`;
-    const conversation = await this.queue.run(async () => {
-      const entries = await this.readArray<GuideConversationEntry>(path);
-      entries.push(userEntry);
-      await this.writeArray(path, entries);
-      return entries;
-    });
-    const provider = this.provider ? this.provider() : undefined;
-    if (!provider) return { userEntry };
-    const reply = parseGuideReply(await provider.reply({ topicId: input.topicId, conversation }));
-    const guideEntry: GuideConversationEntry = { id: crypto.randomUUID(), role: "guide", text: reply.text, choices: reply.choices, createdAt: new Date().toISOString() };
-    await this.queue.run(async () => {
-      const entries = await this.readArray<GuideConversationEntry>(path);
-      entries.push(guideEntry);
-      await this.writeArray(path, entries);
-    });
-    return { userEntry, guideEntry };
+    return this.executeTurn(input.topicId, { text: input.text, ...(input.anchor ? { anchor: input.anchor } : {}), ...(input.instruction ? { instruction: input.instruction } : {}) }, undefined, options);
+  }
+  async retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn> {
+    const prior = (await this.getConversation(topicId)).find(turn => turn.id === turnId);
+    if (!prior || (prior.status !== "failed" && prior.status !== "stopped")) throw new Error("Turn cannot be retried");
+    return this.executeTurn(topicId, prior.user, turnId, options);
+  }
+  private async executeTurn(topicId: string, user: GuideTurn["user"], replaceId: string | undefined, options?: TurnOptions): Promise<GuideTurn> {
+    const id = component(topicId), path = `topics/${id}/conversation.json`, identity = this.storage.mutationIdentity ?? this.storage;
+    let active = runningTopics.get(identity);
+    if (!active) { active = new Set(); runningTopics.set(identity, active); }
+    if (active.has(id)) throw new Error("Topic already has a running turn");
+    active.add(id);
+    const controller = new AbortController();
+    const abort = () => controller.abort(options?.signal?.reason);
+    if (options?.signal?.aborted) abort(); else options?.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      if (!await this.store.getTopic(id)) throw new Error("Topic not found");
+      let turn: GuideTurn = { id: replaceId ?? crypto.randomUUID(), status: "running", startedAt: new Date().toISOString(), user, steps: [], choices: [] };
+      let history: GuideTurn[] = [];
+      await this.queue.run(async () => {
+        const turns = await this.readArray<GuideTurn>(path);
+        const index = replaceId === undefined ? -1 : turns.findIndex(item => item.id === replaceId);
+        if (replaceId !== undefined && (index < 0 || !["stopped", "failed", "running"].includes(turns[index]!.status))) throw new Error("Turn cannot be retried");
+        history = index < 0 ? [...turns] : turns.slice(0, index);
+        if (index < 0) turns.push(turn); else turns[index] = turn;
+        await this.storage.writeText(path, `${JSON.stringify(turns, null, 2)}\n`);
+      });
+      options?.onUpdate?.(turn);
+      let pending = Promise.resolve();
+      const publish = (next: GuideTurn) => {
+        turn = next;
+        options?.onUpdate?.(next);
+        pending = pending.then(() => this.queue.run(async () => {
+          const turns = await this.readArray<GuideTurn>(path), index = turns.findIndex(item => item.id === next.id);
+          if (index < 0) throw new Error("Running turn is missing");
+          turns[index] = next;
+          await this.storage.writeText(path, `${JSON.stringify(turns, null, 2)}\n`);
+        }));
+      };
+      let result: Awaited<ReturnType<GuideProvider["run"]>>;
+      try {
+        const provider = this.provider?.();
+        if (!provider) throw new Error("向导不可用");
+        result = await provider.run({ scope: { kind: "topic", topicId: id }, ...user, history }, {
+          signal: controller.signal,
+          onStep: (step: TurnStep, index: number) => { const steps = [...turn.steps]; if (index < 0 || index > steps.length) throw new Error("Invalid step index"); steps[index] = step; publish({ ...turn, steps }); },
+          onChoices: choices => publish({ ...turn, choices: [...choices] }),
+        });
+      } catch (error) { result = controller.signal.aborted ? { status: "stopped" } : { status: "failed", error: error instanceof Error ? error.message : String(error) }; }
+      const status = controller.signal.aborted ? "stopped" : result.status;
+      publish({ ...turn, status, endedAt: new Date().toISOString(), ...(status === "failed" && result.status === "failed" ? { error: result.error } : status === "stopped" ? { error: "已停止" } : {}) });
+      await pending;
+      return turn;
+    } finally {
+      options?.signal?.removeEventListener("abort", abort);
+      active.delete(id);
+    }
   }
   enqueueEffect(kind: EffectKind, key: string, payload: Readonly<Record<string, unknown>>): Promise<EffectRecord> {
     if (!key) throw new Error("Effect key is empty");

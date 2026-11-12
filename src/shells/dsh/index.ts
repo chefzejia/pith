@@ -2,9 +2,8 @@ import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import "../../plugins/all.ts";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type SelectionAnchor, type WorkspaceStoragePort } from "../../core/index.ts";
-import { normalizeToolkits } from "../../plugins/guide-acp/acpSession.ts";
-import { createGuideWorkspaceTools } from "../../plugins/guide-acp/tools.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type WorkspaceStoragePort } from "../../core/index.ts";
+import { createScopedTools } from "../../plugins/guide-acp/tools.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 import { withHttpDeadline } from "../../core/host.ts";
 export { mountPithWorkbench, PithWorkbenchView, renderCompass, workbenchStyles } from "../../workbench/index.ts";
@@ -58,29 +57,17 @@ function string(input: Readonly<Record<string, unknown>>, key: string): string {
 export function createDshPluginBundle(options: DshBundleOptions): { tools: readonly DshTool[] } {
   const store = new DefaultWorkspaceStore(options.storage);
   const engine = new DefaultAttentionEngine(store, options.storage);
-  const schema = (properties: Record<string, unknown>, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
   const field = { type: "string" };
-  const tools: DshTool[] = [
-    { name: "pith_compass", description: "Read the attention compass", inputSchema: schema({}, []), execute: async () => engine.compass() },
-    { name: "pith_read_topic", description: "Read a topic and its notes", inputSchema: schema({ topicId: field }, ["topicId"]), execute: async input => store.getTopic(string(input, "topicId")) },
-    { name: "pith_configure_toolkits", description: "Configure topic toolkits: shadowing, feynman, or interline (bilingual reading)", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), execute: async input => {
-      if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
-      const topicId = string(input, "topicId"), toolkits = normalizeToolkits(input.toolkits); return store.updateTopic(topicId, { toolkits });
-    } },
-    { name: "pith_capture_note", description: "Capture a topic note", inputSchema: schema({ topicId: field, body: field, kind: { enum: ["note", "highlight", "practice"] }, anchor: { type: "object" } }, ["topicId", "body"]), execute: async input => {
-      const kind = input.kind === undefined ? "note" : input.kind;
-      if (kind !== "note" && kind !== "highlight" && kind !== "practice") throw new Error("Invalid note kind");
-      let anchor: SelectionAnchor | undefined;
-      if (input.anchor !== undefined) {
-        if (!input.anchor || typeof input.anchor !== "object" || Array.isArray(input.anchor)) throw new Error("Invalid anchor");
-        const value = input.anchor as Readonly<Record<string, unknown>>;
-        if (value.quote !== undefined && typeof value.quote !== "string") throw new Error("Invalid quote");
-        anchor = { file: string(value, "file"), locator: string(value, "locator"), ...(typeof value.quote === "string" ? { quote: value.quote } : {}) };
-      }
-      return engine.captureSelection({ topicId: string(input, "topicId"), kind, body: string(input, "body"), anchor });
-    } },
-    { name: "pith_write_lesson", description: "Write a generated Markdown lesson", inputSchema: schema({ materialId: field, fileName: field, markdown: field }, ["materialId", "fileName", "markdown"]), execute: async input => store.writeGeneratedFile(string(input, "materialId"), string(input, "fileName"), string(input, "markdown")) },
-  ];
-  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
+  const tools: DshTool[] = [];
+  const scoped = (topicId: string) => createScopedTools({ topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), onChoices: () => {} });
+  tools.push(...scoped("scope").map(tool => {
+    const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+    return { name: tool.name, description: tool.description, inputSchema: { ...tool.inputSchema, properties: { ...source.properties, topicId: field }, required: [...(source.required ?? []), "topicId"] }, async execute(input: Readonly<Record<string, unknown>>) {
+      const topicId = string(input, "topicId"), { topicId: _topicId, ...args } = input;
+      const selected = scoped(topicId).find(item => item.name === tool.name);
+      if (!selected) throw new Error("Tool unavailable");
+      return selected.execute(args);
+    } };
+  }));
   return { tools };
 }

@@ -30,8 +30,8 @@ test("Obsidian controller persists quoted conversation and practice from both re
     await controller.initialize();
     const topic = await controller.store.createTopic({ title: "阅读", target: "理解" });
     const anchor = { file: "article.md", locator: "text:offset:8", quote: "quoted text" };
-    await controller.engine.sendMessage({ topicId: topic.id, text: "解释一下", anchor });
-    assert.deepEqual((await controller.engine.getConversation(topic.id))[0]!.anchor, anchor);
+    await controller.engine.runTurn({ topicId: topic.id, text: "解释一下", anchor });
+    assert.deepEqual((await controller.engine.getConversation(topic.id))[0]!.user.anchor, anchor);
     for (const id of ["shadowing", "feynman"]) {
       const toolkit = controller.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); assert.ok(toolkit);
       assert.equal(toolkit.stages.length, toolkit.id === "feynman" ? 1 : 4);

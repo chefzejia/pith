@@ -60,7 +60,7 @@ test("four-stage scaffolding, Unicode LCS, and contextual guide actions", () => 
   const topic: Topic = { id: "t", title: "Title", target: "Understand", status: "exploring", toolkits: ["shadowing"], notes: [{ id: "n", kind: "note", body: "reflection", createdAt: "today" }], createdAt: "today", updatedAt: "today" };
   assert.deepEqual(quickActionsForTopic(topic, [shadowingToolkit]).map(action => action.label), ["规划课程大纲与第一讲", "总结沉淀", "分析跟读"]);
   const prompt = buildScenePrompt({ profileMarkdown: "# Profile", topic, userMessage: "Why?", anchor: { file: "lesson.md", locator: "page:2", quote: "Example" } });
-  for (const item of ["# Profile", "Understand", "reflection", "Example", "Why?", "Settlement Gate", "深水区"]) assert.ok(prompt.includes(item));
+  for (const item of ["# Profile", "Understand", "reflection", "Example", "Why?", "结题", "独立解释"]) assert.ok(prompt.includes(item));
 });
 
 test("Web, Obsidian adapter and DSH tools share a temporary workspace", async () => {
@@ -104,14 +104,14 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     await controller.captureHighlight(topicId, "Obsidian highlight", { file: "00-course-outline.md", locator: "text:line:1", quote: "Obsidian highlight" });
     const tools = createDshPluginBundle({ storage }).tools;
     const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
-    await tool("pith_capture_note").execute({ topicId, body: "DSH note" });
-    const dshTopic = await tool("pith_read_topic").execute({ topicId }) as Topic;
+    await tool("pith_save_note").execute({ topicId, body: "DSH note" });
+    const dshTopic = (await new DefaultWorkspaceStore(storage).getTopic(topicId))!;
     assert.equal(dshTopic.notes.length, before + 3);
     const response = await fetch(base + "/api/state");
     const state = await response.json() as { compass: { exploring: Topic[]; pendingEffectsCount: number } };
     assert.equal(state.compass.exploring[0]!.notes.length, before + 3);
     assert.equal(state.compass.pendingEffectsCount, 1);
-    await tool("pith_write_lesson").execute({ materialId: dshTopic.materialId, fileName: "new-lesson.md", markdown: "# New lesson" });
+    await tool("pith_write_lesson").execute({ topicId, fileName: "new-lesson.md", markdown: "# New lesson" });
     assert.ok((await new DefaultWorkspaceStore(storage).getMaterial(dshTopic.materialId!))!.files.some(file => file.name === "new-lesson.md"));
     assert.equal(tools.some(item => item.name === "pith_update_profile"), false);
     assert.equal(tools.some(item => item.name === "pith_remember"), false);

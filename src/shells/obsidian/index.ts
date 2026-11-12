@@ -4,8 +4,8 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { builtinRegistry } from "../../plugins/all.ts";
 import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
-import { practiceMessage } from "../../plugins/toolkit-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
+import { NodeToolServerPort } from "../web/nodeToolServer.ts";
 import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
 import { NodeMediaCorpusPort } from "../web/nodeMediaCorpus.ts";
@@ -13,7 +13,8 @@ import { obsidianStyles, PithObsidianView, type ObsidianAgentConfig, type Obsidi
 import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
-import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
+import { agentInterlineTranslator } from "../../plugins/toolkit-interline/index.ts";
+import type { AgentPromptService, GuideTurn, SelectionAnchor as GuideAnchor } from "../../core/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { intakeGuidePrompt, renderCompass } from "../../workbench/compass.ts";
@@ -173,7 +174,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
   }
   const unavailable = rootError;
   const speechRuntime = unavailable ? { getState: async () => ({ supported: false, status: "not-installed" as const, note: unavailable }) } : new NodeManagedSpeechRuntime(protectedRoot ? { protectedRoot } : { home: join(homedir(), "Library", "Application Support", "pith", "speech") });
-  return { id: "obsidian", storage, repository: new NodeRepositoryPort(), http: new NodeHttpPort(), mediaCorpus: new NodeMediaCorpusPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
+  return { id: "obsidian", storage, repository: new NodeRepositoryPort(), http: new NodeHttpPort(), mediaCorpus: new NodeMediaCorpusPort(), toolServer: new NodeToolServerPort(), secrets: { getSecret: key => access.getSecret(key) }, ...(processPort ? { process: processPort } : {}), ...(speechRuntime ? { speechRuntime } : {}) };
 }
 
 export function bootObsidianShell(host: HostPort, config: PluginsConfigFile = {}): PluginRuntime {
@@ -202,6 +203,15 @@ export class PithObsidianController {
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
   private readonly views = new Set<PithObsidianView>();
+  private readonly guideTurns = new Map<string, AbortController>();
+
+  async runGuide(topicId: string, input: { text: string; anchor?: GuideAnchor; instruction?: string } | { turnId: string }, onUpdate?: (turn: GuideTurn) => void): Promise<GuideTurn> {
+    if (this.guideTurns.has(topicId)) throw new Error("Topic already has a running turn");
+    const controller = new AbortController(); this.guideTurns.set(topicId, controller);
+    try { return "turnId" in input ? await this.engine.retryTurn(topicId, input.turnId, { signal: controller.signal, onUpdate }) : await this.engine.runTurn({ topicId, ...input }, { signal: controller.signal, onUpdate }); }
+    finally { this.guideTurns.delete(topicId); }
+  }
+  stopGuide(topicId: string): void { this.guideTurns.get(topicId)?.abort(); }
 
   constructor(host: HostPort, interlineTranslator?: InterlineTranslator, guideProvider?: GuideProvider) {
     this.host = host;
@@ -222,7 +232,7 @@ export class PithObsidianController {
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
     if (host.mediaCorpus instanceof NodeMediaCorpusPort) host.mediaCorpus.setTranscriber(async (bytes, mimeType, signal) => { const asr = this.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); });
-    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, toolServer: host.toolServer, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getReader: () => this.runtime.getService<StageReaderService>("stage.reader"), getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
@@ -271,13 +281,7 @@ export class PithObsidianController {
   createInterlineSession(materialId: string, file: string, units: readonly InterlineUnitInput[]): InterlineSession {
     const service = this.runtime.getService<InterlineService>("toolkit.interline");
     if (!service) throw new Error("行间工具不可用");
-    const process = this.host.process;
-    const translator = this.interlineTranslator ?? (process ? agentInterlineTranslator({ process, resolveAgent: async () => {
-      if (!this.agentId) throw new Error("请先配置向导 Agent");
-      const descriptor = (await this.detectAgents()).find(item => item.id === this.agentId);
-      if (!descriptor || !descriptor.available) throw new Error("向导 Agent 不可用");
-      return { descriptor, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() };
-    } }) : async () => { throw new Error("请先配置向导 Agent"); });
+    const translator = this.interlineTranslator ?? agentInterlineTranslator({ prompt: async (text, options) => { const prompt = this.runtime.getService<AgentPromptService>("guide.prompt"); if (!prompt) throw new Error("请先配置向导 Agent"); return prompt.prompt(text, options); } });
     return new InterlineSession(service, this.host.storage, translator, materialId, file, units);
   }
   async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId) { const topic = await this.store.getTopic(topicId); if (!topic) throw new Error("Topic not found"); if (topic.materialId) throw new Error("课题已有材料，无法替换"); } const material = await this.store.importMaterial(input); if (topicId) await this.store.updateTopic(topicId, { materialId: material.id }); await this.refresh(); return material; }
@@ -447,14 +451,16 @@ export class PithWorkspaceView extends obsidian.ItemView {
       openToolkit: (text, locator) => { if (this.view) this.view.openToolkit(toolkits(), text, { file: session.file, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
       guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, toolkits()) : [] }; },
-      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "note", body: text, anchor }); return; } await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor }); await session.refresh(); },
+      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "note", body: text, anchor }); return; } await this.controller.runGuide(topic.id, { text, anchor }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
+      stopGuide: async () => { this.controller.stopGuide(topic.id); },
+      retryGuide: async turnId => { await this.controller.runGuide(topic.id, { turnId }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id]); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const toolkits = current.toolkits.filter(item => item !== id); if (enabled) toolkits.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(toolkits) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => {
         if (!toolkit.evaluationRubric || toolkit.evalMode !== "guide-rubric") throw new Error("实训评价规程不可用");
         await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor });
         if (!this.controller.getAgentConfig().agentId) return { guided: false };
-        try { await this.controller.engine.sendMessage({ topicId: topic.id, text: practiceMessage(body, toolkit.label, toolkit.evaluationRubric), anchor }); return { guided: true }; }
+        try { const turn = await this.controller.runGuide(topic.id, { text: body, instruction: toolkit.evaluationRubric, anchor }, turn => originatingView.updateGuideTurn(turn)); return { guided: turn.status === "completed", ...(turn.error ? { guideError: turn.error } : {}) }; }
         catch (error) { return { guided: false, guideError: error instanceof Error ? error.message : String(error) }; }
       },
       mountToolkit: async id => { normalizeToolkits([id]); const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits([...current.toolkits, id]) }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
@@ -467,7 +473,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       readOutline: item => item.files.some(file => file.name === "00-课程大纲.md") ? this.host.storage.readText(`materials/${item.id}/files/00-课程大纲.md`) : Promise.resolve(undefined),
       render: document => originatingView.render(document), updateNavigation: (files, curriculum) => originatingView.updateMaterialNavigation(files, curriculum),
       beforeLesson: async title => { originatingView.showLessonLoading(title); originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id); },
-      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await originatingView.guideTurn(text, () => this.controller.engine.sendMessage({ topicId: topic.id, text })); },
+      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await originatingView.guideTurn(text, () => this.controller.runGuide(topic.id, { text }, turn => originatingView.updateGuideTurn(turn))); },
       afterLesson: () => originatingView.refreshGuide(),
     });
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;
@@ -476,7 +482,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.view.setToolkits(topic.toolkits);
     await session.open();
     if (generation === this.generation && this.view) await this.view.refreshGuide();
-    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); const text = prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。"; try { await originatingView.guideTurn(text, () => this.controller.engine.sendMessage({ topicId: topic.id, text })); await session.refresh(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
+    if (guide && this.controller.hasGuideProvider() && generation === this.generation && this.view) { this.view.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, this.view, topic.id); const text = prompt || "请结合我的学习目标和材料规划课程，生成《00-课程大纲.md》和第一讲讲义。"; try { await originatingView.guideTurn(text, () => this.controller.runGuide(topic.id, { text }, turn => originatingView.updateGuideTurn(turn))); await session.refresh(); if (this.view) await this.view.refreshGuide(); } catch (error) { this.report(error); } }
   }
 }
 
@@ -566,7 +572,9 @@ export default class PithObsidianPlugin extends obsidian.Plugin {
     const configured = saved && "workspacePath" in saved ? (saved as { workspacePath: unknown }).workspacePath : "Pith";
     if (typeof configured !== "string") throw new Error("Invalid workspace root");
     this.workspacePath = validateWorkspacePath(configured);
-    const host = createObsidianHostPort(this.app.vault.adapter, this.workspacePath, new NodeAgentProcessPort(), undefined, undefined, this.secretAccess);
+    const adapter = this.app.vault.adapter;
+    const processPort = adapter.getFullPath ? new NodeAgentProcessPort({ workspaceRoot: adapter.getFullPath(this.workspacePath) }) : undefined;
+    const host = createObsidianHostPort(adapter, this.workspacePath, processPort, undefined, undefined, this.secretAccess);
     const controller = new PithObsidianController(host);
     this.controller = controller;
     try {

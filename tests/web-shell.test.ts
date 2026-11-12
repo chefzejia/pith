@@ -72,7 +72,7 @@ test("unknown guide providers cannot run background selection effects", async ()
   const store = new DefaultWorkspaceStore(storage);
   await store.createTopic({ id: "topic-guide", title: "Guide" });
   let calls = 0;
-  const provider = { reply: async () => { calls++; await store.appendNote("topic-guide", { kind: "note", body: "不应执行" }); return "阅读下一节"; } };
+  const provider: import("../src/core/index.ts").GuideProvider = { run: async () => { calls++; await store.appendNote("topic-guide", { kind: "note", body: "不应执行" }); return { status: "completed" }; } };
   const engine = new DefaultAttentionEngine(store, storage, () => provider);
   const runtime = bootStandaloneShell({ id: "web", storage }, { preset: "all" }, { store, engine, provider, snapshot: { known: true, topics: await store.listTopics(), materials: [] } });
   try {

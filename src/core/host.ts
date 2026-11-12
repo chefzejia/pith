@@ -155,6 +155,14 @@ export interface MediaCorpusPort {
 
 import type { ManagedSpeechRuntimePort } from "./seams.ts";
 
+export interface ToolServerPort {
+  open(handle: (requestBody: string) => Promise<string>): Promise<{
+    readonly url: string;
+    readonly headers: readonly { readonly name: string; readonly value: string }[];
+    close(): Promise<void>;
+  }>;
+}
+
 export interface HostPort {
   readonly id: "obsidian" | "dsh" | "web" | "desktop" | "mobile" | "memory";
   readonly storage: WorkspaceStoragePort;
@@ -162,6 +170,7 @@ export interface HostPort {
   readonly secrets?: SecretPort;
   readonly sanitizer?: DomSanitizerPort;
   readonly process?: AgentProcessPort;
+  readonly toolServer?: ToolServerPort;
   readonly speechRuntime?: ManagedSpeechRuntimePort;
   readonly repository?: RepositoryPort;
   readonly mediaCorpus?: MediaCorpusPort;

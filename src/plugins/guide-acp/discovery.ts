@@ -152,6 +152,7 @@ export async function discoverLocalAgents(
           version: foundVersion,
           available: true,
           note: "已检测到 ACP endpoint；连接后由 initialize 证明能力",
+          ...(spec.id === "dsh" ? { pithToolTitlePrefix: "mcp__pith__" } : {}),
         };
       }
 

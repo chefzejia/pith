@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, parseGuideReply } from "../src/core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore } from "../src/core/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 
 test("compass, concurrent capture, offline conversation and durable effects", async () => {
@@ -20,11 +20,11 @@ test("compass, concurrent capture, offline conversation and durable effects", as
     assert.equal((await engine.listEffects()).length, 1);
     assert.equal((await engine.compass()).pendingEffectsCount, 1);
     assert.equal(await engine.processDueEffects(), 0);
-    const sent = await engine.sendMessage({ topicId: "topic-test", text: "Why?", saveAsNote: true });
-    assert.equal(sent.guideEntry, undefined);
-    assert.ok(sent.userEntry.savedNoteId);
+    const sent = await engine.runTurn({ topicId: "topic-test", text: "Why?" });
+    assert.equal(sent.status, "failed");
+    assert.match(sent.error ?? "", /向导不可用/);
     const restarted = new DefaultAttentionEngine(store, new NodeWorkspaceStorage(dir));
-    assert.deepEqual(await restarted.getConversation("topic-test"), [sent.userEntry]);
+    assert.deepEqual(await restarted.getConversation("topic-test"), [sent]);
     const seen: unknown[] = [];
     restarted.registerEffectHandler("prepare-next-action", async payload => { seen.push(payload); });
     assert.equal(await restarted.processDueEffects(), 1);
@@ -55,18 +55,14 @@ test("a running effect retains a later same-key effect and records failures", as
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("only a valid trailing choices capsule is parsed", async () => {
-  assert.deepEqual(parseGuideReply("Answer\n\n```pith-choices\n- First\n- Second\n```"), { text: "Answer", choices: ["First", "Second"] });
-  assert.deepEqual(parseGuideReply('Answer\n```pith-choices\n["A", "B"]\n```'), { text: "Answer", choices: ["A", "B"] });
-  const middle = "```pith-choices\n- A\n```\nmore";
-  assert.deepEqual(parseGuideReply(middle), { text: middle, choices: [] });
+test("provider reply and offered choices persist together in one turn", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-engine-"));
   try {
     const storage = new NodeWorkspaceStorage(dir); const store = new DefaultWorkspaceStore(storage);
     await store.createTopic({ id: "t", title: "T" });
-    const engine = new DefaultAttentionEngine(store, storage, () => ({ reply: async () => "Response\n```pith-choices\n- Next\n```" }));
-    const result = await engine.sendMessage({ topicId: "t", text: "Question" });
-    assert.deepEqual(result.guideEntry?.choices, ["Next"]);
-    assert.equal((await engine.getConversation("t")).length, 2);
+    const engine = new DefaultAttentionEngine(store, storage, () => ({ run: async (_input, options) => { options.onStep({ kind: "reply", markdown: "Response" }, 0); options.onChoices(["Next", "Review"]); return { status: "completed" }; } }));
+    const result = await engine.runTurn({ topicId: "t", text: "Question" });
+    assert.deepEqual(result.choices, ["Next", "Review"]);
+    assert.equal((await engine.getConversation("t")).length, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

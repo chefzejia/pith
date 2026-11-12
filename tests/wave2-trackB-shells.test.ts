@@ -25,7 +25,7 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
         const request = JSON.parse(line) as { id?: number; method: string; params: Record<string, unknown> };
         if (request.id === undefined) return;
         if (request.method === "session/new") sessions.push(request.params);
-        const result = request.method === "session/new" ? { sessionId: "test" } : request.method === "session/prompt" ? { text: "阅读下一节" } : {};
+        const result = request.method === "initialize" ? { agentCapabilities: { mcpCapabilities: { http: true } } } : request.method === "session/new" ? { sessionId: "test" } : request.method === "session/prompt" ? { text: "阅读下一节" } : {};
         assert.ok(listener); listener(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
       },
       async close() { closed++; },
@@ -54,8 +54,8 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     assert.equal((await post("/api/settings", config)).status, 200);
     const saved = JSON.parse(await readFile(join(dir, "_cache/web-settings.json"), "utf8"));
     for (const [key, value] of Object.entries(config)) assert.equal(saved[key], value);
-    const chat = await (await post("/api/chat", { topicId: "track-b", text: "Question" })).json() as { guideEntry: { text: string } };
-    assert.equal(chat.guideEntry.text, "阅读下一节");
+    const chat = await (await post("/api/chat", { topicId: "track-b", text: "Question" })).json() as { status: string; steps: { kind: string; markdown?: string }[] };
+    assert.equal(chat.status, "completed"); assert.ok(chat.steps.some(step => step.kind === "reply" && step.markdown === "阅读下一节"));
     assert.equal(sessions[0]?.model, "test-model"); assert.equal(sessions[0]?.reasoningEffort, "high");
     assert.equal((await post("/api/notes", { topicId: "track-b", kind: "note", body: "Note" })).status, 201);
     let action: string | undefined;
@@ -65,19 +65,19 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     server = await createPithWebServer({ workspaceDir: dir }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;
     const restored = await (await fetch(base + "/api/state")).json() as { settings: typeof config };
     assert.equal(restored.settings.agentId, "dsh");
-    const reply = await (await post("/api/chat", { topicId: "track-b", text: "Again" })).json() as { guideEntry: { text: string } };
-    assert.equal(reply.guideEntry.text, "阅读下一节");
+    const reply = await (await post("/api/chat", { topicId: "track-b", text: "Again" })).json() as typeof chat;
+    assert.equal(reply.status, "completed"); assert.ok(reply.steps.some(step => step.kind === "reply" && step.markdown === "阅读下一节"));
     assert.equal((await post("/api/settings", { model: "new-model" })).status, 200);
     await post("/api/chat", { topicId: "track-b", text: "New model" });
     assert.equal(sessions[3]?.model, "new-model");
     assert.equal((await post("/api/settings", { agentId: "" })).status, 200);
-    const offline = await (await post("/api/chat", { topicId: "track-b", text: "Offline" })).json() as { guideEntry?: unknown };
-    assert.equal(offline.guideEntry, undefined);
+    const offline = await (await post("/api/chat", { topicId: "track-b", text: "Offline" })).json() as { status: string; error?: string };
+    assert.equal(offline.status, "failed"); assert.ok(offline.error);
     assert.equal((await post("/api/settings", { agentId: "dsh" })).status, 200);
     await close();
-    server = await createPithWebServer({ workspaceDir: dir, guideProvider: { reply: async () => "mock reply" } }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;
-    const mocked = await (await post("/api/chat", { topicId: "track-b", text: "Mock" })).json() as { guideEntry: { text: string } };
-    assert.equal(mocked.guideEntry.text, "mock reply"); assert.equal(sessions.length, 4);
+    server = await createPithWebServer({ workspaceDir: dir, guideProvider: { run: async (_input, options) => { options.onStep({ kind: "reply", markdown: "mock reply" }, 0); return { status: "completed" }; } } }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;
+    const mocked = await (await post("/api/chat", { topicId: "track-b", text: "Mock" })).json() as typeof chat;
+    assert.ok(mocked.steps.some(step => step.kind === "reply" && step.markdown === "mock reply")); assert.equal(sessions.length, 4);
     assert.equal((await post("/api/settings", { agentId: "" })).status, 200);
   } finally {
     await close();

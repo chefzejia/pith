@@ -1,5 +1,6 @@
-import { builtinRegistry, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
+import { DefaultWorkspaceStore, builtinRegistry, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
+import type { TurnTool } from "./mcpTools.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
   const registered = new Set(builtinRegistry.list().filter(manifest => manifest.id.startsWith("toolkit-")).map(manifest => manifest.id.slice("toolkit-".length)));
@@ -27,13 +28,7 @@ function anchorValue(value: unknown): SelectionAnchor {
   return { file: text(anchor, "file", 500), locator: text(anchor, "locator", 300), ...(anchor.quote === undefined ? {} : { quote: text(anchor, "quote") }) };
 }
 
-export function createGuideWorkspaceTools(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort, mediaCorpus?: MediaCorpusPort, activeTopicId?: string, signal?: AbortSignal): readonly GuideMcpToolSpec[] {
-  const binding = async (input: Readonly<Record<string, unknown>>) => {
-    const material = await store.getMaterial(text(input, "materialId", 200));
-    if (!material || material.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository material is not bound to a commit");
-    if (!repository) throw new Error("Repository service unavailable");
-    return { material, repository };
-  };
+function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort, mediaCorpus?: MediaCorpusPort, activeTopicId?: string, signal?: AbortSignal): readonly GuideMcpToolSpec[] {
   const integer = (input: Readonly<Record<string, unknown>>, name: string): number | undefined => {
     const value = input[name];
     if (value === undefined) return undefined;
@@ -77,53 +72,6 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       }
       return { material, warnings: bundle.warnings };
     } }] : []),
-    { name: "pith_get_context", description: "Read the learner profile, compass and optional topic.", inputSchema: schema({ topicId: field }, []), async execute(input) {
-      keys(input, ["topicId"]);
-      if (!engine) throw new Error("Attention engine unavailable");
-      const topic = input.topicId === undefined ? null : await store.getTopic(text(input, "topicId", 200));
-      if (input.topicId !== undefined && !topic) throw new Error("Topic not found");
-      return { profile: await store.readProfile(), compass: await engine.compass(), topic };
-    } },
-    { name: "pith_list_repository_files", description: "List ordinary files in a bound repository commit.", inputSchema: schema({ materialId: field, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 1000 } }, ["materialId"]), async execute(input) {
-      keys(input, ["materialId", "offset", "limit"]);
-      const { material, repository } = await binding(input);
-      return repository.listFiles(material.externalPath!, material.commitSha!, integer(input, "offset"), integer(input, "limit"));
-    } },
-    { name: "pith_read_repository_file", description: "Read a bounded UTF-8 file excerpt from a bound repository commit.", inputSchema: schema({ materialId: field, path: field, startLine: { type: "integer", minimum: 1 }, maxLines: { type: "integer", minimum: 1, maximum: 1000 } }, ["materialId", "path"]), async execute(input) {
-      keys(input, ["materialId", "path", "startLine", "maxLines"]);
-      const { material, repository } = await binding(input);
-      return repository.readFile(material.externalPath!, material.commitSha!, text(input, "path", 4096), integer(input, "startLine"), integer(input, "maxLines"));
-    } },
-    { name: "pith_read_material_section", description: "Read a bounded excerpt of a text material, optionally around text:line:N (zero-based).", inputSchema: schema({ materialId: field, file: field, locator: field }, ["materialId", "file"]), async execute(input) {
-      keys(input, ["materialId", "file", "locator"]);
-      const materialId = text(input, "materialId", 200);
-      const file = text(input, "file", 500);
-      const material = await store.getMaterial(materialId);
-      if (!material) throw new Error("Material not found");
-      const entry = material.files.find(candidate => candidate.name === file);
-      if (!entry) throw new Error("Material file not found");
-      if (!storage) throw new Error("Material storage unavailable");
-      if (/[\\/\0]/.test(materialId) || /[\\/\0]/.test(file) || materialId === "." || materialId === ".." || file === "." || file === "..") throw new Error("Invalid material path");
-      if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 256 * 1024) throw new Error("Material exceeds text size limit");
-      let line = 0;
-      if (input.locator !== undefined) {
-        const match = /^text:line:(0|[1-9]\d*)$/.exec(text(input, "locator", 300));
-        if (!match) throw new Error("Invalid text locator");
-        line = Number(match[1]);
-        if (!Number.isSafeInteger(line)) throw new Error("Invalid text locator");
-      }
-      const bytes = await storage.readBinary(`materials/${materialId}/files/${file}`);
-      if (bytes.byteLength > 256 * 1024) throw new Error("Material exceeds text size limit");
-      let content: string;
-      try { content = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error("Material is not text"); }
-      if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(content)) throw new Error("Material is not text");
-      const lines = content.split(/\r?\n/);
-      if (line >= lines.length) throw new Error("Text locator not found");
-      const startLine = input.locator === undefined ? 0 : Math.max(0, line - 10);
-      const endLine = Math.min(lines.length, input.locator === undefined ? 40 : line + 11);
-      const excerpt = lines.slice(startLine, endLine).join("\n");
-      return { materialId, file, startLine, endLine, text: excerpt.slice(0, 12000), truncated: endLine < lines.length || excerpt.length > 12000 };
-    } },
     { name: "pith_save_note", description: "Append a learner note to a topic.", inputSchema: schema({ topicId: field, body: field, kind: { enum: ["note", "highlight", "practice"] }, guideRemark: field, anchor: { type: "object" } }, ["topicId", "body"]), async execute(input) {
       keys(input, ["topicId", "body", "kind", "guideRemark", "anchor"]);
       const kind = input.kind === undefined ? "note" : input.kind;
@@ -180,4 +128,94 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       return store.updateTopic(topicId, { status: "settled" });
     } },
   ];
+}
+
+export function createScopedTools(options: { topicId: string; store: WorkspaceStore; storage: WorkspaceStoragePort; engine?: AttentionEngine; http?: HttpPort; repository?: RepositoryPort; mediaCorpus?: MediaCorpusPort; reader?: StageReaderService; onChoices: (choices: readonly string[]) => void }): TurnTool[] {
+  const { topicId, store, storage, engine, http, repository, mediaCorpus } = options;
+  const original = workspaceToolImplementations(store, engine, storage, http, repository, mediaCorpus, topicId);
+  const tools: TurnTool[] = [];
+  for (const tool of original) {
+    if (!["pith_save_note", "pith_write_lesson", "pith_configure_toolkits", "pith_settle_topic", "pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) continue;
+    const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+    const properties = { ...source.properties }; delete properties.topicId;
+    if (tool.name === "pith_write_lesson") delete properties.materialId;
+    const inputSchema = { ...tool.inputSchema, properties, required: (source.required ?? []).filter(name => name !== "topicId" && name !== "materialId") };
+    const write = tool.name !== "pith_search_media";
+    tools.push({ name: tool.name, description: tool.description, inputSchema, write, async execute(input, signal) {
+      if ("topicId" in input || (tool.name === "pith_write_lesson" && "materialId" in input)) throw new Error("Invalid tool arguments");
+      let started = false;
+      const guarded: WorkspaceStoragePort = {
+        mutationIdentity: storage.mutationIdentity ?? storage,
+        exists: path => storage.exists(path), readText: path => storage.readText(path), readBinary: path => storage.readBinary(path), list: path => storage.list(path),
+        writeText: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.writeText(path, data); },
+        createText: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.createText(path, data); },
+        writeBinary: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.writeBinary(path, data); },
+        createBinary: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.createBinary(path, data); },
+        copy: (from, to) => { if (!started) signal?.throwIfAborted(); started = true; return storage.copy(from, to); },
+        processText: (path, update) => { if (!started) signal?.throwIfAborted(); started = true; return storage.processText(path, update); },
+        mkdir: async path => { if (await storage.exists(path)) return; if (!started) signal?.throwIfAborted(); started = true; await storage.mkdir(path); },
+      };
+      const currentStore = write ? new DefaultWorkspaceStore(guarded) : store;
+      const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal).find(item => item.name === tool.name)!;
+      const before = tool.name === "pith_settle_topic" ? (await store.readProfile()).observations : [];
+      const result = await current.execute({ ...input, ...(tool.name === "pith_search_media" ? {} : { topicId }) });
+      if (tool.name === "pith_settle_topic") return { topic: result, observations: (await store.readProfile()).observations.filter(item => !before.some(previous => previous.id === item.id)) };
+      return result;
+    }, effects(result, input) {
+      const value = result as Record<string, unknown>;
+      if (tool.name === "pith_save_note" && typeof value?.id === "string") return [{ kind: "note", noteId: value.id }];
+      if (tool.name === "pith_write_lesson" && typeof input.fileName === "string") return [{ kind: "lesson", fileName: input.fileName }];
+      if (tool.name === "pith_configure_toolkits" && Array.isArray(value?.toolkits)) return [{ kind: "toolkits", toolkits: value.toolkits as string[] }];
+      if (tool.name === "pith_settle_topic") return [{ kind: "topic", topicId }, ...((Array.isArray(value?.observations) ? value.observations : []) as { id: string; text: string }[]).map(item => ({ kind: "observation" as const, observationId: item.id, text: item.text }))];
+      const material = value?.material as Record<string, unknown> | undefined;
+      if (material && typeof material.id === "string") return [{ kind: "material", materialId: material.id }];
+      return [];
+    } });
+  }
+  const scopedMaterial = async (input: Readonly<Record<string, unknown>>) => {
+    if (typeof input.materialId !== "string" || !input.materialId) throw new Error("Invalid materialId");
+    const topic = await store.getTopic(topicId);
+    if (!topic || topic.materialId !== input.materialId) throw new Error("Material does not belong to topic");
+    const material = await store.getMaterial(input.materialId);
+    if (!material) throw new Error("Material not found");
+    return material;
+  };
+  const checkKeys = (input: Readonly<Record<string, unknown>>, allowed: readonly string[]) => { if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("Invalid tool arguments"); };
+  const number = (input: Readonly<Record<string, unknown>>, key: string) => { const value = input[key]; if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) throw new Error(`Invalid ${key}`); return value as number | undefined; };
+  tools.push({ name: "pith_list_material", description: "List files in the current material.", inputSchema: { type: "object", properties: { materialId: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["materialId"], additionalProperties: false }, write: false, async execute(input) {
+    checkKeys(input, ["materialId", "offset", "limit"]); const material = await scopedMaterial(input);
+    if (material.kind === "repo") { if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable"); return repository.listFiles(material.externalPath, material.commitSha, number(input, "offset"), number(input, "limit")); }
+    return { files: material.files };
+  } });
+  tools.push({ name: "pith_read_material", description: "Read a bounded portion of the current material.", inputSchema: { type: "object", properties: { materialId: { type: "string" }, file: { type: "string" }, startLine: { type: "integer" }, maxLines: { type: "integer" } }, required: ["materialId", "file"], additionalProperties: false }, write: false, async execute(input) {
+    checkKeys(input, ["materialId", "file", "startLine", "maxLines"]); const material = await scopedMaterial(input);
+    if (typeof input.file !== "string" || !input.file) throw new Error("Invalid file");
+    if (material.kind === "repo") { if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable"); return repository.readFile(material.externalPath, material.commitSha, input.file, number(input, "startLine"), number(input, "maxLines")); }
+    const file = material.files.find(item => item.name === input.file);
+    if (!file || /[/\\\0]/.test(file.name) || file.name === "." || file.name === "..") throw new Error("Material file not found");
+    if (!options.reader?.renderFile) throw new Error("Reader unavailable");
+    const rendered = await options.reader.renderFile(file, await storage.readBinary(`materials/${material.id}/files/${file.name}`));
+    const blocks = rendered.blocks ?? [];
+    const offset = number(input, "startLine") ?? 0, limit = Math.min(number(input, "maxLines") ?? 40, 200);
+    let remaining = 12000, truncated = offset + limit < blocks.length;
+    const selected = [];
+    for (const block of blocks.slice(offset, offset + limit)) {
+      if (!remaining) { truncated = true; break; }
+      const text = block.text.slice(0, remaining); remaining -= text.length;
+      if (text.length < block.text.length) truncated = true;
+      selected.push({ ...block, text });
+    }
+    return { blocks: selected, truncated };
+  } });
+  tools.push({ name: "pith_read_lesson", description: "Read a lesson in the current topic.", inputSchema: { type: "object", properties: { fileName: { type: "string" } }, required: ["fileName"], additionalProperties: false }, write: false, async execute(input) {
+    checkKeys(input, ["fileName"]); if (typeof input.fileName !== "string" || !input.fileName || /[/\\\0]/.test(input.fileName) || input.fileName === "." || input.fileName === "..") throw new Error("Invalid file name");
+    const topic = await store.getTopic(topicId); if (!topic?.materialId) throw new Error("Lesson not found");
+    const material = await store.getMaterial(topic.materialId); if (!material?.files.some(file => file.name === input.fileName)) throw new Error("Lesson not found");
+    return { text: (await storage.readText(`materials/${material.id}/files/${input.fileName}`)).slice(0, 12000) };
+  } });
+  tools.push({ name: "pith_offer_choices", description: "Offer two to four next actions.", inputSchema: { type: "object", properties: { choices: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["choices"], additionalProperties: false }, write: false, async execute(input) {
+    if (Object.keys(input).some(key => key !== "choices") || !Array.isArray(input.choices) || input.choices.length < 2 || input.choices.length > 4 || !input.choices.every(item => typeof item === "string" && item.trim())) throw new Error("Invalid choices");
+    options.onChoices(input.choices as string[]); return { choices: input.choices };
+  } });
+  return tools;
 }

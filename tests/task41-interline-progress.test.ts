@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentProcessPort, AgentStdioHandle, DiscoveredAgentDescriptor } from "../src/core/index.ts";
-import { agentInterlineTranslator } from "../src/plugins/guide-acp/index.ts";
+import { runOneShotAcpPrompt } from "../src/plugins/guide-acp/index.ts";
+import { agentInterlineTranslator } from "../src/plugins/toolkit-interline/index.ts";
 
 const descriptor: DiscoveredAgentDescriptor = { id: "dsh", label: "fixture", command: "/fixture/dsh", args: [], available: true, version: null, note: "fixture" };
 
@@ -22,28 +23,28 @@ function boundary(hold = false, quoteResponse = false, emptyResponse = false) {
 }
 
 test("quoted passage returns literal translation without requiring model JSON escaping", async () => {
-  const fixture = boundary(false, true), translate = agentInterlineTranslator({ process: fixture.port, resolveAgent: async () => ({ descriptor }) });
+  const fixture = boundary(false, true), translate = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: fixture.port }, options?.signal)).text });
   const result = await translate({ materialId: "m", file: "a.md", unitIndex: 0, targetLanguage: "zh-Hans", segments: [{ locator: "p:0", blockIndex: 0, sourceText: '“We were after the C++ programmers.”', sourceHash: "" }] });
   assert.equal(result.get("p:0"), "“我们当初瞄准的是模拟译文”");
 });
 
 test("long paragraph is split into bounded requests and reassembled exactly", async () => {
-  const fixture = boundary(), translate = agentInterlineTranslator({ process: fixture.port, resolveAgent: async () => ({ descriptor }) });
+  const fixture = boundary(), translate = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: fixture.port }, options?.signal)).text });
   const text = "A".repeat(1200) + "😀".repeat(1200) + "Z".repeat(101); const result = await translate({ materialId: "m", file: "a.md", unitIndex: 0, targetLanguage: "zh-Hans", segments: [{ locator: "p:0", blockIndex: 0, sourceText: text, sourceHash: "" }] });
   assert.deepEqual(fixture.batches.map(batch => Array.from(batch.join("")).length), [1200, 1200, 101]); assert.equal(result.get("p:0"), text); assert.equal(fixture.closed(), 3);
 });
 
 test("multiple passages retain their own mappings and empty replies fail", async () => {
-  const fixture = boundary(), translate = agentInterlineTranslator({ process: fixture.port, resolveAgent: async () => ({ descriptor }) });
+  const fixture = boundary(), translate = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: fixture.port }, options?.signal)).text });
   const segments = [{ locator: "p:0", blockIndex: 0, sourceText: "first", sourceHash: "" }, { locator: "p:1", blockIndex: 1, sourceText: "second", sourceHash: "" }];
   const input = { materialId: "m", file: "a.md", unitIndex: 0, targetLanguage: "zh-Hans" as const, segments };
   assert.deepEqual([...await translate(input)], [["p:0", "first"], ["p:1", "second"]]); assert.deepEqual(fixture.batches, [["first"], ["second"]]);
-  const empty = boundary(false, false, true), fail = agentInterlineTranslator({ process: empty.port, resolveAgent: async () => ({ descriptor }) });
+  const empty = boundary(false, false, true), fail = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: empty.port }, options?.signal)).text });
   await assert.rejects(fail(input), /翻译结果不完整/); assert.equal(empty.closed(), 1);
 });
 
 test("cancelling an active translation cancels and closes the ACP session", async () => {
-  const fixture = boundary(true), controller = new AbortController(), translate = agentInterlineTranslator({ process: fixture.port, resolveAgent: async () => ({ descriptor }) });
+  const fixture = boundary(true), controller = new AbortController(), translate = agentInterlineTranslator({ prompt: async (text, options) => (await runOneShotAcpPrompt(text, { descriptor, processPort: fixture.port }, options?.signal)).text });
   const result = translate({ materialId: "m", file: "a.md", unitIndex: 0, targetLanguage: "zh-Hans", segments: [{ locator: "p:0", blockIndex: 0, sourceText: "short text", sourceHash: "" }], signal: controller.signal });
   await fixture.started; controller.abort(); await assert.rejects(result, /cancelled/); assert.ok(fixture.methods.includes("session/cancel")); assert.equal(fixture.closed(), 1);
 });

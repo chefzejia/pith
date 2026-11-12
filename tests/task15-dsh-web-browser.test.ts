@@ -20,7 +20,7 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
       const policy = '(version 1) (allow default) (deny network*) (allow network* (local unix-socket)) (allow network-inbound (local ip "localhost:*")) (allow network-outbound (remote ip "localhost:*"))';
       await promisify(execFile)("/usr/bin/sandbox-exec", ["-p", policy, process.execPath, "--experimental-strip-types", "--test", "tests/task15-dsh-web-browser.test.ts"], {
         cwd: process.cwd(), timeout: 85000,
-        env: { HOME: dir, DSH_HOME: join(dir, "dsh"), XDG_CONFIG_HOME: join(dir, "config"), XDG_CACHE_HOME: join(dir, "cache"), PATH: `${dirname(executable)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`, PITH_DSH_BROWSER_SANDBOX: dir, PITH_DSH_TEST_BINARY: executable, PITH_TEST_LOCAL_KEY: "pith-fixture", PITH_PLAYWRIGHT_MODULE: process.env.PITH_PLAYWRIGHT_MODULE!, PITH_CHROME_PATH: process.env.PITH_CHROME_PATH!, PITH_SPEECH_HOME: join(dir, "speech") },
+        env: { HOME: dir, DSH_HOME: join(dir, "dsh"), XDG_CONFIG_HOME: join(dir, "config"), XDG_CACHE_HOME: join(dir, "cache"), TMPDIR: dir, PATH: `${dirname(executable)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`, PITH_DSH_BROWSER_SANDBOX: dir, PITH_DSH_TEST_BINARY: executable, PITH_TEST_LOCAL_KEY: "pith-fixture", PITH_PLAYWRIGHT_MODULE: process.env.PITH_PLAYWRIGHT_MODULE!, PITH_CHROME_PATH: process.env.PITH_CHROME_PATH!, PITH_SPEECH_HOME: join(dir, "speech") },
       });
     } finally { await rm(dir, { recursive: true, force: true }); }
     return;
@@ -45,7 +45,8 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     await promisify(execFile)(process.env.PITH_DSH_TEST_BINARY!, ["--profile", "acp", "--dump-config"], { cwd: dir, timeout: 15000 });
     await writeFile(join(dir, "dsh/profiles/acp/cordis.patch.yml"), `- id: llm-pi-ai\n  config:\n    providers:\n      local-test:\n        displayName: Local Test\n        api: openai-completions\n        baseURL: http://127.0.0.1:${address.port}/v1\n        apiKeyEnv: PITH_TEST_LOCAL_KEY\n        models:\n          - id: local-alpha\n            name: Local Alpha\n          - id: local-beta\n            name: Local Beta\n`);
     await mkdir(join(dir, "workspace"));
-    web = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
+    // The outer network sandbox cannot be nested with macOS file sandbox-exec.
+    web = await createPithWebServer({ workspaceDir: join(dir, "workspace"), processPort: new NodeAgentProcessPort() });
     const webAddress = web.address(); assert.ok(webAddress && typeof webAddress !== "string"); const base = `http://127.0.0.1:${webAddress.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
     await post("/api/settings", { agentId: "dsh", model: "old-profile-model", effort: "low" });
@@ -56,7 +57,9 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     browser = await chromium.launchPersistentContext(join(dir, "browser"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1280, height: 720 } });
     const page = await browser.newPage(); const errors: string[] = []; page.on("pageerror", (error: Error) => errors.push(error.message));
     await page.goto(base); await page.locator("[data-home-settings]").click();
-    const beta = page.locator('#simple-model optgroup[label="Local Test"] option').filter({ hasText: "Local Beta" }); await beta.waitFor({ state: "attached" });
+    const beta = page.locator('#simple-model optgroup[label="Local Test"] option').filter({ hasText: "Local Beta" });
+    try { await beta.waitFor({ state: "attached" }); }
+    catch (error) { throw new Error(`ACP configuration probe failed: ${JSON.stringify({ frames, errors, options: await page.locator("#simple-model").textContent() })}`, { cause: error }); }
     assert.equal(await page.locator("#simple-model").inputValue(), "old-profile-model");
     assert.equal(await page.locator("#simple-effort").inputValue(), "low");
     assert.equal(frames.some((frame: any) => frame.sent === "session/set_config_option"), false);

@@ -15,8 +15,9 @@ import { linkedEpub } from "./wave12-epub-fixture.ts";
 import { testSandbox } from "./sandbox.ts";
 
 test("interline appears in guide discovery", () => {
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic: { id: "t", title: "English", target: "Read", status: "exploring", toolkits: [], notes: [], createdAt: "", updatedAt: "" }, userMessage: "Read" });
-  assert.match(prompt, /interline: 行间/);
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic: { id: "t", title: "English", target: "Read", status: "exploring", toolkits: [], notes: [], createdAt: "", updatedAt: "" }, userMessage: "Read", availableToolkits: [interlineToolkit] });
+  assert.match(prompt, /"id":"interline"/);
+  assert.match(prompt, /行间/);
 });
 
 test("interline session warms only the active neighborhood and follows navigation", async () => {

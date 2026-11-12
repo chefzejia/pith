@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
-import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { buildMediaCorpusSlices, NodeMediaCorpusPort, publicHost } from "../src/shells/web/nodeMediaCorpus.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { resolveMediaPair } from "../src/workbench/mediaAssets.ts";
@@ -37,8 +37,8 @@ test("guide partial extraction keeps new subtitles separate from an old recordin
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const oldBytes = new Uint8Array([7, 8, 9]); const material = await store.importMaterial({ title: "Old", kind: "media", files: [{ name: "old.wav", mimeType: "audio/wav", bytes: oldBytes }] });
     const topic = await store.createTopic({ title: "Existing", materialId: material.id });
-    const tool = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, new NodeMediaCorpusPort(), topic.id).find(item => item.name === "pith_fetch_media_corpus")!;
-    const result = await tool.execute({ topicId: topic.id, url: "https://8.8.8.8/partial" }) as { warnings: readonly string[] };
+    const tool = createScopedTools({ topicId: topic.id, store, storage, mediaCorpus: new NodeMediaCorpusPort(), onChoices: () => {} }).find(item => item.name === "pith_fetch_media_corpus")!;
+    const result = await tool.execute({ url: "https://8.8.8.8/partial" }) as { warnings: readonly string[] };
     assert.ok(result.warnings.includes("音轨提取失败")); const updated = await store.getMaterial(material.id); assert.ok(updated);
     assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${material.id}/files/old.wav`)), oldBytes);
     assert.match(await storage.readText(`materials/${material.id}/files/clip.en.vtt`), /Hello/);
@@ -61,8 +61,8 @@ test("media slices follow cue timing and ASR generates persisted VTT for audio a
     const audio = await corpus.fetchMediaCorpus("https://8.8.8.8/asr"); assert.deepEqual(calls[0], { bytes: [1, 2, 3, 4], mime: "audio/webm" }); assert.ok(audio.slices?.length); const subtitle = audio.files.find(file => file.name === "clip.auto.vtt"); assert.ok(subtitle); const raw = new TextDecoder().decode(subtitle.bytes); assert.match(raw, /^WEBVTT\n\n00:00:00\.000 -->/); assert.match(raw, /00:01:00\.000/);
     const video = await corpus.fetchMediaCorpus("https://8.8.8.8/video"); assert.deepEqual(calls[1], { bytes: [9, 8, 7], mime: "audio/webm" }); assert.ok(video.files.some(file => file.mimeType === "video/mp4")); assert.ok(video.slices?.length);
     const short = await new NodeMediaCorpusPort({ async transcribeAudio() { return { text: `${"Long".repeat(100)}. A. B.`, durationSec: 0.003 }; } }).fetchMediaCorpus("https://8.8.8.8/asr"); const shortVtt = new TextDecoder().decode(short.files.find(file => file.name.endsWith(".vtt"))!.bytes); assert.match(shortVtt, /00:00:00\.000 --> 00:00:00\.001/); assert.match(shortVtt, /00:00:00\.001 --> 00:00:00\.002/); assert.match(shortVtt, /00:00:00\.002 --> 00:00:00\.003/);
-    await mkdir(join(root, "workspace")); const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold(); const topic = await store.createTopic({ title: "New" }); const tool = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, topic.id).find(item => item.name === "pith_fetch_media_corpus")!;
-    const result: any = await tool.execute({ topicId: topic.id, url: "https://8.8.8.8/asr" }); const updated = await store.getTopic(topic.id); assert.ok(updated?.materialId); assert.ok(updated.toolkits.includes("shadowing")); assert.ok(result.slices.length); for (const file of audio.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${updated.materialId}/files/${file.name}`)), file.bytes); assert.match(await storage.readText(`materials/${updated.materialId}/files/00-跟读切片导读.md`), /First sentence/);
+    await mkdir(join(root, "workspace")); const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold(); const topic = await store.createTopic({ title: "New" }); const tool = createScopedTools({ topicId: topic.id, store, storage, mediaCorpus: corpus, onChoices: () => {} }).find(item => item.name === "pith_fetch_media_corpus")!;
+    const result: any = await tool.execute({ url: "https://8.8.8.8/asr" }); const updated = await store.getTopic(topic.id); assert.ok(updated?.materialId); assert.ok(updated.toolkits.includes("shadowing")); assert.ok(result.slices.length); for (const file of audio.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${updated.materialId}/files/${file.name}`)), file.bytes); assert.match(await storage.readText(`materials/${updated.materialId}/files/00-跟读切片导读.md`), /First sentence/);
     const failed = await new NodeMediaCorpusPort({ async transcribeAudio() { throw new Error("ASR offline"); } }).fetchMediaCorpus("https://8.8.8.8/asr"); assert.ok(failed.warnings?.some(warning => warning.includes("ASR offline"))); assert.equal(failed.files.some(file => file.name.endsWith(".vtt")), false);
   } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }
 });
@@ -86,16 +86,16 @@ test("yt-dlp subprocess uses isolated public proxy and appends or imports real m
     const existing = await store.importMaterial({ title: "Existing", kind: "article", files: [{ name: "lesson.md", bytes: new TextEncoder().encode("original") }] });
     const topic = await store.createTopic({ title: "Existing topic", materialId: existing.id, toolkits: ["feynman"] });
     const other = await store.createTopic({ title: "New topic" });
-    const tools = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, topic.id); const fetchTool = tools.find(tool => tool.name === "pith_fetch_media_corpus")!;
-    await assert.rejects(fetchTool.execute({ topicId: other.id, url: "https://8.8.8.8/watch" }), /current session/);
-    await fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" });
+    const tools = createScopedTools({ topicId: topic.id, store, storage, mediaCorpus: corpus, onChoices: () => {} }); const fetchTool = tools.find(tool => tool.name === "pith_fetch_media_corpus")!;
+    await assert.rejects(fetchTool.execute({ topicId: other.id, url: "https://8.8.8.8/watch" }), /Invalid/);
+    await fetchTool.execute({ url: "https://8.8.8.8/watch" });
     const updated = await store.getTopic(topic.id), material = await store.getMaterial(existing.id); assert.equal(updated?.materialId, existing.id); assert.ok(updated?.toolkits.includes("shadowing")); assert.ok(updated?.toolkits.includes("feynman")); assert.deepEqual(material?.files.map(file => file.name).sort(), ["00-跟读切片导读.md", "clip.en.vtt", "clip.webm", "lesson.md"]); assert.match(await storage.readText(`materials/${existing.id}/files/00-跟读切片导读.md`), /片段 1.*00:00.*00:01/);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
     assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
-    await assert.rejects(fetchTool.execute({ topicId: topic.id, url: "https://8.8.8.8/watch" }), /exist/i);
+    await assert.rejects(fetchTool.execute({ url: "https://8.8.8.8/watch" }), /exist/i);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/${file.name}`)), file.bytes);
     assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${existing.id}/files/lesson.md`)), new TextEncoder().encode("original"));
-    const newTools = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, other.id); await newTools.find(tool => tool.name === "pith_fetch_media_corpus")!.execute({ topicId: other.id, url: "https://8.8.8.8/watch" });
+    const newTools = createScopedTools({ topicId: other.id, store, storage, mediaCorpus: corpus, onChoices: () => {} }); await newTools.find(tool => tool.name === "pith_fetch_media_corpus")!.execute({ url: "https://8.8.8.8/watch" });
     const created = await store.getTopic(other.id); assert.ok(created?.materialId); assert.ok(created.toolkits.includes("shadowing")); assert.equal((await store.getMaterial(created.materialId))?.files.length, 3); assert.match(await storage.readText(`materials/${created.materialId}/files/00-跟读切片导读.md`), /Hello/);
     for (const file of bundle.files) assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${created.materialId}/files/${file.name}`)), file.bytes);
   } finally { if (previous === undefined) delete process.env.PITH_YTDLP_PATH; else process.env.PITH_YTDLP_PATH = previous; await rm(root, { recursive: true, force: true }); }

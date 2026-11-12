@@ -47,9 +47,11 @@ function buildAgentEnvironment(
 
 export class NodeAgentProcessPort implements AgentProcessPort {
   private readonly customSearchPaths?: readonly string[];
+  private readonly workspaceRoot?: string;
 
-  constructor(options?: { searchPaths?: readonly string[] }) {
+  constructor(options?: { searchPaths?: readonly string[]; workspaceRoot?: string }) {
     this.customSearchPaths = options?.searchPaths;
+    this.workspaceRoot = options?.workspaceRoot;
   }
 
   searchPaths(): readonly string[] {
@@ -115,16 +117,13 @@ export class NodeAgentProcessPort implements AgentProcessPort {
   async spawnStdio(spec: AgentProcessSpawnSpec): Promise<AgentStdioHandle> {
     let command = spec.command;
     let args = [...(spec.args ?? [])];
-    let tempSandboxCwd: string | null = null;
+    const tempSandboxCwd = await mkdtemp(join(tmpdir(), "pith-guide-"));
+    const readOnlyPaths = [...(this.workspaceRoot ? [this.workspaceRoot] : []), ...(spec.readOnlyPaths ?? [])];
 
-    if (
-      spec.readOnlyPaths &&
-      spec.readOnlyPaths.length > 0 &&
-      process.platform === "darwin" &&
-      existsSync("/usr/bin/sandbox-exec")
-    ) {
+    try { if (readOnlyPaths.length > 0 && process.platform === "darwin") {
+      if (!existsSync("/usr/bin/sandbox-exec")) throw new Error("macOS sandbox-exec unavailable");
       const resolvedPaths = [
-        ...new Set(await Promise.all(spec.readOnlyPaths.map((p) => realpath(p)))),
+        ...new Set(await Promise.all(readOnlyPaths.map((p) => realpath(p)))),
       ];
       if (resolvedPaths.some((p) => /[\u0000-\u001f\u007f]/u.test(p))) {
         throw new Error("Unsafe path in readOnlyPaths for sandbox-exec");
@@ -135,12 +134,9 @@ export class NodeAgentProcessPort implements AgentProcessPort {
       const profile = `(version 1) (allow default) (deny file-write* ${denied})`;
       args = ["-p", profile, command, ...args];
       command = "/usr/bin/sandbox-exec";
-      if (!spec.cwd) {
-        tempSandboxCwd = await mkdtemp(join(tmpdir(), "pith-guide-"));
-      }
-    }
+    } } catch (error) { await rm(tempSandboxCwd, { recursive: true, force: true }); throw error; }
 
-    const cwd = spec.cwd ?? tempSandboxCwd ?? process.cwd();
+    const cwd = tempSandboxCwd;
     const env = buildAgentEnvironment(spec.command, spec.env);
     const child = spawn(command, args, {
       cwd,
@@ -150,7 +146,7 @@ export class NodeAgentProcessPort implements AgentProcessPort {
       shell: false,
     });
 
-    await new Promise<void>((resolveSpawn, rejectSpawn) => {
+    try { await new Promise<void>((resolveSpawn, rejectSpawn) => {
       const onError = (err: Error) => {
         child.off("spawn", onSpawn);
         rejectSpawn(err);
@@ -161,7 +157,7 @@ export class NodeAgentProcessPort implements AgentProcessPort {
       };
       child.once("error", onError);
       child.once("spawn", onSpawn);
-    });
+    }); } catch (error) { await rm(tempSandboxCwd, { recursive: true, force: true }); throw error; }
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");

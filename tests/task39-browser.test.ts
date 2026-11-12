@@ -3,7 +3,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
-import { createGuideWorkspaceTools } from "../src/plugins/guide-acp/tools.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { NodeMediaCorpusPort } from "../src/shells/web/nodeMediaCorpus.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
@@ -36,7 +36,7 @@ test("guide tool imports real bytes and opens new subtitles in Web", { timeout: 
   await writeFile(binary, `#!/usr/bin/env node\nconst fs = require('node:fs'); if (!process.argv.includes('--skip-download')) { fs.copyFileSync(${JSON.stringify(resolve("tests/fixtures/task38-video.webm"))}, process.argv.includes('asr.%(ext)s') ? 'asr.webm' : 'clip.webm'); console.log('Controlled video\\nvp9\\n60'); }\n`); await chmod(binary, 0o755);
   const previous = process.env.PITH_YTDLP_PATH; process.env.PITH_YTDLP_PATH = binary;
   const storage = new NodeWorkspaceStorage(workspace), store = new DefaultWorkspaceStore(storage), corpus = new NodeMediaCorpusPort({ transcribeAudio: async () => ({ text: "First sentence. Second sentence. Third sentence.", durationSec: 4 }) });
-  let browser: any; const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async reply(input) { const tool = createGuideWorkspaceTools(store, undefined, storage, undefined, undefined, corpus, input.topicId).find(item => item.name === "pith_fetch_media_corpus")!; await tool.execute({ topicId: input.topicId, url: "https://8.8.8.8/asr" }); return "语料已准备"; } } });
+  let browser: any; const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async run(input, options) { if (input.scope.kind !== "topic") throw new Error("topic required"); const tool = createScopedTools({ topicId: input.scope.topicId, store, storage, mediaCorpus: corpus, onChoices: () => {} }).find(item => item.name === "pith_fetch_media_corpus")!; await tool.execute({ url: "https://8.8.8.8/asr" }); options.onStep({ kind: "reply", markdown: "语料已准备" }, 0); return { status: "completed" }; } } });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
