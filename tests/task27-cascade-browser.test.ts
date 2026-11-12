@@ -53,7 +53,7 @@ async function verify(mode: "dark" | "light"): Promise<void> {
         await page.goto("about:blank");
         await page.setContent(`<style>html,body,#root{height:100%;margin:0}body.theme-dark{--background-primary:#1e1e1e;--background-secondary:#292929;--text-normal:#eee}body.theme-light{--background-primary:#fff;--text-normal:#222}</style><body class="theme-${mode}"><div id="root"></div></body>`);
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-        await page.evaluate((html: string) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html, title: "继承与背景", currentFile: "test.epub", format: "epub", files: [], sections: [] }); }, rendered.html);
+        await page.evaluate((html: string) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {} }); view.render({ html, title: "继承与背景", currentFile: "test.epub", format: "epub", files: [], sections: [] }); }, rendered.html);
       }
       await page.locator("#alpha").waitFor({ state: "attached" });
       const values = await inspect(page, ["unpainted", "white", "gray", "mid", "black", "nested-white", "navy", "explicit", "alpha", "root-safe", "root-dark", "root-navy"]);

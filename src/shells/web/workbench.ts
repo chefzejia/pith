@@ -1,9 +1,9 @@
 import { mountPithWorkbench, type PithWorkbenchView } from "../../workbench/index.ts";
-import { shadowingToolkit } from "../../plugins/dojo-shadowing/index.ts";
-import { feynmanToolkit } from "../../plugins/dojo-feynman/index.ts";
-import { interlineToolkit } from "../../plugins/dojo-interline/index.ts";
+import { shadowingToolkit } from "../../plugins/toolkit-shadowing/index.ts";
+import { feynmanToolkit } from "../../plugins/toolkit-feynman/index.ts";
+import { interlineToolkit } from "../../plugins/toolkit-interline/index.ts";
 import type { GuideConversationEntry, GuideQuickAction, Material, SelectionAnchor, Topic } from "../../core/index.ts";
-import type { InterlineViewUnit } from "../../plugins/dojo-interline/index.ts";
+import type { InterlineViewUnit } from "../../plugins/toolkit-interline/index.ts";
 import { MaterialSession, type SessionDocument } from "../../workbench/materialSession.ts";
 
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
@@ -31,7 +31,7 @@ export class WebWorkbench {
   constructor(options: WebWorkbenchOptions) {
     this.options = options;
     const topicId = options.topic.id;
-    const dojos = [shadowingToolkit, feynmanToolkit, interlineToolkit];
+    const toolkits = [shadowingToolkit, feynmanToolkit, interlineToolkit];
     const postAudio = async (path: string, data: unknown, signal: AbortSignal): Promise<Response> => {
       const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data), signal });
       if (!response.ok) {
@@ -47,7 +47,7 @@ export class WebWorkbench {
       importMaterial: options.importMaterial,
       openFile: name => this.session.openFile(name),
       generateLesson: (name, title) => { if (!options.guideAvailable) throw new Error("向导不可用，无法生成讲义"); return this.session.generateLesson(name, title); },
-      openDojo: (text, locator) => this.view.openDojo(dojos, text, text === undefined ? undefined : { file: this.session.file, locator: locator || "text:offset:0", quote: text }),
+      openToolkit: (text, locator) => this.view.openToolkit(toolkits, text, text === undefined ? undefined : { file: this.session.file, locator: locator || "text:offset:0", quote: text }),
       selection: (action, text, locator) => {
         const anchor = { file: this.session.file, locator: locator || "text:offset:0", quote: text };
         if (action !== "highlight") { this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; }
@@ -65,9 +65,9 @@ export class WebWorkbench {
         return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions };
       },
       sendGuide: async (text, anchor, saveAsNote) => { await options.request(saveAsNote ? "/api/notes" : "/api/chat", saveAsNote ? { topicId, kind: "note", body: text, anchor } : { topicId, text, anchor }); if (!saveAsNote) await this.session.refresh(); },
-      toggleToolkit: async (id, enabled) => { const state = await options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const toolkits = topic.toolkits.filter(item => item !== id && item !== `dojo-${id}` && item !== "none"); if (enabled) toolkits.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits }); this.view.setToolkits(updated.toolkits); },
+      toggleToolkit: async (id, enabled) => { if (!toolkits.some(toolkit => toolkit.id === id)) throw new Error("Invalid toolkit ID"); const state = await options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const selected = topic.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits: selected }); this.view.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await options.request("/api/notes", { topicId, kind: "practice", body, anchor }); },
-      submitPractice: async (body, anchor, toolkit) => options.request<{ guided: boolean; guideError?: string }>("/api/dojo/submit", { topicId, toolkit: toolkit.id, file: this.session.file, targetText: anchor.quote, producedText: body, anchor }),
+      submitPractice: async (body, anchor, toolkit) => options.request<{ guided: boolean; guideError?: string }>("/api/toolkit/submit", { topicId, toolkit: toolkit.id, file: this.session.file, targetText: anchor.quote, producedText: body, anchor }),
       prepareInterline: async (units: readonly InterlineViewUnit[], index, mode) => options.request<{ html: string; status: string; error?: string }>("/api/interline", { topicId, file: this.session.file, units, index, mode }),
       synthesizeSpeech: async (text, signal) => { const response = await postAudio("/api/speech/synthesize", { text }, signal); return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: response.headers.get("content-type") || "audio/wav" }; },
       transcribeAudio: async (bytes, mimeType, signal) => { let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); const response = await postAudio("/api/speech/transcribe", { audio: btoa(binary), mimeType }, signal ?? new AbortController().signal); return response.json() as Promise<{ text: string }>; },

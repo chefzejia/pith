@@ -1,10 +1,10 @@
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AgentProcessPort, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { builtinRegistry } from "../../plugins/all.ts";
-import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
-import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
+import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
+import { practiceMessage } from "../../plugins/toolkit-feynman/index.ts";
 import { NodeAgentProcessPort } from "../web/nodeProcess.ts";
 import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 import { NodeHttpPort } from "../web/nodeHttp.ts";
@@ -14,7 +14,7 @@ import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, reso
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { defaultToolkitsForMaterial, topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
-import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
+import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { intakeGuidePrompt, renderCompass } from "../../workbench/compass.ts";
 import { pithIcon } from "../../workbench/icons.ts";
@@ -210,18 +210,18 @@ export class PithObsidianController {
     let provider: GuideProvider | undefined = guideProvider;
     this.engine = new DefaultAttentionEngine(this.store, host.storage, () => guideProvider || (this.agentId ? provider : undefined));
     const manifests = builtinRegistry.list().map(manifest => {
-      if (!["stage-reader", "stage-timeline", "dojo-shadowing", "dojo-feynman", "dojo-interline"].includes(manifest.id)) return manifest;
+      if (!["stage-reader", "stage-timeline", "toolkit-shadowing", "toolkit-feynman", "toolkit-interline"].includes(manifest.id)) return manifest;
       return { ...manifest, inUse: () => {
         if (!this.topics || !this.materials) throw new Error("Workspace snapshot unavailable");
         if (manifest.id === "stage-reader") return this.materials.filter(item => item.kind === "book" || item.kind === "article").length;
         if (manifest.id === "stage-timeline") return this.materials.filter(item => item.kind === "media").length;
-        const id = manifest.id.slice("dojo-".length);
+        const id = manifest.id.slice("toolkit-".length);
         return this.topics.filter(topic => topicUsesToolkit(topic, this.materials!, id)).length;
       } };
     });
     this.runtime = new PluginRuntime(manifests, { host, store: this.store, engine: this.engine, window: {} });
     if (host.mediaCorpus instanceof NodeMediaCorpusPort) host.mediaCorpus.setTranscriber(async (bytes, mimeType, signal) => { const asr = this.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr?.transcribeAudio) throw new Error("语音识别服务不可用"); return asr.transcribeAudio(bytes, mimeType, signal); });
-    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
+    if (!provider && host.process) provider = new LocalAcpGuideProvider({ processPort: host.process, store: this.store, engine: this.engine, storage: host.storage, http: host.http, repository: host.repository, mediaCorpus: host.mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = this.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: this.agentId, model: this.model, effort: this.effort, timeoutMs: this.agentTimeoutMs() }), resolveDescriptor: async id => (await this.detectAgents()).find(item => item.id === id) ?? null, buildScenePrompt });
   }
   async initialize(): Promise<void> {
     await this.store.ensureScaffold();
@@ -268,7 +268,7 @@ export class PithObsidianController {
   async openBoardMaterials() { return boardMaterials(this.host.storage, await this.store.listMaterials()); }
   async openTopic(id: string) { return this.store.getTopic(id); }
   createInterlineSession(materialId: string, file: string, units: readonly InterlineUnitInput[]): InterlineSession {
-    const service = this.runtime.getService<InterlineService>("dojo.interline");
+    const service = this.runtime.getService<InterlineService>("toolkit.interline");
     if (!service) throw new Error("行间工具不可用");
     const process = this.host.process;
     const translator = this.interlineTranslator ?? (process ? agentInterlineTranslator({ process, resolveAgent: async () => {
@@ -426,7 +426,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     if (topic.materialId && !material) throw new Error("课题材料不存在");
     let interlineSession: { file: string; signature: string; session: InterlineSession } | undefined;
     let session: MaterialSession;
-    const dojos = (): DojoToolkitDescriptor[] => ["shadowing", "feynman", "interline"].flatMap(id => { const service = this.controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [service] : []; });
+    const toolkits = (): ToolkitDescriptor[] => ["shadowing", "feynman", "interline"].flatMap(id => { const service = this.controller.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return service ? [service] : []; });
     if (this.view) this.controller.releaseView(this.view);
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
@@ -443,11 +443,11 @@ export class PithWorkspaceView extends obsidian.ItemView {
       transcribeAudio: async (bytes, mimeType, signal) => { const asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr || !asr.transcribeAudio) throw new Error("请先在设置中配置语音识别服务"); return asr.transcribeAudio(bytes, mimeType, signal); },
       prepareInterline: async (units, index, mode) => { const current = await this.controller.store.getTopic(topic.id), material = session.material, currentFile = session.file; if (!material || !current || current.materialId !== material.id || !topicUsesToolkit(current, [], "interline")) throw new Error("行间未挂载"); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); const signature = JSON.stringify(units); if (!interlineSession || interlineSession.file !== currentFile || interlineSession.signature !== signature) interlineSession = { file: currentFile, signature, session: this.controller.createInterlineSession(material.id, currentFile, units) }; return interlineSession.session.render(index, mode); },
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
-      openDojo: (text, locator) => { if (this.view) this.view.openDojo(dojos(), text, { file: session.file, locator: locator || "text:offset:0", quote: text }); },
+      openToolkit: (text, locator) => { if (this.view) this.view.openToolkit(toolkits(), text, { file: session.file, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { const anchor = { file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.captureSelection({ topicId: topic.id, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
-      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, dojos()) : [] }; },
+      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); const material = updated.materialId ? await this.controller.store.getMaterial(updated.materialId) : null; const topicWithMaterial = { ...updated, material }; return { notes: updated.notes, toolkits: updated.toolkits, conversation: await this.controller.engine.getConversation(topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(topicWithMaterial, toolkits()) : [] }; },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "note", body: text, anchor }); return; } await this.controller.engine.sendMessage({ topicId: topic.id, text, anchor }); await session.refresh(); },
-      toggleToolkit: async (id, enabled) => { const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const toolkits = current.toolkits.filter(item => item !== id && item !== `dojo-${id}` && item !== "none"); if (enabled) toolkits.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
+      toggleToolkit: async (id, enabled) => { normalizeToolkits([id]); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const toolkits = current.toolkits.filter(item => item !== id); if (enabled) toolkits.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(toolkits) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await this.controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => {
         if (!toolkit.evaluationRubric || toolkit.evalMode !== "guide-rubric") throw new Error("实训评价规程不可用");
@@ -456,7 +456,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
         try { await this.controller.engine.sendMessage({ topicId: topic.id, text: practiceMessage(body, toolkit.label, toolkit.evaluationRubric), anchor }); return { guided: true }; }
         catch (error) { return { guided: false, guideError: error instanceof Error ? error.message : String(error) }; }
       },
-      mountDojo: async id => { const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id) || current.toolkits.includes(`dojo-${id}`); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: [...current.toolkits.filter(item => item !== "none"), id] }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
+      mountToolkit: async id => { normalizeToolkits([id]); const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits([...current.toolkits, id]) }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
     session = new MaterialSession(material ?? undefined, {

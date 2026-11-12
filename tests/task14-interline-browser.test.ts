@@ -4,9 +4,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
 import type { InterlineTranslator } from "../src/core/index.ts";
-import { interlineToolkit } from "../src/plugins/dojo-interline/index.ts";
+import { interlineToolkit } from "../src/plugins/toolkit-interline/index.ts";
 import { renderEpub } from "../src/plugins/stage-reader/epub.ts";
-import { InterlineSession, type InterlineUnitInput } from "../src/plugins/dojo-interline/index.ts";
+import { InterlineSession, type InterlineUnitInput } from "../src/plugins/toolkit-interline/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";
@@ -37,13 +37,13 @@ test("Obsidian keeps mounted interline active under essentials and replays cache
   let calls = 0; const translator: InterlineTranslator = async input => { calls++; return new Map(input.segments.map(segment => [segment.locator, "翻译"])); };
   const controller = new PithObsidianController({ id: "obsidian", storage }, translator);
   try {
-    await controller.initialize(); assert.equal(controller.runtime.active("dojo-interline"), false);
+    await controller.initialize(); assert.equal(controller.runtime.active("toolkit-interline"), false);
     const topic = await controller.store.createTopic({ title: "English" }); await controller.store.updateTopic(topic.id, { toolkits: ["interline"] }); await controller.openCompass();
-    assert.equal(controller.runtime.active("dojo-interline"), true); assert.equal(controller.runtime.statuses().find(status => status.id === "dojo-interline")!.inUseCount, 1);
+    assert.equal(controller.runtime.active("toolkit-interline"), true); assert.equal(controller.runtime.statuses().find(status => status.id === "toolkit-interline")!.inUseCount, 1);
     const units = [{ html: '<p data-locator="p:0" data-prose="true">Hello.</p>', segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello.", sourceHash: "" }] }];
     const first = controller.createInterlineSession("material", "book.epub", units); assert.match((await first.render(0, "bilingual")).html, /翻译/); await first.whenIdle();
     const second = controller.createInterlineSession("material", "book.epub", units); assert.match((await second.render(0, "subtitle-primary")).html, /翻译/); await second.whenIdle(); assert.equal(calls, 1);
-    await controller.store.updateTopic(topic.id, { toolkits: [] }); await controller.openCompass(); assert.equal(controller.runtime.active("dojo-interline"), false);
+    await controller.store.updateTopic(topic.id, { toolkits: [] }); await controller.openCompass(); assert.equal(controller.runtime.active("toolkit-interline"), false);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -69,20 +69,20 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     const page = await browser.newPage();
     await page.route("**/api/speech/synthesize", async (route: any) => { spoken.push(route.request().postDataJSON().text); await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"stub"}' }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
-    assert.match((await page.locator("#open-dojo").textContent())!, /行间/);
-    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="interline"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
+    assert.match((await page.locator("#open-toolkit").textContent())!, /行间/);
+    await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-interline-subtitle").first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll(".pith-interline-subtitle").length > 1);
     await mkdir(".tmp/evidence/task-39", { recursive: true }); await page.screenshot({ path: ".tmp/evidence/task-39/web-interline.png" });
     await neighbor; assert.deepEqual(calls.slice(0, 2), [0, 1]);
-    await page.locator('.pith-dojo-panel [data-interline-mode="subtitle-primary"]').click();
+    await page.locator('.pith-toolkit-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('.pith-article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();
     await page.locator('[data-command="read"]').click();
     await page.locator('.pith-speech-controls [role="alert"]').getByText("stub").waitFor();
     assert.ok(spoken.length > 0); assert.ok(spoken.every(text => !text.includes("译文标记")));
-    await page.locator('.pith-dojo-panel [data-interline-mode="original"]').click();
+    await page.locator('.pith-toolkit-panel [data-interline-mode="original"]').click();
     assert.equal(await page.locator(".pith-interline-subtitle").count(), 0);
-    const state = await (await fetch(base + "/api/state")).json(); assert.ok(state.dojos.includes("interline")); assert.equal(state.plugins.find((item: { id: string }) => item.id === "dojo-interline").inUseCount, 1);
+    const state = await (await fetch(base + "/api/state")).json(); assert.ok(state.toolkits.includes("interline")); assert.equal(state.plugins.find((item: { id: string }) => item.id === "toolkit-interline").inUseCount, 1);
 
     calls.length = 0; spoken.length = 0;
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
@@ -92,14 +92,14 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.exposeFunction("interlineSpeech", (text: string) => { spoken.push(text); throw new Error("stub"); });
     await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间", category: "language", stages: [], quickActions: [], transformCue: (text: string) => text, diagnose() { throw new Error("unused"); } }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() { view.openDojo([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareInterline(...args), synthesizeSpeech: (text: string) => (window as any).interlineSpeech(text) }); view.setToolkits(["interline"]); view.render({ ...(documentData as object), currentFile: "book.epub", files: [], title: "Interline" }); }, rendered);
-    await page.locator('[data-command="dojo"]').click(); await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
+    await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间", category: "language", stages: [], quickActions: [], transformCue: (text: string) => text, diagnose() { throw new Error("unused"); } }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() { view.openToolkit([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareInterline(...args), synthesizeSpeech: (text: string) => (window as any).interlineSpeech(text) }); view.setToolkits(["interline"]); view.render({ ...(documentData as object), currentFile: "book.epub", files: [], title: "Interline" }); }, rendered);
+    await page.locator('[data-command="toolkit"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
     await page.locator('.pith-interline-subtitle').first().waitFor(); assert.equal(calls[0], 0);
-    await page.locator('.pith-dojo-panel [data-interline-mode="subtitle-primary"]').click();
+    await page.locator('.pith-toolkit-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('.pith-article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();
     await page.locator('[data-command="read"]').click();
     await page.locator('.pith-speech-controls [role="alert"]').getByText('stub').waitFor();
     assert.ok(spoken.length > 0); assert.ok(spoken.every(text => !text.includes("译文标记")));
-    await page.locator('.pith-dojo-panel [data-interline-mode="original"]').click(); assert.equal(await page.locator('.pith-interline-subtitle').count(), 0);
+    await page.locator('.pith-toolkit-panel [data-interline-mode="original"]').click(); assert.equal(await page.locator('.pith-interline-subtitle').count(), 0);
   } finally { if (browser) await browser.close(); if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

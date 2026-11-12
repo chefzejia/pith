@@ -74,7 +74,7 @@ export function renderInterlineHtml(chapterHtml: string, translations: ReadonlyM
 }
 
 export function interlineInUse(topics: readonly Topic[]): number {
-  return topics.filter(topic => topic.toolkits.includes("interline") || topic.toolkits.includes("dojo-interline")).length;
+  return topics.filter(topic => topic.toolkits.includes("interline")).length;
 }
 
 export const interlineToolkit: InterlineService = {
@@ -86,10 +86,10 @@ export const interlineToolkit: InterlineService = {
 };
 
 registerPlugin({
-  id: "dojo-interline", api: "^1", requires: ["stage.reader"], provides: ["dojo.interline"], essential: false,
+  id: "toolkit-interline", api: "^1", requires: ["stage.reader"], provides: ["toolkit.interline"], essential: false,
   name: "Interline bilingual reading", description: "Aligned translations for original-language reading",
   oneInUse: "1 topic using interline", manyInUse: "{n} topics using interline",
-  apply(ctx) { ctx.provide("dojo.interline", interlineToolkit); },
+  apply(ctx) { ctx.provide("toolkit.interline", interlineToolkit); },
 });
 
 export * from "./view.ts";

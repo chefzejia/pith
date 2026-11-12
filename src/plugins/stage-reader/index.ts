@@ -164,4 +164,4 @@ registerPlugin({
   },
 });
 
-export { proseTextNodes, visibleDojoTarget } from "./pagination.ts";
+export { proseTextNodes, visibleToolkitTarget } from "./pagination.ts";

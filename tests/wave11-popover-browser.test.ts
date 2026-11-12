@@ -18,16 +18,16 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
       await page.setContent(`<style>html,body{margin:0;height:100%}#root{height:100%;width:${width}px}${padded ? ".pith-view-header{height:auto!important;padding-block:6px!important}" : ""}</style><div id="root"></div>`);
       await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
       await page.evaluate((format: "markdown" | "epub") => {
-        const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; setToolkits(ids: string[]): void; openDojo(dojos: object[]): void } } }).PithView;
+        const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; setToolkits(ids: string[]): void; openToolkit(toolkits: object[]): void } } }).PithView;
         let view: InstanceType<typeof pith.PithObsidianView>;
-        const dojos = [{ id: "feynman", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
-        view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openDojo() { view.openDojo(dojos); }, toggleToolkit: async () => {} });
+        const toolkits = [{ id: "feynman", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
+        view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openToolkit() { view.openToolkit(toolkits); }, toggleToolkit: async () => {} });
         view.render({ title: "测试文章", html: "<p>正文</p>", currentFile: format === "epub" ? "book.epub" : "article.md", format, files: [], sections: [] });
         view.setToolkits(["feynman"]);
       }, format);
       await page.waitForFunction(() => document.querySelector(".pith-view")!.getAttribute("data-hit-target") !== null);
       if (padded) assert.ok((await page.locator(".pith-view-header").boundingBox())!.height >= 56);
-      for (const [button, panel] of [["[data-command=typography]", ".pith-typography-popover"], ["#open-dojo", ".pith-dojo-panel"]] as const) {
+      for (const [button, panel] of [["[data-command=typography]", ".pith-typography-popover"], ["#open-toolkit", ".pith-toolkit-panel"]] as const) {
         await page.locator(button).click();
         const header = await page.locator(".pith-view-header").boundingBox(), popup = await page.locator(panel).boundingBox();
         assert.ok(header && popup, `${width}/${panel} visible`);
@@ -43,11 +43,11 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
         await page.locator(button).click();
         assert.equal(await page.locator(panel).isHidden(), true);
       }
-      const menu = page.locator(".pith-dojo-panel"), reader = await page.locator(".pith-reader").boundingBox();
+      const menu = page.locator(".pith-toolkit-panel"), reader = await page.locator(".pith-reader").boundingBox();
       assert.ok(reader);
-      await page.locator("#open-dojo").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens`);
+      await page.locator("#open-toolkit").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens`);
       await page.keyboard.press("Escape"); assert.equal(await menu.isHidden(), true, `${width}: Escape closes the tool menu`);
-      await page.locator("#open-dojo").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens after Escape`);
+      await page.locator("#open-toolkit").click(); assert.equal(await menu.isVisible(), true, `${width}: tool menu reopens after Escape`);
       await page.mouse.click(reader.x + 10, reader.y + reader.height - 10); assert.equal(await menu.isHidden(), true, `${width}: a press outside closes the tool menu`);
     }
   } finally {

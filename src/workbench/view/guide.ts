@@ -1,5 +1,5 @@
 import type { GuideConversationEntry, GuideQuickAction, SelectionAnchor, TopicNote } from "../../core/index.ts";
-import { displayPracticeMessage } from "../../plugins/dojo-feynman/index.ts";
+import { displayPracticeMessage } from "../../plugins/toolkit-feynman/index.ts";
 
 export function renderGuide(guide: HTMLElement, data: { notes: readonly TopicNote[]; conversation: readonly GuideConversationEntry[]; actions: readonly GuideQuickAction[] }, tab: "chat" | "notes", anchor: SelectionAnchor | undefined, sending: boolean, pending?: { readonly text: string; readonly from: number }, error = ""): void {
   const previous = guide.querySelector<HTMLTextAreaElement>("textarea"), draft = previous?.value ?? "";

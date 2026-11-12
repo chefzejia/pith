@@ -49,7 +49,7 @@ export class VoiceInput {
     if (this.active === target && this.phase === "permission") { this.cancel(); return; }
     if (this.phase === "transcribing") return;
     this.cancel();
-    if (target === "dojo") this.clearRecording();
+    if (target === "toolkit") this.clearRecording();
     const generation = ++this.generation;
     this.active = target; this.phase = "permission"; this.update(target, this.phase);
     try {
@@ -68,7 +68,7 @@ export class VoiceInput {
           const mime = (recorder.mimeType || (chunks[0] && chunks[0].type) || "audio/webm").split(";")[0]!.trim().toLowerCase();
           const blob = new this.win.Blob(chunks, { type: mime });
           if (!blob.size) throw new Error("录音为空，请重试");
-          if (target === "dojo") { this.recordingUrl = this.win.URL.createObjectURL(blob); this.recording(this.recordingUrl); }
+          if (target === "toolkit") { this.recordingUrl = this.win.URL.createObjectURL(blob); this.recording(this.recordingUrl); }
           const bytes = new Uint8Array(await blob.arrayBuffer());
           if (generation !== this.generation) return;
           const abort = new AbortController(); this.abort = abort;

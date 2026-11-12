@@ -35,7 +35,7 @@ test("reader speech checks visible words across chapters in both rendered shells
         await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.exposeFunction("recordSpeech", (text: string) => { spoken.push(text); heard(); throw new Error("unavailable"); });
-        await page.evaluate((value: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, synthesizeSpeech: (text: string) => (window as any).recordSpeech(text) }); view.render({ ...(value as object), currentFile: "book.epub", files: [], title: "Speech" }); }, doc);
+        await page.evaluate((value: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, synthesizeSpeech: (text: string) => (window as any).recordSpeech(text) }); view.render({ ...(value as object), currentFile: "book.epub", files: [], title: "Speech" }); }, doc);
       }
       const article = page.locator(".pith-article");
       const button = page.locator('[data-command="read"]');
@@ -139,15 +139,15 @@ test("Web subtitle cues anchor the mounted practice toolkit without mounting ano
     const open = async () => { await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-cue").first().waitFor(); };
     await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator('.pith-article .pith-inline-dojo[data-dojo="feynman"] [data-dojo-submit]').waitFor({ timeout: 5000 });
-    await page.locator('[data-dojo-reveal]').click();
-    assert.match(await page.locator(".pith-cue .pith-dojo-source").textContent(), /A spoken sentence/);
+    await page.locator('.pith-article .pith-inline-toolkit[data-toolkit="feynman"] [data-toolkit-submit]').waitFor({ timeout: 5000 });
+    await page.locator('[data-toolkit-reveal]').click();
+    assert.match(await page.locator(".pith-cue .pith-toolkit-source").textContent(), /A spoken sentence/);
     assert.equal((await (await fetch(`${base}/api/state`)).json()).compass.exploring.find((item: { id: string }) => item.id === topic.id).toolkits.includes("shadowing"), false);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     await page.locator('[data-command="home"]').click(); await open();
     await page.locator(".pith-cue").first().click();
-    await page.locator('.pith-article .pith-inline-dojo[data-dojo="shadowing"] [data-voice="dojo"]').waitFor({ timeout: 5000 });
-    assert.match(await page.locator(".pith-cue [data-dojo-display]").textContent(), /A spoken sentence/);
+    await page.locator('.pith-article .pith-inline-toolkit[data-toolkit="shadowing"] [data-voice="toolkit"]').waitFor({ timeout: 5000 });
+    assert.match(await page.locator(".pith-cue [data-toolkit-display]").textContent(), /A spoken sentence/);
   } finally {
     if (browser) await browser.close();
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));

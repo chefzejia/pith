@@ -49,20 +49,20 @@ test("topic board controls and timeline practice retain timestamps without readi
     assert.equal(spoken, "A spoken sentence.");
     assert.match(original, /<time data-prose="false">00:01<\/time>/);
     await page.locator('[data-command="speech-close"]').click();
-    await page.locator("#open-dojo").click();
-    const popup = page.locator(".pith-dojo-panel"); const width = await popup.evaluate((node: HTMLElement) => node.getBoundingClientRect().width); assert.ok(width < 400, `popup width ${width}`);
-    await page.locator('[data-dojo-choose="shadowing"]').click();
-    await page.locator("[data-dojo-close]").click(); assert.equal(await cue.innerHTML(), original);
-    await cue.click(); await page.locator('[data-dojo-choose="shadowing"]').click();
+    await page.locator("#open-toolkit").click();
+    const popup = page.locator(".pith-toolkit-panel"); const width = await popup.evaluate((node: HTMLElement) => node.getBoundingClientRect().width); assert.ok(width < 400, `popup width ${width}`);
+    await page.locator('[data-toolkit-choose="shadowing"]').click();
+    await page.locator("[data-toolkit-close]").click(); assert.equal(await cue.innerHTML(), original);
+    await cue.click(); await page.locator('[data-toolkit-choose="shadowing"]').click();
     const time = cue.locator(":scope > time");
     const assertTime = async () => { assert.equal(await time.count(), 1); assert.equal(await time.evaluate((node: HTMLElement) => node.offsetWidth > 0), true); assert.equal(await time.textContent(), "00:01"); };
     await assertTime();
-    for (const stage of ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"]) { await page.locator(`[data-dojo-stage="${stage}"]`).click(); await assertTime(); }
+    for (const stage of ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"]) { await page.locator(`[data-toolkit-stage="${stage}"]`).click(); await assertTime(); }
     if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "timeline.png") });
-    await page.locator("[data-dojo-close]").click(); assert.equal(await cue.innerHTML(), original);
-    await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="feynman"]').click(); await assertTime();
-    await page.locator("[data-dojo-reveal]").click(); await assertTime();
-    await page.locator("[data-dojo-close]").click(); assert.equal(await cue.innerHTML(), original);
+    await page.locator("[data-toolkit-close]").click(); assert.equal(await cue.innerHTML(), original);
+    await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click(); await assertTime();
+    await page.locator("[data-toolkit-reveal]").click(); await assertTime();
+    await page.locator("[data-toolkit-close]").click(); assert.equal(await cue.innerHTML(), original);
   } finally {
     if (browser) await browser.close();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

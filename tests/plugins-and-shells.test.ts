@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { markdownSections } from "../src/plugins/stage-reader/index.ts";
 import { findCueAt, formatTimestamp, parseTranscript } from "../src/plugins/stage-timeline/index.ts";
 import { isLoopbackSafe, splitSentences } from "../src/plugins/speech-service/index.ts";
-import { diagnose, shadowingToolkit, transformCue } from "../src/plugins/dojo-shadowing/index.ts";
+import { diagnose, shadowingToolkit, transformCue } from "../src/plugins/toolkit-shadowing/index.ts";
 import { buildScenePrompt, quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 import { DefaultWorkspaceStore, type Topic } from "../src/core/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
@@ -92,12 +92,12 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     };
     const topicId = "topic-001-architecture-foundations";
     const before = (await controller.openTopic(topicId))!.notes.length;
-    const blocked = await fetch(base + "/api/dojo/diagnose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topicId, targetText: "hello", producedText: "hello" }) });
+    const blocked = await fetch(base + "/api/toolkit/diagnose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topicId, targetText: "hello", producedText: "hello" }) });
     assert.equal(blocked.status, 403);
     await post(`/api/topics/${topicId}/toolkits`, { toolkits: ["shadowing"] });
-    const transformed = await post("/api/dojo/transform", { topicId, targetText: "It's in the book", stage: "scaffold-cloze" });
+    const transformed = await post("/api/toolkit/transform", { topicId, targetText: "It's in the book", stage: "scaffold-cloze" });
     assert.equal(transformed.text, "It's ___ ___ book");
-    const diagnosis = await post("/api/dojo/diagnose", { topicId, file: "00-course-outline.md", locator: "text:line:1", targetText: "The green book", producedText: "The book", saveNote: true });
+    const diagnosis = await post("/api/toolkit/diagnose", { topicId, file: "00-course-outline.md", locator: "text:line:1", targetText: "The green book", producedText: "The book", saveNote: true });
     assert.deepEqual(diagnosis.missedTokens, ["green"]);
     assert.equal(diagnosis.note.kind, "practice");
     assert.equal((await controller.openTopic(topicId))!.notes.length, before + 1);
@@ -120,8 +120,8 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     assert.equal(controller.getPersona(), "studio");
     const switched = await (await fetch(base + "/api/state")).json() as { settings: { persona: string } };
     assert.equal(switched.settings.persona, "studio");
-    await controller.setPlugins({ preset: "essentials", plugins: { "dojo-shadowing": { enabled: false } } });
-    assert.equal(controller.runtime.statuses().find(item => item.id === "dojo-shadowing")?.state, "active");
+    await controller.setPlugins({ preset: "essentials", plugins: { "toolkit-shadowing": { enabled: false } } });
+    assert.equal(controller.runtime.statuses().find(item => item.id === "toolkit-shadowing")?.state, "active");
   } finally {
     controller.dispose();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

@@ -1,6 +1,7 @@
 import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
+import "../../plugins/all.ts";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type SelectionAnchor, type WorkspaceStoragePort } from "../../core/index.ts";
 import { normalizeToolkits } from "../../plugins/guide-acp/acpSession.ts";
 import { createGuideWorkspaceTools } from "../../plugins/guide-acp/tools.ts";

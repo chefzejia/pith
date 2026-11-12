@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type DojoScaffoldStage, type DojoToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
-import { LocalAcpGuideProvider, buildScenePrompt } from "../../plugins/guide-acp/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type ToolkitStage, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
+import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeRepositoryPort } from "./nodeRepository.ts";
@@ -16,11 +16,11 @@ import { boardMaterials } from "../../workbench/boardMaterials.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator } from "../../plugins/guide-acp/index.ts";
-import { InterlineSession, type InterlineUnitInput } from "../../plugins/dojo-interline/index.ts";
+import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
 import { sampleEpubLanguage } from "../../plugins/stage-reader/epub.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
-import { practiceMessage } from "../../plugins/dojo-feynman/index.ts";
+import { practiceMessage } from "../../plugins/toolkit-feynman/index.ts";
 import type { AgentProcessPort, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
@@ -91,7 +91,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const secrets: Record<string, string> = {};
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
   const agentTimeoutMs = (): number => { const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; };
-  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
+  localProvider = new LocalAcpGuideProvider({ processPort, store, engine, storage, http, repository, mediaCorpus, getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;
@@ -134,7 +134,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         res.end(Buffer.from(readerFont[("LXGW_WENKAI_" + "WOFF2") as keyof typeof readerFont], "base64")); return;
       }
       if (method === "GET" && url.pathname === "/api/state") {
-        await refresh(); const dojos = ["shadowing", "feynman", "interline"].flatMap(id => { const service = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return service ? [{ id, evalMode: service.evalMode }] : []; }); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), dojos: dojos.map(item => item.id), dojoModes: Object.fromEntries(dojos.map(item => [item.id, item.evalMode])) });
+        await refresh(); const toolkits = ["shadowing", "feynman", "interline"].flatMap(id => { const service = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return service ? [{ id, evalMode: service.evalMode }] : []; }); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), toolkits: toolkits.map(item => item.id), toolkitModes: Object.fromEntries(toolkits.map(item => [item.id, item.evalMode])) });
       }
       if (method === "GET" && url.pathname === "/api/agents") {
         const guide = runtime.getService<GuideAgentService>("guide.agent");
@@ -171,7 +171,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
         }
         if (data.guideDefault !== undefined && (data.guideDefault !== true || material || data.toolkits !== undefined)) throw new Error("Invalid guide default");
-        const toolkits = data.toolkits !== undefined ? data.toolkits as string[] : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guideDefault ? ["feynman"] : undefined;
+        const toolkits = data.toolkits !== undefined ? normalizeToolkits(data.toolkits as string[]) : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guideDefault ? ["feynman"] : undefined;
         const topic = await store.createTopic({ title: str(data, "title"), target: typeof data.target === "string" ? data.target : "", nextAction: typeof data.nextAction === "string" ? data.nextAction : undefined,
           materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}), ...((data.guideDefault || (material && data.toolkits === undefined)) ? { toolkitsOrigin: "default" as const } : {}) });
         await refresh(); return send(res, 201, topic);
@@ -180,7 +180,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && toolkitPath) {
         const data = await body(req);
         if (!Array.isArray(data.toolkits) || !data.toolkits.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item)) || new Set(data.toolkits).size !== data.toolkits.length) throw new Error("Invalid toolkits");
-        const topicId = decodeURIComponent(toolkitPath[1]!); const topic = await store.updateTopic(topicId, { toolkits: data.toolkits });
+        const topicId = decodeURIComponent(toolkitPath[1]!); const topic = await store.updateTopic(topicId, { toolkits: normalizeToolkits(data.toolkits) });
         await refresh(); return send(res, 200, topic);
       }
       const actionsPath = /^\/api\/topics\/([^/]+)\/actions$/.exec(url.pathname);
@@ -190,10 +190,10 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!topic) return send(res, 404, { error: "Topic not found" });
         const guide = runtime.getService<GuideAgentService>("guide.agent");
         if (!guide || !guide.quickActionsForTopic) return send(res, 503, { error: "Guide service unavailable" });
-        const dojos = ["shadowing", "feynman", "interline"].flatMap(id => { const dojo = runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); return dojo ? [dojo] : []; });
+        const toolkits = ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; });
         const material = topic.materialId ? await store.getMaterial(topic.materialId) : null;
         const topicWithMaterial = { ...topic, material };
-        return send(res, 200, guide.quickActionsForTopic(topicWithMaterial, dojos));
+        return send(res, 200, guide.quickActionsForTopic(topicWithMaterial, toolkits));
       }
       if (method === "POST" && url.pathname === "/api/interline") {
         const data = await body(req), topicId = str(data, "topicId"), file = str(data, "file"), mode = str(data, "mode");
@@ -201,7 +201,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!topic || !topic.materialId || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间未挂载" });
         const material = await store.getMaterial(topic.materialId);
         if (!material || !material.files.some(item => item.name === file)) return send(res, 404, { error: "材料不存在" });
-        const service = runtime.getService<InterlineService>("dojo.interline");
+        const service = runtime.getService<InterlineService>("toolkit.interline");
         if (!service) return send(res, 503, { error: "行间不可用" });
         if (!Array.isArray(data.units) || !data.units.length || data.units.length > 10000 || JSON.stringify(data.units).length > 10_000_000 || !data.units.every((unit: any) => unit && typeof unit.html === "string" && Array.isArray(unit.segments) && unit.segments.every((segment: any) => segment && typeof segment.locator === "string" && typeof segment.sourceText === "string" && Number.isInteger(segment.blockIndex)))) throw new Error("Invalid interline units");
         const units = data.units as InterlineUnitInput[], index = data.index;
@@ -272,39 +272,39 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (topicId) await store.updateTopic(topicId, { materialId: material.id });
         await refresh(); return send(res, 201, material);
       }
-      if (method === "POST" && (url.pathname === "/api/dojo/diagnose" || url.pathname === "/api/dojo/transform" || url.pathname === "/api/dojo/submit")) {
+      if (method === "POST" && (url.pathname === "/api/toolkit/diagnose" || url.pathname === "/api/toolkit/transform" || url.pathname === "/api/toolkit/submit")) {
         const data = await body(req);
         const topicId = str(data, "topicId");
         await refresh();
         const topic = await store.getTopic(topicId);
         if (!topic) return send(res, 404, { error: "Topic not found" });
-        const toolkit = data.toolkit === undefined ? "shadowing" : data.toolkit;
-        if (toolkit !== "shadowing" && toolkit !== "feynman") throw new Error("Invalid toolkit");
+        const toolkitId = data.toolkit === undefined ? "shadowing" : data.toolkit;
+        if (toolkitId !== "shadowing" && toolkitId !== "feynman") throw new Error("Invalid toolkit");
         const material = topic.materialId ? await store.getMaterial(topic.materialId) : null;
         const requestedFile = typeof data.file === "string" ? material?.files.find(item => item.name === data.file) : undefined;
         const format = requestedFile?.name ?? material?.files[0]?.name ?? material?.kind ?? "";
-        if (!effectiveToolkits(topic.toolkits, format).includes(toolkit)) return send(res, 403, { error: `${toolkit} is not enabled for this topic` });
-        const dojo = runtime.getService<DojoToolkitDescriptor>(`dojo.${toolkit}`);
-        if (!dojo) return send(res, 503, { error: `${toolkit} service unavailable` });
+        if (!effectiveToolkits(topic.toolkits, format).includes(toolkitId)) return send(res, 403, { error: `${toolkitId} is not enabled for this topic` });
+        const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${toolkitId}`);
+        if (!toolkit) return send(res, 503, { error: `${toolkitId} service unavailable` });
         const targetText = str(data, "targetText");
-        if (url.pathname === "/api/dojo/submit") {
-          if (dojo.evalMode !== "guide-rubric" || !dojo.evaluationRubric) throw new Error("此工具不支持向导评价");
+        if (url.pathname === "/api/toolkit/submit") {
+          if (toolkit.evalMode !== "guide-rubric" || !toolkit.evaluationRubric) throw new Error("此工具不支持向导评价");
           const producedText = str(data, "producedText");
           const practiceAnchor = anchor(data.anchor);
           if (!practiceAnchor || !requestedFile || practiceAnchor.file !== requestedFile.name || practiceAnchor.quote !== targetText) throw new Error("原文锚点无效");
           const note = await engine.captureSelection({ topicId, kind: "practice", body: producedText, anchor: practiceAnchor });
           processEffects();
           if (!options.guideProvider && !settings.agentId) return send(res, 201, { note, guided: false });
-          try { await engine.sendMessage({ topicId, text: practiceMessage(producedText, dojo.label, dojo.evaluationRubric), anchor: practiceAnchor }); return send(res, 201, { note, guided: true }); }
+          try { await engine.sendMessage({ topicId, text: practiceMessage(producedText, toolkit.label, toolkit.evaluationRubric), anchor: practiceAnchor }); return send(res, 201, { note, guided: true }); }
           catch (error) { return send(res, 201, { note, guided: false, guideError: error instanceof Error ? error.message : String(error) }); }
         }
-        if (url.pathname === "/api/dojo/transform") {
+        if (url.pathname === "/api/toolkit/transform") {
           const stage = str(data, "stage");
-          if (!dojo.stages.includes(stage as DojoScaffoldStage)) throw new Error("Invalid stage");
-          return send(res, 200, { text: dojo.transformCue(targetText, stage as DojoScaffoldStage) });
+          if (!toolkit.stages.includes(stage as ToolkitStage)) throw new Error("Invalid stage");
+          return send(res, 200, { text: toolkit.transformCue(targetText, stage as ToolkitStage) });
         }
         if (typeof data.producedText !== "string") throw new Error("Invalid producedText");
-        const result = dojo.diagnose(targetText, data.producedText);
+        const result = toolkit.diagnose(targetText, data.producedText);
         if (data.saveNote !== undefined && typeof data.saveNote !== "boolean") throw new Error("Invalid saveNote");
         if (data.saveNote === true) {
           const note = await engine.captureSelection({ topicId, kind: "practice", body: result.summaryMarkdown, anchor: { file: str(data, "file"), locator: str(data, "locator"), quote: targetText } });

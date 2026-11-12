@@ -28,7 +28,7 @@ test("Obsidian speech retains only actual completion or failure and isolates imm
         data.setUint32(4, bytes.length - 8, true); data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, 1, true); data.setUint32(24, 24000, true); data.setUint32(28, 48000, true); data.setUint16(32, 2, true); data.setUint16(34, 16, true); data.setUint32(40, samples * 2, true);
         state.requests[index].resolve({ bytes, mimeType: "audio/wav" });
       };
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, openSettings() {}, synthesizeSpeech: (text: string) => new Promise((resolve, reject) => state.requests.push({ text, resolve, reject })) });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, openSettings() {}, synthesizeSpeech: (text: string) => new Promise((resolve, reject) => state.requests.push({ text, resolve, reject })) });
       state.view = view; state.document = { title: "Speech", currentFile: "book.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">First sentence. Second sentence.</p>' }; view.render(state.document);
     });
     const read = page.locator('[data-command="read"]'), result = page.locator('.pith-speech-controls [role="status"]');

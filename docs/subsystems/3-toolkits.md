@@ -96,7 +96,5 @@
 ## 4. 验证命令
 
 ```bash
-npm run test:file -- tests/wave2-trackA-plugins.test.ts tests/wave5-trackA-dojo-feynman.test.ts tests/dojo-interline.test.ts
+npm run test:file -- tests/wave2-trackA-plugins.test.ts tests/wave5-trackA-toolkit-feynman.test.ts tests/toolkit-interline.test.ts
 ```
-
-两个测试文件名里的 `dojo` 随改名任务一并更名（[ARCHITECTURE.md](../ARCHITECTURE.md) 第六节），届时更新本命令。

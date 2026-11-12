@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PluginRuntime, type Topic } from "../src/core/index.ts";
 import { builtinRegistry } from "../src/plugins/all.ts";
-import { diagnoseFeynman, feynmanInUse, feynmanToolkit, transformCue } from "../src/plugins/dojo-feynman/index.ts";
-import { shadowingToolkit } from "../src/plugins/dojo-shadowing/index.ts";
+import { diagnoseFeynman, feynmanInUse, feynmanToolkit, transformCue } from "../src/plugins/toolkit-feynman/index.ts";
+import { shadowingToolkit } from "../src/plugins/toolkit-shadowing/index.ts";
 import { buildScenePrompt, quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 
 function topic(toolkits: string[]): Topic {
@@ -36,33 +36,33 @@ test("Feynman uses a guide rubric and a non-scoring offline prompt", () => {
 });
 
 test("registered Feynman plugin is kept active by injected topic usage and promotes its reader", () => {
-  let topics = [topic(["feynman", "dojo-feynman"]), topic(["dojo-feynman"]), topic(["shadowing"])];
+  let topics = [topic(["feynman"]), topic(["feynman"]), topic(["shadowing"])];
   assert.equal(feynmanInUse(topics), 2);
-  const manifest = builtinRegistry.list().find(item => item.id === "dojo-feynman");
+  const manifest = builtinRegistry.list().find(item => item.id === "toolkit-feynman");
   assert.ok(manifest);
   assert.equal(manifest.api, "^1");
   assert.deepEqual(manifest.requires, ["stage.reader"]);
-  assert.deepEqual(manifest.provides, ["dojo.feynman"]);
+  assert.deepEqual(manifest.provides, ["toolkit.feynman"]);
   assert.equal(manifest.essential, false);
   const reader = { id: "reader", name: "Reader", description: "Reader", essential: false, provides: ["stage.reader"], apply: (ctx: import("../src/core/index.ts").PluginContext) => ctx.provide("stage.reader", {}) };
   const runtime = new PluginRuntime([{ ...manifest, inUse: () => feynmanInUse(topics) }, reader]);
-  const config = { preset: "essentials" as const, plugins: { "dojo-feynman": { enabled: false } } };
+  const config = { preset: "essentials" as const, plugins: { "toolkit-feynman": { enabled: false } } };
   try {
     runtime.reconcile(config);
-    assert.equal(runtime.active("dojo-feynman"), true);
+    assert.equal(runtime.active("toolkit-feynman"), true);
     assert.equal(runtime.active("reader"), true);
-    assert.equal(runtime.getService("dojo.feynman"), feynmanToolkit);
-    assert.equal(runtime.statuses().find(status => status.id === "dojo-feynman")!.inUseCount, 2);
+    assert.equal(runtime.getService("toolkit.feynman"), feynmanToolkit);
+    assert.equal(runtime.statuses().find(status => status.id === "toolkit-feynman")!.inUseCount, 2);
     topics = [topic([])];
     runtime.reconcile(config);
-    assert.equal(runtime.active("dojo-feynman"), false);
+    assert.equal(runtime.active("toolkit-feynman"), false);
     assert.equal(runtime.active("reader"), false);
-    assert.equal(runtime.getService("dojo.feynman"), undefined);
+    assert.equal(runtime.getService("toolkit.feynman"), undefined);
   } finally { runtime.stop(); }
 });
 
-test("Guide merges only mounted dojo actions and defaults to both toolkit descriptions", () => {
-  const current = topic(["dojo-feynman", "shadowing"]);
+test("Guide merges only mounted toolkit actions and defaults to both toolkit descriptions", () => {
+  const current = topic(["feynman", "shadowing"]);
   const actions = quickActionsForTopic(current, [feynmanToolkit, shadowingToolkit]);
   assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "feynman-coach", "shadowing-coach"]);
   assert.deepEqual(actions[1], feynmanToolkit.quickActions[0]);

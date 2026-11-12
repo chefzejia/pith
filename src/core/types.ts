@@ -5,7 +5,7 @@
  * - Profile (`ME.md`): the learner's evolving cognitive baseline
  * - Topic (`topics/<id>/topic.md`): an exploration unit and attention anchor
  * - Material (`materials/<id>/material.md`): observable files and intrinsic locators
- * - Note & SelectionAnchor: highlights, reflections, and dojo practice diagnostics
+ * - Note & SelectionAnchor: highlights, reflections, and toolkit practice diagnostics
  */
 
 export type TopicStatus = "exploring" | "settled";
@@ -47,7 +47,7 @@ export interface Topic {
   readonly materialId?: string;
   /** Single concrete 15-minute next step shown on the Attention Compass. */
   readonly nextAction?: string;
-  /** Dynamically injected dojo/practice toolkit plugin IDs (e.g. ["shadowing"]). */
+  /** Dynamically injected toolkit/practice toolkit plugin IDs (e.g. ["shadowing"]). */
   readonly toolkits: readonly string[];
   /** Whether `toolkits` was provisionally pre-filled by intake defaults before material binding (`"default"`) or explicitly configured (`"explicit"`). */
   readonly toolkitsOrigin?: "default" | "explicit";

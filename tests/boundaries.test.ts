@@ -1,16 +1,36 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { LXGW_WENKAI_LICENSE, LXGW_WENKAI_WOFF2 } from "../src/plugins/stage-reader/lxgwWenKaiData.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
 
+test("embedded reader font retains its original bytes", () => {
+  assert.equal(createHash("sha256").update(Buffer.from(LXGW_WENKAI_WOFF2, "base64")).digest("hex"), "ca84517aa692251360ec0124a5e9ebd1ff9720b90e785e0e1ab035ce08a97ac8");
+  assert.equal(createHash("sha256").update(LXGW_WENKAI_LICENSE).digest("hex"), "5c0f0d98a8b71a401063c9a9e814e608fef6824fefab0c2ab73fe0955a5551b1");
+});
+
+test("retired toolkit terminology is absent from paths and contents", () => {
+  const retired = new RegExp(["do", "jo"].join(""), "i");
+  function inspect(dir: string): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      assert.doesNotMatch(relative(ROOT, path), retired);
+      if (entry.isDirectory()) inspect(path);
+      else if (entry.isFile()) assert.doesNotMatch(readFileSync(path, "utf8"), retired, relative(ROOT, path));
+    }
+  }
+  for (const dir of ["src", "tests", "scripts"]) inspect(join(ROOT, dir));
+});
+
 test("retired shell fragments and unused runtime parts stay removed", () => {
-  for (const file of ["core/pluginrt/kernel.ts", "shells/dojoView.ts", "shells/interlineView.ts", "shells/speechRuntime.ts", "shells/speechGateway.ts", "shells/speechSettings.ts", "shells/voiceInput.ts", "shells/mediaAssets.ts"]) {
+  for (const file of ["core/pluginrt/kernel.ts", "shells/toolkitView.ts", "shells/interlineView.ts", "shells/speechRuntime.ts", "shells/speechGateway.ts", "shells/speechSettings.ts", "shells/voiceInput.ts", "shells/mediaAssets.ts"]) {
     assert.equal(statSync(join(SRC, file), { throwIfNoEntry: false }), undefined, file);
   }
   const runtime = readFileSync(join(SRC, "core/pluginrt/runtime.ts"), "utf8");

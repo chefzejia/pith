@@ -84,18 +84,18 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") {
         await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
-        assert.equal(await page.locator("#open-dojo").evaluate((node: HTMLElement) => node.classList.contains("pith-dojo-add") && !node.hidden), true);
+        assert.equal(await page.locator("#open-toolkit").evaluate((node: HTMLElement) => node.classList.contains("pith-toolkit-add") && !node.hidden), true);
       } else {
         await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
         await page.evaluate((doc: unknown) => {
-          const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(doc: object): void; setToolkits(ids: string[]): void; openDojo(dojos: object[]): void } } }).PithView;
+          const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(doc: object): void; setToolkits(ids: string[]): void; openToolkit(toolkits: object[]): void } } }).PithView;
           let view: InstanceType<typeof pith.PithObsidianView>;
-          const dojos = ["feynman", "shadowing"].map(id => ({ id, label: id, stages: ["listen-decompose"], transformCue: (text: string) => text }));
-          view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openDojo() { view.openDojo(dojos); } });
+          const toolkits = ["feynman", "shadowing"].map(id => ({ id, label: id, stages: ["listen-decompose"], transformCue: (text: string) => text }));
+          view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openToolkit() { view.openToolkit(toolkits); } });
           view.render({ ...(doc as object), currentFile: "links.epub", files: [], title: "链接书" });
           (window as unknown as { testView: typeof view }).testView = view;
         }, documentView);
-        assert.equal(await page.locator("#open-dojo").evaluate((node: HTMLElement) => node.classList.contains("pith-dojo-add") && !node.hidden), true);
+        assert.equal(await page.locator("#open-toolkit").evaluate((node: HTMLElement) => node.classList.contains("pith-toolkit-add") && !node.hidden), true);
       }
       const reader = ".pith-reader";
       const link = (name: string) => page.locator(".pith-epub-chapter a").filter({ hasText: name }).first();
@@ -138,11 +138,11 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
         await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman", "shadowing"] });
         await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
       } else await page.evaluate(() => (window as unknown as { testView: { setToolkits(ids: string[]): void } }).testView.setToolkits(["feynman", "shadowing"]));
-      await page.locator("#open-dojo").click();
-      const chooser = "[data-dojo-choose]";
+      await page.locator("#open-toolkit").click();
+      const chooser = "[data-toolkit-choose]";
       assert.equal(await page.locator(chooser).count(), shell === "web" ? 3 : 2);
       await page.locator(chooser).first().click();
-      assert.equal(await page.locator("#dojo-toolkit, [data-dojo-tool]").count(), 0);
+      assert.equal(await page.locator("#toolkit-toolkit, [data-toolkit-tool]").count(), 0);
     }
     assert.equal(external, 0);
   } finally {

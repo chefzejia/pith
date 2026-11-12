@@ -6,14 +6,14 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Script } from "node:vm";
 import test from "node:test";
-import type { DojoToolkitDescriptor } from "../src/core/index.ts";
+import type { ToolkitDescriptor } from "../src/core/index.ts";
 import { PithObsidianController, createObsidianHostPort } from "../src/shells/obsidian/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 
 const exec = promisify(execFile);
 
-test("Obsidian controller persists quoted conversation and practice from both registered dojos", async () => {
+test("Obsidian controller persists quoted conversation and practice from both registered toolkits", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-track-b-"));
   const storage = new NodeWorkspaceStorage(dir);
   const adapter = {
@@ -33,10 +33,10 @@ test("Obsidian controller persists quoted conversation and practice from both re
     await controller.engine.sendMessage({ topicId: topic.id, text: "解释一下", anchor });
     assert.deepEqual((await controller.engine.getConversation(topic.id))[0]!.anchor, anchor);
     for (const id of ["shadowing", "feynman"]) {
-      const dojo = controller.runtime.getService<DojoToolkitDescriptor>(`dojo.${id}`); assert.ok(dojo);
-      assert.equal(dojo.stages.length, dojo.id === "feynman" ? 1 : 4);
-      for (const stage of dojo.stages) assert.ok(dojo.transformCue("A useful concept", stage));
-      const diagnosis = dojo.diagnose("A useful concept", "useful concept");
+      const toolkit = controller.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); assert.ok(toolkit);
+      assert.equal(toolkit.stages.length, toolkit.id === "feynman" ? 1 : 4);
+      for (const stage of toolkit.stages) assert.ok(toolkit.transformCue("A useful concept", stage));
+      const diagnosis = toolkit.diagnose("A useful concept", "useful concept");
       await controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body: diagnosis.summaryMarkdown, anchor });
     }
     const saved = await controller.store.getTopic(topic.id); assert.ok(saved);
@@ -54,18 +54,18 @@ test("Obsidian build and web reader script expose production controls", async t 
   const [main, manifest, styles] = await Promise.all(["dist/obsidian/main.js", "dist/obsidian/manifest.json", "dist/obsidian/styles.css"].map(path => readFile(join(buildRoot, path), "utf8")));
   assert.ok(main && styles); assert.equal(JSON.parse(manifest!).id, "pith");
   assert.doesNotMatch(main!, /此视图尚未提供/);
-  assert.match(styles!, /\.pith-dojo-panel/);
+  assert.match(styles!, /\.pith-toolkit-panel/);
   const workspace = await mkdtemp(join(tmpdir(), "pith-reader-http-"));
   const server = await createPithWebServer({ workspaceDir: workspace });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const script = await (await fetch(`http://127.0.0.1:${address.port}/app.js`)).text();
     assert.doesNotThrow(() => new Script(script));
-    for (const token of ["pith-page-mode", "columnWidth", "data-dojo-stage", "data-dojo-save", "prefix"]) assert.ok(script.includes(token), token);
+    for (const token of ["pith-page-mode", "columnWidth", "data-toolkit-stage", "data-toolkit-save", "prefix"]) assert.ok(script.includes(token), token);
   } finally { await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); await rm(workspace, { recursive: true, force: true }); }
 });
 
-test("web dojo API defaults to shadowing and validates explicit toolkit", async () => {
+test("web toolkit API defaults to shadowing and validates explicit toolkit", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-track-b-web-"));
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
   try {
@@ -76,8 +76,8 @@ test("web dojo API defaults to shadowing and validates explicit toolkit", async 
     const created = await post("/api/topics", { title: "理解" }); assert.equal(created.status, 201); const topic = await created.json();
     assert.equal((await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] })).status, 200);
     const data = { topicId: topic.id, targetText: "A useful concept", stage: "blind-produce" };
-    const old = await post("/api/dojo/transform", data); assert.equal(old.status, 200); assert.equal((await old.json()).text, "A useful concept");
-    const modern = await post("/api/dojo/transform", { ...data, toolkit: "feynman" }); assert.equal(modern.status, 200); assert.match((await modern.json()).text, /解释/);
-    assert.equal((await post("/api/dojo/transform", { ...data, toolkit: "invalid" })).status, 400);
+    const old = await post("/api/toolkit/transform", data); assert.equal(old.status, 200); assert.equal((await old.json()).text, "A useful concept");
+    const modern = await post("/api/toolkit/transform", { ...data, toolkit: "feynman" }); assert.equal(modern.status, 200); assert.match((await modern.json()).text, /解释/);
+    assert.equal((await post("/api/toolkit/transform", { ...data, toolkit: "invalid" })).status, 400);
   } finally { if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

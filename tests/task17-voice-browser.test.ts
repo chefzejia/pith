@@ -17,7 +17,7 @@ test("both shells record and transcribe shadowing input, and release tracks", { 
     await post("/api/materials", { topicId: topic.id, title: "Voice", kind: "article", files: [{ name: "voice.md", data: Buffer.from("Test voice input.").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
-    const shadow = await build({ entryPoints: ["src/plugins/dojo-shadowing/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Shadow" });
+    const shadow = await build({ entryPoints: ["src/plugins/toolkit-shadowing/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Shadow" });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
     await browser.grantPermissions(["microphone"], { origin: base });
@@ -29,27 +29,27 @@ test("both shells record and transcribe shadowing input, and release tracks", { 
     await page.route("**/api/speech/transcribe", async (route: any) => { const body = route.request().postDataJSON(); assert.equal(body.mimeType, "audio/webm"); assert.ok(Buffer.from(body.audio, "base64").length > 0); await route.fulfill({ json: { text: "recognized" } }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     assert.equal(await page.locator('.pith-guide [data-voice]').count(), 0);
-    for (const target of ["dojo"]) {
-      if (target === "dojo") { await page.locator("#open-dojo").click(); await page.locator('[data-dojo-choose="shadowing"]').click(); }
+    for (const target of ["toolkit"]) {
+      if (target === "toolkit") { await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="shadowing"]').click(); }
       const button = page.locator(`[data-voice="${target}"]`); await button.click(); await page.waitForFunction((value: string) => document.querySelector(`[data-voice="${value}"]`)?.getAttribute("aria-pressed") === "true", target);
       await page.waitForTimeout(300); await button.click(); if (target === "guide") await page.waitForFunction(() => (document.querySelector('.pith-guide textarea') as HTMLTextAreaElement)?.value.includes('recognized')); else await page.waitForFunction(() => document.querySelector('.pith-shadowing-feedback')?.textContent?.includes('recognized'));
       assert.equal(await page.evaluate(() => (window as any).voiceTest.streams.at(-1).getTracks().every((track: MediaStreamTrack) => track.readyState === "ended")), true);
     }
     assert.equal(await page.locator("#asr-audio").count(), 0);
     await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new Error("麦克风权限被拒绝"); }; });
-    await page.locator('[data-voice="dojo"]').click(); await page.waitForFunction(() => document.querySelector(".pith-stage .pith-toast-tip")?.textContent?.includes("麦克风权限被拒绝"));
+    await page.locator('[data-voice="toolkit"]').click(); await page.waitForFunction(() => document.querySelector(".pith-stage .pith-toast-tip")?.textContent?.includes("麦克风权限被拒绝"));
     await page.route("**/obsidian-fixture", async (route: any) => route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }));
     await page.goto(`${base}/obsidian-fixture`); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.addScriptTag({ content: shadow.outputFiles[0]!.text });
     await page.evaluate(() => {
       const state: any = (window as any).voiceTest;
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async (bytes: Uint8Array, mime: string, signal: AbortSignal) => { state.calls.push({ size: bytes.length, mime }); if (state.defer) return new Promise(resolve => { state.signal = signal; state.finish = resolve; }); return { text: "recognized" }; } });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async (bytes: Uint8Array, mime: string, signal: AbortSignal) => { state.calls.push({ size: bytes.length, mime }); if (state.defer) return new Promise(resolve => { state.signal = signal; state.finish = resolve; }); return { text: "recognized" }; } });
       state.view = view; document.body.append(view.guideElement()); view.render({ title: "Voice", currentFile: "voice.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">Voice</p>' }); view.setGuideVisible(true);
-      state.dojo = (window as any).Shadow.shadowingToolkit;
+      state.toolkit = (window as any).Shadow.shadowingToolkit;
     });
     await page.evaluate(() => (window as any).voiceTest.view.refreshGuide());
     assert.equal(await page.locator('.pith-guide [data-voice]').count(), 0);
-    for (const target of ["dojo"]) {
-      if (target === "dojo") await page.evaluate(() => (window as any).voiceTest.view.openDojo([(window as any).voiceTest.dojo]));
+    for (const target of ["toolkit"]) {
+      if (target === "toolkit") await page.evaluate(() => (window as any).voiceTest.view.openToolkit([(window as any).voiceTest.toolkit]));
       const button = page.locator(`[data-voice="${target}"]`); await button.click(); await page.waitForFunction((value: string) => document.querySelector(`[data-voice="${value}"]`)?.getAttribute("aria-pressed") === "true", target); await page.waitForTimeout(300); await button.click();
       if (target === "guide") await page.waitForFunction(() => (document.querySelector('.pith-guide textarea') as HTMLTextAreaElement)?.value.includes('recognized')); else await page.waitForFunction(() => document.querySelector('.pith-shadowing-feedback')?.textContent?.includes('recognized'));
       assert.equal(await page.evaluate(() => (window as any).voiceTest.streams.at(-1).getTracks().every((track: MediaStreamTrack) => track.readyState === "ended")), true);
@@ -59,13 +59,13 @@ test("both shells record and transcribe shadowing input, and release tracks", { 
       const state: any = (window as any).voiceTest; const get = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getUserMedia = async constraints => { const stream = await get(constraints); await new Promise<void>(resolve => { state.releasePermission = resolve; }); return stream; };
     });
-    await page.locator('[data-voice="dojo"]').click();
+    await page.locator('[data-voice="toolkit"]').click();
     await page.waitForFunction(() => Boolean((window as any).voiceTest.releasePermission));
-    await page.evaluate(() => { const state: any = (window as any).voiceTest; state.view.closeInlineDojo(); state.releasePermission(); });
+    await page.evaluate(() => { const state: any = (window as any).voiceTest; state.view.closeInlineToolkit(); state.releasePermission(); });
     await page.waitForFunction(() => (window as any).voiceTest.streams.at(-1).getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"));
-    assert.equal(await page.locator('[data-voice="dojo"]').count(), 0);
-    await page.evaluate(() => { const state: any = (window as any).voiceTest; navigator.mediaDevices.getUserMedia = async () => { const context = new AudioContext(); const source = context.createOscillator(); const destination = context.createMediaStreamDestination(); source.connect(destination); source.start(); await context.resume(); state.streams.push(destination.stream); return destination.stream; }; state.view.openDojo([state.dojo]); state.defer = true; });
-    await page.locator('[data-voice="dojo"]').click(); await page.waitForFunction(() => document.querySelector('[data-voice="dojo"]')?.getAttribute("aria-pressed") === "true"); await page.waitForTimeout(300); await page.locator('[data-voice="dojo"]').click();
+    assert.equal(await page.locator('[data-voice="toolkit"]').count(), 0);
+    await page.evaluate(() => { const state: any = (window as any).voiceTest; navigator.mediaDevices.getUserMedia = async () => { const context = new AudioContext(); const source = context.createOscillator(); const destination = context.createMediaStreamDestination(); source.connect(destination); source.start(); await context.resume(); state.streams.push(destination.stream); return destination.stream; }; state.view.openToolkit([state.toolkit]); state.defer = true; });
+    await page.locator('[data-voice="toolkit"]').click(); await page.waitForFunction(() => document.querySelector('[data-voice="toolkit"]')?.getAttribute("aria-pressed") === "true"); await page.waitForTimeout(300); await page.locator('[data-voice="toolkit"]').click();
     await page.waitForFunction(() => Boolean((window as any).voiceTest.finish));
     await page.evaluate(() => { const state: any = (window as any).voiceTest; state.view.dispose(); state.finish({ text: "late" }); });
     assert.equal(await page.evaluate(() => (window as any).voiceTest.signal.aborted), true);
@@ -91,8 +91,8 @@ test("Web recorded WebM reaches the isolated native ASR", { timeout: 90000, skip
       const state: any = (window as any).nativeVoice = {}; const context = new AudioContext(); const buffer = await context.decodeAudioData(new Uint8Array(data).buffer);
       navigator.mediaDevices.getUserMedia = async () => { const destination = context.createMediaStreamDestination(); const source = context.createBufferSource(); source.buffer = buffer; source.connect(destination); state.source = source; state.done = new Promise<void>(resolve => { source.onended = () => resolve(); }); await context.resume(); return destination.stream; };
     }, [...audio]);
-    await page.locator('#open-dojo').click(); await page.locator('[data-dojo-choose="shadowing"]').click();
-    const button = page.locator('[data-voice="dojo"]'); await button.click(); await page.waitForFunction(() => document.querySelector('[data-voice="dojo"]')?.getAttribute("aria-pressed") === "true");
+    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="shadowing"]').click();
+    const button = page.locator('[data-voice="toolkit"]'); await button.click(); await page.waitForFunction(() => document.querySelector('[data-voice="toolkit"]')?.getAttribute("aria-pressed") === "true");
     await page.evaluate(async () => { const state: any = (window as any).nativeVoice; state.source.start(); await state.done; }); await button.click();
     await page.waitForFunction(() => Boolean(document.querySelector('.pith-shadowing-feedback')?.textContent), null, { timeout: 60000 });
     assert.match((await page.locator('.pith-shadowing-feedback').innerText()).toLowerCase(), /reading a book together/);

@@ -1,8 +1,9 @@
-import type { AttentionEngine, GuideMcpToolSpec, HttpPort, MediaCorpusPort, RepositoryPort, SelectionAnchor, WorkspaceStoragePort, WorkspaceStore } from "../../core/index.ts";
+import { builtinRegistry, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
-  if (!Array.isArray(value) || !value.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item))) throw new Error("Invalid toolkit IDs");
+  const registered = new Set(builtinRegistry.list().filter(manifest => manifest.id.startsWith("toolkit-")).map(manifest => manifest.id.slice("toolkit-".length)));
+  if (!Array.isArray(value) || !value.every(item => typeof item === "string" && registered.has(item))) throw new Error("Invalid toolkit IDs");
   return [...new Set(value as readonly string[])];
 }
 

@@ -32,13 +32,13 @@ test("Web transport drives real video, cue targets and controlled speech", { tim
     assert.equal(await page.locator(".pith-media-deck:visible").count(), 1); assert.equal(await page.locator(".pith-media-deck input[type=range]").count(), 1); assert.equal(await page.locator(".pith-deck-marker").count(), 2);
     await page.locator('[data-media="play"]').click(); await page.waitForFunction(() => { const video = document.querySelector<HTMLVideoElement>("video")!; return !video.paused && video.currentTime > .05; });
     await page.locator('[data-media="play"]').click(); assert.equal(await page.locator("video").evaluate((v: HTMLVideoElement) => v.paused), true);
-    await page.locator(".pith-cue").first().click(); await page.locator('[data-dojo-choose="shadowing"]').click(); await page.locator('.pith-deck-marker[data-cue-start="1.5"]').click();
+    await page.locator(".pith-cue").first().click(); await page.locator('[data-toolkit-choose="shadowing"]').click(); await page.locator('.pith-deck-marker[data-cue-start="1.5"]').click();
     assert.ok(Math.abs(await page.locator("video").evaluate((node: HTMLVideoElement) => node.currentTime) - 1.5) < .1);
-    assert.match(await page.locator(".pith-shadowing-spotlight [data-dojo-display]").textContent(), /Second sentence/);
+    assert.match(await page.locator(".pith-shadowing-spotlight [data-toolkit-display]").textContent(), /Second sentence/);
     assert.equal(await page.locator('.pith-cue[data-locator="time:1.5"]').evaluate((node: HTMLElement) => node.classList.contains("pith-speech-active")), true);
     await page.screenshot({ path: join(evidence, "web-light-video.png") });
     await page.emulateMedia({ colorScheme: "dark" }); assert.equal(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--background-primary").trim()), "#18181b"); await page.screenshot({ path: join(evidence, "web-dark-video.png") });
-    await page.locator('[data-dojo-close]').click(); await page.locator('[data-command="read"]').click();
+    await page.locator('[data-toolkit-close]').click(); await page.locator('[data-command="read"]').click();
     await page.waitForFunction(() => document.querySelector('[data-media="play"]')?.getAttribute("aria-label") === "暂停");
     assert.equal(await page.locator(".pith-media-deck:visible").count(), 1); assert.equal(await page.locator(".pith-media-deck input[type=range]").count(), 1); assert.equal(await page.locator("video").evaluate((v: HTMLVideoElement) => v.paused), true);
     await page.locator('[data-media="play"]').click(); await page.locator(".pith-media-seek").fill("3"); assert.ok(await page.evaluate(() => Math.abs((window as any).task38.players.at(-1).currentTime - 3) < .1));

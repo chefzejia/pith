@@ -96,7 +96,6 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
-| 工具只有 `Toolkit` 一个名字 | [3-toolkits](subsystems/3-toolkits.md) 第 1 节 | 目录 `src/plugins/dojo-*`、插件 ID `dojo-*`、服务名 `dojo.*`、类型 `DojoToolkitDescriptor` 等、类名 `.pith-dojo-*`、三个测试文件名；源码 22 个文件、测试 39 个文件含 `dojo`。账本仍接受 `dojo-<id>` 与 `none` | #46 |
 | 画像只增删观察条目，写前留底 | [1-core](subsystems/1-core-store-engine.md) 3.4 | `pith_settle_topic` 整篇替换 `ME.md`（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #47 |
 | Pith 工具以 MCP 服务提供；一个回合一次 `session/prompt` | [4-guide](subsystems/4-guide-speech-shells.md) 2.1 至 2.5 | `mcpServers` 为空；工具是回复末尾的文本围栏，一个回合最多起四次 Agent 进程（[`acpSession.ts`](../src/plugins/guide-acp/acpSession.ts)） | #49 |
 | 回合带过程步骤、可停止、可重新请求；前台回合不设期限 | [1-core](subsystems/1-core-store-engine.md) 第 4 节，[5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 6 节 | `GuideProvider.reply` 只返回字符串，不接受取消；向导栏按纯文本显示，只有一行等待提示 | #49（引擎与停止）、#50（界面） |

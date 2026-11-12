@@ -21,7 +21,7 @@ import {
   runOneShotAcpPrompt,
 } from "../src/plugins/guide-acp/index.ts";
 import { parseAcpConfigOptions } from "../src/plugins/guide-acp/acpSession.ts";
-import { practiceMessage } from "../src/plugins/dojo-feynman/index.ts";
+import { practiceMessage } from "../src/plugins/toolkit-feynman/index.ts";
 
 test("ACP options preserve groups, probe cache, and apply session selections", async () => {
   const raw = [{ id: "model", name: "Model", type: "select", currentValue: "m1", options: [{ group: "magpie", name: "Magpie", options: [{ value: "m1", name: "First" }, { value: "m2", name: "Second", description: "A model" }] }] }, { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] }];

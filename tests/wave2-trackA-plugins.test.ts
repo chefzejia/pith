@@ -44,7 +44,7 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       const mounted = await store.getTopic(topic.id);
       assert.ok(mounted);
       const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", category: "music" }] });
-      for (const text of ["Dojo Toolkits", "custom: Custom", "shadowing"]) assert.ok(prompt.includes(text));
+      for (const text of ["Toolkits", "custom: Custom", "shadowing"]) assert.ok(prompt.includes(text));
       assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, userMessage: "Help" }), /shadowing: 4-Stage Language Shadowing/);
       await assert.rejects(guide.configureTopicToolkits!(topic.id, ["shadowing", "../unsafe"]), /Invalid toolkit/);
       assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["shadowing"]);
@@ -56,10 +56,12 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, ["shadowing"]);
       await guide.configureTopicToolkits!(topic.id, []);
       assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, []);
-      await tool.execute({ topicId: topic.id, toolkits: ["none"] });
+      await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["none"] }), /Invalid toolkit/);
       const topicPath = join(dir, "topics", topic.id, "topic.md");
       const original = readFileSync(topicPath);
-      assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, ["none"]);
+      assert.deepEqual((await new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir)).getTopic(topic.id))!.toolkits, []);
+      await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["unknown"] }), /Invalid toolkit/);
+      await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["toolkit-shadowing"] }), /Invalid toolkit/);
       assert.deepEqual(readFileSync(topicPath), original);
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: ["INVALID"] }), /Invalid toolkit/);
       await assert.rejects(tool.execute({ topicId: topic.id, toolkits: "shadowing" }), /Invalid toolkits/);

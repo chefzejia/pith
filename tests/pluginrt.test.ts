@@ -191,7 +191,7 @@ test("Reconcile: topological order, failed plugin rollback, reverse cascading di
 });
 
 test("Compose & InUse guard: active Topic keeps plugin on under essentials preset or explicit off", () => {
-  let topicsUsingDojo = 2;
+  let topicsUsingToolkit = 2;
   const manifests: PluginManifest[] = [
     {
       id: "core-stage",
@@ -200,11 +200,11 @@ test("Compose & InUse guard: active Topic keeps plugin on under essentials prese
       description: "Essential reading stage",
     },
     {
-      id: "dojo-shadowing",
+      id: "toolkit-shadowing",
       essential: false,
       name: "Shadowing",
-      description: "Optional language dojo",
-      inUse: () => topicsUsingDojo,
+      description: "Optional language toolkit",
+      inUse: () => topicsUsingToolkit,
       settings: {
         speed: { type: "number", title: "Speed", default: 1, minimum: 0.5, maximum: 2 },
       },
@@ -215,33 +215,33 @@ test("Compose & InUse guard: active Topic keeps plugin on under essentials prese
   rt.reconcile({
     preset: "essentials",
     plugins: {
-      "dojo-shadowing": {
+      "toolkit-shadowing": {
         enabled: false,
         config: { speed: 99 }, // invalid out-of-range value -> falls back to default 1
       },
     },
   });
 
-  // Because 2 Topics use dojo-shadowing, InUse forces it active despite essentials + enabled:false
+  // Because 2 Topics use toolkit-shadowing, InUse forces it active despite essentials + enabled:false
   assert.equal(rt.active("core-stage"), true);
-  assert.equal(rt.active("dojo-shadowing"), true);
-  const dojoStatus = rt.statuses().find((s) => s.id === "dojo-shadowing");
-  assert.equal(dojoStatus?.source, "in-use");
-  assert.equal(dojoStatus?.inUseCount, 2);
+  assert.equal(rt.active("toolkit-shadowing"), true);
+  const toolkitStatus = rt.statuses().find((s) => s.id === "toolkit-shadowing");
+  assert.equal(toolkitStatus?.source, "in-use");
+  assert.equal(toolkitStatus?.inUseCount, 2);
 
   const composed = rt.compose({
     preset: "essentials",
-    plugins: { "dojo-shadowing": { enabled: false, config: { speed: 99 } } },
+    plugins: { "toolkit-shadowing": { enabled: false, config: { speed: 99 } } },
   });
-  assert.equal(composed.find((p) => p.id === "dojo-shadowing")?.config["speed"], 1);
+  assert.equal(composed.find((p) => p.id === "toolkit-shadowing")?.config["speed"], 1);
 
   // Once no Topic uses it anymore, reconciling turns it off cleanly
-  topicsUsingDojo = 0;
+  topicsUsingToolkit = 0;
   rt.reconcile({
     preset: "essentials",
-    plugins: { "dojo-shadowing": { enabled: false } },
+    plugins: { "toolkit-shadowing": { enabled: false } },
   });
-  assert.equal(rt.active("dojo-shadowing"), false);
+  assert.equal(rt.active("toolkit-shadowing"), false);
 });
 
 test("Standalone shell boots all built-in plugins cleanly without Obsidian", () => {
@@ -265,7 +265,7 @@ test("Standalone shell boots all built-in plugins cleanly without Obsidian", () 
   assert.equal(rt.active("stage-reader"), true);
   assert.equal(rt.active("stage-timeline"), true);
   assert.equal(rt.active("speech-service"), true);
-  assert.equal(rt.active("dojo-shadowing"), true);
+  assert.equal(rt.active("toolkit-shadowing"), true);
   assert.equal(rt.active("guide-acp"), true);
   rt.stop();
 });
@@ -279,7 +279,7 @@ test("API version caret compatibility matches Magpie rules", () => {
   assert.equal(isApiCompatible("1.0"), false);
 });
 
-test("Compose transitive in-use: kept-alive dojo automatically pulls in its required base providers", () => {
+test("Compose transitive in-use: kept-alive toolkit automatically pulls in its required base providers", () => {
   let activeShadowingTopics = 1;
   const manifests: PluginManifest[] = [
     {
@@ -303,28 +303,28 @@ test("Compose transitive in-use: kept-alive dojo automatically pulls in its requ
       },
     },
     {
-      id: "dojo-shadowing",
+      id: "toolkit-shadowing",
       essential: false,
       requires: ["stage.timeline", "speech.asr"],
       inUse: () => activeShadowingTopics,
       name: "Shadowing",
-      description: "4-stage shadowing dojo",
+      description: "4-stage shadowing toolkit",
     },
   ];
 
   const rt = new PluginRuntime(manifests);
 
-  // Under "essentials", all three are non-essential, but dojo-shadowing is inUse (1).
-  // Compose must transitively promote speech-service and stage-timeline so dojo-shadowing reaches "active"!
+  // Under "essentials", all three are non-essential, but toolkit-shadowing is inUse (1).
+  // Compose must transitively promote speech-service and stage-timeline so toolkit-shadowing reaches "active"!
   rt.reconcile({ preset: "essentials" });
   assert.equal(rt.active("speech-service"), true);
   assert.equal(rt.active("stage-timeline"), true);
-  assert.equal(rt.active("dojo-shadowing"), true);
+  assert.equal(rt.active("toolkit-shadowing"), true);
 
   // Once the user archives the Topic (inUse -> 0), all three turn off under essentials
   activeShadowingTopics = 0;
   rt.reconcile({ preset: "essentials" });
-  assert.equal(rt.active("dojo-shadowing"), false);
+  assert.equal(rt.active("toolkit-shadowing"), false);
   assert.equal(rt.active("stage-timeline"), false);
   assert.equal(rt.active("speech-service"), false);
 });

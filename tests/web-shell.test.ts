@@ -41,8 +41,8 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(workspace));
     await store.updateTopic(topic.id, { toolkits: ["shadowing"] });
     const guarded = await get("/api/state");
-    assert.equal(guarded.plugins.find((p: any) => p.id === "dojo-shadowing").inUseCount, 1);
-    assert.equal(guarded.plugins.find((p: any) => p.id === "dojo-shadowing").state, "active");
+    assert.equal(guarded.plugins.find((p: any) => p.id === "toolkit-shadowing").inUseCount, 1);
+    assert.equal(guarded.plugins.find((p: any) => p.id === "toolkit-shadowing").state, "active");
     assert.equal(guarded.plugins.find((p: any) => p.id === "stage-timeline").state, "active");
     assert.equal(guarded.plugins.find((p: any) => p.id === "speech-service").state, "active");
     assert.equal((await get("/api/state")).compass.exploring[0].notes.length, topic.notes.length + 2);

@@ -1,9 +1,9 @@
 /**
- * Capability Seams for Pith Stages, Dojos, Speech, and Guide (`src/core/seams.ts`).
+ * Capability Seams for Pith Stages, Toolkits, Speech, and Guide (`src/core/seams.ts`).
  *
  * Following the DSH Capability Seam triad (Service Definition + Provider + Consumer):
  * - This module owns the host-agnostic Service Definitions (`stage.reader`,
- *   `stage.timeline`, `speech.tts`, `speech.asr`, `dojo.shadowing`, `guide.agent`).
+ *   `stage.timeline`, `speech.tts`, `speech.asr`, `toolkit.shadowing`, `guide.agent`).
  * - Plugins under `src/plugins/*` implement and provide these services.
  * - Shells (`src/shells/web`, `src/shells/obsidian`, `src/shells/dsh`) consume
  *   them without coupling to any concrete plugin implementation.
@@ -18,10 +18,10 @@ import type {
 } from "./types.ts";
 
 /**
- * 4-stage progressive scaffolding ladder shared across all Embodied Dojos
- * (language shadowing, Feynman recall, music sight-reading, code dojo).
+ * 4-stage progressive scaffolding ladder shared across all Embodied Toolkits
+ * (language shadowing, Feynman recall, music sight-reading, code toolkit).
  */
-export type DojoScaffoldStage =
+export type ToolkitStage =
   | "listen-decompose"
   | "guided-follow"
   | "scaffold-cloze"
@@ -35,7 +35,7 @@ export interface TranscriptCue {
   readonly speaker?: string;
 }
 
-export interface DojoDiagnosisResult {
+export interface ToolkitDiagnosis {
   readonly targetText: string;
   readonly producedText: string;
   readonly accuracyScore: number;
@@ -109,9 +109,9 @@ export type DeviceFormFactor = "portrait-phone" | "landscape-phone" | "foldable-
 export interface ResponsiveLayoutDecision {
   readonly formFactor: DeviceFormFactor;
   readonly aspectRatio: number;
-  /** Whether Guide & Dojo may dock as a side-by-side right split pane (`W >= 740 && R >= 0.85 && H >= 480`). */
+  /** Whether Guide & Toolkit may dock as a side-by-side right split pane (`W >= 740 && R >= 0.85 && H >= 480`). */
   readonly canSplitGuide: boolean;
-  /** How Guide & Dojo panels should mount when opened (`split-right` vs `bottom-sheet` vs `overlay-drawer`). */
+  /** How Guide & Toolkit panels should mount when opened (`split-right` vs `bottom-sheet` vs `overlay-drawer`). */
   readonly sheetMode: "split-right" | "bottom-sheet" | "overlay-drawer";
   /** Stage width remaining after accounting for a docked right guide when `guideOpen && canSplitGuide`. */
   readonly stageWidthPx: number;
@@ -228,7 +228,7 @@ export interface SpeechAsrService {
 
 export type ToolkitUiOverlayProtocol = "interline-subtitle" | "inline-stage-lens" | "score-overlay";
 
-export interface DojoToolkitDescriptor {
+export interface ToolkitDescriptor {
   readonly id: string;
   readonly label: string;
   readonly category: "language" | "comprehension" | "executable" | "music";
@@ -237,13 +237,12 @@ export interface DojoToolkitDescriptor {
   readonly whenToUse?: string;
   readonly compatibleStages?: readonly ("reader" | "timeline" | "score" | "code")[];
   readonly uiProtocol?: ToolkitUiOverlayProtocol;
-  readonly stages: readonly DojoScaffoldStage[];
-  transformCue(text: string, stage: DojoScaffoldStage): string;
-  diagnose(targetText: string, producedText: string): DojoDiagnosisResult;
+  readonly stages: readonly ToolkitStage[];
+  transformCue(text: string, stage: ToolkitStage): string;
+  diagnose(targetText: string, producedText: string): ToolkitDiagnosis;
   quickActions: readonly { id: string; label: string; prompt: string }[];
 }
 
-export type ToolkitDescriptor = DojoToolkitDescriptor;
 
 export interface GuideQuickAction {
   readonly id: string;
@@ -328,7 +327,7 @@ export interface GuideAgentService {
   readonly actions: readonly string[];
   detectAgents?(force?: boolean): Promise<readonly DiscoveredAgentDescriptor[]>;
   probeAgentOptions?(agentId: string, force?: boolean): Promise<readonly AcpConfigOptionDescriptor[]>;
-  quickActionsForTopic?(topic: Topic, activeDojos: readonly DojoToolkitDescriptor[]): readonly GuideQuickAction[];
+  quickActionsForTopic?(topic: Topic, activeToolkits: readonly ToolkitDescriptor[]): readonly GuideQuickAction[];
   configureTopicToolkits?(topicId: string, toolkits: readonly string[]): Promise<Topic>;
   listWorkspaceTools?(): readonly GuideMcpToolSpec[];
   ingestExternalUrl?(input: ExternalIngestInput): Promise<ExternalIngestBundle>;
@@ -347,13 +346,13 @@ export interface GuideAgentService {
     /** Turns before `userMessage`, oldest first. */
     readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];
     readonly anchor?: SelectionAnchor;
-    readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
+    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string };
   }): string;
 }
 
 /**
- * Interline ("行间" · Read originals with subtitles) capability seam (`dojo.interline`).
+ * Interline ("行间" · Read originals with subtitles) capability seam (`toolkit.interline`).
  *
  * Brings Interline's core reading model into Pith:
  * - Source text remains the trust anchor (visible, quieter, checkable);
@@ -417,7 +416,7 @@ export interface InterlineWarmupSnapshot {
   readonly failedUnits: readonly number[];
 }
 
-export interface InterlineService extends DojoToolkitDescriptor {
+export interface InterlineService extends ToolkitDescriptor {
   readonly id: "interline";
   readonly defaultTargetLanguage: InterlineTargetLanguage;
   planNeighborhoodOrder(activeUnit: number, totalUnits: number, radius?: number): readonly number[];

@@ -23,7 +23,7 @@ test("wide pagination centers each screen without visible scrollbars in both she
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
-      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="start">Start</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Wide" }); }); }
+      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {} }); view.render({ html: '<p data-locator="start">Start</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Wide" }); }); }
       const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader"), article = page.locator(shell === "web" ? ".pith-article" : ".pith-article");
       await article.evaluate((node: HTMLElement) => { node.innerHTML = Array.from({ length: 600 }, (_, i) => `<p data-locator="p:${i}">${`Line ${i} reading words and text. `.repeat(12)}</p>`).join(""); });
       const menu = page.locator(shell === "web" ? `[data-command="typography"]` : '[data-command="typography"]');
@@ -91,7 +91,7 @@ test("Obsidian page buttons advance one screen with fractional zoom and an audio
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(() => {
       const html = Array.from({ length: 450 }, (_, i) => `<p data-locator="p:${i}">第${i}段：${"阅读内容与分页位置。".repeat(25)}</p>`).join("");
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, loadAudio: async () => new Uint8Array([82, 73, 70, 70]) });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, loadAudio: async () => new Uint8Array([82, 73, 70, 70]) });
       view.render({ html, format: "epub", currentFile: "book.epub", files: [{ name: "sound.wav", mimeType: "audio/wav" }], sections: [], title: "Book" });
     });
     const reader = page.locator(".pith-reader"), counter = page.locator("[data-page-count]");
@@ -166,7 +166,7 @@ test("continuous resizes keep the original visible Chinese character in both she
       else {
         await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-        await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html: '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Book" }); });
+        await page.evaluate(() => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {} }); view.render({ html: '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>', format: "epub", currentFile: "book.epub", files: [], sections: [], title: "Book" }); });
       }
       const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
       if (shell === "web") {
@@ -214,7 +214,7 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
       else {
         await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>');
         await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-        await page.evaluate((doc: unknown) => { const ctor = (window as any).PithView.PithObsidianView; const view = new ctor(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, loadAudio: async () => new Uint8Array([82, 73, 70, 70]) }); view.render({ ...(doc as object), currentFile: "pages.epub", files: [{ name: "sound.wav", mimeType: "audio/wav" }], title: "Pagination" }); }, rendered);
+        await page.evaluate((doc: unknown) => { const ctor = (window as any).PithView.PithObsidianView; const view = new ctor(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, loadAudio: async () => new Uint8Array([82, 73, 70, 70]) }); view.render({ ...(doc as object), currentFile: "pages.epub", files: [{ name: "sound.wav", mimeType: "audio/wav" }], title: "Pagination" }); }, rendered);
       }
       const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
       const article = page.locator(shell === "web" ? ".pith-reader > .pith-article" : ".pith-article");
@@ -315,7 +315,7 @@ test("CBZ image page remains visible across repagination in both renderers", { t
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
-      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate((doc: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ ...(doc as object), currentFile: "images.cbz", files: [], title: "Images" }); }, rendered); }
+      else { await page.goto("about:blank"); await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.evaluate((doc: unknown) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {} }); view.render({ ...(doc as object), currentFile: "images.cbz", files: [], title: "Images" }); }, rendered); }
       const image = page.locator('[data-locator="page:4"] img'); await image.evaluate((node: HTMLImageElement) => node.decode());
       await image.evaluate((node: HTMLElement) => { const reader = node.closest<HTMLElement>(".reader,.pith-reader")!; const x = reader.scrollLeft + node.getBoundingClientRect().left - reader.getBoundingClientRect().left; reader.scrollLeft = Math.floor(x / reader.clientWidth) * reader.clientWidth; });
       const visible = () => image.evaluate((node: HTMLElement) => { const a = node.getBoundingClientRect(), b = node.closest(".reader,.pith-reader")!.getBoundingClientRect(); return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom; });
@@ -344,7 +344,7 @@ test("Obsidian restores text position after annotation refresh merges its node",
       const quote = "targetword ".repeat(1500);
       const note = { id: "note", anchor: { file: "book.epub", locator: "text:offset:7", quote } };
       let notes = [note];
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, guideData: async () => ({ notes, toolkits: [], conversation: [], actions: [] }) });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes, toolkits: [], conversation: [], actions: [] }) });
       (window as any).view = view; (window as any).clearNotes = () => { notes = []; };
       view.render({ title: "Notes", currentFile: "book.epub", files: [], format: "epub", sections: [], html: `<p data-locator="block:1">before ${quote} after</p>` });
       await view.refreshGuide();

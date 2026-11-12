@@ -1,7 +1,7 @@
-import { registerPlugin, type DojoDiagnosisResult, type DojoScaffoldStage, type DojoToolkitDescriptor, type Topic } from "../../core/index.ts";
+import { registerPlugin, type ToolkitDiagnosis, type ToolkitStage, type ToolkitDescriptor, type Topic } from "../../core/index.ts";
 
 export function feynmanInUse(topics: readonly Topic[]): number {
-  return topics.filter(topic => topic.toolkits.includes("feynman") || topic.toolkits.includes("dojo-feynman")).length;
+  return topics.filter(topic => topic.toolkits.includes("feynman")).length;
 }
 
 const englishStopWords = new Set("a an the and or but to of in on at for by with is are was were am be been being have has had do does did as that it this these those from into can may will would should could not if then than through using use their its our your they we you which when where while because so therefore thus such also".split(" "));
@@ -9,7 +9,7 @@ const chineseFunctionWords = /因为|所以|因此|但是|然而|如果|那么|�
 const tokenPattern = /`([^`\n]+)`|[A-Za-z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)*|[\p{Script=Han}]+/gu;
 
 
-export function transformCue(text: string, stage: DojoScaffoldStage): string {
+export function transformCue(text: string, stage: ToolkitStage): string {
   if (stage === "guided-follow") return text;
   if (stage === "blind-produce") return "【合上原文】请用自己的话向初学者解释这段机制的核心因果链与边界条件：";
   if (stage === "listen-decompose") {
@@ -25,11 +25,11 @@ export function transformCue(text: string, stage: DojoScaffoldStage): string {
   });
 }
 
-export function diagnoseFeynman(targetText: string, producedText: string): DojoDiagnosisResult {
+export function diagnoseFeynman(targetText: string, producedText: string): ToolkitDiagnosis {
   return { targetText, producedText, accuracyScore: 0, missedTokens: [], matchedTokens: [], summaryMarkdown: "向导未配置。请对照原文检查自己的因果链、前提和边界，并尝试举一个反例。" };
 }
 
-export const feynmanToolkit: DojoToolkitDescriptor = {
+export const feynmanToolkit: ToolkitDescriptor = {
   id: "feynman", label: "费曼复述", category: "comprehension", evalMode: "guide-rubric",
   whenToUse: "架构设计、源码机制、核心概念或理论需要合书复述与苏格拉底反例追问时挂载", compatibleStages: ["reader", "timeline"], uiProtocol: "inline-stage-lens",
   evaluationRubric: "以三明治式苏格拉底追问回应：先肯定复述中抓准的核心因果链或自创类比，再指出对照原文遗漏的一个关键前提或边界条件，最后提出一个具体反例或跨场景问题。不要替学习者作答或背书。",
@@ -39,11 +39,11 @@ export const feynmanToolkit: DojoToolkitDescriptor = {
 };
 
 registerPlugin({
-  id: "dojo-feynman", api: "^1", requires: ["stage.reader"], provides: ["dojo.feynman"], essential: false,
-  name: "Feynman Recall Dojo",
+  id: "toolkit-feynman", api: "^1", requires: ["stage.reader"], provides: ["toolkit.feynman"], essential: false,
+  name: "Feynman Recall Toolkit",
   description: "Blind explanation and guided reflection",
   oneInUse: "1 topic using feynman", manyInUse: "{n} topics using feynman",
-  apply(ctx) { ctx.provide("dojo.feynman", feynmanToolkit); },
+  apply(ctx) { ctx.provide("toolkit.feynman", feynmanToolkit); },
 });
 
 

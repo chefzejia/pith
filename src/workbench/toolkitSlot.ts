@@ -1,13 +1,13 @@
 import { isMediaFile } from "./mediaAssets.ts";
 
 export function effectiveToolkits(toolkits: readonly string[], _format: string): string[] {
-  return [...new Set(toolkits.filter(id => id !== "none").map(id => id.replace(/^dojo-/, "")))];
+  return [...new Set(toolkits)];
 }
 export function topicUsesToolkit(topic: { toolkits: readonly string[]; materialId?: string }, _materials: readonly { id: string; kind: string; files: readonly { name: string }[] }[], id: string): boolean {
   return effectiveToolkits(topic.toolkits, "").includes(id);
 }
 export function toolkitSlot(toolkits: readonly string[], active: string, labels: Readonly<Record<string, string>> = {}): { ids: string[]; active: string; text: string } {
-  const ids = [...new Set(toolkits.filter(id => id !== "none").map(id => id.replace(/^dojo-/, "")))];
+  const ids = [...new Set(toolkits)];
   const selected = ids.includes(active) ? active : ids[0] ?? "";
   const name = labels[selected] ?? (selected === "shadowing" ? "影子跟读" : selected === "feynman" ? "费曼复述" : selected === "interline" ? "行间" : selected);
   return { ids, active: selected, text: ids.length ? name : "" };

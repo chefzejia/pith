@@ -1,7 +1,7 @@
-import { registerPlugin, type DojoDiagnosisResult, type DojoScaffoldStage, type DojoToolkitDescriptor, type Topic } from "../../core/index.ts";
+import { registerPlugin, type ToolkitDiagnosis, type ToolkitStage, type ToolkitDescriptor, type Topic } from "../../core/index.ts";
 
 export function shadowingInUse(topics: readonly Topic[]): number {
-  return topics.filter(topic => topic.toolkits.includes("shadowing") || topic.toolkits.includes("dojo-shadowing")).length;
+  return topics.filter(topic => topic.toolkits.includes("shadowing")).length;
 }
 
 const functionWords = /\b(?:a|an|the|and|or|but|to|of|in|on|at|for|by|with|is|are|was|were|am|be|been|have|has|had|do|does|did|as|that|it)\b(?!['’][\p{L}\p{N}])/giu;
@@ -10,7 +10,7 @@ export function shadowingTokens(text: string): { text: string; start: number; en
   return Array.from(text.matchAll(pattern), match => ({ text: match[0], start: match.index, end: match.index + match[0].length }));
 }
 
-export function transformCue(text: string, stage: DojoScaffoldStage): string {
+export function transformCue(text: string, stage: ToolkitStage): string {
   if (stage === "guided-follow") return text;
   if (stage === "blind-produce") return text;
   if (stage === "scaffold-cloze") return text.replace(functionWords, "___");
@@ -25,7 +25,7 @@ export function transformCue(text: string, stage: DojoScaffoldStage): string {
   });
 }
 
-export function diagnose(targetText: string, producedText: string): DojoDiagnosisResult {
+export function diagnose(targetText: string, producedText: string): ToolkitDiagnosis {
   const targetParts = shadowingTokens(targetText);
   const target = targetParts.map(part => part.text);
   const produced = shadowingTokens(producedText).map(part => part.text);
@@ -58,7 +58,7 @@ export function diagnose(targetText: string, producedText: string): DojoDiagnosi
   return { targetText, producedText, accuracyScore, missedTokens, matchedTokens, summaryMarkdown };
 }
 
-export const shadowingToolkit: DojoToolkitDescriptor = {
+export const shadowingToolkit: ToolkitDescriptor = {
   id: "shadowing", label: "影子跟读", category: "language", evalMode: "deterministic",
   whenToUse: "外语听力、口语发音、演讲台词或音视频字幕需要四阶跟读与漏词诊断时挂载", compatibleStages: ["timeline", "reader"], uiProtocol: "inline-stage-lens",
   stages: ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"],
@@ -67,21 +67,21 @@ export const shadowingToolkit: DojoToolkitDescriptor = {
 };
 
 registerPlugin({
-  id: "dojo-shadowing",
+  id: "toolkit-shadowing",
   api: "^1",
   requires: ["stage.timeline", "speech.asr"],
-  provides: ["dojo.shadowing"],
+  provides: ["toolkit.shadowing"],
   essential: false,
-  name: "4-Stage Shadowing Dojo",
+  name: "4-Stage Shadowing Toolkit",
   description: "Progressive language shadowing: prosody decomposition, guided follow, cloze skeleton, and blind recall",
   oneInUse: "1 topic using shadowing",
   manyInUse: "{n} topics using shadowing",
   apply(ctx) {
-    ctx.provide("dojo.shadowing", shadowingToolkit);
+    ctx.provide("toolkit.shadowing", shadowingToolkit);
   },
 });
 
-export function renderDojoAlignment(target: string, matched: readonly string[]): string {
+export function renderToolkitAlignment(target: string, matched: readonly string[]): string {
   const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
   let offset = 0, index = 0, html = "";
   for (const part of shadowingTokens(target)) {

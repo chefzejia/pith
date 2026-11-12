@@ -96,7 +96,7 @@ test("Obsidian shared workbench adapts synthetic EPUB colors", { timeout: 30000,
     const page = await browser.newPage();
     await page.setContent('<style>html,body,#root{height:100%;margin:0}body{--background-primary:#1e1e1e;--background-secondary:#292929;--text-normal:#eee;--text-muted:#bbb}</style><body class="theme-dark"><div id="root"></div></body>');
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await page.evaluate((html: string) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {} }); view.render({ html, title: "合成 EPUB", currentFile: "test.epub", format: "epub", files: [], sections: [] }); }, documentView.html);
+    await page.evaluate((html: string) => { const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {} }); view.render({ html, title: "合成 EPUB", currentFile: "test.epub", format: "epub", files: [], sections: [] }); }, documentView.html);
     assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("pith-reader")), true);
     await page.keyboard.press("ArrowRight"); assert.match(await page.locator("[data-page-count]").textContent(), /^2 \/ /);
     const color = await page.locator("#purple").evaluate((el: Element) => getComputedStyle(el).color);

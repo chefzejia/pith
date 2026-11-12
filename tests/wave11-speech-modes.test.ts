@@ -71,7 +71,7 @@ test("Web mode changes persist independently and route requests after restart", 
 });
 
 test("essentials mode only activates and authorizes explicitly mounted tools", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pith-default-dojo-"));
+  const dir = await mkdtemp(join(tmpdir(), "pith-default-toolkit-"));
   await mkdir(join(dir, "obsidian")); await mkdir(join(dir, "web"));
   const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(join(dir, "obsidian")) });
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
@@ -79,19 +79,21 @@ test("essentials mode only activates and authorizes explicitly mounted tools", a
     await controller.initialize(); await controller.setPlugins({ preset: "essentials" });
     const topic = await controller.store.createTopic({ title: "reading" });
     await controller.importMaterial({ title: "reading", kind: "article", files: [{ name: "article.md", bytes: new TextEncoder().encode("A useful concept") }] }, topic.id);
-    assert.equal(controller.runtime.getService("dojo.feynman"), undefined);
+    assert.equal(controller.runtime.getService("toolkit.feynman"), undefined);
     await controller.store.updateTopic(topic.id, { toolkits: ["feynman"] }); await controller.setPlugins({ preset: "essentials" });
-    assert.ok(controller.runtime.getService("dojo.feynman"));
+    assert.ok(controller.runtime.getService("toolkit.feynman"));
     server = await createPithWebServer({ workspaceDir: join(dir, "web") }); const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = (path: string, data: unknown) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
     assert.equal((await post("/api/plugins", { preset: "essentials" })).status, 200);
     const created = await post("/api/topics", { title: "reading" }); assert.equal(created.status, 201); const webTopic = await created.json();
     assert.equal((await post("/api/materials", { topicId: webTopic.id, title: "reading", kind: "article", files: [{ name: "article.md", data: Buffer.from("A useful concept").toString("base64") }] })).status, 201);
-    assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
+    assert.equal((await post("/api/toolkit/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
     assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["feynman"] })).status, 200);
-    assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 200);
-    assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["none"] })).status, 200);
-    assert.equal((await post("/api/dojo/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
+    assert.equal((await post("/api/toolkit/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 200);
+    assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["none"] })).status, 400);
+    assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["unknown"] })).status, 400);
+    assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: [] })).status, 200);
+    assert.equal((await post("/api/toolkit/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
   } finally { controller.dispose(); if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

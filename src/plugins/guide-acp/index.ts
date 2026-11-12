@@ -6,7 +6,7 @@ import {
   type AgentProcessPort,
   type DiscoveredAgentDescriptor,
   type InterlineTranslator,
-  type DojoToolkitDescriptor,
+  type ToolkitDescriptor,
   type GuideAgentService,
   type GuideConversationEntry,
   type GuideProvider,
@@ -33,11 +33,12 @@ export {
   createGuidePermissionGate,
   createGuideWorkspaceTools,
   discoverLocalAgents,
+  normalizeToolkits,
   parseToolkitDirective,
   runOneShotAcpPrompt,
 };
 
-export function quickActionsForTopic(topic: Topic & { readonly material?: Material | null }, activeDojos: readonly DojoToolkitDescriptor[]): GuideQuickAction[] {
+export function quickActionsForTopic(topic: Topic & { readonly material?: Material | null }, activeToolkits: readonly ToolkitDescriptor[]): GuideQuickAction[] {
   const needsPlan = !topic.materialId || (topic.material !== undefined && (!topic.material || topic.material.files.length === 0));
   const actions: GuideQuickAction[] = needsPlan ? [
     { id: "plan-curriculum", label: "规划课程大纲与第一讲", prompt: "请结合我的学习者画像和当前课题目标，先规划《00-课程大纲.md》并生成第一讲讲义，同时配置合适的实训工具。" },
@@ -46,13 +47,13 @@ export function quickActionsForTopic(topic: Topic & { readonly material?: Materi
     { id: "quiz", label: "下一讲 / 考考我", prompt: "请检验我对当前内容的理解，并结合我的掌握情况指导我进入下一讲。" },
   ];
   if (topic.notes.length) actions.push({ id: "settle", label: "总结沉淀", prompt: "请根据我的笔记和目标进行毕业深水区一问。" });
-  for (const dojo of activeDojos) {
-    if (topic.toolkits.includes(dojo.id) || topic.toolkits.includes(`dojo-${dojo.id}`)) actions.push(...dojo.quickActions);
+  for (const toolkit of activeToolkits) {
+    if (topic.toolkits.includes(toolkit.id)) actions.push(...toolkit.quickActions);
   }
   return actions;
 }
 
-export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic; material?: Pick<Material, "id" | "title" | "kind" | "files" | "externalPath" | "commitSha"> | null; userMessage: string; conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[]; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[]; activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string } }): string {
+export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic; material?: Pick<Material, "id" | "title" | "kind" | "files" | "externalPath" | "commitSha"> | null; userMessage: string; conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[]; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[]; activeRubric?: { readonly id: string; readonly label: string; readonly rubric: string } }): string {
   const { topic } = input;
   const available = input.availableToolkits ?? [
     { id: "shadowing", label: "4-Stage Language Shadowing", category: "language" },
@@ -67,7 +68,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
     input.anchor
       ? `# 当前选区\n文件：${input.anchor.file}\n位置：${input.anchor.locator}\n引用：${input.anchor.quote ?? ""}`
       : "# 当前选区\n无",
-    `# 可用实训工具包（Dojo Toolkits）\n${available.map(toolkit => `- ${toolkit.id}: ${toolkit.label} (${toolkit.category}) ${"whenToUse" in toolkit ? toolkit.whenToUse ?? "" : ""}`).join("\n") || "无"}\n当前已挂载：${topic.toolkits.join(", ") || "无"}\n根据学习意图增删或重置工具，调用 pith_configure_toolkits 或在回复末尾用 pith-toolkits 围栏输出完整的工具 ID JSON 数组。`,
+    `# 可用实训工具包（Toolkits）\n${available.map(toolkit => `- ${toolkit.id}: ${toolkit.label} (${toolkit.category}) ${"whenToUse" in toolkit ? toolkit.whenToUse ?? "" : ""}`).join("\n") || "无"}\n当前已挂载：${topic.toolkits.join(", ") || "无"}\n根据学习意图增删或重置工具，调用 pith_configure_toolkits 或在回复末尾用 pith-toolkits 围栏输出完整的工具 ID JSON 数组。`,
     "# 声学语料\n外语听说课题没有音视频材料时，可用 pith_search_media 搜索公开语料；用户提供公开视频或播客链接时，可用 pith_fetch_media_corpus 导入音轨与字幕并启用影子跟读。",
     "# 私人课程架构师\n结合学习者画像和目标，先找唯一主线，用熟悉的知识类比。A. 庞大陌生课题或代码仓库：主动用 pith_list_repository_files、pith_read_repository_file 或 pith_read_material_section 侦察，先写《00-课程大纲.md》，列出 3 至 6 讲，每行使用 - [01-xxx.md] 标题：一句话目标 的格式。首轮仅写第一讲正文，禁止一次写完全部章节；后续讲义仅在学习者需要或点击章节时按需生成。讲义包含学习目标、真实问题、pith-teaching 检验卡与 15 分钟微实验。源码事实必须标注绑定 commit 与 path:line，区分事实、推断与教学类比；未读取的内容不得编造。B. 书籍、长文或音视频：阅读目录和当前章节，设计原作导读路线，每节给出一个检验理解的问题。C. 技能训练：结合练习记录诊断，安排 15 分钟内可完成的具体微练习。每次回复末尾用 pith-choices 围栏提供 2 至 4 个具体下一步选项，每行一个。",
     ...(input.conversation && input.conversation.length ? [`# 近期对话\n以下是本课题此前的对话，按时间先后排列。判断学习者当前的回答时，承接你自己上一轮提出的问题；此前回复中的工具操作均已执行，不要重复执行。\n\n${input.conversation.map(turn => `${turn.role === "user" ? "学习者" : "向导"}：${turn.text}`).join("\n\n")}`] : []),
@@ -167,7 +168,7 @@ registerPlugin({
         http: host.http,
         repository: host.repository,
         mediaCorpus: host.mediaCorpus,
-        getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = ctx.service<DojoToolkitDescriptor>(`dojo.${id}`); return toolkit ? [toolkit] : []; }),
+        getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = ctx.service<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }),
         getAgentConfig: () => ({
           agentId,
           ...(model ? { model } : {}),

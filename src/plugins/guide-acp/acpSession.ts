@@ -10,7 +10,7 @@ import type {
   HttpPort,
   MediaCorpusPort,
   RepositoryPort,
-  DojoToolkitDescriptor,
+  ToolkitDescriptor,
   Material,
   SelectionAnchor,
   Topic,
@@ -416,7 +416,7 @@ export interface LocalAcpGuideProviderOptions {
   readonly http?: HttpPort;
   readonly repository?: RepositoryPort;
   readonly mediaCorpus?: MediaCorpusPort;
-  readonly getToolkits?: () => readonly DojoToolkitDescriptor[];
+  readonly getToolkits?: () => readonly ToolkitDescriptor[];
   readonly getAgentConfig: () => {
     readonly agentId: string;
     readonly model?: string;
@@ -430,7 +430,7 @@ export interface LocalAcpGuideProviderOptions {
     readonly profileMarkdown: string;
     readonly topic: Topic;
     readonly material?: Material | null;
-    readonly availableToolkits?: readonly Pick<DojoToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
+    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly userMessage: string;
     readonly conversation?: readonly GuideHistoryTurn[];
     readonly anchor?: SelectionAnchor;

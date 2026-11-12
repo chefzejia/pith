@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, type AgentProcessPort, type AgentStdioHandle, type DiscoveredAgentDescriptor, type GuideConversationEntry } from "../src/core/index.ts";
-import { practiceMessage } from "../src/plugins/dojo-feynman/index.ts";
+import { practiceMessage } from "../src/plugins/toolkit-feynman/index.ts";
 import { HISTORY_ELISION, HISTORY_MAX_ENTRIES, HISTORY_MAX_ENTRY_CHARS, HISTORY_MAX_TOTAL_CHARS, selectConversationHistory } from "../src/plugins/guide-acp/conversationMemory.ts";
 import { LocalAcpGuideProvider, buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";

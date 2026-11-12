@@ -97,7 +97,7 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
     const element = { closest: (selector: string) => selector === "[data-prose]" ? target : null };
     const audio = { paused: false, onended: () => {}, onerror: () => {}, play() { this.onended(); return Promise.resolve(); }, pause() {}, removeAttribute() {}, load() {} };
     Object.assign(view, {
-      article, reader, pageMode: "double", generation: 0, dojoActive: false, speaking: false,
+      article, reader, pageMode: "double", generation: 0, toolkitActive: false, speaking: false,
       selectionRange: { startContainer: { nodeType: 3, parentElement: element }, startOffset: 0 },
       doc: { createRange: () => ({ selectNodeContents() {}, setStart() {}, setEnd() {}, surroundContents() {}, toString: () => "" }), createTreeWalker: () => ({ nextNode: () => null }), createElement: (tag: string) => tag === "audio" ? audio : { dataset: {} } },
       dock: { classList: { add() {} }, querySelector: () => null },
@@ -114,21 +114,21 @@ test("Obsidian speech queues only the visible EPUB chapter", async () => {
 });
 
 test("Obsidian tool chooser and cue require explicit or existing toolkit", async () => {
-  type FakeView = { dojos: unknown[]; mountedToolkits: string[]; dojoId: string; dojo: { hidden: boolean; innerHTML: string; append: (item: unknown) => void }; doc: { createElement: () => { dataset: Record<string, string>; textContent: string } }; actions: { mountDojo: (id: string) => Promise<void>; openDojo: () => void }; root: { contains: () => boolean }; article: { contains: () => boolean }; disposed: boolean; setDojoActive: () => void; renderDojo: () => void; refreshGuide: () => Promise<void>; openDojo: PithObsidianView["openDojo"]; click: (event: unknown) => Promise<void> };
+  type FakeView = { toolkits: unknown[]; mountedToolkits: string[]; toolkitId: string; toolkit: { hidden: boolean; innerHTML: string; append: (item: unknown) => void }; doc: { createElement: () => { dataset: Record<string, string>; textContent: string } }; actions: { mountToolkit: (id: string) => Promise<void>; openToolkit: () => void }; root: { contains: () => boolean }; article: { contains: () => boolean }; disposed: boolean; setToolkitActive: () => void; renderToolkit: () => void; refreshGuide: () => Promise<void>; openToolkit: PithObsidianView["openToolkit"]; click: (event: unknown) => Promise<void> };
   const view = Object.create(PithObsidianView.prototype) as FakeView;
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
-  Object.assign(view, { mountedToolkits: [], dojoId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {}, clearRecording() {} }, dojo: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountDojo: async (id: string) => { mounted.push(id); }, openDojo: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setDojoActive() {}, renderDojo() {}, tip() {}, refreshGuide: async () => {} });
-  const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openDojo"]>[0];
-  view.openDojo(descriptors);
+  Object.assign(view, { mountedToolkits: [], toolkitId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {}, clearRecording() {} }, toolkit: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountToolkit: async (id: string) => { mounted.push(id); }, openToolkit: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setToolkitActive() {}, renderToolkit() {}, tip() {}, refreshGuide: async () => {} });
+  const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openToolkit"]>[0];
+  view.openToolkit(descriptors);
   assert.equal(mounted.length, 0);
   assert.equal(added.length, 0);
   view.mountedToolkits = ["shadowing", "feynman"];
-  view.openDojo(descriptors);
-  assert.deepEqual(added.map(item => item.dataset.dojoChoose), ["shadowing", "feynman"]);
-  const choice = { dataset: { dojoChoose: "feynman" }, disabled: false, hasAttribute: () => false };
+  view.openToolkit(descriptors);
+  assert.deepEqual(added.map(item => item.dataset.toolkitChoose), ["shadowing", "feynman"]);
+  const choice = { dataset: { toolkitChoose: "feynman" }, disabled: false, hasAttribute: () => false };
   await view.click({ target: { closest: (selector: string) => selector === "button" ? choice : null } });
-  assert.deepEqual(mounted, []); assert.equal(view.dojoId, "feynman");
+  assert.deepEqual(mounted, []); assert.equal(view.toolkitId, "feynman");
   view.mountedToolkits = [];
   await view.click({ target: { closest: (selector: string) => selector === ".pith-cue" ? {} : null } });
   assert.deepEqual(mounted, []);
@@ -145,7 +145,7 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
 
   let resolveLookup!: (value: unknown) => void;
   const lookup = new Promise(resolve => { resolveLookup = resolve; });
-  const actions: { mountDojo?: (id: string) => Promise<void> }[] = [];
+  const actions: { mountToolkit?: (id: string) => Promise<void> }[] = [];
   const toolkitWrites: string[][] = [];
   let updates = 0;
   const topics = { a: { id: "a", title: "A", materialId: "m", toolkits: [] }, b: { id: "b", title: "B", materialId: "m", toolkits: [] } };
@@ -153,12 +153,12 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
     openTopic: async (id: "a" | "b") => topics[id],
     store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: () => lookup, updateTopic: async () => { updates++; return topics.a; } },
     runtime: { getService: () => undefined },
-    createView: (_root: unknown, action: { mountDojo?: (id: string) => Promise<void> }) => { actions.push(action); const writes: string[] = []; toolkitWrites.push(writes); return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push(...ids); }, render() {}, refreshGuide: async () => {} }; },
+    createView: (_root: unknown, action: { mountToolkit?: (id: string) => Promise<void> }) => { actions.push(action); const writes: string[] = []; toolkitWrites.push(writes); return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push(...ids); }, render() {}, refreshGuide: async () => {} }; },
     releaseView() {}, renderMaterialFile: async () => ({ html: "", sections: [] }),
   };
   Object.assign(workspace, { generation: 0, view: null, controller, contentEl: {}, guideByTopic: new Map() });
   await workspace.openTopic("a");
-  const pendingMount = actions[0]!.mountDojo!("feynman");
+  const pendingMount = actions[0]!.mountToolkit!("feynman");
   await workspace.openTopic("b");
   resolveLookup(topics.a);
   await assert.rejects(pendingMount, /课题已切换/);
@@ -172,7 +172,7 @@ test("Obsidian guide refresh synchronizes mounted toolkits and ignores older res
   const old = new Promise(resolve => { resolveOld = resolve; });
   let requests = 0;
   const snapshot = (toolkits: string[]) => ({ notes: [], conversation: [], actions: [], toolkits });
-  Object.assign(view, { disposed: false, guideGeneration: 0, mountedToolkits: [], dojos: [], dojoId: "", dock: { querySelector: () => button }, actions: { guideData: () => ++requests === 1 ? old : Promise.resolve(snapshot(["feynman"])) }, renderGuide() {}, markExisting() {} });
+  Object.assign(view, { disposed: false, guideGeneration: 0, mountedToolkits: [], toolkits: [], toolkitId: "", dock: { querySelector: () => button }, actions: { guideData: () => ++requests === 1 ? old : Promise.resolve(snapshot(["feynman"])) }, renderGuide() {}, markExisting() {} });
   const refresh = view.refreshGuide as () => Promise<void>;
   const first = refresh.call(view);
   await refresh.call(view);
@@ -187,7 +187,7 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
   type Workspace = { controller: unknown; view: unknown; generation: number; homeRequest: number; contentEl: object; openTopic: (id: string) => Promise<void> };
   const workspace = Object.create(PithWorkspaceView.prototype) as Workspace;
   const current = { id: "a", title: "A", materialId: "m", toolkits: ["feynman"], notes: [] };
-  let actions!: { guideData: () => Promise<{ toolkits: readonly string[] }>; mountDojo: (id: string) => Promise<void> };
+  let actions!: { guideData: () => Promise<{ toolkits: readonly string[] }>; mountToolkit: (id: string) => Promise<void> };
   const writes: string[][] = [];
   let updates = 0;
   const controller = {
@@ -201,7 +201,7 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
   Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: {}, controller, guideByTopic: new Map() });
   await workspace.openTopic("a");
   assert.deepEqual((await actions.guideData()).toolkits, ["feynman"]);
-  await actions.mountDojo("feynman");
+  await actions.mountToolkit("feynman");
   assert.equal(updates, 0);
   assert.deepEqual(writes, [[], ["feynman"]]);
 });

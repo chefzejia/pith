@@ -15,7 +15,7 @@ test("transport fits and remains operable in a narrow Obsidian content pane", { 
     await page.evaluate(() => {
       const sampleRate = 8000, bytes = new Uint8Array(44 + sampleRate * 2 * 24), wav = new DataView(bytes.buffer); const write = (offset: number, text: string) => { for (let i = 0; i < text.length; i++) wav.setUint8(offset + i, text.charCodeAt(i)); };
       write(0, "RIFF"); wav.setUint32(4, bytes.length - 8, true); write(8, "WAVEfmt "); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true); wav.setUint32(24, sampleRate, true); wav.setUint32(28, sampleRate * 2, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); write(36, "data"); wav.setUint32(40, bytes.length - 44, true);
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openDojo() {}, loadAudio: async () => bytes });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, loadAudio: async () => bytes });
       (window as any).narrowView = view;
       view.render({ title: "Audio", currentFile: "clip.vtt", files: [{ name: "clip.wav", mimeType: "audio/wav" }], sections: [], html: `<section class="pith-timeline-stage">${[1, 5, 10, 15, 20].map((start, i) => `<div class="pith-cue" data-locator="time:${start}" data-end-sec="${start + 3}" data-prose="true">Sentence ${i + 1}</div>`).join("")}</section>` });
     });

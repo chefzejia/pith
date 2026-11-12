@@ -34,9 +34,9 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     assert.equal(await page.locator(".pith-home h1").textContent(), "课题看板");
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(".pith-view .pith-article .pith-epub-chapter").first().waitFor();
-    await page.locator(".pith-view #open-dojo").click();
-    await page.locator('[data-dojo-choose="interline"]').click();
-    await page.locator('.pith-dojo-panel [data-interline-mode="bilingual"]').click();
+    await page.locator(".pith-view #open-toolkit").click();
+    await page.locator('[data-toolkit-choose="interline"]').click();
+    await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-article .pith-interline-subtitle").first().waitFor();
     await page.locator('[data-command="typography"]').click(); await page.locator('[data-mode="double"]').click();
     assert.equal(await page.locator('[data-mode="double"]').getAttribute("aria-pressed"), "true");
@@ -51,11 +51,11 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     assert.equal(mobileBounds.width, mobileBounds.viewport);
     await page.setViewportSize({ width: 1400, height: 900 });
     assert.equal(await page.locator('.pith-guide [data-voice]').count(), 0);
-    await page.locator('#open-dojo').click(); await page.locator('[data-dojo-choose="shadowing"]').click();
-    await page.locator('[data-voice="dojo"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-voice="dojo"]')?.getAttribute("aria-pressed") === "true");
+    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="shadowing"]').click();
+    await page.locator('[data-voice="toolkit"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-voice="toolkit"]')?.getAttribute("aria-pressed") === "true");
     await page.waitForTimeout(300);
-    await page.locator('[data-voice="dojo"]').click();
+    await page.locator('[data-voice="toolkit"]').click();
     await page.waitForFunction(() => document.querySelector('.pith-shadowing-feedback')?.textContent?.includes('受控转写'));
     assert.equal(await page.evaluate(() => { const streams = (window as unknown as { syntheticVoice: { streams: MediaStream[] } }).syntheticVoice.streams; return streams.length === 1 && streams[0]!.getTracks().every(track => track.readyState === "ended"); }), true);
     const evidence = resolve('.tmp/evidence/task-37'); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-shadowing-light.png') });

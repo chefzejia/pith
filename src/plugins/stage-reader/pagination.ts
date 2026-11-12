@@ -233,15 +233,15 @@ export function updateTocLocation(container: HTMLElement, article: HTMLElement, 
   while (list && list.className !== "pith-toc-tree") { list.hidden = false; const parent: HTMLElement | null = list.parentElement; const toggle = parent?.querySelector<HTMLButtonElement>(":scope > div > [data-toc-toggle]"); if (toggle) toggle.setAttribute("aria-expanded", "true"); list = parent?.closest("ul") ?? null; }
 }
 
-export function visibleDojoTarget(article: HTMLElement, reader: HTMLElement, file: string): { file: string; locator: string; quote: string } | null {
+export function visibleToolkitTarget(article: HTMLElement, reader: HTMLElement, file: string): { file: string; locator: string; quote: string } | null {
   const chapters = Array.from(article.querySelectorAll<HTMLElement>(":scope > .pith-epub-chapter"));
   const candidates = chapters.length ? chapters : [article];
   const viewport = reader.getBoundingClientRect();
-  const blocks = candidates.flatMap(chapter => Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"],[data-trainable="true"]'))).filter(item => !item.closest('.pith-inline-dojo,.pith-interline-subtitle,[data-dojo-display]') && (item.dataset.trainable === "true" || !item.closest('[data-prose="false"]')) && Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
+  const blocks = candidates.flatMap(chapter => Array.from(chapter.querySelectorAll<HTMLElement>('[data-prose="true"],[data-trainable="true"]'))).filter(item => !item.closest('.pith-inline-toolkit,.pith-interline-subtitle,[data-toolkit-display]') && (item.dataset.trainable === "true" || !item.closest('[data-prose="false"]')) && Array.from(item.getClientRects()).some(rect => rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom));
   const isHeading = (item: HTMLElement): boolean => /^H[1-6]$/.test(item.tagName) || item.getAttribute("role") === "heading";
   for (const block of [...blocks.filter(item => !isHeading(item)), ...blocks.filter(isHeading)]) {
     const copy = block.cloneNode(true) as HTMLElement;
-    for (const child of copy.querySelectorAll('.pith-interline-subtitle,.pith-inline-dojo,[data-dojo-display],[data-prose="false"],time')) child.remove();
+    for (const child of copy.querySelectorAll('.pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display],[data-prose="false"],time')) child.remove();
     const quote = (copy.textContent ?? "").trim();
     if (!quote) continue;
     const range = article.ownerDocument.createRange(); range.selectNodeContents(article); range.setEndBefore(block);

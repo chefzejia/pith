@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PluginRuntime, type InterlineSourceSegment, type PluginContext, type Topic, type WorkspaceStoragePort } from "../src/core/index.ts";
 import { builtinRegistry } from "../src/plugins/all.ts";
-import { computeSourceHash, interlineInUse, interlineToolkit, planNeighborhoodOrder, renderInterlineHtml } from "../src/plugins/dojo-interline/index.ts";
-import { InterlinePreparationCoordinator, type InterlineCoordinatorOptions } from "../src/plugins/dojo-interline/coordinator.ts";
+import { computeSourceHash, interlineInUse, interlineToolkit, planNeighborhoodOrder, renderInterlineHtml } from "../src/plugins/toolkit-interline/index.ts";
+import { InterlinePreparationCoordinator, type InterlineCoordinatorOptions } from "../src/plugins/toolkit-interline/coordinator.ts";
 
 function storage(): WorkspaceStoragePort & { files: Map<string, string> } {
   const files = new Map<string, string>();
@@ -120,14 +120,14 @@ test("corrupt cache is recomputed and missing translations remain independently 
 
 test("runtime retains interline and reader with injected topic usage", () => {
   const topic = (id: string, toolkit: string): Topic => ({ id, title: id, target: "read", status: "exploring", toolkits: [toolkit], notes: [], createdAt: "today", updatedAt: "today" });
-  let topics = [topic("one", "interline"), topic("two", "dojo-interline")];
-  const manifest = builtinRegistry.list().find(item => item.id === "dojo-interline"); assert.ok(manifest);
+  let topics = [topic("one", "interline"), topic("two", "interline")];
+  const manifest = builtinRegistry.list().find(item => item.id === "toolkit-interline"); assert.ok(manifest);
   const reader = { id: "reader", name: "Reader", description: "Reader", provides: ["stage.reader"], apply: (ctx: PluginContext) => ctx.provide("stage.reader", {}) };
   const runtime = new PluginRuntime([{ ...manifest, inUse: () => interlineInUse(topics) }, reader]);
-  const config = { preset: "essentials" as const, plugins: { "dojo-interline": { enabled: false } } };
+  const config = { preset: "essentials" as const, plugins: { "toolkit-interline": { enabled: false } } };
   runtime.reconcile(config);
-  assert.equal(runtime.getService("dojo.interline"), interlineToolkit);
+  assert.equal(runtime.getService("toolkit.interline"), interlineToolkit);
   assert.equal(runtime.active("reader"), true);
-  assert.equal(runtime.statuses().find(item => item.id === "dojo-interline")!.inUseCount, 2);
-  topics = []; runtime.reconcile(config); assert.equal(runtime.active("dojo-interline"), false); runtime.stop();
+  assert.equal(runtime.statuses().find(item => item.id === "toolkit-interline")!.inUseCount, 2);
+  topics = []; runtime.reconcile(config); assert.equal(runtime.active("toolkit-interline"), false); runtime.stop();
 });

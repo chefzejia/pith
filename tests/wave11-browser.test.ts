@@ -83,18 +83,18 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     await page.waitForFunction(async () => (await (await fetch("/api/state")).json()).settings.speech?.ttsEndpoint === "https://speech.example.com/v1/audio/speech");
     await page.locator("#close-drawer").click();
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
-    assert.equal(await page.locator("#open-dojo").isHidden(), true);
+    assert.equal(await page.locator("#open-toolkit").isHidden(), true);
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
     await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
-    await page.waitForFunction(() => document.querySelector("#open-dojo")?.textContent?.includes("费曼复述"));
+    await page.waitForFunction(() => document.querySelector("#open-toolkit")?.textContent?.includes("费曼复述"));
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 800 });
-      assert.match(await page.locator("#open-dojo").textContent(), /费曼复述/);
-      await page.locator("#open-dojo").click();
-      const panel = page.locator(".pith-dojo-panel"); assert.equal(await panel.count(), 1);
+      assert.match(await page.locator("#open-toolkit").textContent(), /费曼复述/);
+      await page.locator("#open-toolkit").click();
+      const panel = page.locator(".pith-toolkit-panel"); assert.equal(await panel.count(), 1);
       assert.equal(await panel.evaluate((node: HTMLElement) => node.parentElement?.classList.contains("pith-bottom-dock")), true);
       const bounds = await panel.boundingBox(); assert.ok(bounds); assert.ok(Math.abs(bounds.y - 48) < 2); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
-      await page.locator("#open-dojo").click();
+      await page.locator("#open-toolkit").click();
       await page.locator('[data-command="typography"]').click();
       const typeBounds = await page.locator(".pith-typography-popover").boundingBox(); assert.ok(typeBounds); assert.ok(Math.abs(typeBounds.y - 48) < 2);
       await page.locator('[data-command="typography"]').click();
