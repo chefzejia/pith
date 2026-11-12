@@ -32,7 +32,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly TopicNot
     };
     entry.steps.forEach((step, index) => {
       if (step.kind !== "reply") { process.push(step); return; }
-      flush(); parts.push(`<div class="pith-guide-reply">${renderMarkdown(step.markdown)}<button data-guide-copy="${escape(entry.id)}" data-guide-copy-index="${index}">复制</button></div>`);
+      flush(); if (step.markdown.trim()) parts.push(`<div class="pith-guide-reply">${renderMarkdown(step.markdown)}<button data-guide-copy="${escape(entry.id)}" data-guide-copy-index="${index}">复制</button></div>`);
     });
     flush();
     if (entry.status === "running") { const current = [...entry.steps].reverse().find(step => step.kind === "tool" && step.status === "running"); parts.push(`<div class="pith-guide-pending" role="status" data-started="${escape(entry.startedAt)}">${current && current.kind === "tool" ? escape(toolLabel(current.name, current.inputPreview)) : "向导正在回应"} · <span data-guide-elapsed></span></div>`); }

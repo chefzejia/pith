@@ -9,7 +9,7 @@ import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
 
 const browserUnavailable = !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH;
-const reply = "受控向导回复";
+const reply = "受控向导回复\n\n| 项目 | 文件说明 | 运行行为 |\n| --- | --- | --- |\n| 性质 | 文档说明接口边界和数据流 | 实际执行队列和状态变化 |";
 const choices = [
   "我回答检验卡 1 和 2，你据此诊断我对 falsy 边界与错误来源的把握",
   "生成第二讲《02-公开接口契约.md》：三个导出函数的输入/返回值/失败模式，落点精确到 path:line",
@@ -18,6 +18,19 @@ const choices = [
 ];
 const closeServer = (server: Server) => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 const occurrences = (locator: any, text: string): Promise<number> => locator.evaluate((node: HTMLElement, needle: string) => (node.textContent ?? "").split(needle).length - 1, text);
+
+async function assertTableScrolls(page: any, selector: string): Promise<void> {
+  const table = page.locator(`${selector} .pith-guide-reply table`).first();
+  const layout = await table.evaluate((element: HTMLElement) => {
+    const container = element.closest<HTMLElement>(".pith-guide-content")!;
+    element.scrollLeft = element.scrollWidth;
+    return { width: element.clientWidth, contentWidth: element.scrollWidth, scrollLeft: element.scrollLeft, containerWidth: container.clientWidth,
+      columns: Array.from(element.querySelectorAll("th"), cell => cell.getBoundingClientRect().width) };
+  });
+  assert.equal(layout.columns.length, 3);
+  assert.ok(layout.columns.every((width: number) => width >= 100), JSON.stringify(layout));
+  assert.ok(layout.width <= layout.containerWidth && layout.contentWidth > layout.width && layout.scrollLeft > 0, JSON.stringify(layout));
+}
 
 async function assertChoicesFit(page: any, selector: string): Promise<void> {
   const buttons = page.locator(`${selector} .pith-choice-btn`);
@@ -72,8 +85,10 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     assert.equal(await pending.count(), 0);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
     await assertChoicesFit(page, ".pith-guide");
+    await assertTableScrolls(page, ".pith-guide");
     await page.setViewportSize({ width: 390, height: 800 });
     await assertChoicesFit(page, ".pith-guide");
+    await assertTableScrolls(page, ".pith-guide");
     await page.setViewportSize({ width: 1200, height: 800 });
 
     waiting = held();
@@ -190,8 +205,10 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     assert.equal(await pending.count(), 0);
     await page.addStyleTag({ content: "button { height: 30px; }" });
     await assertChoicesFit(page, "#side .pith-guide");
+    await assertTableScrolls(page, "#side .pith-guide");
     await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "220px"; });
     await assertChoicesFit(page, "#side .pith-guide");
+    await assertTableScrolls(page, "#side .pith-guide");
     await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "30%"; });
     await page.waitForFunction(() => !(document.querySelector("#side [data-guide-send]") as HTMLButtonElement).disabled);
 

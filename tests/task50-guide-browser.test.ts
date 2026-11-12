@@ -42,6 +42,24 @@ test("shared guide renders turn states, protects scroll and sends only deliberat
       });
       document.querySelector(".pith-layout")!.append(state.view.guideElement()); state.view.setGuideVisible(true); state.view.render({ title: "讲义", currentFile: "lesson.md", files: [], sections: [], html: '<p data-locator="text:line:1" data-prose="true">原文位置</p>' }); await state.view.refreshGuide();
     });
+    await page.evaluate(() => {
+      const state = (window as any).task50;
+      state.conversation = [{ id: "turn", status: "completed", startedAt: new Date().toISOString(), user: { text: "请走读并写讲义" }, choices: [], steps: [
+        { kind: "reply", markdown: "先读取材料。" },
+        { kind: "tool", name: "pith_read_material", callId: "read", inputPreview: "{}", status: "completed", effects: [] },
+        { kind: "reply", markdown: "" },
+        { kind: "tool", name: "pith_write_lesson", callId: "write", inputPreview: "{}", status: "completed", effects: [] },
+        { kind: "reply", markdown: " \n\t " },
+        { kind: "tool", name: "pith_read_lesson", callId: "check", inputPreview: "{}", status: "completed", effects: [] },
+        { kind: "reply", markdown: "  讲义已完成。\n" },
+      ] }];
+      state.view.updateGuideTurn(state.conversation[0]);
+    });
+    assert.equal(await page.locator(".pith-guide-process").count(), 3);
+    assert.equal(await page.locator(".pith-guide-reply").count(), 2);
+    assert.deepEqual(await page.locator("[data-guide-copy]").evaluateAll((nodes: Element[]) => nodes.map(node => node.getAttribute("data-guide-copy-index"))), ["0", "6"]);
+    await page.locator('[data-guide-copy-index="6"]').click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "  讲义已完成。\n");
     const publish = (status: string, extra = "") => page.evaluate(({ status, extra }: { status: string; extra: string }) => {
       const state = (window as any).task50;
       state.conversation = [{ id: "turn", status, startedAt: new Date(Date.now() - 5000).toISOString(), user: { text: "我的问题" }, choices: [], ...(status === "failed" ? { error: "实际故障" } : {}), steps: [
