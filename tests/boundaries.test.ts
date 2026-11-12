@@ -113,6 +113,41 @@ function walkTsFiles(dir: string): string[] {
   return results;
 }
 
+function profileWriteViolations(path: string, source: string): { violations: string[]; writes: string[] } {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const violations: string[] = [], writes: string[] = [];
+  const names = new Set(["addObservation", "removeObservation"]);
+  function settlementMethod(node: ts.Node): boolean {
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (ts.isMethodDeclaration(parent) && parent.name.getText(file) === "execute" && ts.isObjectLiteralExpression(parent.parent)) {
+        return path === "src/plugins/guide-acp/tools.ts" && parent.parent.properties.some(property => ts.isPropertyAssignment(property) && property.name.getText(file) === "name" && ts.isStringLiteral(property.initializer) && property.initializer.text === "pith_settle_topic");
+      }
+    }
+    return false;
+  }
+  function visit(node: ts.Node): void {
+    if (ts.isPropertyAssignment(node) && node.name.getText(file) === "name" && ts.isStringLiteral(node.initializer) && node.initializer.text === "pith_remember") violations.push(`${path}: retired tool registered`);
+    const property = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : ts.isBindingElement(node) ? (node.propertyName ?? node.name).getText(file).replace(/^['"]|['"]$/g, "") : "";
+    if (names.has(property)) {
+      if (!settlementMethod(node)) violations.push(`${path}: ${property} outside settlement`);
+      else writes.push(property);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return { violations, writes };
+}
+
+test("only the settlement tool accesses profile observation writes", () => {
+  const path = "src/plugins/guide-acp/tools.ts";
+  assert.notDeepEqual(profileWriteViolations(path, 'const tool = { name: "pith_remember", async execute() { await store.addObservation({}); } };').violations, []);
+  assert.notDeepEqual(profileWriteViolations("src/other.ts", 'store["removeObservation"]("id");').violations, []);
+  assert.notDeepEqual(profileWriteViolations("src/other.ts", 'const { addObservation: add } = store; add({});').violations, []);
+  const results = walkTsFiles(SRC).map(file => profileWriteViolations(relative(ROOT, file).replace(/\\/g, "/"), readFileSync(file, "utf8")));
+  assert.deepEqual(results.flatMap(result => result.violations), []);
+  assert.deepEqual(results.flatMap(result => result.writes).sort(), ["addObservation", "removeObservation"]);
+});
+
 function extractModuleSpecifiers(source: string): string[] {
   const withoutComments = source
     .replace(/\/\*[\s\S]*?\*\//g, "")

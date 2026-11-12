@@ -96,7 +96,6 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
-| 向导只在结题时写画像，没有课题进行中的写入工具 | [4-guide](subsystems/4-guide-speech-shells.md) 2.5，[1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 8 | 有 `pith_remember`，是否调用只靠提示词约束（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #47 |
 | 记录标明作者；结题门禁只认用户写的笔记与实训记录 | [1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 7 | 记录没有作者；门禁只数条数，向导自己存的笔记也算（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #51 |
 | Agent 进程不能直接写工作区；工具标题按登记的形状精确匹配 | [4-guide](subsystems/4-guide-speech-shells.md) 2.3、2.4 | 宿主沙盒只禁止写绑定仓库，没绑仓库时不启用；权限闸的放行名单为空 | #49 |
 | Pith 工具以 MCP 服务提供；一个回合一次 `session/prompt` | [4-guide](subsystems/4-guide-speech-shells.md) 2.1 至 2.5 | `mcpServers` 为空；工具是回复末尾的文本围栏，一个回合最多起四次 Agent 进程（[`acpSession.ts`](../src/plugins/guide-acp/acpSession.ts)） | #49 |

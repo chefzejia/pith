@@ -81,6 +81,6 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
     } },
     { name: "pith_write_lesson", description: "Write a generated Markdown lesson", inputSchema: schema({ materialId: field, fileName: field, markdown: field }, ["materialId", "fileName", "markdown"]), execute: async input => store.writeGeneratedFile(string(input, "materialId"), string(input, "fileName"), string(input, "markdown")) },
   ];
-  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_remember" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
+  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
   return { tools };
 }

@@ -150,11 +150,6 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
       const topicId = text(input, "topicId", 200), toolkits = normalizeToolkits(input.toolkits); return store.updateTopic(topicId, { toolkits });
     } },
-    { name: "pith_remember", description: "Record an observation only when the learner explicitly asks to remember it.", inputSchema: schema({ topicId: field, text: field, noteId: field }, ["topicId", "text"]), async execute(input) {
-      keys(input, ["topicId", "text", "noteId"]);
-      const topicId = text(input, "topicId", 200), observation = text(input, "text", 4000);
-      return store.addObservation({ topicId, text: observation, ...(input.noteId === undefined ? {} : { noteId: text(input, "noteId", 200) }) });
-    } },
     { name: "pith_settle_topic", description: "Settle an exploring topic after a verified explanation, optionally adding or removing observations.", inputSchema: schema({ topicId: field, verificationSummary: field, observations: { type: "array", items: schema({ text: field, noteId: field }, ["text"]) }, removeObservationIds: { type: "array", items: field } }, ["topicId", "verificationSummary"]), async execute(input) {
       keys(input, ["topicId", "verificationSummary", "observations", "removeObservationIds"]);
       const topicId = text(input, "topicId", 200);

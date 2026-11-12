@@ -124,22 +124,21 @@ test("invalid UTF-8 and invalid observation text fail without changing bytes", a
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
-test("guide settlement and explicit remember use topic evidence and reject replacement", async () => {
+test("guide settlement uses topic evidence and rejects replacement", async () => {
   const f = await fixture();
   try {
     const before = await readFile(join(f.dir, "ME.md"));
-    const remember = f.tool("pith_remember"), settle = f.tool("pith_settle_topic");
-    const remembered = await remember.execute({ topicId: f.topic.id, text: "熟悉依赖注入", noteId: f.note.id }) as { id: string };
-    await assert.rejects(remember.execute({ topicId: f.topic.id, text: "bad", noteId: "other-note" }), /Note does not belong/);
+    const settle = f.tool("pith_settle_topic");
+    const remembered = await f.store.addObservation({ topicId: f.topic.id, text: "熟悉依赖注入", noteId: f.note.id });
     await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", profilePatchMarkdown: "replacement" }), /Invalid tool arguments/);
     await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", observations: [{ text: "ok" }, { text: "bad", noteId: "other-note" }] }), /Note does not belong/);
     const prompt = buildScenePrompt({ profileMarkdown: "", topic: (await f.store.getTopic(f.topic.id))!, userMessage: "test" });
-    assert.ok(prompt.includes(f.note.id)); assert.match(prompt, /只有用户明确要求记住/);
+    assert.ok(prompt.includes(f.note.id)); assert.match(prompt, /用户要求记住[\s\S]*pith_save_note[\s\S]*画像只在结题时更新/); assert.doesNotMatch(prompt, /pith_remember/);
     const settled = await settle.execute({ topicId: f.topic.id, verificationSummary: "Applied insight", observations: [{ text: "理解边界", noteId: f.note.id }], removeObservationIds: [remembered.id] }) as { status: string };
     assert.equal(settled.status, "settled");
     const profile = await f.store.readProfile(); assert.deepEqual(profile.observations.map(item => [item.text, item.noteId]), [["理解边界", f.note.id]]);
     assert.ok(Buffer.from(profile.markdown).subarray(0, before.length).equals(before));
     const dsh = createDshPluginBundle({ storage: f.storage }).tools;
-    assert.ok(dsh.some(item => item.name === "pith_remember")); assert.ok(!dsh.some(item => item.name === "pith_update_profile"));
+    assert.ok(dsh.some(item => item.name === "pith_settle_topic")); assert.ok(!dsh.some(item => item.name === "pith_remember" || item.name === "pith_update_profile"));
   } finally { await rm(f.dir, { recursive: true, force: true }); }
 });

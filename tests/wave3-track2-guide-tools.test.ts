@@ -21,7 +21,8 @@ test("workspace tools bound reads, protect imports and gate settlement", async (
     const topic = await store.createTopic({ id: "topic-one", title: "Topic", materialId: "material-one" });
     const engine = new DefaultAttentionEngine(store, storage);
     const tools = createGuideWorkspaceTools(store, engine, storage);
-    assert.equal(tools.length, 9);
+    const expectedNames = ["pith_get_context", "pith_list_repository_files", "pith_read_repository_file", "pith_read_material_section", "pith_save_note", "pith_write_lesson", "pith_configure_toolkits", "pith_settle_topic"].sort();
+    assert.deepEqual(tools.map(tool => tool.name).sort(), expectedNames);
     assert.ok(tools.some(tool => tool.name === "pith_list_repository_files"));
     assert.ok(tools.some(tool => tool.name === "pith_read_repository_file"));
     const call = (name: string, input: Record<string, unknown>) => {
@@ -63,7 +64,7 @@ test("workspace tools bound reads, protect imports and gate settlement", async (
     await assert.rejects(dshSettle.execute({ topicId: other.id, verificationSummary: "verified" }), /learner note/);
     const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage }, store, engine, window: {} });
     runtime.reconcile({});
-    try { assert.equal(runtime.getService<GuideAgentService>("guide.agent")!.listWorkspaceTools!().length, 9); } finally { runtime.stop(); }
+    try { assert.deepEqual(runtime.getService<GuideAgentService>("guide.agent")!.listWorkspaceTools!().map(tool => tool.name).sort(), expectedNames); } finally { runtime.stop(); }
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
