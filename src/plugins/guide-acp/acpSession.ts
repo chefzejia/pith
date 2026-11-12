@@ -132,7 +132,7 @@ export function parseToolkitDirective(text: string): { text: string; toolkits: s
   }
 }
 
-function trailingDirective(text: string, name: string): { start: number; json: string } | null {
+function directiveFences(text: string, name: string): { last: { start: number; end: number; json: string } | null; open: boolean; openTool: boolean } {
   const lines = [...text.matchAll(/[^\n]*(?:\n|$)/g)].filter(match => match[0].length > 0);
   let fence: { marker: string; length: number; start: number; contentStart: number; tool: boolean } | null = null;
   let last: { start: number; end: number; json: string } | null = null;
@@ -151,7 +151,12 @@ function trailingDirective(text: string, name: string): { start: number; json: s
       fence = { marker, length: match[1]!.length, start: line.index!, contentStart: line.index! + line[0].length, tool: marker === "`" && match[1]!.length === 3 && suffix.trim() === name };
     }
   }
-  if (fence || !last || text.slice(last.end).trim()) return null;
+  return { last, open: fence !== null, openTool: fence?.tool === true };
+}
+
+function trailingDirective(text: string, name: string): { start: number; json: string } | null {
+  const { last, open } = directiveFences(text, name);
+  if (open || !last || text.slice(last.end).trim()) return null;
   return { start: last.start, json: last.json };
 }
 
@@ -492,6 +497,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
 
     const tools = createGuideWorkspaceTools(this.options.store, this.options.engine, this.options.storage, this.options.http, this.options.repository, this.options.mediaCorpus, topic.id, signal);
     const readNames = new Set(["pith_get_context", "pith_read_material_section", "pith_list_repository_files", "pith_read_repository_file", "pith_search_media"]);
+    let correctingDirective = false;
     for (let turn = 0; turn < 4; turn++) {
       const result = await runOneShotAcpPrompt(promptText, {
         descriptor,
@@ -518,7 +524,15 @@ export class LocalAcpGuideProvider implements GuideProvider {
         directives.unshift({ name: record.name, arguments: record.arguments as Record<string, unknown> });
         reply = reply.slice(0, match.start).trimEnd();
       }
+      const remaining = directiveFences(reply, "pith-tool");
+      if (remaining.last || remaining.openTool) {
+        correctingDirective = true;
+        if (turn === 3) throw new Error("Guide tool directive must be a standalone fence at the end of the reply; the rejected reply was not executed");
+        promptText += "\n\n上一轮工具围栏格式错误，本轮没有执行任何工具。请重新回答；若需要执行工具，所有 pith-tool 围栏必须独立放在回复末尾，围栏之后不要写正文。示例和引用不要作为工具调用。";
+        continue;
+      }
       if (toolkitDirective.toolkits !== null) directives.push({ name: "pith_configure_toolkits", arguments: { topicId: input.topicId, toolkits: toolkitDirective.toolkits } });
+      if (correctingDirective && directives.length === 0) throw new Error("Guide tool directive was not corrected; the requested action is unconfirmed");
       const currentTopic = await this.options.store.getTopic(input.topicId);
       if (!currentTopic) throw new Error("Topic not found");
       for (const directive of directives) {

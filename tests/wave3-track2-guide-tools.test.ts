@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -90,6 +90,8 @@ test("ACP executes only scoped workspace directives", async () => {
     const topic = await store.createTopic({ id: "topic-one", title: "One" });
     await store.createTopic({ id: "topic-two", title: "Two" });
     let response = '';
+    let responses: string[] = [];
+    let promptCount = 0;
     const port: AgentProcessPort = {
       findExecutable: async () => null, probeExecutable: async () => null,
       async spawnStdio() {
@@ -100,7 +102,8 @@ test("ACP executes only scoped workspace directives", async () => {
           writeLine(line) {
             const request = JSON.parse(line) as { id?: number; method: string };
             if (request.id === undefined) return;
-            const result = request.method === "session/new" ? { sessionId: "test" } : request.method === "session/prompt" ? { text: response } : {};
+            if (request.method === "session/prompt") promptCount++;
+            const result = request.method === "session/new" ? { sessionId: "test" } : request.method === "session/prompt" ? { text: responses.shift() ?? response } : {};
             listener(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
           },
           async close() {},
@@ -130,5 +133,50 @@ test("ACP executes only scoped workspace directives", async () => {
     response = 'No.\n```pith-tool\n{"name":"pith_settle_topic","arguments":{"topicId":"topic-one","verificationSummary":" "}}\n```';
     await assert.rejects(reply(), /verificationSummary/);
     assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+
+    const noteId = (await store.getTopic(topic.id))!.notes[0]!.id;
+    const profileBefore = await readFile(join(dir, "ME.md"));
+    const directive = `\`\`\`pith-tool\n${JSON.stringify({ name: "pith_settle_topic", arguments: { topicId: topic.id, verificationSummary: "Learner explained ownership and lifecycle", observations: [{ text: "Understands dependency ownership", noteId }] } })}\n\`\`\``;
+    const misplaced = `你的回答通过了结题门控。现在结题。\n\n${directive}\n\n结题已完成。`;
+    response = misplaced;
+    promptCount = 0;
+    await assert.rejects(reply(), /directive|围栏/i);
+    assert.equal(promptCount, 4);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+    assert.deepEqual(await readFile(join(dir, "ME.md")), profileBefore);
+    assert.equal(await storage.exists("history"), false);
+
+    responses = [misplaced, "结题已完成。"];
+    await assert.rejects(reply(), /directive|围栏/i);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+    assert.deepEqual(await readFile(join(dir, "ME.md")), profileBefore);
+
+    const trailingWrite = `\`\`\`pith-tool\n${JSON.stringify({ name: "pith_save_note", arguments: { topicId: topic.id, body: "must not be written" } })}\n\`\`\``;
+    responses = [`${misplaced}\n${trailingWrite}`, "结题已完成。"];
+    await assert.rejects(reply(), /directive|围栏/i);
+    assert.equal((await store.getTopic(topic.id))!.notes.length, 2);
+
+    const wrongScope = `No.\n\`\`\`pith-tool\n${JSON.stringify({ name: "pith_settle_topic", arguments: { topicId: "topic-two", verificationSummary: "wrong" } })}\n\`\`\``;
+    responses = [misplaced, wrongScope];
+    await assert.rejects(reply(), /outside the current session/);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+    assert.equal((await store.getTopic("topic-two"))!.status, "exploring");
+
+    const quoted = `示例：\n> \`\`\`pith-tool\n> {"name":"pith_settle_topic","arguments":{}}\n> \`\`\`\n说明文字。`;
+    response = quoted;
+    promptCount = 0;
+    assert.equal(await reply(), quoted);
+    assert.equal(promptCount, 1);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+
+    responses = [misplaced, `回答通过检验。\n${directive}`];
+    promptCount = 0;
+    assert.equal(await reply(), "回答通过检验。");
+    assert.equal(promptCount, 2);
+    assert.equal((await store.getTopic(topic.id))!.status, "settled");
+    assert.deepEqual((await store.readProfile()).observations.map(item => [item.text, item.noteId]), [["Understands dependency ownership", noteId]]);
+    const history = await readdir(join(dir, "history"));
+    assert.equal(history.length, 1);
+    assert.deepEqual(await readFile(join(dir, "history", history[0]!)), profileBefore);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
