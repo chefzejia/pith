@@ -95,12 +95,13 @@
 
 ## [Task #47] 画像只增删观察条目，写前留底
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: d9a1c733f4822babde7a7c8d58c9257fb8591e85
 - **Updated**: 2026-11-12
+- **验收及交付**: 真实 Agent 的进行中记忆、追问与结题三场景通过，画像手写内容和写前备份逐字节核对通过；Worker 全仓检查及破壁通过，Worker 与 Tester 清理通过。已安装至 `ganfan-media`，三份插件文件与构建产物 SHA-256 一致，其余目录内容未变。证据：`.tmp/evidence/task-47/ruling-worker/worker-report.md`、`.tmp/evidence/task-47/tester/retest-d9a1c73/tester-report.md`、`.tmp/evidence/task-47/delivery.txt`；截图见 `.tmp/evidence/task-47/tester/retest-d9a1c73/`。本次独立验收使用 Web，未操作原生 Obsidian 界面。
 - **Brain 裁决（2026-11-12，契约提交 `7446d5f`）**：阻塞成立，错在契约。「用户明确说记住时才写」是对自然语言的判断，程序核对不了；用关键词猜、加确认弹窗都不采用。裁决是去掉课题进行中的写入：向导只在结题时写画像（[1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 2 节不变量 8，[4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.5）。下面契约第 5、6 条与验收已按此改写；第 1 至 4 条已在候选 `8796b01` 上通过，保留。
 - **上一轮的阻塞记录**：真实 Agent 在用户要求「达标后结题并记录观察」、向导仍在追问的回合里单独调用 `pith_remember` 写入画像；候选 `8796b01ebd2b0da8085ac70994f1a8d3e0f16fab` 只靠提示词约束，执行路径没有可核对的授权检查，三轮修复后独立 Tester 未通过。
-- **已完成及证据**: 真实记忆和结题已各成功一次，画像标记外字节与写前备份符合验收；单测、浏览器测试、构建与破壁检查通过。历史失败、最新复验和清理见 `.tmp/evidence/task-47/tester/retest-2f78ecc/tester-report.md`、`.tmp/evidence/task-47/tester/retest-8796b01/tester-report.md` 与 `.tmp/evidence/task-47/background/worker-report.md`。本项未安装到真实 Vault。
+- **上一轮证据**: 真实记忆和结题已各成功一次，画像标记外字节与写前备份符合验收；单测、浏览器测试、构建与破壁检查通过。历史失败、复验和清理见 `.tmp/evidence/task-47/tester/retest-2f78ecc/tester-report.md`、`.tmp/evidence/task-47/tester/retest-8796b01/tester-report.md` 与 `.tmp/evidence/task-47/background/worker-report.md`。上一轮未安装到真实 Vault。
 - **Scope**: `src/core/types.ts`、`src/core/host.ts`、`src/core/store/**`、`src/plugins/guide-acp/**`、`src/shells/**`（存储端口的 `copy` 与 dsh 壳的工具）、`src/workbench/**`（只为编译通过）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：`pith_settle_topic` 现在整篇替换 `ME.md`（`src/plugins/guide-acp/tools.ts` 的 `store.writeProfile(profile)`），dsh 壳另有一个整篇替换的 `pith_update_profile`。已安装的版本每次结题都可能改写用户自己写的内容。本任务排在 #46 之后，写集与它重叠。
 - **契约**：
