@@ -71,9 +71,11 @@
 
 ## [Task #46] 改名：`dojo` 统一为 `toolkit`
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 6c7ea68145a3844b83990fc8e556e4700e125b40
 - **Updated**: 2026-11-12
+- **验收结果**: 类型检查、全仓单测与浏览器测试、Obsidian 构建通过；命名守卫与未知工具 ID 校验均经手动破壁。独立 Tester 在 Web 与隔离 Obsidian 操作行间、字幕跟读、费曼复述和工具开关，并检查实际加载产物哈希及无效 ID。译文、向导回复、音频和转写使用受控夹具，不代表真实模型或语音服务验收。
+- **Evidence**: `.tmp/evidence/task-46/worker-report.md`、`.tmp/evidence/task-46/tester/tester-report.md` 与同目录截图；运行沙盒与自有进程已清理。首次中止的浏览器测试曾写入 `.tmp/evidence/task-39/web-interline.png`，无法确认是否覆盖原有截图。
 - **Scope**: `src/**`、`tests/**`、`scripts/**`（只为改名）、`docs/ARCHITECTURE.md`（删差距行）、`docs/subsystems/3-toolkits.md`（更新验证命令）、`docs/subsystems/5-spatial-ui-and-slots.md`（只为同步类名）
 - **背景**：这个概念在契约里只叫 `Toolkit`（[3-toolkits.md](subsystems/3-toolkits.md) 第 1 节）。源码 22 个文件、测试 39 个文件含 `dojo`。先做完改名，后面的重构不用在两套名字之间来回。
 - **契约**：行为不变，只改名字。
