@@ -144,7 +144,7 @@ files:
 
 - **无材料课题自动创建讲义包**：当用户以一句话意图（如“我想学 magpie”）新建无初始文件的课题，或绑定了 `files: []` 的代码仓库课题时，向导调用讲义写入工具（`pith_write_lesson`）若发现该 Topic 尚未关联 `materialId`，Store 支持自动为该 Topic 创建并绑定一个专属 `Material` 容器，将《`00-课程大纲.md`》与《`01-xxx.md`》写入其中并立即在左侧 Stage 呈现。
 - **路径穿越拦截与原始文件只读保护**：所有 `topicId`、`materialId` 与 `fileName` 均禁止包含 `/`、`\`、`\0`、`.` 或 `..`；[`writeGeneratedFile`](../../src/core/store/WorkspaceStore.ts) 仅允许写入带 `generated: true` 标记的 `.md` 衍生讲义，严禁覆盖 `files/` 下任何原始导入文件。
-- **坏文件隔离**：[`listTopics`](../../src/core/store/WorkspaceStore.ts) 与 [`listMaterials`](../../src/core/store/WorkspaceStore.ts) 扫描目录时，遇到单个损坏或格式非法的 Markdown 文件自动跳过，不阻断整个工作区加载。
+- **坏文件隔离**：[`listTopics`](../../src/core/store/WorkspaceStore.ts) 与 [`listMaterials`](../../src/core/store/WorkspaceStore.ts) 扫描目录时，遇到单个损坏或格式非法的 Markdown 文件自动跳过，不阻断整个工作区加载。[`listUnreadable`](../../src/core/store/WorkspaceStore.ts) 只读列出这些条目的种类、目录 ID、工作区相对账本路径与原始错误原因，包含账本 ID 与目录不一致的情况；读取不修复、不删除、不重写账本。
 
 ---
 
@@ -152,7 +152,7 @@ files:
 
 Pith 拒绝通用聊天软件“满屏历史聊天窗口”的心智负担。[`DefaultAttentionEngine`](../../src/core/engine/AttentionEngine.ts) 将所有交互收束到课题（`Topic`）本身：
 
-1. **课题看板与今日焦点（[`compass()`](../../src/core/engine/AttentionEngine.ts)）**：聚合当前所有 `exploring` 与 `settled` 课题，自动挑选第一个带有明确 15 分钟微动作（`nextAction`）的活跃课题作为今日焦点推荐（`focusRecommendation`）。
+1. **课题看板与今日焦点（[`compass()`](../../src/core/engine/AttentionEngine.ts)）**：聚合当前所有 `exploring` 与 `settled` 课题及 `unreadable` 条目，自动挑选第一个带有明确 15 分钟微动作（`nextAction`）的活跃课题作为今日焦点推荐（`focusRecommendation`）。
 2. **零阻塞选区捕获（[`captureSelection()`](../../src/core/engine/AttentionEngine.ts)）**：用户在阅读舞台划高亮、记笔记或保存实训结果时，前台立即落盘至 `topic.md`，同时在后台合并入队一条 `(kind: "prepare-next-action", key: topicId)` 副作用任务。
 3. **同键合并持久化队列（`_cache/effects.json`）**：
    - [`enqueueEffect(kind, key, payload)`](../../src/core/engine/AttentionEngine.ts) 对处于 `pending` 状态的同 `(kind, key)` 任务原地更新 `payload`，避免连续划线触发多次冗余 LLM 请求；

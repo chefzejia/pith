@@ -52,11 +52,11 @@ export class DefaultAttentionEngine implements AttentionEngine {
     await this.storage.writeText(path, `${JSON.stringify(value, null, 2)}\n`);
   }
   async compass(): Promise<AttentionCompassSnapshot> {
-    const [topics, effects] = await Promise.all([this.store.listTopics(), this.listEffects()]);
+    const [topics, effects, unreadable] = await Promise.all([this.store.listTopics(), this.listEffects(), this.store.listUnreadable()]);
     const exploring = topics.filter(topic => topic.status === "exploring");
     const settled = topics.filter(topic => topic.status === "settled");
     const focus = exploring.find(topic => Boolean(topic.nextAction));
-    return { exploring, settled, focusRecommendation: focus && focus.nextAction ? { topicId: focus.id, title: focus.title, nextAction: focus.nextAction } : null,
+    return { exploring, settled, unreadable, focusRecommendation: focus && focus.nextAction ? { topicId: focus.id, title: focus.title, nextAction: focus.nextAction } : null,
       pendingEffectsCount: effects.filter(effect => effect.status === "pending" || effect.status === "running").length };
   }
   async captureSelection(input: Parameters<AttentionEngine["captureSelection"]>[0]): ReturnType<AttentionEngine["captureSelection"]> {

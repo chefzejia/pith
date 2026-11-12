@@ -1,5 +1,5 @@
 import type { WorkspaceStoragePort } from "../host.ts";
-import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, SelectionAnchor, Topic, TopicNote } from "../types.ts";
+import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
@@ -180,6 +180,24 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   ensureScaffold(): Promise<void> { return this.queue.run(() => this.scaffold()); }
   async readProfile(): Promise<LearnerProfile> { return { markdown: await this.storage.readText("ME.md") }; }
   writeProfile(markdown: string): Promise<void> { return this.queue.run(async () => { await this.scaffold(); await this.storage.writeText("ME.md", markdown); }); }
+
+  async listUnreadable(): Promise<readonly UnreadableEntry[]> {
+    const unreadable: UnreadableEntry[] = [];
+    for (const [kind, directory] of [["topic", "topics"], ["material", "materials"]] as const) {
+      if (!await this.storage.exists(directory)) continue;
+      for (const entry of await this.storage.list(directory)) {
+        if (entry.type !== "folder") continue;
+        const id = entry.path.split("/").pop()!;
+        try {
+          if (kind === "topic") await this.getTopic(id);
+          else await this.getMaterial(id);
+        } catch (error) {
+          unreadable.push({ kind, id, path: `${directory}/${id}/${kind}.md`, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    }
+    return unreadable;
+  }
 
   async listTopics(): Promise<readonly Topic[]> {
     if (!await this.storage.exists("topics")) return [];

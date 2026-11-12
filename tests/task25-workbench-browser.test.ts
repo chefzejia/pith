@@ -82,7 +82,7 @@ test("Obsidian workspace board connects settings and maintains readable hover", 
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(async () => {
       const state: any = (window as any).nativeBoard = { opened: 0 };
-      const compass = { exploring: [], settled: [], focusRecommendation: { topicId: "t", title: "测试课题", nextAction: "继续探索" } };
+      const compass = { exploring: [], settled: [], unreadable: [], focusRecommendation: { topicId: "t", title: "测试课题", nextAction: "继续探索" } };
       const controller = { guideVisibility: new Map(), openCompass: async () => compass, openBoardMaterials: async () => [] };
       state.view = new (window as any).NativePith.PithWorkspaceView({}, controller, {}, undefined, () => { state.opened++; });
       await state.view.onOpen();

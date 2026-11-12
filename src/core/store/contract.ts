@@ -19,6 +19,7 @@ import type {
   Topic,
   TopicNote,
   TopicStatus,
+  UnreadableEntry,
 } from "../types.ts";
 
 export interface CreateTopicInput {
@@ -68,6 +69,9 @@ export interface WorkspaceStore {
 
   readProfile(): Promise<LearnerProfile>;
   writeProfile(markdown: string): Promise<void>;
+
+  /** Topic and material folders whose ledger file fails to parse; `listTopics` and `listMaterials` omit them. */
+  listUnreadable(): Promise<readonly UnreadableEntry[]>;
 
   listTopics(): Promise<readonly Topic[]>;
   getTopic(topicId: string): Promise<Topic | null>;

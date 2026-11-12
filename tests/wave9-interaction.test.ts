@@ -106,7 +106,7 @@ test("Obsidian import accepts CBZ and sends it as a book", async () => {
   const form = { elements: { namedItem: () => ({ value: "" }) }, onsubmit: (_event: unknown) => {}, querySelector: (s: string) => s === 'input[type="file"]' ? input : s === ".pith-home-status" ? status : s === "[data-intake-selected]" ? selected : fileButton, querySelectorAll: () => buttons };
   const root = { classList: { add() {} }, innerHTML: "", querySelector: (s: string) => s === ".pith-intake-box" ? form : null, querySelectorAll: () => [] };
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
-  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
+  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, controller: { openCompass: async () => ({ exploring: [], settled: [], unreadable: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, store: { createTopic: async () => ({ id: "t" }) } }, openTopic: async () => {} });
   await (workspace.onOpen as () => Promise<void>)();
   const originalDocument = globalThis.document;
   Object.assign(globalThis, { document: { createElement: () => ({ append() {}, setAttribute() {} }), createTextNode: (text: string) => text } });

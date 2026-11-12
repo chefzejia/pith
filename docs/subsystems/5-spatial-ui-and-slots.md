@@ -28,6 +28,8 @@ Pith 的所有宿主壳（[`src/shells/obsidian/`](../../src/shells/obsidian/)�
 +---------------------------------------------------------------------------------------+
 ```
 
+- **无法读取条目**：看板在探索中、已沉淀之外按 [`AttentionCompassSnapshot.unreadable`](../../src/core/engine/contract.ts) 显示「无法读取（N）」分区，逐条展示账本路径与原因；只读，无修复或删除动作。N 为 0 时不显示，文件修好后重新打开看板恢复正常分区。两个宿主共用 [`renderCompass`](../../src/workbench/compass.ts)。
+
 - **后台 100% 自动嗅探与分流（Zero Classification Friction）**：
   1. **输入支持**：支持点击左侧 `[ + ]` 选择文件、直接将文件拖拽（Drag & Drop）至立项框，或在输入框中直接输入**课题意图**、**本地 Git 仓库绝对路径**（如 `/Users/me/Projects/dsh`）或**外部网页/视频链接**（`https://...`）；
   2. **自动判定逻辑（点击右侧 `[ ↑ ]` 或按 `Enter` 提交时由后台自动分流）**：

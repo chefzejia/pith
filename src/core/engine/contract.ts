@@ -15,7 +15,7 @@
  *    held or skipped.
  */
 
-import type { SelectionAnchor, Topic, TopicNote } from "../types.ts";
+import type { SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
 
 export type EffectKind =
   | "curate-topic"
@@ -52,6 +52,7 @@ export interface GuideConversationEntry {
 }
 
 export interface AttentionCompassSnapshot {
+  readonly unreadable: readonly UnreadableEntry[];
   readonly exploring: readonly Topic[];
   readonly settled: readonly Topic[];
   readonly focusRecommendation: {

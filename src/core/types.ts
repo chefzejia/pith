@@ -75,6 +75,8 @@ export interface Material {
   readonly commitSha?: string;
 }
 
+export interface UnreadableEntry { readonly kind: "topic" | "material"; readonly id: string; readonly path: string; readonly error: string }
+
 export interface LearnerProfile {
   readonly markdown: string;
   readonly updatedAt?: string;
