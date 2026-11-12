@@ -78,7 +78,7 @@
 - **Verified-Commit**: 3c6b3bb5a406daa69573227fe359c162f7ea8b73
 - **Updated**: 2026-11-12
 - **验收结果**: 全仓类型/构建通过；单测 291 通过、74 条件跳过，浏览器 107 通过、4 可选跳过，0 失败；恒空 listUnreadable 破壁回归准确失败。独立 Tester 在真实隔离 Obsidian 与 Web 验证损坏 topic/material、双类 ID 不一致、只读、完整恢复、零条隐藏、正常/窄栏路径换行均通过。原生总窗口 390px 且右侧栏占满时中央仅 22px 不作可用宽度保证，收起自有侧栏后 267px 验收通过。
-- **Evidence**: `.tmp/evidence/task-44/worker-report.md`、`tester-report.md`、`tester-*-errors-*.png`、`tester-*-restored-*.png`；交付结果另记 `delivery.txt`。
+- **Evidence**: `.tmp/evidence/task-44/worker-report.md`、`tester-report.md`、`tester-*-errors-*.png`、`tester-*-restored-*.png`；已从干净 main `b5af6df` 交付 Worktree 安装到真实 ganfan-media，Tester 独立核对三文件 SHA-256 与主目录 dist 一致，其余目录条目未变；交付 Worktree 已删除，外部未提交讨论文档保持不变。详见 `delivery.txt`、`tester-delivery.md`。
 - **Scope**: `src/core/types.ts`, `src/core/store/**`, `src/core/engine/**`, `src/workbench/compass.ts`, `src/workbench/view/styles.ts`, `src/shells/web/**`, `src/shells/obsidian/index.ts`, `docs/subsystems/1-core-store-engine.md`, `docs/subsystems/5-spatial-ui-and-slots.md`, `tests/**`
 - **背景**：`DefaultWorkspaceStore.listTopics` 与 `listMaterials` 静默跳过解析失败的条目。在 Obsidian 里手改 `topic.md`（例如删掉笔记块里的一个空行）后，课题从看板消失且没有任何提示；沙盒复现的解析错误是 `Invalid note metadata`。
 - **冻结的内核契约**（Worker 原样落地，不另行扩展）：
