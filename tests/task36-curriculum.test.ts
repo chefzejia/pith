@@ -56,7 +56,7 @@ test("web generates the requested lesson after persistence and ignores stale res
     const page = await browser.newPage({ viewport: { width: 1100, height: 800 } }); page.setDefaultTimeout(8000); await page.goto(`http://127.0.0.1:${address.port}`);
     await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-nav-toggle").click();
     assert.equal(await page.locator('[data-planned-lesson="02-flow.md"]').count(), 1);
-    const evidence = resolve(".tmp/evidence/task-36"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-curriculum.png") });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-36`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-curriculum.png") });
     await page.locator('[data-planned-lesson="02-flow.md"]').click(); await page.locator('.pith-article').getByText('02-flow.md 正文').waitFor();
     assert.match(received[0]!, /02-flow\.md.*数据流/); assert.equal((await store.getMaterial(material.id))!.files.some(file => file.name === "02-flow.md"), true);
     await page.locator(".pith-nav-toggle").click(); assert.equal(await page.locator('[data-file="02-flow.md"][aria-current="true"]').count(), 1); assert.equal(await page.locator('[data-toc-locator]').count(), 1); await page.screenshot({ path: join(evidence, "web-current-lesson.png") });
@@ -65,8 +65,8 @@ test("web generates the requested lesson after persistence and ignores stale res
     let releaseGuide!: () => void, guideArrived!: () => void; const guideWaiting = new Promise<void>(resolve => { guideArrived = resolve; }); const guideGate = new Promise<void>(resolve => { releaseGuide = resolve; });
     await page.route('**/api/chat?topicId=*', async (route: any) => { if (route.request().method() === 'GET') { guideArrived(); await guideGate; } await route.continue(); }, { times: 1 });
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-file="01-intro.md"]').click(); await page.locator('.pith-article').getByText('阅读内容').waitFor(); await guideWaiting;
-    const input = page.locator('.pith-guide textarea'); await input.fill('切章后的真实草稿'); await input.focus(); await input.evaluate((node: HTMLTextAreaElement) => { node.setSelectionRange(1, 4); (window as any).draftBefore = node; });
-    releaseGuide(); await page.waitForFunction(() => document.querySelector('.pith-guide textarea') !== (window as any).draftBefore);
+    const input = page.locator('.pith-guide textarea'); await input.fill('切章后的真实草稿'); await input.focus(); await input.evaluate((node: HTMLTextAreaElement) => { node.setSelectionRange(1, 4); (window as any).draftBefore = node; (window as any).contentBefore = document.querySelector('.pith-guide-content'); });
+    releaseGuide(); await page.waitForFunction(() => document.querySelector('.pith-guide-content') !== (window as any).contentBefore); assert.equal(await input.evaluate((node: HTMLTextAreaElement) => node === (window as any).draftBefore), true);
     assert.equal(await input.inputValue(), '切章后的真实草稿'); assert.deepEqual(await input.evaluate((node: HTMLTextAreaElement) => [document.activeElement === node, node.selectionStart, node.selectionEnd]), [true, 1, 4]);
     release!(); await page.locator('[data-guide-stop]').waitFor({ state: 'detached' }); assert.equal(await page.locator('.pith-article h1').textContent(), '第一讲');
     await page.locator('.pith-nav-toggle').click(); await page.locator('[data-file="03-runtime.md"]').waitFor(); assert.equal(await page.locator('[data-planned-lesson="03-runtime.md"]').count(), 0); assert.equal(await input.inputValue(), '切章后的真实草稿');

@@ -150,7 +150,7 @@ for (const shell of ["web", "obsidian"] as const) test(`${shell} settings drive 
     const first = Number(await progress.getAttribute("value"));
     await page.waitForFunction((value: number) => { const bar = document.querySelector('progress[aria-label="安装进度"]') as HTMLProgressElement | null; return bar && bar.value > value + 3; }, first);
     assert.match(await page.locator(shell === "web" ? "#speech-runtime [role=status]" : "#pith-runtime [role=status]").textContent(), /MB.*%/);
-    const evidence = resolve(".tmp/evidence/task-28"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `${shell}-progress.png`) });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-28`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `${shell}-progress.png`) });
     if (shell === "web") { await page.locator("#close-drawer").click(); await page.locator("[data-home-settings]").click(); }
     else await page.evaluate(() => (window as any).tab.display());
     assert.equal(fixture.requests.filter(item => item.name === "node.tar.gz").length, 1, "reopening must not start another download");

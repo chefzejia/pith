@@ -63,7 +63,7 @@ test("URL intake persists a structured article and defaults without ACP", { time
     state = await (await fetch(base + "/api/state")).json() as any; const topic = state.compass.exploring[0]; assert.deepEqual(topic.toolkits, ["interline"]); assert.equal(topic.toolkitsOrigin, "default");
     assert.match(await new NodeWorkspaceStorage(workspace).readText(`materials/${topic.materialId}/files/article.md`), /# Learning together/);
     await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click(); assert.equal(await page.locator('button[data-interline-mode="bilingual"]').getAttribute("aria-pressed"), "true");
-    await mkdir(resolve(".tmp/evidence/task-41"), { recursive: true }); await page.screenshot({ path: resolve(".tmp/evidence/task-41/web-bilingual.png") });
+    await mkdir(resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41`), { recursive: true }); await page.screenshot({ path: resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41/web-bilingual.png`) });
     const position = await page.locator('.pith-reader').evaluate((node: HTMLElement) => node.scrollTop); const anchor = await page.locator('.pith-article h1').getAttribute('data-locator');
     const staleResponse = page.waitForResponse((response: any) => response.url().endsWith('/api/interline') && response.request().postDataJSON().index === 1);
     await page.locator('button[data-interline-mode="original"]').click(); releaseNeighbor(); await neighborDone; await (await staleResponse).finished(); await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));

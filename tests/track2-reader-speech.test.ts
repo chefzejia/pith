@@ -36,6 +36,17 @@ test("Markdown blocks and rendered locators exclude non-prose from speech", () =
   assert.deepEqual(markdownSections("---\n# Hidden\n---\n# Visible").map(s => s.title), ["Visible"]);
 });
 
+test("Markdown lists retain nested structure and only HTTP links are clickable", () => {
+  const text = '- First [safe](https://example.com/a?x=1&y=2)\n    1. Nested `code`\n    2. [local](file:///secret)\n- Last [script](javascript:alert)\n\n<img src=x onerror=alert(1)>';
+  const html = renderMarkdown(text);
+  assert.match(html, /<ul><li data-locator="text:line:0" data-prose="true">First <a href="https:\/\/example.com\/a\?x=1&amp;y=2"/);
+  assert.match(html, /<ol><li data-locator="text:line:1" data-prose="true">Nested <code>code<\/code><\/li><li data-locator="text:line:2" data-prose="true">local<\/li><\/ol>/);
+  assert.doesNotMatch(html, /href="(?:file|javascript):|<img/);
+  assert.match(html, /&lt;img/);
+  assert.deepEqual(extractProseBlocks(text).slice(0, 4).map(block => block.locator), ["text:line:0", "text:line:1", "text:line:2", "text:line:3"]);
+  assert.match(renderMarkdown("3. Three\n4. Four"), /^<ol start="3">/);
+});
+
 test("read-aloud starts at selected sentence and rejects non-prose", () => {
   const blocks = extractProseBlocks(markdown);
   const session = createReadAloudSession(blocks, "text:line:4;offset:20");

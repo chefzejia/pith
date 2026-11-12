@@ -14,14 +14,24 @@ export function readerInUse(materials: readonly Material[]): number {
 }
 
 const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-const inline = (text: string): string =>
-  escape(text.replace(/\$(?:\\rightarrow|\\to)\$/g, "→"))
-    .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+const inline = (text: string): string => {
+  const source = text.replace(/\$(?:\\rightarrow|\\to)\$/g, "→");
+  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^\s)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  let result = "", offset = 0;
+  for (const match of source.matchAll(pattern)) {
+    result += escape(source.slice(offset, match.index));
+    if (match[1] !== undefined) result += `<code>${escape(match[1])}</code>`;
+    else if (match[2] !== undefined && match[3] !== undefined) {
+      const label = escape(match[2]), url = match[3];
+      result += /^https?:\/\//i.test(url) ? `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+    } else if (match[4] !== undefined) result += `<strong>${escape(match[4])}</strong>`;
+    else result += `<em>${escape(match[5]!)}</em>`;
+    offset = match.index + match[0].length;
+  }
+  return result + escape(source.slice(offset));
+};
 
-interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "code" | "table" | "meta" | "rule" | "math" | "teaching"; level?: number; display?: string; teaching?: TeachingBlockSpec }
+interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "list" | "code" | "table" | "meta" | "rule" | "math" | "teaching"; level?: number; display?: string; ordered?: boolean; start?: number; teaching?: TeachingBlockSpec }
 
 function markdownBlocks(markdown: string): MarkdownBlock[] {
   const lines = markdown.split(/\r?\n/);
@@ -69,6 +79,13 @@ function markdownBlocks(markdown: string): MarkdownBlock[] {
       if (!/^\s*\$\$.+\$\$\s*$/.test(line)) { while (i < lines.length && !/^\s*\$\$\s*$/.test(lines[i]!)) i++; if (i < lines.length) i++; }
       add(start, lines.slice(start, i).join("\n"), "math", false); continue;
     }
+    const listItem = /^( *)([-+*]|\d+[.)])\s+(.+)$/.exec(line);
+    if (listItem && (listItem[1]!.length < 4 || (blocks.at(-1)?.kind === "list" && blocks.at(-1)?.locator === `text:line:${i - 1}`))) {
+      const text = listItem[3]!, clean = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "").trim();
+      const ordered = /^\d/.test(listItem[2]!);
+      blocks.push({ index: blocks.length, locator: `text:line:${i++}`, text: clean, isProse: /[\p{L}\p{N}]/u.test(clean), kind: "list", level: listItem[1]!.length, ordered, ...(ordered ? { start: Number.parseInt(listItem[2]!, 10) } : {}), display: text });
+      continue;
+    }
     if (/^ {4}|^\t/.test(line)) {
       const start = i++;
       while (i < lines.length && /^( {4}|\t)/.test(lines[i]!)) i++;
@@ -115,9 +132,22 @@ function renderTableHtml(rawTable: string, attrs: string): string {
 }
 
 export function renderMarkdown(markdown: string): string {
-  return markdownBlocks(markdown).map(block => {
+  const blocks = markdownBlocks(markdown), output: string[] = [], lists: { indent: number; tag: "ol" | "ul" }[] = [];
+  const closeList = () => { const list = lists.pop()!; output.push(`</li></${list.tag}>`); };
+  for (const block of blocks) {
     const attrs = `data-locator="${block.locator}" data-prose="${block.isProse}"`;
     const line = block.locator.slice(10);
+    if (block.kind === "list") {
+      const indent = block.level ?? 0, tag = block.ordered ? "ol" : "ul";
+      while (lists.length && lists.at(-1)!.indent > indent) closeList();
+      if (lists.length && lists.at(-1)!.indent === indent && lists.at(-1)!.tag !== tag) closeList();
+      if (!lists.length || lists.at(-1)!.indent < indent) { output.push(tag === "ol" && block.start !== 1 ? `<ol start="${block.start}">` : `<${tag}>`); lists.push({ indent, tag }); }
+      else output.push("</li>");
+      output.push(`<li ${attrs}>${inline(block.display ?? block.text)}`);
+      continue;
+    }
+    while (lists.length) closeList();
+    const rendered = (() => {
     if (block.kind === "meta") return "";
     if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title)}</h3><p>${inline(block.teaching.body).replace(/\n/g, "<br>")}</p></section>`;
     if (block.kind === "table") return renderTableHtml(block.text, attrs);
@@ -127,7 +157,11 @@ export function renderMarkdown(markdown: string): string {
     if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
     if (block.kind === "quote") { const depth = block.level ?? 1; return `<blockquote ${attrs}>${"<blockquote>".repeat(depth - 1)}${inline(block.display ?? block.text)}${"</blockquote>".repeat(depth - 1)}</blockquote>`; }
     return `<p ${attrs}>${inline(block.display ?? block.text)}</p>`;
-  }).join("");
+    })();
+    output.push(rendered);
+  }
+  while (lists.length) closeList();
+  return output.join("");
 }
 
 export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {

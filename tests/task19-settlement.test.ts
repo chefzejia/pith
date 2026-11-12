@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { DefaultWorkspaceStore } from "../src/core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore } from "../src/core/index.ts";
+import { topicObservations, undoTopicObservation } from "../src/workbench/observations.ts";
 import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { createDshPluginBundle } from "../src/shells/dsh/index.ts";
@@ -23,6 +24,26 @@ async function fixture() {
   const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
   return { dir, storage, store, topic, note, tool };
 }
+
+test("undo from the settled conversation backs up the profile and rejects unrelated observations", async () => {
+  const f = await fixture();
+  try {
+    const unrelated = await f.store.addObservation({ topicId: f.topic.id, text: "未由此回合写入" });
+    const settle = f.tool("pith_settle_topic");
+    const engine = new DefaultAttentionEngine(f.store, f.storage, () => ({ run: async (_input, options) => { const input = { verificationSummary: "理解边界", observations: [{ text: "理解边界", noteId: f.note.id }] }; const result = await settle.execute(input); const effects = await settle.effects!(result, input); options.onStep({ kind: "tool", name: settle.name, callId: "settle", inputPreview: "{}", status: "completed", effects }, 0); return { status: "completed" }; } }));
+    const turn = await engine.runTurn({ topicId: f.topic.id, text: "结题" });
+    assert.equal(turn.status, "completed"); assert.equal((await f.store.getTopic(f.topic.id))?.status, "settled");
+    const step = turn.steps.find(item => item.kind === "tool"); assert.ok(step && step.kind === "tool"); const observation = step.effects.find(effect => effect.kind === "observation"); assert.ok(observation && observation.kind === "observation");
+    const before = await readFile(join(f.dir, "ME.md")), backups = await readdir(join(f.dir, "history"));
+    await assert.rejects(undoTopicObservation(f.store, engine, f.topic.id, unrelated.id), /不存在或已撤销/);
+    assert.deepEqual(await readFile(join(f.dir, "ME.md")), before);
+    await undoTopicObservation(f.store, engine, f.topic.id, observation.observationId);
+    assert.deepEqual(await topicObservations(f.store, f.topic.id), [unrelated.id]);
+    const after = (await readdir(join(f.dir, "history"))).filter(name => !backups.includes(name));
+    assert.equal(after.length, 1); assert.deepEqual(await readFile(join(f.dir, "history", after[0]!)), before);
+    await assert.rejects(undoTopicObservation(f.store, engine, f.topic.id, observation.observationId), /不存在或已撤销/);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
 
 test("profile adds and removes observations without changing outside bytes and backs up each version", async () => {
   const f = await fixture();

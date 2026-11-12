@@ -21,6 +21,7 @@ const occurrences = (locator: any, text: string): Promise<number> => locator.eva
 
 async function assertChoicesFit(page: any, selector: string): Promise<void> {
   const buttons = page.locator(`${selector} .pith-choice-btn`);
+  await page.waitForFunction(({ container, count }: { container: string; count: number }) => document.querySelectorAll(`${container} .pith-choice-btn`).length === count, { container: selector, count: choices.length });
   assert.equal(await buttons.count(), choices.length);
   const layout = await buttons.evaluateAll((elements: HTMLElement[]) => elements.map((element, index) => {
     const rect = element.getBoundingClientRect(), next = elements[index + 1]?.getBoundingClientRect();
@@ -34,21 +35,17 @@ async function assertChoicesFit(page: any, selector: string): Promise<void> {
     assert.ok(item.scrollWidth <= item.clientWidth + 1, JSON.stringify(item));
     if (item.nextTop !== undefined) assert.ok(item.bottom <= item.nextTop, JSON.stringify(item));
   }
-  for (const [index, choice] of choices.entries()) {
-    await buttons.nth(index).click();
-    assert.equal(await page.locator(`${selector} textarea`).inputValue(), choice);
-  }
 }
 
 test("Web shows one waiting guide turn with its message once and keeps a failure visible", { timeout: 60000, skip: browserUnavailable }, async () => {
   const dir = await testSandbox("pith-guide-turn-web-");
   await mkdir(join(dir, "workspace"));
   const received: string[] = [];
-  let hold = false, release: (() => void) | undefined, arrived: (() => void) | undefined;
+  let hold = false, failed = false, release: (() => void) | undefined, arrived: (() => void) | undefined;
   const provider: GuideProvider = { async run(input, options) {
     const text = input.text; received.push(text);
     if (hold) await new Promise<void>(resolve => { release = resolve; if (arrived) arrived(); });
-    if (text.includes("触发故障")) throw new Error("受控向导故障");
+    if (text.includes("触发故障") && !failed) { failed = true; throw new Error("受控向导故障"); }
     options.onStep({ kind: "reply", markdown: reply }, 0); options.onChoices(choices); return { status: "completed" };
   } };
   const server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: provider });
@@ -77,7 +74,6 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     await assertChoicesFit(page, ".pith-guide");
     await page.setViewportSize({ width: 390, height: 800 });
     await assertChoicesFit(page, ".pith-guide");
-    if (process.env.PITH_EVIDENCE_DIR) { await page.setViewportSize({ width: 390, height: 1200 }); await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "web-narrow-choices.png") }); }
     await page.setViewportSize({ width: 1200, height: 800 });
 
     waiting = held();
@@ -98,7 +94,9 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     assert.equal(await pending.count(), 0);
     await page.locator('[data-guide-tab="notes"]').click(); await page.locator('[data-guide-tab="chat"]').click();
     assert.match(await content.textContent(), /受控向导故障/);
-    await input.fill("恢复提问"); await send.click(); await replies(3); await pending.waitFor({ state: "detached" });
+    await page.locator("[data-guide-retry]").click(); await replies(3); await pending.waitFor({ state: "detached" });
+    assert.equal(await occurrences(content, "触发故障"), 1); assert.equal(received.filter(item => item === "触发故障").length, 2);
+    await input.fill("恢复提问"); await send.click(); await replies(4); await pending.waitFor({ state: "detached" });
     assert.equal(await error.textContent(), "");
 
     await page.locator('[data-guide-tab="notes"]').click();
@@ -106,6 +104,11 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     await page.waitForFunction(() => document.querySelector('[data-guide-tab="notes"]')?.textContent === "笔记 1");
     assert.equal(await pending.count(), 0);
     assert.equal(received.includes("网页笔记"), false);
+    await page.locator('[data-guide-tab="chat"]').click();
+    const previous = received.length;
+    await page.locator(".pith-choice-btn").first().click();
+    await page.waitForFunction((count: number) => (document.querySelector(".pith-guide-content")?.textContent ?? "").split("受控向导回复").length - 1 === count, 5);
+    assert.equal(received[previous], choices[0]);
   } finally { if (browser) await browser.close(); if (release) release(); await closeServer(server); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -178,7 +181,6 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     assert.match(await pending.textContent(), /向导正在回应/);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
     assert.equal(await page.locator("#side [data-guide-stop]").count(), 1);
-    if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "guide-turn-waiting-obsidian.png") });
     await refresh();
     assert.equal(await occurrences(content, "学习宿主边界"), 1, "a refresh during the turn shows the stored message once");
     assert.equal(await pending.count(), 1);
@@ -190,7 +192,6 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     await assertChoicesFit(page, "#side .pith-guide");
     await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "220px"; });
     await assertChoicesFit(page, "#side .pith-guide");
-    if (process.env.PITH_EVIDENCE_DIR) { await page.setViewportSize({ width: 1200, height: 1100 }); await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "obsidian-narrow-choices.png") }); await page.setViewportSize({ width: 1200, height: 800 }); }
     await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "30%"; });
     await page.waitForFunction(() => !(document.querySelector("#side [data-guide-send]") as HTMLButtonElement).disabled);
 

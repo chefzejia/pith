@@ -28,7 +28,7 @@ test("toolkit menu opens, enables and removes tools without stale actions", { ti
     await page.mouse.click(readerBox.x + 10, readerBox.y + readerBox.height - 10); assert.equal(await panel.isHidden(), true, "a press outside closes the tool menu");
     await page.locator("#open-toolkit").click(); await page.locator("#open-toolkit").click(); assert.equal(await panel.isHidden(), true, "the tool button toggles the menu");
     await page.locator("#open-toolkit").click(); assert.equal(await panel.isVisible(), true);
-    const evidence = resolve(".tmp/evidence/toolkit-menu"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-narrow-light.png") }); await page.emulateMedia({ colorScheme: "dark" }); await page.screenshot({ path: join(evidence, "web-narrow-dark.png") }); await page.emulateMedia({ colorScheme: "light" });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/toolkit-menu`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-narrow-light.png") }); await page.emulateMedia({ colorScheme: "dark" }); await page.screenshot({ path: join(evidence, "web-narrow-dark.png") }); await page.emulateMedia({ colorScheme: "light" });
     const before = await (await fetch(base + "/api/state")).json() as any;
     await panel.getByRole("button", { name: "费曼复述", exact: true }).click(); await page.locator("[data-toolkit-close]").waitFor(); assert.equal(updates, 0);
     const after = await (await fetch(base + "/api/state")).json() as any; assert.deepEqual(after.compass.exploring.find((item: any) => item.id === topic.id), before.compass.exploring.find((item: any) => item.id === topic.id));

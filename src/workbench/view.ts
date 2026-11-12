@@ -45,7 +45,9 @@ export interface ObsidianViewActions {
   transcribeAudio?(bytes: Uint8Array, mimeType: string, signal?: AbortSignal): Promise<{ readonly text: string }>;
   loadAudio?(name: string): Promise<Uint8Array>;
   prepareInterline?: InterlineViewPrepare;
-  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[] }>;
+  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[] }>;
+  undoObservation?(id: string): Promise<void>;
+  openMaterial?(id: string): Promise<void>;
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
   stopGuide?(): Promise<void>;
   retryGuide?(turnId: string): Promise<void>;
@@ -191,9 +193,10 @@ export class PithWorkbenchView {
   private guideTab: "chat" | "notes" = "chat";
   private guideGeneration = 0;
   private pendingAnchor: SelectionAnchor | undefined;
-  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[] } = { notes: [], conversation: [], actions: [] };
+  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[] } = { notes: [], conversation: [], actions: [] };
   private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
   private guideSending = false;
+  private guideClock: number | undefined;
   private guidePending: { readonly text: string; readonly from: number } | undefined;
   private guideError = "";
   private toolkits: readonly ToolkitDescriptor[] = [];
@@ -266,6 +269,9 @@ export class PithWorkbenchView {
     }, options);
     root.addEventListener("click", event => { const target = event.target; if (target instanceof (this.win as Window & typeof globalThis).Node && this.guide.contains(target)) return; void this.click(event); }, options);
     this.guide.addEventListener("click", event => { void this.click(event); }, options);
+    this.guide.addEventListener("keydown", event => { if (event.target instanceof (this.win as Window & typeof globalThis).HTMLTextAreaElement && event.key === "Enter" && !event.shiftKey && !event.isComposing && !this.guideSending) { event.preventDefault(); this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); } }, options);
+    this.guide.addEventListener("scroll", event => { const content = event.target as HTMLElement; if (!content.classList.contains("pith-guide-content")) return; const bottom = this.guide.querySelector<HTMLButtonElement>("[data-guide-bottom]"); if (bottom) bottom.hidden = content.scrollHeight - content.clientHeight - content.scrollTop < 32; }, { ...options, capture: true });
+    this.guide.addEventListener("toggle", event => { const details = event.target as HTMLDetailsElement; if (details.matches("details[data-process]")) details.querySelector("summary")?.setAttribute("aria-expanded", String(details.open)); }, { ...options, capture: true });
     this.doc.addEventListener("click", event => { const target = event.target as Node | null; const menu = required<HTMLElement>(".pith-typography-popover"); const toggle = required<HTMLButtonElement>('[data-command="typography"]'); if (target && !menu.contains(target) && !toggle.contains(target)) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); } if (target && !this.navigation.contains(target) && !this.navigationButton.contains(target)) this.closeNavigation(); }, options);
     this.doc.addEventListener("keydown", event => { if (event.key === "Escape") { required<HTMLElement>(".pith-typography-popover").hidden = true; required<HTMLButtonElement>('[data-command="typography"]').setAttribute("aria-expanded", "false"); if (this.toolkitMenuOpen()) this.toolkit.hidden = true; this.closeNavigation(); } }, options);
     // The tool menu is a popover: its button toggles it, Escape and a press outside it close it. The interline mode bar and the tool chooser of a clicked passage share the panel and keep their own lifetime.
@@ -357,7 +363,7 @@ export class PithWorkbenchView {
       }
     }
   }
-  dispose(): void { this.disposed = true; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
+  dispose(): void { this.disposed = true; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
   private clearAudioAsset(): void { this.assetGeneration++; const media = this.assetAudio; this.assetAudio = null; if (media) { media.pause(); media.removeAttribute("src"); media.load(); } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; this.playback.renderCueMarkers(); }
   private async loadAsset(): Promise<void> {
@@ -395,6 +401,9 @@ export class PithWorkbenchView {
   private renderGuide(): void {
     this.voice.cancel("guide");
     renderGuide(this.guide, this.guideData, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError);
+    if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock);
+    const update = () => { for (const node of this.guide.querySelectorAll<HTMLElement>("[data-started]")) { const elapsed = node.querySelector<HTMLElement>("[data-guide-elapsed]"); if (elapsed) elapsed.textContent = `已用 ${Math.max(0, Math.floor((Date.now() - Date.parse(node.dataset.started!)) / 1000))} 秒`; } };
+    update(); this.guideClock = this.guide.querySelector("[data-started]") ? this.win.setInterval(update, 1000) : undefined;
   }
   openToolkit(toolkits: readonly ToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
     this.toolkits = toolkits;
@@ -579,8 +588,13 @@ export class PithWorkbenchView {
     if (button.hasAttribute("data-toolkit-close")) { this.closeInlineToolkit(); return; }
     if (button.hasAttribute("data-toolkit-reveal")) { this.readToolkit(); this.toolkitReveal = !this.toolkitReveal; this.renderToolkit(); return; }
     if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.guideLesson) { try { await this.actions.openFile(button.dataset.guideLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.guideMaterial && this.actions.openMaterial) { try { await this.actions.openMaterial(button.dataset.guideMaterial); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.guideUndo && this.actions.undoObservation) { try { button.disabled = true; await this.actions.undoObservation(button.dataset.guideUndo); await this.refreshGuide(); } catch (error) { button.disabled = false; this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.guideCopy) { const turn = this.guideData.conversation.find(item => item.id === button.dataset.guideCopy), step = turn?.steps[Number(button.dataset.guideCopyIndex)]; if (step?.kind === "reply") { try { await this.win.navigator.clipboard.writeText(step.markdown); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } } return; }
+    if (button.hasAttribute("data-guide-bottom")) { const content = this.guide.querySelector<HTMLElement>(".pith-guide-content"); if (content) content.scrollTop = content.scrollHeight; button.hidden = true; return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
-    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) { input.value = button.dataset.guidePrompt; input.focus(); } return; }
+    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input && !this.guideSending) { input.value = button.dataset.guidePrompt; if (button.hasAttribute("data-guide-choice")) this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); else input.focus(); } return; }
     if (button.hasAttribute("data-guide-stop")) { if (this.actions.stopGuide) await this.actions.stopGuide(); return; }
     if (button.dataset.guideRetry) { if (this.actions.retryGuide && !this.guideSending) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
     if (button.hasAttribute("data-guide-send")) {
@@ -590,7 +604,7 @@ export class PithWorkbenchView {
       input.value = ""; this.pendingAnchor = undefined;
       try {
         // A note is captured without a guide turn; a chat message is one guide turn.
-        if (asNote) { this.guideError = ""; this.guideSending = true; button.disabled = true; try { await sendGuide(message.trim(), anchor, true); } finally { this.guideSending = false; } await this.refreshGuide(); }
+        if (asNote) { this.guideError = ""; this.guideSending = true; button.disabled = true; try { await sendGuide(message.trim(), anchor, true); } finally { this.guideSending = false; button.disabled = false; } await this.refreshGuide(); }
         else await this.guideTurn(message.trim(), () => sendGuide(message.trim(), anchor, false));
       } catch (error) {
         if (asNote) this.guideError = error instanceof Error ? error.message : String(error);

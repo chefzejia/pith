@@ -31,7 +31,7 @@ test("both hosts keep clicked, selected and visible prose aligned with controlle
     const native = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });
     const page = await browser.newPage({ viewport: { width: 1100, height: 800 } }); page.setDefaultTimeout(8000);
-    const evidence = resolve(".tmp/evidence/task-34"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-34`); await mkdir(evidence, { recursive: true });
     for (const host of ["web", "native"] as const) {
       if (host === "web") { await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); }
       else {

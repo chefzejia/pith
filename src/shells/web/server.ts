@@ -14,6 +14,7 @@ import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
 import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials } from "../../workbench/boardMaterials.ts";
+import { topicObservations, undoTopicObservation } from "../../workbench/observations.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
@@ -374,6 +375,14 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (url.pathname === "/api/chat" && method === "GET") {
         const id = url.searchParams.get("topicId"); if (!id || !await store.getTopic(id)) return send(res, 404, { error: "Topic not found" });
         return send(res, 200, await engine.getConversation(id));
+      }
+      if (url.pathname === "/api/observations" && method === "GET") {
+        const id = url.searchParams.get("topicId"); if (!id || !await store.getTopic(id)) return send(res, 404, { error: "Topic not found" });
+        return send(res, 200, await topicObservations(store, id));
+      }
+      if (url.pathname === "/api/observations/undo" && method === "POST") {
+        const data = await body(req); await undoTopicObservation(store, engine, str(data, "topicId"), str(data, "observationId"));
+        return send(res, 200, { ok: true });
       }
       if (url.pathname === "/api/chat" && method === "POST") {
         const data = await body(req);

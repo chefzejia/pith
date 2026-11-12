@@ -242,6 +242,7 @@ export function visibleToolkitTarget(article: HTMLElement, reader: HTMLElement, 
   for (const block of [...blocks.filter(item => !isHeading(item)), ...blocks.filter(isHeading)]) {
     const copy = block.cloneNode(true) as HTMLElement;
     for (const child of copy.querySelectorAll('.pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display],[data-prose="false"],time')) child.remove();
+    if (block.tagName === "LI" && block.hasAttribute("data-locator")) for (const child of copy.querySelectorAll("li[data-locator]")) child.remove();
     const quote = (copy.textContent ?? "").trim();
     if (!quote) continue;
     const range = article.ownerDocument.createRange(); range.selectNodeContents(article); range.setEndBefore(block);
@@ -256,7 +257,8 @@ export function proseTextNodes(block: Element): Text[] {
   let node: Node | null;
   while ((node = walker.nextNode())) {
     const excluded = node.parentElement && node.parentElement.closest('[data-prose="false"]');
-    if (!excluded || excluded === block || !block.contains(excluded)) result.push(node as Text);
+    const nestedListItem = block.tagName === "LI" && block.hasAttribute("data-locator") && node.parentElement !== null && node.parentElement.closest("li[data-locator]") !== block;
+    if (!nestedListItem && (!excluded || excluded === block || !block.contains(excluded))) result.push(node as Text);
   }
   return result;
 }

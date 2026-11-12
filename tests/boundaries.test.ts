@@ -129,7 +129,8 @@ function profileWriteViolations(path: string, source: string): { violations: str
     if (ts.isPropertyAssignment(node) && node.name.getText(file) === "name" && ts.isStringLiteral(node.initializer) && node.initializer.text === "pith_remember") violations.push(`${path}: retired tool registered`);
     const property = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : ts.isBindingElement(node) ? (node.propertyName ?? node.name).getText(file).replace(/^['"]|['"]$/g, "") : "";
     if (names.has(property)) {
-      if (!settlementMethod(node)) violations.push(`${path}: ${property} outside settlement`);
+      const undo = property === "removeObservation" && path === "src/workbench/observations.ts" && (() => { for (let parent = node.parent; parent; parent = parent.parent) if (ts.isFunctionDeclaration(parent) && parent.name?.text === "undoTopicObservation") return true; return false; })();
+      if (!settlementMethod(node) && !undo) violations.push(`${path}: ${property} outside settlement or undo`);
       else writes.push(property);
     }
     ts.forEachChild(node, visit);
@@ -145,7 +146,14 @@ test("only the settlement tool accesses profile observation writes", () => {
   assert.notDeepEqual(profileWriteViolations("src/other.ts", 'const { addObservation: add } = store; add({});').violations, []);
   const results = walkTsFiles(SRC).map(file => profileWriteViolations(relative(ROOT, file).replace(/\\/g, "/"), readFileSync(file, "utf8")));
   assert.deepEqual(results.flatMap(result => result.violations), []);
-  assert.deepEqual(results.flatMap(result => result.writes).sort(), ["addObservation", "removeObservation"]);
+  assert.deepEqual(results.flatMap(result => result.writes).sort(), ["addObservation", "removeObservation", "removeObservation"]);
+});
+
+test("tests never write to archived evidence", () => {
+  const forbidden = [".tmp", "evidence"].join("/");
+  const inspect = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => { const path = join(directory, entry.name); return entry.isDirectory() ? inspect(path) : entry.isFile() && readFileSync(path).includes(Buffer.from(forbidden)) ? [path] : []; });
+  const violations = inspect(join(ROOT, "tests"));
+  assert.deepEqual(violations, []);
 });
 
 function extractModuleSpecifiers(source: string): string[] {

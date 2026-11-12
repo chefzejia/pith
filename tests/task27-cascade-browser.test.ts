@@ -42,7 +42,7 @@ async function verify(mode: "dark" | "light"): Promise<void> {
     const rendered = await renderEpub(fixture());
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 900 } });
-    const page = await browser.newPage(); const evidence = resolve(".tmp/evidence/task-27"); await mkdir(evidence, { recursive: true });
+    const page = await browser.newPage(); const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-27`); await mkdir(evidence, { recursive: true });
     for (const shell of ["web", "obsidian"] as const) {
       if (shell === "web") {
         await page.goto(base);

@@ -110,6 +110,6 @@ test("existing Web topic shows the curriculum quick action", { timeout: 30000, s
     browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true }); const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     await page.getByRole("button", { name: "规划课程大纲与第一讲" }).waitFor();
-    const evidence = resolve(".tmp/evidence/task-32"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-curriculum-action.png") });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-32`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-curriculum-action.png") });
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });

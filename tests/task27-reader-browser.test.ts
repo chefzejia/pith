@@ -68,7 +68,7 @@ test("opening a synthetic EPUB supports keyboard paging and dark cascade contras
     });
     for (const [id, value] of Object.entries(contrast) as [string, { ratio: number }][]) assert.ok(value.ratio >= 4.5, `${id}: ${JSON.stringify(value)}`);
     assert.equal(await page.locator('.pith-epub-chapter-0').evaluate((el: Element) => getComputedStyle(el).backgroundColor), "rgb(239, 175, 67)");
-    const evidence = resolve(".tmp/evidence/task-27"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-27`); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "web-dark.png") });
     await page.locator("#purple").scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(evidence, "web-dark-text.png") });
@@ -102,7 +102,7 @@ test("Obsidian shared workbench adapts synthetic EPUB colors", { timeout: 30000,
     const color = await page.locator("#purple").evaluate((el: Element) => getComputedStyle(el).color);
     assert.notEqual(color, "rgb(85, 0, 175)");
     await page.locator("#purple").scrollIntoViewIfNeeded();
-    const evidence = resolve(".tmp/evidence/task-27"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-27`); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "obsidian-workbench-dark.png") });
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
 });

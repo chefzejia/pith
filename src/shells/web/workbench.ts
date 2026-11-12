@@ -82,15 +82,18 @@ export class WebWorkbench {
       },
       guideVisibilityChanged: visible => { this.updateGuideLayout(visible); options.visibility(visible); },
       guideData: async () => {
-        const [state, conversation] = await Promise.all([
+        const [state, conversation, observations] = await Promise.all([
           options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"),
           options.request<readonly GuideTurn[]>(`/api/chat?topicId=${encodeURIComponent(topicId)}`),
+          options.request<readonly string[]>(`/api/observations?topicId=${encodeURIComponent(topicId)}`),
         ]);
         const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId);
         if (!topic) throw new Error("课题不存在");
         const actions = options.guideAvailable ? await options.request<readonly GuideQuickAction[]>(`/api/topics/${encodeURIComponent(topicId)}/actions`) : [];
-        return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions };
+        return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions, observations };
       },
+      undoObservation: async observationId => { await options.request("/api/observations/undo", { topicId, observationId }); },
+      openMaterial: async id => { await this.session.refresh(); if (!this.session.material || this.session.material.id !== id) throw new Error("材料不存在"); const file = this.session.material.files[0]; if (file) await this.session.openFile(file.name); },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) await options.request("/api/notes", { topicId, kind: "note", body: text, anchor }); else { await streamTurn({ text, anchor }); await this.session.refresh(); } },
       stopGuide: async () => { await options.request("/api/chat/stop", { topicId }); },
       retryGuide: async turnId => { await streamTurn({ turnId }); await this.session.refresh(); },

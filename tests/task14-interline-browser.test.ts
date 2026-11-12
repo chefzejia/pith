@@ -74,7 +74,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-interline-subtitle").first().waitFor();
     await page.waitForFunction(() => document.querySelectorAll(".pith-interline-subtitle").length > 1);
-    await mkdir(".tmp/evidence/task-39", { recursive: true }); await page.screenshot({ path: ".tmp/evidence/task-39/web-interline.png" });
+    await mkdir(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-39`, { recursive: true }); await page.screenshot({ path: `${process.env.PITH_TEST_SCREENSHOT_DIR}/task-39/web-interline.png` });
     await neighbor; assert.deepEqual(calls.slice(0, 2), [0, 1]);
     await page.locator('.pith-toolkit-panel [data-interline-mode="subtitle-primary"]').click();
     await page.locator('.pith-article [data-interline-mode="subtitle-primary"] .pith-interline-subtitle').first().waitFor();

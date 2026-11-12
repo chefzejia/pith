@@ -58,7 +58,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator('[data-voice="toolkit"]').click();
     await page.waitForFunction(() => document.querySelector('.pith-shadowing-feedback')?.textContent?.includes('受控转写'));
     assert.equal(await page.evaluate(() => { const streams = (window as unknown as { syntheticVoice: { streams: MediaStream[] } }).syntheticVoice.streams; return streams.length === 1 && streams[0]!.getTracks().every(track => track.readyState === "ended"); }), true);
-    const evidence = resolve('.tmp/evidence/task-37'); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-shadowing-light.png') });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-37`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-shadowing-light.png') });
     await page.locator('.pith-guide-toggle').click(); await page.setViewportSize({ width: 390, height: 844 }); await page.emulateMedia({ colorScheme: 'dark' }); await page.screenshot({ path: join(evidence, 'web-shadowing-dark-narrow.png') }); await page.emulateMedia({ colorScheme: 'light' }); await page.setViewportSize({ width: 1400, height: 900 }); await page.locator('.pith-guide-toggle').click();
     await page.locator(".pith-guide textarea").fill("受控问题");
     await page.locator("[data-guide-send]").click();

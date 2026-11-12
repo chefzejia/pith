@@ -52,7 +52,7 @@ test("Web import and Obsidian board render a real cover in light and dark", { ti
     assert.equal(await page.locator(".pith-settled-row").count(), 1);
     const snapshot = await (await fetch(base + "/api/state")).json() as any;
     assert.equal(snapshot.compass.exploring.length, 1); assert.equal(snapshot.materials[0].files[0].name, filename); assert.match(snapshot.compass.exploring[0].id, /^topic-\d{8}-[a-z0-9]{7}$/);
-    const evidence = resolve(".tmp/evidence/task-29"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-light.png") });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-29`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-light.png") });
     await page.emulateMedia({ colorScheme: "dark" }); await page.screenshot({ path: join(evidence, "web-dark.png") }); await page.emulateMedia({ colorScheme: "light" });
     await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(evidence, "web-narrow.png") });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -34,10 +34,10 @@ test("topic board controls and timeline practice retain timestamps without readi
     assert.equal(await settings.evaluate((node: HTMLElement) => node.classList.contains("pith-icon")), true);
     const [header, gear] = await Promise.all([page.locator(".pith-view-header").boundingBox(), settings.boundingBox()]); assert.ok(header && gear && header.x + header.width - (gear.x + gear.width) < 20);
     for (const selector of ["[data-intake-open]", "[data-intake-files]"]) { const button = page.locator(selector); assert.equal(await button.locator('svg').count(), 1); assert.ok(await button.getAttribute('aria-label')); const box = await button.boundingBox(); assert.ok(box && box.width >= 36 && box.height >= 36, selector); }
-    if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "board.png") });
+    if (process.env.PITH_TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_TEST_SCREENSHOT_DIR, "board.png") });
     assert.equal(await page.locator('.pith-intake-box input[name="title"]').count(), 1);
     await assertPrimaryHover(page);
-    if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "worker-web-hover.png") });
+    if (process.env.PITH_TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_TEST_SCREENSHOT_DIR, "worker-web-hover.png") });
     await settings.click(); assert.equal(await page.locator('#simple-agent').isVisible(), true);
     await page.locator('#close-drawer').click();
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
@@ -58,7 +58,7 @@ test("topic board controls and timeline practice retain timestamps without readi
     const assertTime = async () => { assert.equal(await time.count(), 1); assert.equal(await time.evaluate((node: HTMLElement) => node.offsetWidth > 0), true); assert.equal(await time.textContent(), "00:01"); };
     await assertTime();
     for (const stage of ["listen-decompose", "guided-follow", "scaffold-cloze", "blind-produce"]) { await page.locator(`[data-toolkit-stage="${stage}"]`).click(); await assertTime(); }
-    if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "timeline.png") });
+    if (process.env.PITH_TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_TEST_SCREENSHOT_DIR, "timeline.png") });
     await page.locator("[data-toolkit-close]").click(); assert.equal(await cue.innerHTML(), original);
     await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click(); await assertTime();
     await page.locator("[data-toolkit-reveal]").click(); await assertTime();
@@ -89,6 +89,6 @@ test("Obsidian workspace board connects settings and maintains readable hover", 
     });
     const settings = page.locator("[data-home-settings]"); assert.equal(await settings.count(), 1); await settings.click(); assert.equal(await page.evaluate(() => (window as any).nativeBoard.opened), 1);
     await assertPrimaryHover(page);
-    if (process.env.PITH_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "worker-native-hover.png") });
+    if (process.env.PITH_TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_TEST_SCREENSHOT_DIR, "worker-native-hover.png") });
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
 });

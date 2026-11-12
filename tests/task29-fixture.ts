@@ -27,7 +27,7 @@ export function coveredEpub(): Uint8Array {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv.includes("--write")) {
-  const directory = resolve(".tmp/evidence/task-29"); await mkdir(directory, { recursive: true });
+  const directory = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-29`); await mkdir(directory, { recursive: true });
   const path = join(directory, "测试书 = Long subtitle (z-library.sk, 1lib.sk, z-lib.sk).epub");
   await writeFile(path, coveredEpub()); console.log(path);
 }

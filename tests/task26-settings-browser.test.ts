@@ -74,7 +74,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.getByText("安装异常：reopened failure").waitFor();
     await page.waitForFunction(() => (document.querySelector('[aria-label="刷新本机 Agent"]') as HTMLButtonElement).disabled === false);
     assert.equal(await page.getByRole("button", { name: "刷新本机 Agent" }).locator("svg").count(), 1);
-    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-26`); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "obsidian-settings.png") });
     await page.getByLabel("语音服务模式").selectOption("cloud");
     assert.equal(await page.locator("#pith-runtime").isVisible(), false);
@@ -123,7 +123,7 @@ test("settings expose mutually exclusive speech controls and runtime transitions
     assert.equal(await page.locator("#simple-key-row").isVisible(), false);
     assert.equal(await page.locator("#simple-health").isVisible(), false);
     assert.equal(await page.locator("#speech-runtime button").count(), 1);
-    const evidence = resolve(".tmp/evidence/task-26"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-26`); await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "web-local.png") });
     await page.getByRole("button", { name: "安装引擎" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); }); await entered;
     assert.equal(await page.getByRole("button", { name: "取消安装" }).isEnabled(), true);

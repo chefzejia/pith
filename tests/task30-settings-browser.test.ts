@@ -41,7 +41,7 @@ test("Web and Obsidian voice selection persists per mode and rejects stale queri
     assert.deepEqual(await select.locator("optgroup").evaluateAll((items: HTMLOptGroupElement[]) => items.map(item => item.label)), ["英文音色 (af/bf)", "中文女声 (zf)", "中文男声 (zm)"]);
     const localSaved = page.waitForResponse((response: any) => response.url().endsWith("/api/settings") && response.request().postDataJSON()?.speech?.ttsVoice === "zm_010"); await select.selectOption("zm_010"); await localSaved;
     const response = await page.evaluate(async () => { const result = await fetch('/api/speech/synthesize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'test sentence' }) }); return result.status; }); assert.equal(response, 200); assert.equal(requestedVoice, "zm_010");
-    const evidence = resolve(".tmp/evidence/task-30"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-voice.png") });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-30`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-voice.png") });
     await page.emulateMedia({ colorScheme: "dark" }); await page.screenshot({ path: join(evidence, "web-voice-dark.png") }); await page.emulateMedia({ colorScheme: "light" });
     await page.locator("#simple-mode").selectOption("cloud"); await page.waitForFunction(() => (document.querySelector('[data-speech-field="ttsVoice"]') as HTMLInputElement).value === 'alloy-custom');
     await page.locator("#simple-mode").selectOption("local"); await page.waitForFunction(() => (document.querySelector('#speech-voices select') as HTMLSelectElement).value === 'zm_010');

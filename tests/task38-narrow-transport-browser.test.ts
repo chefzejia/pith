@@ -20,7 +20,7 @@ test("transport fits and remains operable in a narrow Obsidian content pane", { 
       view.render({ title: "Audio", currentFile: "clip.vtt", files: [{ name: "clip.wav", mimeType: "audio/wav" }], sections: [], html: `<section class="pith-timeline-stage">${[1, 5, 10, 15, 20].map((start, i) => `<div class="pith-cue" data-locator="time:${start}" data-end-sec="${start + 3}" data-prose="true">Sentence ${i + 1}</div>`).join("")}</section>` });
     });
     await page.waitForFunction(() => { const view = (window as any).narrowView; return view.assetAudio && view.assetAudio.readyState >= 1 && document.querySelectorAll('.pith-deck-marker').length === 5; });
-    await mkdir(resolve(".tmp/evidence/task-38"), { recursive: true }); await page.screenshot({ path: resolve(".tmp/evidence/task-38/worker-native-pane.png") });
+    await mkdir(resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-38`), { recursive: true }); await page.screenshot({ path: resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-38/worker-native-pane.png`) });
     const geometry = await page.evaluate(() => {
       const deck = document.querySelector<HTMLElement>(".pith-media-deck")!, bounds = deck.getBoundingClientRect(), buttons = Array.from(deck.querySelectorAll<HTMLElement>('[data-media]')); const track = deck.querySelector<HTMLElement>(".pith-deck-track")!.getBoundingClientRect();
       return { width: bounds.width, height: bounds.height, track: track.width, buttons: buttons.map(button => { const rect = button.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2); return { name: button.dataset.media, left: rect.left - bounds.left, right: rect.right - bounds.left, hit: Boolean(hit && button.contains(hit)) }; }) };

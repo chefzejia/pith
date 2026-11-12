@@ -39,7 +39,7 @@ test("shadowing plays bounded cues, preserves recordings and invalidates stale a
     assert.equal(await page.locator('.pith-cue').nth(1).evaluate((node: HTMLElement) => node.classList.contains('pith-speech-active')), true);
     await page.locator('.pith-deck-marker[data-cue-start="0.4"]').click();
     assert.match(await page.locator('.pith-shadowing-spotlight [data-toolkit-display]').textContent(), /One two three/);
-    const task38Evidence = resolve(".tmp/evidence/task-38"); await mkdir(task38Evidence, { recursive: true }); await page.screenshot({ path: join(task38Evidence, "native-audio.png") });
+    const task38Evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-38`); await mkdir(task38Evidence, { recursive: true }); await page.screenshot({ path: join(task38Evidence, "native-audio.png") });
     await page.locator('[data-toolkit-close]').click();
     await page.locator(".pith-cue").first().click(); await page.locator("[data-toolkit-play-cue]").click();
     assert.equal(await page.locator('.pith-inline-toolkit textarea, [data-toolkit-diagnose]').count(), 0);
@@ -67,7 +67,7 @@ test("shadowing plays bounded cues, preserves recordings and invalidates stale a
     assert.equal(await page.locator('.pith-media-deck:visible').count(), 1); await page.locator('[data-media="play"]').click(); assert.equal(await page.evaluate(() => (window as any).task34.view.recordedPlayer.paused), true); await page.locator('[data-media="play"]').click();
     await page.evaluate(() => (window as any).task34.finishAsr({ text: "One three" })); await page.locator('[data-toolkit-display] mark').waitFor(); assert.equal(await page.locator('[data-toolkit-display] mark').textContent(), "two");
     assert.match(await page.locator('.pith-shadowing-feedback').innerText(), /One three.*67%/);
-    const evidence = resolve(".tmp/evidence/task-37"); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "shadowing-guided.png") });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-37`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "shadowing-guided.png") });
     await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))); await page.screenshot({ path: join(evidence, "shadowing-narrow.png") }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); await page.setViewportSize({ width: 1200, height: 800 });
     const recording = await page.evaluate(() => (window as any).task34.view.recordedUrl);
     await page.locator('[data-voice="toolkit"]').click(); await page.waitForFunction(() => document.querySelector('[data-voice="toolkit"]')?.getAttribute("aria-pressed") === "true"); assert.equal(await page.evaluate((url: string) => (window as any).task34.revoked.includes(url), recording), true); assert.equal(await page.evaluate(() => (window as any).task34.view.recordedPlayer), null);

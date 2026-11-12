@@ -116,7 +116,7 @@ test("Web and Obsidian board mounts show read-only errors, wrap paths and hide t
     await native.exposeFunction("nativeMaterials", () => controller.openBoardMaterials());
     await native.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await native.evaluate(async () => { const w = window as any; w.nativeBoard = new w.NativePith.PithWorkspaceView({}, { guideVisibility: new Map(), openCompass: w.nativeCompass, openBoardMaterials: w.nativeMaterials }, {}); await w.nativeBoard.onOpen(); });
-    const evidence = resolve(".tmp/evidence/task-44"); await mkdir(evidence, { recursive: true });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-44`); await mkdir(evidence, { recursive: true });
     for (const [name, page] of [["web", web], ["obsidian-boundary", native]] as const) {
       await page.getByRole("heading", { name: "无法读取（4）", exact: true }).waitFor();
       const section = page.locator('.pith-unreadable');

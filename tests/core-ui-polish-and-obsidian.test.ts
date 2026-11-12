@@ -193,7 +193,7 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
   const controller = {
     openTopic: async () => ({ ...current, toolkits: [] }),
     openCompass: async () => ({}),
-    store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: async () => current, updateTopic: async () => { updates++; return current; } },
+    store: { readProfile: async () => ({ markdown: "", observations: [] }), getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: async () => current, updateTopic: async () => { updates++; return current; } },
     runtime: { getService: () => undefined }, engine: { getConversation: async () => [] },
     createView: (_root: unknown, value: typeof actions) => { actions = value; return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push([...ids]); }, render() {}, refreshGuide: async () => {} }; },
     releaseView() {}, renderMaterialFile: async () => ({ html: "", sections: [] }),

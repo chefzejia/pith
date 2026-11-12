@@ -66,7 +66,7 @@ test("web repository intake retains the requested objective and shows the bound 
       assert.match(await page.locator('.pith-article').innerText(), /尚无讲义/); assert.match(await page.locator('.pith-article').innerText(), new RegExp(sha)); assert.equal(await page.locator('.pith-article').getByText(repo).count(), 1);
       await page.getByText('已收到目标').waitFor(); assert.match(received.at(-1)!, new RegExp(objective));
       const state = await (await page.request.get(`${base}/api/state`)).json(); assert.ok(state.compass.exploring.some((topic: { target: string }) => topic.target === objective));
-      const evidence = resolve('.tmp/evidence/task-35'); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-repo-fix.png') });
+      const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-35`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-repo-fix.png') });
       await page.locator('[data-command="home"]').click();
     }
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
@@ -86,7 +86,7 @@ test("omnibox stages files, routes intent and keeps only current guide choices",
     await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: 'first.txt', mimeType: 'text/plain', buffer: Buffer.from('Natural prose.') });
     await page.evaluate(() => { const transfer = new DataTransfer(); transfer.items.add(new File(['second'], 'second.txt', { type: 'text/plain' })); document.querySelector('.pith-intake-box')!.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer })); });
     assert.equal(await page.locator('.pith-intake-chip').count(), 2); await page.getByRole('button', { name: '移除 first.txt' }).click(); assert.equal(await page.locator('.pith-intake-chip').count(), 1);
-    const evidence = resolve('.tmp/evidence/task-35'); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-light-narrow.png') });
+    const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-35`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'web-light-narrow.png') });
     await page.locator('[name="title"]').fill('解释这个材料'); await page.locator('[name="title"]').press('Enter');
     await page.locator('.pith-choice-btn').first().waitFor(); assert.equal(received[0], '解释这个材料'); assert.equal(await page.locator('.pith-quick-actions').count(), 0); assert.equal(await page.locator('.pith-choice-btn').count(), 2);
     await page.locator('.pith-choice-btn').first().click(); await page.locator('[data-guide-send]').click(); await page.getByText('第二轮').waitFor(); await page.getByRole('button', { name: /新选项 A/ }).waitFor(); assert.equal(await page.locator('.pith-choice-btn').count(), 2); assert.equal(await page.getByRole('button', { name: /旧选项/ }).count(), 0); assert.equal(await page.locator('.pith-quick-actions').count(), 0);
