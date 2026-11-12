@@ -117,9 +117,11 @@
 
 ## [Task #48] 实测：工具端点的两个前提
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: edf20bfd064d40767129ff4b0c4a439580626486（研究启动时的 Pith 基线；本任务无业务代码提交）
 - **Updated**: 2026-11-12
+- **验收结果**: 真实 dsh 通过 HTTP MCP 执行读写；只读模式下 MCP 写入直接放行，内置写入则先被拒绝并可请求授权。活动工具取消、其他适配器初始化的结果和未覆盖边界均有记录。独立 Tester 重跑 HTTP 及只读模式，与报告一致；没有将适配器能力声明或受控端点视为生产端到端验证。
+- **Evidence**: `.tmp/evidence/task-48/tool-endpoint-premises.md`、`.tmp/evidence/task-48/tester/tester-report.md` 及同目录协议记录；自有进程、端口与运行沙盒已清理。#49 的契约仍须 Brain 复核。
 - **Scope**: 只写 `.tmp/evidence/task-48/` 与 `.tmp/runtime/task-48/`；不改任何被跟踪的文件，与其他任务的写集正交
 - **背景**：#49 的设计建立在两个只读过源码、没有运行过的前提上（[ARCHITECTURE.md](ARCHITECTURE.md) 第六节末尾）。#45 实测过 stdio 方式的 MCP 服务，没有测过 HTTP 方式，也没有出现过权限请求。
 - **要回答的问题**（每个都用真实已安装的 `dsh --profile acp` 运行来回答，留存完整的 ACP 收发记录与工具端点收到的请求）：
