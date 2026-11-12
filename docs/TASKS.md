@@ -34,3 +34,87 @@
 - **验证门禁**：通过英文博客导入即刻阅读且行间模式即时可用，断言工具组精确包含行间而不混入误报工具。
 
 ---
+
+## [Task #42] 交付：把当前主干构建安装进真实 Vault，供人类真机首测
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-12
+- **Scope**: 无源码改动；只运行门禁、构建与安装命令
+- **背景**：人类在真实 Obsidian 做真机测试，构建与安装归执行环（[ROLES.md](ROLES.md) 第 6 条）。主干 `6017590` 含 10 个未经独立复核的提交（`eac6561..6017590`）。
+- **契约**：
+  1. 在干净的主工作树 `main` 上执行，记录交付的提交 SHA。
+  2. `npm run typecheck`、`npm test`、`npm run test:browser` 均无失败；任一失败则不安装。
+  3. 按 ROLES 第 6 条执行交付步骤。
+  4. 睡前审计若对 `eac6561..6017590` 清创并产生代码提交，清创复验通过后对新提交重新执行交付步骤。
+- **不在范围内**：修改源码；启动、退出或重载人类的 Obsidian；读取 Vault 内 Pith 工作区的正文。
+- **证据**：`.tmp/evidence/task-42/delivery.txt`。安装前真实 Vault 的三个插件文件备份在 `.tmp/evidence/self-use-wave1/real-vault-plugin-backup/`。
+
+---
+
+## [Task #43] 修复 `npm run verify:obsidian`：隔离真机脚本与当前设置页行为一致
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-12
+- **Scope**: `scripts/verify-obsidian-e2e.ts`, `tests/obsidian-e2e-safety.test.ts`
+- **背景**：在构建 `145e047`（与 `6017590` 只差文档）上运行 `npm run verify:obsidian`：真实 Obsidian 加载插件、挂载 `pith-reader` 视图并渲染设置页，随后在语音设置一步以 `Auto-save timed out` 失败，日志在 `.tmp/evidence/self-use-wave1/verify-obsidian-145e047.log`；失败后隔离工作区落盘的设置里 `speech` 为空对象。读代码得到的原因（未经运行证实，Worker 先复现确认）：脚本把语音模式设为本机后等待端点字段落盘，而设置页自 `f470ec8` 起只在云端模式保存这些字段（`src/shells/obsidian/index.ts` 的 `if (mode.value !== "cloud") return;`）；脚本自 `183c625`（11-06）后未再更新。
+- **契约**：
+  1. 产品行为不变；脚本按当前行为验收：插件加载、`pith-reader` 视图挂载、设置页挂载、语音模式切换落盘、本机语音健康检查命中脚本自有的桩且不读取密钥存储。
+  2. 只操作脚本自己拉起的隔离实例；与人类正在运行的 Obsidian 并存。
+- **不在范围内**：`src/` 下任何改动。复现中发现的产品缺陷在验收报告里单列，不在本任务修。
+- **Worker 门禁**：`npm run typecheck`、`npm test`；`npm run verify:obsidian` 连续两次退出码为 0；手动破壁（让设置页不保存模式切换）后脚本失败。
+- **Tester 终验**：独立运行 `npm run verify:obsidian` 一次，核对输出报告与隔离 Vault 内落盘的设置一致。
+
+---
+
+## [Task #44] 看板列出读不出来的课题与材料
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-12
+- **Scope**: `src/core/types.ts`, `src/core/store/**`, `src/core/engine/**`, `src/workbench/compass.ts`, `src/workbench/view/styles.ts`, `src/shells/web/**`, `src/shells/obsidian/index.ts`, `docs/subsystems/1-core-store-engine.md`, `docs/subsystems/5-spatial-ui-and-slots.md`, `tests/**`
+- **背景**：`DefaultWorkspaceStore.listTopics` 与 `listMaterials` 静默跳过解析失败的条目。在 Obsidian 里手改 `topic.md`（例如删掉笔记块里的一个空行）后，课题从看板消失且没有任何提示；沙盒复现的解析错误是 `Invalid note metadata`。
+- **冻结的内核契约**（Worker 原样落地，不另行扩展）：
+  ```ts
+  // src/core/types.ts
+  export interface UnreadableEntry { readonly kind: "topic" | "material"; readonly id: string; readonly path: string; readonly error: string }
+  // src/core/store/contract.ts · WorkspaceStore
+  /** Topic and material folders whose ledger file fails to parse; `listTopics` and `listMaterials` omit them. */
+  listUnreadable(): Promise<readonly UnreadableEntry[]>;
+  // src/core/engine/contract.ts · AttentionCompassSnapshot
+  readonly unreadable: readonly UnreadableEntry[];
+  ```
+  `id` 是目录名，`path` 是账本文件相对工作区的路径，`error` 是解析器给出的原因。账本 `id` 与目录名不一致的条目同样列出。
+- **行为契约**：看板在「探索中」「已沉淀」之外显示「无法读取（N）」分区，每条给出文件路径与原因；只读，不自动修复、不删除、不改写文件；N 为 0 时分区不出现；文件修好后重新打开看板，条目回到原分区。两个宿主壳一致。
+- **不在范围内**：放宽解析器；自动修复；笔记格式迁移。
+- **Worker 门禁**：`npm run typecheck`、`npm test`、`npm run test:browser`；回归从磁盘字节构造损坏文件；手动破壁（`listUnreadable` 恒返回空）后回归变红；界面自拍存 `.tmp/evidence/task-44/`。
+- **Tester 终验**：在沙盒工作区分别手改一个 `topic.md`（删掉笔记块里的空行）与一个 `material.md`，两个宿主壳的看板都出现对应条目与原因；恢复文件后条目回到原分区；截图归档。
+- **交付**：验收通过后执行 ROLES 第 6 条。
+
+---
+
+## [Task #45] 调研：dsh 对话体验对齐清单（只读，不改产品代码）
+
+- **Status**: pending
+- **Verified-Commit**: none
+- **Updated**: 2026-11-12
+- **Scope**: 只写 `.tmp/evidence/task-45/`；不改两个仓库中任何被跟踪的文件，与其他任务的写集正交
+- **背景**：人类决定 Pith 向导栏的对话体验以 dsh 为基准（`/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`，提交 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，MIT 许可）。Brain 据本任务的清单冻结实现契约，再派实现任务。
+- **硬约束**（清单中每条提案都须满足）：Pith 工作台是全 Shell 共享的零依赖 DOM（`src/workbench/`）；向导只走标准 ACP（[AGENTS.md](../AGENTS.md) 核心约束 2）；dsh 的界面代码不引入 Pith，只对齐行为与观感。
+- **Brain 读代码得到的待核实事实**（逐条用源码与一次真实运行证实或推翻）：
+  1. dsh 的 ACP 服务只下发已提交的消息、思考、工具生命周期、配置变更与上下文用量，不下发逐字增量（`packages/acp/acp/README.md`、`packages/acp/acp/src/updates.ts`）。
+  2. 每个 ACP 会话同一时刻只有一个进行中的 prompt；支持 `session/resume`、`session/cancel` 与挂载 MCP 服务。
+  3. dsh 自己的 ACP 客户端对单次 prompt 不设期限，可配置的时长只有进程收尾宽限（`packages/subagent/subagent-acp/src/index.ts`）。
+  4. 停止控件在 `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx`；对话节点、过程折叠与失败行的规则在 `packages/client/ui-chat/README.md` 与 `docs/subsystems/conversation.md`。
+- **交付物**：`.tmp/evidence/task-45/dsh-conversation-alignment.md`，一张逐项对照表加参考材料：
+  - 覆盖面：一轮对话的组成（用户消息、助手回复、思考预览、工具与过程行、失败行、向用户提问）及完成后的折叠规则；运行中的输入区（停止、运行中再发送消息的去向、按键、禁用态）；等待、失败、停止与重试（失败回合的用户消息是否保留）；助手回复的 Markdown 渲染范围与跟随滚动；间距、字号、配色、圆角等观感取值（明暗两套）。
+  - 每一项给出：dsh 的做法与 `文件:行` 出处；标准 ACP 能否支撑及依据；Pith 现状与 `文件:行`；差距；在硬约束内的做法与工作量估计；不建议对齐时写明理由。
+  - 一份真实 `dsh --profile acp` 多步回合的 `session/update` 记录（各类更新及其到达时间），用来证实「标准 ACP 能否支撑」一栏。
+  - dsh Web 界面的参考截图：运行中、已完成、失败、被停止的回合各一组，明暗两套。
+- **运行约束**：真实 dsh 在 `.tmp/task-45/` 下的独立工作目录运行；不读取、不输出凭据；dsh 自身留下的会话与日志在报告中列出位置。
+- **不在范围内**：修改 Pith 或 dsh 的被跟踪文件；实现任何对齐项。
+- **Worker 门禁**：清单中每条 dsh 引用都能在上述提交按 `文件:行` 打开并支持其论断；截图扩展名与真实编码一致。
+- **Tester 终验**：独立抽查不少于 10 条引用；核对 `session/update` 记录与「标准 ACP 能否支撑」一栏一致；核对截图与文字描述一致。
+
+---
