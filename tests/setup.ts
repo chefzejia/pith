@@ -11,4 +11,11 @@ import { join } from "node:path";
 const sandbox = mkdtempSync(join(tmpdir(), "pith-test-home-"));
 process.env.HOME = sandbox;
 process.env.PITH_SPEECH_HOME = join(sandbox, "speech");
-process.on("exit", () => rmSync(sandbox, { recursive: true, force: true }));
+const cleanup = () => rmSync(sandbox, { recursive: true, force: true });
+process.on("exit", cleanup);
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    cleanup();
+    process.kill(process.pid, signal);
+  });
+}

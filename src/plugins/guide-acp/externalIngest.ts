@@ -20,12 +20,27 @@ export function isPublicHttpUrl(value: string): boolean {
   } catch { return false; }
 }
 
+function htmlElementContents(html: string, name: string): string | undefined {
+  const tags = /<!--[\s\S]*?-->|<\/?[a-z][\w-]*(?:\s+(?:[^>"']|"[^"]*"|'[^']*')*)?\s*\/?\s*>/gi;
+  let start = -1, depth = 0;
+  for (const match of html.matchAll(tags)) {
+    const tag = new RegExp(`^<(/?)${name}(?=[\\s/>])`, "i").exec(match[0]);
+    if (!tag) continue;
+    if (tag[1]) {
+      if (depth > 0 && --depth === 0) return html.slice(start, match.index);
+    } else if (!/\/\s*>$/.test(match[0])) {
+      if (depth++ === 0) start = match.index! + match[0].length;
+    }
+  }
+  return undefined;
+}
+
 function extractHtmlTitleAndMarkdown(html: string, fallbackTitle: string): { title: string; markdown: string } {
   const decode = (value: string) => value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (entity, key: string) => { const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }; if (key[0] !== "#") return named[key.toLowerCase()] ?? entity; const n = Number.parseInt(key.slice(key[1]?.toLowerCase() === "x" ? 2 : 1), key[1]?.toLowerCase() === "x" ? 16 : 10); return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "\ufffd"; });
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
   const documentTitle = decode((titleMatch?.[1] ?? fallbackTitle).replace(/<[^>]*>/g, " ")).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || fallbackTitle;
-  const source = (/<article\b[^>]*>([\s\S]*?)<\/article\s*>/i.exec(html) ?? /<main\b[^>]*>([\s\S]*?)<\/main\s*>/i.exec(html) ?? /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html))?.[1] ?? html;
-  const cleaned = source.replace(/<(script|style|iframe|object|embed|form|nav|footer|head|noscript|svg|math|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+  const safeHtml = html.replace(/<(script|style|iframe|object|embed|form|nav|footer|head|noscript|svg|math|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+  const cleaned = htmlElementContents(safeHtml, "article") ?? htmlElementContents(safeHtml, "main") ?? htmlElementContents(safeHtml, "body") ?? safeHtml;
   let fenceLength = 3;
   for (const match of cleaned.matchAll(/`+/g)) { fenceLength = Math.max(fenceLength, match[0].length + 1); if (fenceLength > 128) throw new Error("HTML code fence exceeds limit"); }
   const fence = "`".repeat(fenceLength);

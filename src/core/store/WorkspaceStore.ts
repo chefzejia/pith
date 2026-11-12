@@ -266,7 +266,10 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         if (entry.type !== "folder") continue;
         const id = entry.path.split("/").pop()!;
         try {
-          if (kind === "topic") await this.getTopic(id);
+          if (kind === "topic") {
+            const topic = await this.getTopic(id);
+            if (topic?.materialId && !await this.storage.exists(`materials/${name(topic.materialId)}/material.md`)) throw new Error(`Referenced material not found: ${topic.materialId}`);
+          }
           else await this.getMaterial(id);
         } catch (error) {
           unreadable.push({ kind, id, path: `${directory}/${id}/${kind}.md`, error: error instanceof Error ? error.message : String(error) });

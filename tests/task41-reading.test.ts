@@ -25,6 +25,17 @@ test("external clipping preserves structure and rejects unsafe destinations", as
   await assert.rejects(ingestExternalUrl({ url: "http://127.0.0.1/private" }, http), /not public/);
 });
 
+test("clipping keeps text after nested article, main and body elements", async () => {
+  for (const tag of ["article", "main", "body"]) {
+    const source = `<${tag} data-x=\"a > b\"><p>Beginning</p><!-- </${tag}> --><${tag}><p>Embedded article</p></${tag}><p>Essential ending</p></${tag}><p>Outside</p>`;
+    const transport = { ...http, requestPublic: async () => ({ status: 200, headers: { "content-type": "text/html" }, bytes: new TextEncoder().encode(source) }) };
+    const result = await ingestExternalUrl({ url: "https://public.com/post" }, transport);
+    const text = new TextDecoder().decode(result.files[0]!.bytes);
+    assert.match(text, /Beginning[\s\S]*Embedded article[\s\S]*Essential ending/);
+    assert.doesNotMatch(text, /Outside/);
+  }
+});
+
 test("EPUB classification reads bounded spine text rather than its title", async () => {
   const book = (text: string) => storedZip({ "META-INF/container.xml": '<container><rootfile full-path="O/book.opf"/></container>', "O/book.opf": '<package><metadata><dc:title>中文书名</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml"/></manifest><spine><itemref idref="chapter"/></spine></package>', "O/chapter.xhtml": `<html><body><p>${text}</p></body></html>` });
   const classify = async (text: string) => defaultToolkitsForMaterial({ kind: "book", files: [{ name: "中文.epub" }], sampleText: await sampleEpubLanguage(book(text)) });

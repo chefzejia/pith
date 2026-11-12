@@ -50,6 +50,21 @@ test("unreadable scans do not create a workspace", async () => {
   finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("missing referenced material is reported without changing the topic and clears on restoration", async () => {
+  const root = await testSandbox("task44-reference-");
+  try {
+    const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
+    await store.createTopic({ id: "topic-broken", title: "Missing material", materialId: "material-missing" });
+    await store.createTopic({ id: "topic-free", title: "No material" });
+    const path = join(root, "topics/topic-broken/topic.md"), before = await readFile(path);
+    assert.deepEqual(await store.listUnreadable(), [{ kind: "topic", id: "topic-broken", path: "topics/topic-broken/topic.md", error: "Referenced material not found: material-missing" }]);
+    assert.deepEqual(await readFile(path), before);
+    await store.importMaterial({ id: "material-missing", title: "Restored", kind: "article", files: [] });
+    assert.deepEqual(await store.listUnreadable(), []);
+    assert.deepEqual(await readFile(path), before);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("disk corruption and identity mismatches remain read-only and recover in engine and both shell snapshots", async () => {
   const root = await testSandbox("task44-disk-");
   const fixture = await damagedWorkspace(root);
