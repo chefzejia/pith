@@ -97,8 +97,8 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
 | 记录标明作者；结题门禁只认用户写的笔记与实训记录 | [1-core](subsystems/1-core-store-engine.md) 第 2 节不变量 7 | 记录没有作者；门禁只数条数，向导自己存的笔记也算（[`tools.ts`](../src/plugins/guide-acp/tools.ts)） | #51 |
-| 回合带过程步骤、可停止、可重新请求；前台回合不设期限 | [1-core](subsystems/1-core-store-engine.md) 第 4 节，[5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 6 节 | `GuideProvider.reply` 只返回字符串，不接受取消；向导栏按纯文本显示，只有一行等待提示 | #49（引擎与停止）、#50（界面） |
-| 材料与课题分离：课题引用多份材料、讲义与对话归课题、锚点带来源、`shelved` 状态 | [1-core](subsystems/1-core-store-engine.md) 第 2 至 4 节 | 课题最多绑一份材料；讲义写进材料；对话在 `_cache/`；锚点只有文件名 | #49（对话）、#51（其余） |
+| 向导栏的过程步骤展示、Markdown、折叠与观感 | [5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 6 节 | 向导栏显示用户消息、纯文本回复、选项与失败原因；过程步骤的界面尚未实现 | #50 |
+| 材料与课题分离：课题引用多份材料、讲义归课题、锚点带来源、`shelved` 状态 | [1-core](subsystems/1-core-store-engine.md) 第 2 至 4 节 | 课题最多绑一份材料；讲义写进材料；锚点只有文件名；没有 `shelved` 状态 | #51 |
 | 立项只经向导；材料库；材料阅读场景 | [5-workbench](subsystems/5-spatial-ui-and-slots.md) 第 2、3 节 | 拖入文件即建课题；首页只列课题；没有课题外的阅读 | #52 |
 | 行间挂在材料上；没有按材料类型预挂载训练工具 | [3-toolkits](subsystems/3-toolkits.md) 第 2 节 | 三个工具都在 `topic.toolkits`，按材料类型预挂载（[`toolkitSlot.ts`](../src/workbench/toolkitSlot.ts)） | #52 |
 | 费曼复述的要点对照规程 | [3-toolkits](subsystems/3-toolkits.md) 3.3 | 一段「先肯定、再指出、再追问」的自由文本规程 | #53 |
@@ -111,9 +111,9 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 - dsh 能用回环地址上、不开事件流的 HTTP 方式 MCP 服务，读写工具的结果都回到模型。
 - dsh 在只读权限模式下对 MCP 工具直接放行，不发权限请求；对自带的写文件工具先拒绝，模型申请提权时才发权限请求。所以只读模式不是 Pith 工具的写屏障（[4-guide](subsystems/4-guide-speech-shells.md) 2.4）。
 - 停止一个进行中的工具调用，`session/prompt` 以 `cancelled` 返回。只测了一次，测的是还没落盘的写入。
+- #49 在生产宿主沙盒下用真实 Agent 在两个宿主完成仓库走读和讲义写入。请求直接写工作区时，首次写入由 dsh 只读层拒绝，申请提权后的重试由 Pith 拒绝；这次实测不证明系统沙盒本身是拒绝写入的拦截层（`.tmp/evidence/task-49/tester-ffcb166/tester-report.md`）。
 
 **还没有实测的前提**：
 
 1. claude 与 codex 的 ACP 适配器都声明支持 HTTP 方式的 MCP 服务，但没有实测过工具调用、工具标题的形状与权限请求。实测并登记标题形状之前，这两个 Agent 在启动检查里报不可用。
-2. 宿主沙盒禁止写工作区根目录之后，Agent 是否仍能正常运行，由 #49 用真实 Agent 验证。
-3. 费曼的对照规程能否稳定地区分「说反」「漏掉」与「换了说法但正确」，由 #53 在动界面之前实测。验收方式写在 [3-toolkits](subsystems/3-toolkits.md) 3.3。
+2. 费曼的对照规程能否稳定地区分「说反」「漏掉」与「换了说法但正确」，由 #53 在动界面之前实测。验收方式写在 [3-toolkits](subsystems/3-toolkits.md) 3.3。

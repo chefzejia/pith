@@ -10,8 +10,35 @@ import { testSandbox } from "./sandbox.ts";
 
 const browserUnavailable = !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH;
 const reply = "受控向导回复";
+const choices = [
+  "我回答检验卡 1 和 2，你据此诊断我对 falsy 边界与错误来源的把握",
+  "生成第二讲《02-公开接口契约.md》：三个导出函数的输入/返回值/失败模式，落点精确到 path:line",
+  "做一个 10 分钟微实验：在临时 .mjs 里跑 handleRequest({}) vs handleRequest() 与 enqueue(undefined)，对照本轮预测",
+  "把入口校验前置到 enqueue 的方案写成最小改造清单（含 2 个测试意图），不写代码",
+];
 const closeServer = (server: Server) => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 const occurrences = (locator: any, text: string): Promise<number> => locator.evaluate((node: HTMLElement, needle: string) => (node.textContent ?? "").split(needle).length - 1, text);
+
+async function assertChoicesFit(page: any, selector: string): Promise<void> {
+  const buttons = page.locator(`${selector} .pith-choice-btn`);
+  assert.equal(await buttons.count(), choices.length);
+  const layout = await buttons.evaluateAll((elements: HTMLElement[]) => elements.map((element, index) => {
+    const rect = element.getBoundingClientRect(), next = elements[index + 1]?.getBoundingClientRect();
+    return { text: element.textContent, height: rect.height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, bottom: rect.bottom, nextTop: next?.top };
+  }));
+  for (const [index, item] of layout.entries()) {
+    assert.match(item.text, new RegExp(choices[index]!.slice(0, 6)));
+    assert.ok(item.height > 30, JSON.stringify(item));
+    assert.ok(item.scrollHeight <= item.clientHeight + 1, JSON.stringify(item));
+    assert.ok(item.scrollWidth <= item.clientWidth + 1, JSON.stringify(item));
+    if (item.nextTop !== undefined) assert.ok(item.bottom <= item.nextTop, JSON.stringify(item));
+  }
+  for (const [index, choice] of choices.entries()) {
+    await buttons.nth(index).click();
+    assert.equal(await page.locator(`${selector} textarea`).inputValue(), choice);
+  }
+}
 
 test("Web shows one waiting guide turn with its message once and keeps a failure visible", { timeout: 60000, skip: browserUnavailable }, async () => {
   const dir = await testSandbox("pith-guide-turn-web-");
@@ -22,7 +49,7 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     const text = input.text; received.push(text);
     if (hold) await new Promise<void>(resolve => { release = resolve; if (arrived) arrived(); });
     if (text.includes("触发故障")) throw new Error("受控向导故障");
-    options.onStep({ kind: "reply", markdown: reply }, 0); options.onChoices(["继续", "考考我"]); return { status: "completed" };
+    options.onStep({ kind: "reply", markdown: reply }, 0); options.onChoices(choices); return { status: "completed" };
   } };
   const server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: provider });
   let browser: any;
@@ -47,7 +74,11 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     letGo(); await replies(1); await pending.waitFor({ state: "detached" });
     assert.equal(await pending.count(), 0);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
-    assert.equal(await page.locator(".pith-choice-btn").count(), 2);
+    await assertChoicesFit(page, ".pith-guide");
+    await page.setViewportSize({ width: 390, height: 800 });
+    await assertChoicesFit(page, ".pith-guide");
+    if (process.env.PITH_EVIDENCE_DIR) { await page.setViewportSize({ width: 390, height: 1200 }); await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "web-narrow-choices.png") }); }
+    await page.setViewportSize({ width: 1200, height: 800 });
 
     waiting = held();
     await input.fill("网页问题"); await send.click();
@@ -96,7 +127,7 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
       (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl: HTMLElement | null; constructor(leaf: any) { this.contentEl = leaf?.container || document.getElementById("root"); } }, Plugin: class {}, Notice: class { constructor(message: string) { (window as any).turn.notices.push(message); } } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {};
     });
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await page.evaluate(async (guideReply: string) => {
+    await page.evaluate(async ({ guideReply, guideChoices }: { guideReply: string; guideChoices: string[] }) => {
       const state: any = (window as any).turn, native: any = (window as any).NativePith;
       const data = new Map<string, Uint8Array>(), folders = new Set<string>(), encoder = new TextEncoder(), decoder = new TextDecoder();
       const storage = {
@@ -125,14 +156,14 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
         }
         const lesson = /《(0[23]-[^》]+\.md)》/.exec(text);
         if (lesson) { const topic = await controller.store.getTopic(topicId); await controller.store.writeGeneratedFile(topic.materialId, lesson[1], `# ${lesson[1]}\n\n${lesson[1]} 的正文。`); }
-        options.onStep({ kind: "reply", markdown: guideReply }, 0); options.onChoices(["继续", "考考我"]); return { status: "completed" };
+        options.onStep({ kind: "reply", markdown: guideReply }, 0); options.onChoices(guideChoices); return { status: "completed" };
       } };
       controller = new native.PithObsidianController(host, undefined, provider); await controller.initialize();
       const leaf: any = { container: document.getElementById("side"), detach() {}, async setViewState() { this.view = new native.PithGuideView(this); } };
       const workspace = { rightSplit: { expand() {}, collapse() {} }, getRightLeaf: () => leaf, getLeavesOfType: () => leaf.view ? [leaf] : [], revealLeaf: async () => {} };
       state.controller = controller; state.workspaceView = new native.PithWorkspaceView({}, controller, host, workspace);
       await state.workspaceView.onOpen();
-    }, reply);
+    }, { guideReply: reply, guideChoices: choices });
     const hold = (): Promise<void> => page.evaluate(() => { const state = (window as any).turn; state.hold = true; state.waiting = new Promise<void>(resolve => { state.arrived = resolve; }); });
     const arrived = (): Promise<void> => page.evaluate(() => (window as any).turn.waiting);
     const letGo = (): Promise<void> => page.evaluate(() => { const state = (window as any).turn, next = state.release; if (!next) throw new Error("no guide turn is waiting"); state.hold = false; state.release = null; next(); });
@@ -155,7 +186,12 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     await letGo(); await replies(1);
     await article.getByText("课程大纲").first().waitFor();
     assert.equal(await pending.count(), 0);
-    assert.equal(await page.locator("#side .pith-choice-btn").count(), 2);
+    await page.addStyleTag({ content: "button { height: 30px; }" });
+    await assertChoicesFit(page, "#side .pith-guide");
+    await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "220px"; });
+    await assertChoicesFit(page, "#side .pith-guide");
+    if (process.env.PITH_EVIDENCE_DIR) { await page.setViewportSize({ width: 1200, height: 1100 }); await page.screenshot({ path: join(process.env.PITH_EVIDENCE_DIR, "obsidian-narrow-choices.png") }); await page.setViewportSize({ width: 1200, height: 800 }); }
+    await page.locator("#side").evaluate((element: HTMLElement) => { element.style.width = "30%"; });
     await page.waitForFunction(() => !(document.querySelector("#side [data-guide-send]") as HTMLButtonElement).disabled);
 
     await input.fill("触发故障"); await send.click();
