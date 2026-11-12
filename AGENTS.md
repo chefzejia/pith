@@ -15,9 +15,9 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
    - **插件角色**：`Core` 之外皆插件。舞台（`Stage`）负责渲染文件；工具（`Toolkit`）以原位覆盖层寄生在舞台上，分为挂在材料上的阅读辅助与挂在课题上的训练工具。这个概念只叫 `Toolkit`，不使用 `dojo`。严禁在用户设置面板暴露底层插件开关列表。
    - **不做兼容**：项目处于开发期。设计有问题就改设计并重构，不保留旧格式的读取、迁移代码或兼容别名。
 4. **标准外部/按需语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件解耦；实时 TTS/ASR 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关（原生零 Python 依赖运行时），严禁回退系统低劣语音 API（`speechSynthesis`）或运行时调 `pip`，不可达时直接 Fail-Closed。
-5. **双环四角色验证切分、手动破壁与多 Worktree 流水线**：
+5. **双环协作验证切分、手动破壁与多 Worktree 流水线**：
    - **秒级内环自检与手动破壁归 Worker**：开工必读 [`docs/LESSONS.md`](docs/LESSONS.md)；全仓类型检查、单测、架构守卫单测（`tests/boundaries.test.ts`）、**手动破壁验证（`Broken by hand`）**与构建同步由 Worker 在秒级内环 100% 跑通，并在业务 Commit Body 简明记录意图/根因与验证证据；
-   - **模拟真实用户（首轮穷尽）归 Tester，多 Worktree 与战术自闭环归 Router**：Tester 在 `.gitignore` 专用沙盒（`.dev-vault` / `.tmp`）中按产品形态完全模拟真实用户操作与截屏视觉审视（首轮一次性穷尽缺陷）；当主目录忙于验收或多任务 `Scope` 正交时，Router 在 `.tmp/worktrees/task-<ID>` 开启隔离 Worktree 并行派发 Worker（单测通过后变基合回 `main` 并立即销毁临时 Worktree）；显性缺陷由 Router 亲自记入 `LESSONS.md`（满 `Seen 3×` 令 Worker 固化为守卫单测）并在执行环内部直接拍板闭环，战略/契约冲突才标 `blocked` 报 Brain。
+   - **模拟真实用户（首轮穷尽）归 Tester，多 Worktree 与战术自闭环归 Router**：Tester 在 `.gitignore` 专用沙盒（`.dev-vault` / `.tmp`）中按产品形态完全模拟真实用户操作与截屏视觉审视（首轮一次性穷尽缺陷）；当主目录忙于验收或多任务 `Scope` 正交时，Router 在 `.tmp/worktrees/task-<ID>` 开独立 Worktree 并行派发 Worker（单测通过后合回 `main`，合入后立即删除临时 Worktree）；显性缺陷由 Router 亲自记入 `LESSONS.md`（满 `Seen 3×` 令 Worker 固化为守卫单测）并在执行环内部直接拍板闭环，战略/契约冲突才标 `blocked` 报 Brain。
 
 ## 修改与验证
 
@@ -34,8 +34,8 @@ npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1
 
 ## 按需路由
 
-- [任务调度板](docs/TASKS.md)：查看滑动任务栈队列（`pending / in_progress / verified / blocked`）与写作用域（`Scope`）时读取。
+- [任务调度板](docs/TASKS.md)：查看滑动任务栈队列（`pending / queued / verified / blocked / superseded`）与写作用域（`Scope`）时读取。
 - [产品定义](docs/PRODUCT.md)：确认产品定位、核心模块、空间交互铁律或领域词表时读取。
 - [架构总纲](docs/ARCHITECTURE.md) 与 [子系统契约](docs/subsystems/1-core-store-engine.md)：修改四层单向依赖、子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) / [`2-stages`](docs/subsystems/2-stages.md) / [`3-toolkits`](docs/subsystems/3-toolkits.md) / [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) / [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、公共接口或数据所有权时读取。`docs/` 描述目标契约；源码尚未落地的部分列在架构总纲第六节，动手前先读。
 - [经验教训](docs/LESSONS.md)：排查已知失败模式、复盘打回原因或晋升守卫单测时读取。
-- [协作角色](docs/ROLES.md)：执行 Brain / Router / Worker / Tester 双环四重身份协作时读取。
+- [协作角色](docs/ROLES.md)：执行 Brain / Router / Worker / Tester 双环协作时读取。
