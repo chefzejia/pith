@@ -95,9 +95,11 @@
 
 ## [Task #47] 画像只增删观察条目，写前留底
 
-- **Status**: pending
+- **Status**: blocked
 - **Verified-Commit**: none
 - **Updated**: 2026-11-12
+- **阻塞原因**: 真实 Agent 在用户要求达标后结题并记录观察、向导仍在追问的回合中，单独调用 `pith_remember` 写入画像。最新候选 `8796b01ebd2b0da8085ac70994f1a8d3e0f16fab` 仅通过提示词约束该行为，执行路径没有可靠的用户授权检查；独立 Tester 因此未通过。经历三轮修复后，当前契约未定义可验证的授权信号或确认交互，不能用关键词猜测保证授权，需 Brain 明确契约后继续。
+- **已完成及证据**: 真实记忆和结题已各成功一次，画像标记外字节与写前备份符合验收；单测、浏览器测试、构建与破壁检查通过。历史失败、最新复验和清理见 `.tmp/evidence/task-47/tester/retest-2f78ecc/tester-report.md`、`.tmp/evidence/task-47/tester/retest-8796b01/tester-report.md` 与 `.tmp/evidence/task-47/background/worker-report.md`。本项未安装到真实 Vault。
 - **Scope**: `src/core/types.ts`、`src/core/host.ts`、`src/core/store/**`、`src/plugins/guide-acp/**`、`src/shells/**`（存储端口的 `copy` 与 dsh 壳的工具）、`src/workbench/**`（只为编译通过）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：`pith_settle_topic` 现在整篇替换 `ME.md`（`src/plugins/guide-acp/tools.ts` 的 `store.writeProfile(profile)`），dsh 壳另有一个整篇替换的 `pith_update_profile`。已安装的版本每次结题都可能改写用户自己写的内容。本任务排在 #46 之后，写集与它重叠。
 - **契约**：
