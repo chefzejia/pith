@@ -100,3 +100,21 @@ test("exclusive creation rejects unsupported hosts, unsafe paths and symlinks wi
     await assert.rejects(storage.createText("leaf", "x"), /Symbolic links/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("workspace copies preserve bytes and refuse existing or unsafe destinations", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pith-copy-"));
+  try {
+    await mkdir(join(dir, "Pith")); await mkdir(join(dir, "outside"));
+    const adapter = adapterFor(dir), hosts = [new NodeWorkspaceStorage(join(dir, "Pith")), createObsidianHostPort(adapter, "Pith", undefined, adapter).storage];
+    await writeFile(join(dir, "Pith", "source"), Buffer.from([0, 255, 13, 10]));
+    await symlink(join(dir, "outside"), join(dir, "Pith", "link"));
+    for (const [index, storage] of hosts.entries()) {
+      const target = `copy-${index}`;
+      await storage.copy("source", target);
+      assert.deepEqual(await readFile(join(dir, "Pith", target)), Buffer.from([0, 255, 13, 10]));
+      await assert.rejects(storage.copy("source", target), (error: NodeJS.ErrnoException) => error.code === "EEXIST");
+      await assert.rejects(storage.copy("source", "link/copy"), /Symbolic links/);
+      await assert.rejects(storage.copy("source", "../escape"), /Invalid workspace path/);
+    }
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

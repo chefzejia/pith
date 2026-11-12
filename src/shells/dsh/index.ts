@@ -80,8 +80,7 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
       return engine.captureSelection({ topicId: string(input, "topicId"), kind, body: string(input, "body"), anchor });
     } },
     { name: "pith_write_lesson", description: "Write a generated Markdown lesson", inputSchema: schema({ materialId: field, fileName: field, markdown: field }, ["materialId", "fileName", "markdown"]), execute: async input => store.writeGeneratedFile(string(input, "materialId"), string(input, "fileName"), string(input, "markdown")) },
-    { name: "pith_update_profile", description: "Update the learner profile", inputSchema: schema({ markdown: field }, ["markdown"]), execute: async input => { await store.writeProfile(string(input, "markdown")); return store.readProfile(); } },
   ];
-  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
+  tools.push(...createGuideWorkspaceTools(store, engine, options.storage, options.http ?? new DshPublicHttpPort()).filter(tool => tool.name === "pith_read_material_section" || tool.name === "pith_remember" || tool.name === "pith_settle_topic" || tool.name === "pith_ingest_external"));
   return { tools };
 }

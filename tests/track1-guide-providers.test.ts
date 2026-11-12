@@ -117,6 +117,7 @@ function createMemoryStorage(): WorkspaceStoragePort {
       if (files.has(path)) throw new Error(`File exists: ${path}`);
       files.set(path, new Uint8Array(data));
     },
+    async copy(from, to) { await this.createBinary(to, await this.readBinary(from)); },
     async processText(path, update) {
       const next = update(await this.readText(path));
       await this.writeText(path, next);

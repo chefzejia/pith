@@ -10,7 +10,7 @@ function storage(): WorkspaceStoragePort & { files: Map<string, string> } {
   return { files, exists: async path => files.has(path), readText: async path => { const text = files.get(path); if (text === undefined) throw new Error("missing"); return text; },
     writeText: async (path, text) => { files.set(path, text); }, mkdir: async () => {},
     createText: async () => { throw new Error("unused"); }, readBinary: async () => { throw new Error("unused"); },
-    writeBinary: async () => { throw new Error("unused"); }, createBinary: async () => { throw new Error("unused"); },
+    writeBinary: async () => { throw new Error("unused"); }, createBinary: async () => { throw new Error("unused"); }, copy: async () => { throw new Error("unused"); },
     processText: async () => { throw new Error("unused"); }, list: async () => [] };
 }
 

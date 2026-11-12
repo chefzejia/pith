@@ -20,6 +20,7 @@ export interface WorkspaceStoragePort {
   createText(path: string, data: string): Promise<void>;
   writeBinary(path: string, data: Uint8Array): Promise<void>;
   createBinary(path: string, data: Uint8Array): Promise<void>;
+  copy(from: string, to: string): Promise<void>;
   processText(path: string, update: (current: string) => string): Promise<string>;
   mkdir(path: string): Promise<void>;
   list(path: string): Promise<readonly StorageEntry[]>;

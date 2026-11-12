@@ -113,8 +113,9 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     assert.equal(state.compass.pendingEffectsCount, 1);
     await tool("pith_write_lesson").execute({ materialId: dshTopic.materialId, fileName: "new-lesson.md", markdown: "# New lesson" });
     assert.ok((await new DefaultWorkspaceStore(storage).getMaterial(dshTopic.materialId!))!.files.some(file => file.name === "new-lesson.md"));
-    await tool("pith_update_profile").execute({ markdown: "# Updated profile" });
-    assert.equal((await controller.store.readProfile()).markdown, "# Updated profile");
+    assert.equal(tools.some(item => item.name === "pith_update_profile"), false);
+    await tool("pith_remember").execute({ topicId, text: "Understands the workspace" });
+    assert.equal((await controller.store.readProfile()).observations[0]!.text, "Understands the workspace");
     assert.equal((await controller.openCompass()).exploring[0]?.id, topicId);
     await controller.setPersona("studio");
     assert.equal(controller.getPersona(), "studio");

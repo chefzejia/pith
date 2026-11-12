@@ -150,17 +150,37 @@ export function createGuideWorkspaceTools(store: WorkspaceStore, engine: Attenti
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
       const topicId = text(input, "topicId", 200), toolkits = normalizeToolkits(input.toolkits); return store.updateTopic(topicId, { toolkits });
     } },
-    { name: "pith_settle_topic", description: "Settle an exploring topic after recording a verification summary and requiring an existing learner note; optionally replace the learner profile.", inputSchema: schema({ topicId: field, verificationSummary: field, profilePatchMarkdown: { type: "string", minLength: 1, maxLength: 100000 } }, ["topicId", "verificationSummary"]), async execute(input) {
-      keys(input, ["topicId", "verificationSummary", "profilePatchMarkdown"]);
+    { name: "pith_remember", description: "Record an observation only when the learner explicitly asks to remember it.", inputSchema: schema({ topicId: field, text: field, noteId: field }, ["topicId", "text"]), async execute(input) {
+      keys(input, ["topicId", "text", "noteId"]);
+      const topicId = text(input, "topicId", 200), observation = text(input, "text", 4000);
+      return store.addObservation({ topicId, text: observation, ...(input.noteId === undefined ? {} : { noteId: text(input, "noteId", 200) }) });
+    } },
+    { name: "pith_settle_topic", description: "Settle an exploring topic after a verified explanation, optionally adding or removing observations.", inputSchema: schema({ topicId: field, verificationSummary: field, observations: { type: "array", items: schema({ text: field, noteId: field }, ["text"]) }, removeObservationIds: { type: "array", items: field } }, ["topicId", "verificationSummary"]), async execute(input) {
+      keys(input, ["topicId", "verificationSummary", "observations", "removeObservationIds"]);
       const topicId = text(input, "topicId", 200);
       const summary = text(input, "verificationSummary");
-      const profile = input.profilePatchMarkdown === undefined ? undefined : text(input, "profilePatchMarkdown", 100000);
       if (/^<!-- pith-note:(?:v1|quote|body|remark|no-remark|end) -->$/m.test(summary)) throw new Error("Reserved note marker");
       const topic = await store.getTopic(topicId);
       if (!topic) throw new Error("Topic not found");
       if (topic.status !== "exploring") throw new Error("Topic is not exploring");
       if (topic.notes.length === 0) throw new Error("Settlement requires a learner note");
-      if (profile !== undefined) await store.writeProfile(profile);
+      if (input.observations !== undefined && !Array.isArray(input.observations)) throw new Error("Invalid observations");
+      const observations = (input.observations ?? []) as unknown[];
+      const additions = observations.map(value => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid observation");
+        const entry = value as Readonly<Record<string, unknown>>; keys(entry, ["text", "noteId"]);
+        const valueText = text(entry, "text", 4000).replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
+        if (Array.from(valueText).length > 500 || valueText.includes("<!-- pith-observations:")) throw new Error("Invalid observation text");
+        const noteId = entry.noteId === undefined ? undefined : text(entry, "noteId", 200);
+        if (noteId !== undefined && !topic.notes.some(note => note.id === noteId)) throw new Error("Note does not belong to topic");
+        return { text: valueText, ...(noteId === undefined ? {} : { noteId }) };
+      });
+      if (input.removeObservationIds !== undefined && (!Array.isArray(input.removeObservationIds) || !input.removeObservationIds.every(id => typeof id === "string" && id.trim()))) throw new Error("Invalid observation IDs");
+      const removals = (input.removeObservationIds ?? []) as string[];
+      if (new Set(removals).size !== removals.length) throw new Error("Duplicate observation ID");
+      if (removals.length) { const existing = (await store.readProfile()).observations; if (removals.some(id => !existing.some(item => item.id === id))) throw new Error("Observation not found"); }
+      for (const id of removals) await store.removeObservation(id);
+      for (const addition of additions) await store.addObservation({ topicId, ...addition });
       await store.appendNote(topicId, { kind: "note", body: `## 核心认知总结\n\n${summary}` });
       return store.updateTopic(topicId, { status: "settled" });
     } },

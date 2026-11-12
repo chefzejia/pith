@@ -64,7 +64,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
     `# 学习者画像\n${input.profileMarkdown}`,
     `# 当前课题\nID：${topic.id}\n材料 ID：${topic.materialId ?? "无"}\n标题：${topic.title}\n目标：${topic.target}\n状态：${topic.status}\n下一步：${topic.nextAction ?? "未设置"}`,
     input.material ? `# 绑定材料\n${JSON.stringify(input.material)}` : "# 绑定材料\n无",
-    `# 笔记\n${topic.notes.map((note) => note.body).join("\n\n") || "暂无"}`,
+    `# 笔记\n${topic.notes.map((note) => `ID: ${note.id}\n${note.body}`).join("\n\n") || "暂无"}`,
     input.anchor
       ? `# 当前选区\n文件：${input.anchor.file}\n位置：${input.anchor.locator}\n引用：${input.anchor.quote ?? ""}`
       : "# 当前选区\n无",
@@ -74,8 +74,8 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic;
     ...(input.conversation && input.conversation.length ? [`# 近期对话\n以下是本课题此前的对话，按时间先后排列。判断学习者当前的回答时，承接你自己上一轮提出的问题；此前回复中的工具操作均已执行，不要重复执行。\n\n${input.conversation.map(turn => `${turn.role === "user" ? "学习者" : "向导"}：${turn.text}`).join("\n\n")}`] : []),
     `# 学习者问题\n${input.userMessage}`,
     ...(input.activeRubric ? [`# 当前实训评价规程\n${input.activeRubric.label} (${input.activeRubric.id})\n${input.activeRubric.rubric}`] : []),
-    "# 毕业门控（Settlement Gate）\n提出一道针对课题目标的深水区问题，要求学习者独立解释或迁移应用。只有回答证明理解后，才建议将课题沉淀；不要替学习者回答或自行宣布毕业。通过后对照学习者画像和本课题笔记，整理认知变化，调用 pith_settle_topic 时可提供更新后的 ME.md 全文作为 profilePatchMarkdown。",
-    '# 工作区工具\n需要执行操作时，在回复末尾输出独立的 pith-tool 围栏，内容为单行 JSON，格式为 {"name":"pith_save_note","arguments":{"topicId":"课题ID","body":"笔记"}}。支持 pith_get_context、pith_read_material_section、pith_list_repository_files、pith_read_repository_file、pith_save_note、pith_write_lesson、pith_configure_toolkits、pith_settle_topic。读取和写入分不同轮次，等待读取结果后再写讲义；无材料时以 topicId 调用 pith_write_lesson。毕业必须已有学习者笔记，且 pith_settle_topic 必须提供非空 verificationSummary；可选 profilePatchMarkdown 为对照当前学习者画像和课题笔记后更新的完整 ME.md。',
+    "# 毕业门控（Settlement Gate）\n提出一道针对课题目标的深水区问题，要求学习者独立解释或迁移应用。只有回答证明理解后，才建议将课题沉淀；不要替学习者回答或自行宣布毕业。通过后对照学习者画像和本课题笔记，调用 pith_settle_topic 时可用 observations 添加观察，用 removeObservationIds 撤回观察。",
+    '# 工作区工具\n需要执行操作时，在回复末尾输出独立的 pith-tool 围栏，内容为单行 JSON，格式为 {"name":"pith_save_note","arguments":{"topicId":"课题ID","body":"笔记"}}。支持 pith_get_context、pith_read_material_section、pith_list_repository_files、pith_read_repository_file、pith_save_note、pith_write_lesson、pith_configure_toolkits、pith_remember、pith_settle_topic。读取和写入分不同轮次，等待读取结果后再写讲义；无材料时以 topicId 调用 pith_write_lesson。只有用户明确要求记住某件事时才调用 pith_remember，参数为 topicId、text 和可选的当前课题 noteId。毕业必须已有学习者笔记，pith_settle_topic 必须提供非空 verificationSummary；可选 observations 为含 text 和可选 noteId 的数组，removeObservationIds 为观察 ID 数组。',
     '仓库目录参数：{"materialId":"材料ID","offset":0,"limit":200}；源码参数：{"materialId":"材料ID","path":"相对路径","startLine":1,"maxLines":120}；讲义参数：{"topicId":"课题ID","fileName":"00-课程大纲.md","markdown":"讲义正文"}。每个调用使用一个独立的 pith-tool 围栏。',
   ].join("\n\n");
 }

@@ -255,6 +255,7 @@ test("Standalone shell boots all built-in plugins cleanly without Obsidian", () 
       createText: async () => {},
       writeBinary: async () => {},
       createBinary: async () => {},
+      copy: async () => {},
       processText: async (_p, fn) => fn(""),
       mkdir: async () => {},
       list: async () => [],

@@ -1,5 +1,7 @@
 import { lstat, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import type { StorageEntry, WorkspaceStoragePort } from "../../core/index.ts";
 
@@ -50,6 +52,7 @@ export class NodeWorkspaceStorage implements WorkspaceStoragePort {
   async createText(path: string, data: string): Promise<void> { await writeFile(await this.path(path), data, { flag: "wx" }); }
   async writeBinary(path: string, data: Uint8Array): Promise<void> { await writeFile(await this.path(path), data, { flag: "w" }); }
   async createBinary(path: string, data: Uint8Array): Promise<void> { await writeFile(await this.path(path), data, { flag: "wx" }); }
+  async copy(from: string, to: string): Promise<void> { await copyFile(await this.path(from), await this.path(to), constants.COPYFILE_EXCL); }
   async processText(path: string, update: (current: string) => string): Promise<string> {
     const result = update(await this.readText(path));
     await this.writeText(path, result);

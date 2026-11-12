@@ -1,94 +1,145 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
-import test, { after } from "node:test";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import test from "node:test";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { buildScenePrompt, createGuideWorkspaceTools } from "../src/plugins/guide-acp/index.ts";
+import { createDshPluginBundle } from "../src/shells/dsh/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";
 
-class FaultStorage extends NodeWorkspaceStorage {
-  writes: string[] = [];
-  failAt = 0;
-  override async writeText(path: string, data: string): Promise<void> {
-    this.writes.push(path);
-    if (this.writes.length === this.failAt) throw new Error("injected write failure");
-    await super.writeText(path, data);
-  }
-}
+const start = "<!-- pith-observations:v1 -->", end = "<!-- pith-observations:end -->";
+const prefix = Buffer.from("\ufeff# 我的画像\r\n手写第一段\r\n\r\n## 向导的观察\r\n");
+const suffix = Buffer.from("\r\n\r\n## 私人笔记\r\n保留空行与文字\r\n");
 
-const sandboxes: string[] = [];
-after(async () => { for (const dir of sandboxes) await rm(dir, { recursive: true, force: true }); });
-
-async function fixture(withNote = true) {
-  const dir = await testSandbox("task19-settlement-");
-  sandboxes.push(dir);
-  const storage = new FaultStorage(dir);
-  const store = new DefaultWorkspaceStore(storage);
+async function fixture() {
+  const dir = await testSandbox("task47-profile-");
+  const storage = new NodeWorkspaceStorage(dir), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
-  await store.writeProfile("# Original profile");
   const topic = await store.createTopic({ id: "topic-one", title: "Topic" });
-  if (withNote) await store.appendNote(topic.id, { kind: "practice", body: "Learner observation" });
-  storage.writes = [];
-  const tool = createGuideWorkspaceTools(store, undefined).find(item => item.name === "pith_settle_topic")!;
-  return { storage, store, topic, tool };
+  const note = await store.appendNote(topic.id, { kind: "practice", body: "Evidence" });
+  const tools = createGuideWorkspaceTools(store, undefined);
+  const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
+  return { dir, storage, store, topic, note, tool };
 }
 
-test("settlement writes profile then note and status, preserving Topic return and prompt contract", async () => {
-  const { storage, store, topic, tool } = await fixture();
-  const schema = tool.inputSchema as { properties: Record<string, unknown>; required: string[] };
-  assert.deepEqual(schema.properties.profilePatchMarkdown, { type: "string", minLength: 1, maxLength: 100000 });
-  assert.equal(schema.required.includes("profilePatchMarkdown"), false);
-  const prompt = buildScenePrompt({ profileMarkdown: "# Original profile", topic: (await store.getTopic(topic.id))!, userMessage: "Explain" });
-  assert.match(prompt, /profilePatchMarkdown/);
-  assert.match(prompt, /完整 ME\.md/);
-  const settled = await tool.execute({ topicId: topic.id, verificationSummary: "Applied insight", profilePatchMarkdown: "# Updated profile\n\nNew insight" }) as Awaited<ReturnType<typeof store.updateTopic>>;
-  assert.equal(settled.id, topic.id);
-  assert.equal(settled.status, "settled");
-  assert.equal(settled.notes[1]!.body, "## 核心认知总结\n\nApplied insight");
-  assert.equal(await storage.readText("ME.md"), "# Updated profile\n\nNew insight");
-  assert.deepEqual(storage.writes, ["ME.md", "topics/topic-one/topic.md", "topics/topic-one/topic.md"]);
-  assert.deepEqual(await store.getTopic(topic.id), settled);
+test("profile adds and removes observations without changing outside bytes and backs up each version", async () => {
+  const f = await fixture();
+  try {
+    const original = Buffer.concat([prefix, Buffer.from(`${start}\n- id: "obs-existing" · 2026-01-01 · topic-one\n  旧观察\n${end}`), suffix]);
+    await writeFile(join(f.dir, "ME.md"), original);
+    const added = await f.store.addObservation({ topicId: f.topic.id, noteId: f.note.id, text: "第一行\r第二行\u2028第三行\n第四行" });
+    assert.equal(added.text, "第一行 第二行 第三行 第四行");
+    assert.equal(added.noteId, f.note.id);
+    const after = await readFile(join(f.dir, "ME.md"));
+    assert.deepEqual(after.subarray(0, prefix.length), prefix);
+    assert.deepEqual(after.subarray(after.length - suffix.length), suffix);
+    assert.deepEqual((await f.store.readProfile()).observations.map(item => item.id), ["obs-existing", added.id]);
+    const first = (await readdir(join(f.dir, "history"))).sort();
+    assert.equal(first.length, 1); assert.match(first[0]!, /^ME-\d{8}T\d{9}Z\.md$/);
+    assert.deepEqual(await readFile(join(f.dir, "history", first[0]!)), original);
+    await f.store.removeObservation("obs-existing");
+    const final = await readFile(join(f.dir, "ME.md"));
+    assert.deepEqual(final.subarray(0, prefix.length), prefix);
+    assert.deepEqual(final.subarray(final.length - suffix.length), suffix);
+    assert.deepEqual((await f.store.readProfile()).observations.map(item => item.id), [added.id]);
+    const backups = (await readdir(join(f.dir, "history"))).sort(); assert.equal(backups.length, 2);
+    assert.deepEqual(await readFile(join(f.dir, "history", backups[1]!)), after);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
-test("settlement without profile preserves ME.md", async () => {
-  const { storage, topic, tool } = await fixture();
-  await tool.execute({ topicId: topic.id, verificationSummary: "Understood" });
-  assert.equal(await storage.readText("ME.md"), "# Original profile");
-  assert.deepEqual(storage.writes, ["topics/topic-one/topic.md", "topics/topic-one/topic.md"]);
+test("missing markers append without altering original bytes; incomplete or duplicate markers reject writes", async () => {
+  const f = await fixture();
+  try {
+    const original = Buffer.from("\ufeff# 我的画像\r\n不带结束换行");
+    await writeFile(join(f.dir, "ME.md"), original);
+    await f.store.addObservation({ topicId: f.topic.id, text: "新观察" });
+    const added = await readFile(join(f.dir, "ME.md"));
+    assert.deepEqual(added.subarray(0, original.length), original);
+    assert.deepEqual(await readFile(join(f.dir, "history", (await readdir(join(f.dir, "history")))[0]!)), original);
+    for (const [body, error] of [[`intro\n${start}\nunfinished`, /Incomplete/], [`${start}\n${end}\n${start}`, /Duplicate/], [`${end}\n${start}`, /wrong order/]] as const) {
+      await writeFile(join(f.dir, "ME.md"), body);
+      const before = await readFile(join(f.dir, "ME.md")), backups = await readdir(join(f.dir, "history"));
+      await assert.rejects(f.store.addObservation({ topicId: f.topic.id, text: "not saved" }), error);
+      assert.deepEqual(await readFile(join(f.dir, "ME.md")), before);
+      assert.deepEqual(await readdir(join(f.dir, "history")), backups);
+    }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
-test("invalid arguments and unmet settlement gates never mutate either file", async () => {
-  const { storage, store, topic, tool } = await fixture();
-  const args = { topicId: topic.id, verificationSummary: "Insight", profilePatchMarkdown: "# Replacement" };
-  for (const change of [
-    { topicId: "missing" }, { topicId: "../invalid" }, { verificationSummary: " " },
-    { verificationSummary: "text\n<!-- pith-note:end -->" }, { profilePatchMarkdown: " " },
-    { profilePatchMarkdown: "x".repeat(100001) }, { profilePatchMarkdown: null }, { extra: true },
-  ]) {
-    await assert.rejects(tool.execute({ ...args, ...change }));
-    assert.deepEqual(storage.writes, []);
-    assert.equal(await storage.readText("ME.md"), "# Original profile");
-    assert.equal((await store.getTopic(topic.id))!.notes.length, 1);
-  }
-  const empty = await fixture(false);
-  await assert.rejects(empty.tool.execute({ ...args, topicId: empty.topic.id }), /learner note/);
-  assert.deepEqual(empty.storage.writes, []);
-  assert.equal(await empty.storage.readText("ME.md"), "# Original profile");
-  await store.updateTopic(topic.id, { status: "settled" });
-  storage.writes = [];
-  await assert.rejects(tool.execute(args), /not exploring/);
-  assert.deepEqual(storage.writes, []);
-  assert.equal(await storage.readText("ME.md"), "# Original profile");
+test("copy failure rejects profile writes and timestamp collisions preserve both backups", async () => {
+  const f = await fixture();
+  try {
+    const original = Buffer.from("# Original\n"); await writeFile(join(f.dir, "ME.md"), original);
+    const copy = f.storage.copy.bind(f.storage);
+    f.storage.copy = async () => { throw new Error("copy failed"); };
+    await assert.rejects(f.store.addObservation({ topicId: f.topic.id, text: "denied" }), /copy failed/);
+    assert.deepEqual(await readFile(join(f.dir, "ME.md")), original);
+    f.storage.copy = copy;
+    const now = Date.now; Date.now = () => 1794480000000;
+    try {
+      await f.store.addObservation({ topicId: f.topic.id, text: "one" });
+      const afterFirst = await readFile(join(f.dir, "ME.md"));
+      await f.store.addObservation({ topicId: f.topic.id, text: "two" });
+      const backups = (await readdir(join(f.dir, "history"))).sort(); assert.equal(backups.length, 2);
+      assert.deepEqual(await readFile(join(f.dir, "history", backups[0]!)), original);
+      assert.deepEqual(await readFile(join(f.dir, "history", backups[1]!)), afterFirst);
+    } finally { Date.now = now; }
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });
 
-test("write failures expose the prescribed sequential partial outcomes", async () => {
-  for (const failAt of [1, 2, 3]) {
-    const { storage, store, topic, tool } = await fixture();
-    storage.failAt = failAt;
-    await assert.rejects(tool.execute({ topicId: topic.id, verificationSummary: "Insight", profilePatchMarkdown: "# Updated" }), /injected write failure/);
-    assert.equal(await storage.readText("ME.md"), failAt === 1 ? "# Original profile" : "# Updated");
-    const after = (await store.getTopic(topic.id))!;
-    assert.equal(after.status, "exploring");
-    assert.equal(after.notes.length, failAt === 3 ? 2 : 1);
-  }
+test("concurrent stores serialize observations and retain every previous profile", async () => {
+  const f = await fixture();
+  try {
+    const other = new DefaultWorkspaceStore(new NodeWorkspaceStorage(f.dir));
+    const before = await readFile(join(f.dir, "ME.md"));
+    const observations = await Promise.all(Array.from({ length: 5 }, (_, i) => (i % 2 ? other : f.store).addObservation({ topicId: f.topic.id, text: `observation ${i}` })));
+    assert.deepEqual(new Set((await f.store.readProfile()).observations.map(item => item.id)), new Set(observations.map(item => item.id)));
+    const backups = (await readdir(join(f.dir, "history"))).sort(); assert.equal(backups.length, 5);
+    assert.deepEqual(await readFile(join(f.dir, "history", backups[0]!)), before);
+    for (let i = 1; i < backups.length; i++) assert.equal((await readFile(join(f.dir, "history", backups[i]!), "utf8")).split("- id:").length - 1, i);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("exhausted backup timestamps fail without writing the profile", async () => {
+  const f = await fixture();
+  try {
+    const before = await readFile(join(f.dir, "ME.md"));
+    const exists = f.storage.exists.bind(f.storage);
+    f.storage.exists = async path => path.startsWith("history/ME-") || exists(path);
+    await assert.rejects(f.store.addObservation({ topicId: f.topic.id, text: "not saved" }), /timestamp exhausted/);
+    assert.deepEqual(await readFile(join(f.dir, "ME.md")), before);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("invalid UTF-8 and invalid observation text fail without changing bytes", async () => {
+  const f = await fixture();
+  try {
+    const invalid = Buffer.from([0xff, 0xfe, 0x0a]); await writeFile(join(f.dir, "ME.md"), invalid);
+    await assert.rejects(f.store.addObservation({ topicId: f.topic.id, text: "x" }));
+    assert.deepEqual(await readFile(join(f.dir, "ME.md")), invalid);
+    await writeFile(join(f.dir, "ME.md"), "# Profile\n");
+    await assert.rejects(f.store.addObservation({ topicId: f.topic.id, text: "x".repeat(501) }), /Invalid observation/);
+    assert.equal(await readFile(join(f.dir, "ME.md"), "utf8"), "# Profile\n");
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test("guide settlement and explicit remember use topic evidence and reject replacement", async () => {
+  const f = await fixture();
+  try {
+    const before = await readFile(join(f.dir, "ME.md"));
+    const remember = f.tool("pith_remember"), settle = f.tool("pith_settle_topic");
+    const remembered = await remember.execute({ topicId: f.topic.id, text: "熟悉依赖注入", noteId: f.note.id }) as { id: string };
+    await assert.rejects(remember.execute({ topicId: f.topic.id, text: "bad", noteId: "other-note" }), /Note does not belong/);
+    await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", profilePatchMarkdown: "replacement" }), /Invalid tool arguments/);
+    await assert.rejects(settle.execute({ topicId: f.topic.id, verificationSummary: "Understood", observations: [{ text: "ok" }, { text: "bad", noteId: "other-note" }] }), /Note does not belong/);
+    const prompt = buildScenePrompt({ profileMarkdown: "", topic: (await f.store.getTopic(f.topic.id))!, userMessage: "test" });
+    assert.ok(prompt.includes(f.note.id)); assert.match(prompt, /只有用户明确要求记住/);
+    const settled = await settle.execute({ topicId: f.topic.id, verificationSummary: "Applied insight", observations: [{ text: "理解边界", noteId: f.note.id }], removeObservationIds: [remembered.id] }) as { status: string };
+    assert.equal(settled.status, "settled");
+    const profile = await f.store.readProfile(); assert.deepEqual(profile.observations.map(item => [item.text, item.noteId]), [["理解边界", f.note.id]]);
+    assert.ok(Buffer.from(profile.markdown).subarray(0, before.length).equals(before));
+    const dsh = createDshPluginBundle({ storage: f.storage }).tools;
+    assert.ok(dsh.some(item => item.name === "pith_remember")); assert.ok(!dsh.some(item => item.name === "pith_update_profile"));
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
 });

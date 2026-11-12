@@ -28,6 +28,7 @@ class MemoryStorage implements WorkspaceStoragePort {
     if (await this.exists(path)) throw new Error("Already exists");
     await this.writeBinary(path, data);
   }
+  async copy(from: string, to: string): Promise<void> { await this.createBinary(to, await this.readBinary(from)); }
   async processText(path: string, update: (current: string) => string): Promise<string> {
     const result = update(await this.readText(path)); await this.writeText(path, result); return result;
   }
@@ -57,6 +58,7 @@ class ReadOnlyStorage implements WorkspaceStoragePort {
   async createText(): Promise<never> { throw new Error("Read-only"); }
   async writeBinary(): Promise<never> { throw new Error("Read-only"); }
   async createBinary(): Promise<never> { throw new Error("Read-only"); }
+  async copy(): Promise<never> { throw new Error("Read-only"); }
   async processText(): Promise<never> { throw new Error("Read-only"); }
   async mkdir(): Promise<never> { throw new Error("Read-only"); }
 }
@@ -101,7 +103,7 @@ test("serializes concurrent mutations across adapters sharing an identity", asyn
   const store = new DefaultWorkspaceStore(storage);
   const other = new DefaultWorkspaceStore(new MemoryStorage(storage));
   await store.ensureScaffold();
-  await store.writeProfile("# Existing profile\n");
+  await storage.writeText("ME.md", "# Existing profile\n");
   await other.ensureScaffold();
   assert.equal((await store.readProfile()).markdown, "# Existing profile\n");
   await store.createTopic({ id: "topic-one", title: "Title" });

@@ -1,11 +1,46 @@
 import type { WorkspaceStoragePort } from "../host.ts";
-import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
+import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, ProfileObservation, SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
 
 const notePattern = /^## \[(highlight|note|practice)\] ([^\n]+)\n<!-- pith-note:v1 -->\n([\s\S]*?)<!-- pith-note:end -->/gm;
 const encoder = new TextEncoder();
+const observationsStart = "<!-- pith-observations:v1 -->";
+const observationsEnd = "<!-- pith-observations:end -->";
+
+function profileParts(markdown: string): { start: number; end: number; observations: ProfileObservation[]; spans: { start: number; end: number }[] } {
+  const count = (s: string) => markdown.split(s).length - 1;
+  const opens = count(observationsStart), closes = count(observationsEnd), markers = count("<!-- pith-observations:");
+  if (opens > 1 || closes > 1 || markers > 2) throw new Error("Duplicate observation markers");
+  if (!markers) return { start: -1, end: -1, observations: [], spans: [] };
+  if (opens !== 1 || closes !== 1 || markers !== 2) throw new Error("Incomplete observation markers");
+  const start = markdown.indexOf(observationsStart) + observationsStart.length, end = markdown.indexOf(observationsEnd);
+  if (end < start) throw new Error("Incomplete observation markers: wrong order");
+  const body = markdown.slice(start, end), observations: ProfileObservation[] = [], spans: { start: number; end: number }[] = [];
+  const first = /^(?:\r?\n)/.exec(body);
+  if (!first) throw new Error("Invalid observation section");
+  let offset = first[0].length;
+  const entry = /- id: ("(?:[^"\\]|\\.)*") · (\d{4}-\d{2}-\d{2}) · ([^\s·]+)(?: · ([^\s·]+))?\r?\n  ([^\r\n]+)(?:\r?\n)/y;
+  while (offset < body.length) {
+    entry.lastIndex = offset;
+    const match = entry.exec(body);
+    if (!match) throw new Error("Invalid observation entry");
+    let id: unknown;
+    try { id = JSON.parse(match[1]!); } catch { throw new Error("Invalid observation ID"); }
+    if (typeof id !== "string" || !id || observations.some(item => item.id === id)) throw new Error("Invalid observation ID");
+    observations.push({ id, date: match[2]!, topicId: match[3]!, ...(match[4] ? { noteId: match[4] } : {}), text: match[5]! });
+    spans.push({ start: start + offset, end: start + entry.lastIndex });
+    offset = entry.lastIndex;
+  }
+  return { start, end, observations, spans };
+}
+
+function observationText(value: string): string {
+  const text = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
+  if (!text || Array.from(text).length > 500 || text.includes("<!-- pith-observations:")) throw new Error("Invalid observation text");
+  return text;
+}
 
 function readableId(prefix: string, title: string, date: Date): string {
   const clean = title.replace(/\.(?:epub|cbz|pdf|md|markdown|png|jpe?g|gif|webp)$/i, "").replace(/\s*[\[(][^\])]*(?:z[- ]?lib|1lib)[^\])]*[\])]\s*$/i, "").split(/\s+=\s+/)[0]!.trim();
@@ -178,8 +213,50 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     if (!await this.storage.exists("ME.md")) await this.storage.createText("ME.md", "# 学习者画像（ME.md）\n");
   }
   ensureScaffold(): Promise<void> { return this.queue.run(() => this.scaffold()); }
-  async readProfile(): Promise<LearnerProfile> { return { markdown: await this.storage.readText("ME.md") }; }
-  writeProfile(markdown: string): Promise<void> { return this.queue.run(async () => { await this.scaffold(); await this.storage.writeText("ME.md", markdown); }); }
+  async readProfile(): Promise<LearnerProfile> {
+    const markdown = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await this.storage.readBinary("ME.md"));
+    return { markdown, observations: profileParts(markdown).observations };
+  }
+
+  private async saveProfile(markdown: string): Promise<void> {
+    await this.storage.mkdir("history");
+    const timestamp = Date.now();
+    for (let offset = 0; offset < 1000; offset++) {
+      const path = `history/ME-${new Date(timestamp + offset).toISOString().replace(/[-:.]/g, "")}.md`;
+      if (await this.storage.exists(path)) continue;
+      await this.storage.copy("ME.md", path);
+      await this.storage.writeText("ME.md", markdown);
+      return;
+    }
+    throw new Error("Profile backup timestamp exhausted");
+  }
+
+  addObservation(input: { text: string; topicId: string; noteId?: string }): Promise<ProfileObservation> {
+    return this.queue.run(async () => {
+      const text = observationText(input.text), topicId = name(input.topicId);
+      if (/\s|·/.test(topicId) || (input.noteId !== undefined && /\s|·/.test(name(input.noteId)))) throw new Error("Invalid observation reference");
+      const topic = await this.getTopic(topicId);
+      if (!topic) throw new Error("Topic not found");
+      if (input.noteId !== undefined && !topic.notes.some(note => note.id === input.noteId)) throw new Error("Note does not belong to topic");
+      await this.scaffold();
+      const { markdown } = await this.readProfile(), parts = profileParts(markdown);
+      const observation: ProfileObservation = { id: `obs-${crypto.randomUUID()}`, date: new Date().toISOString().slice(0, 10), text, topicId, ...(input.noteId !== undefined ? { noteId: input.noteId } : {}) };
+      const row = `- id: ${JSON.stringify(observation.id)} · ${observation.date} · ${topicId}${input.noteId !== undefined ? ` · ${input.noteId}` : ""}\n  ${text}\n`;
+      const next = parts.start < 0 ? `${markdown}${markdown.endsWith("\n\n") ? "" : markdown.endsWith("\n") ? "\n" : "\n\n"}## 向导的观察\n${observationsStart}\n${row}${observationsEnd}\n` : `${markdown.slice(0, parts.end)}${row}${markdown.slice(parts.end)}`;
+      await this.saveProfile(next);
+      return observation;
+    });
+  }
+
+  removeObservation(observationId: string): Promise<void> {
+    return this.queue.run(async () => {
+      const { markdown } = await this.readProfile(), parts = profileParts(markdown);
+      const index = parts.observations.findIndex(item => item.id === observationId);
+      if (index < 0) throw new Error("Observation not found");
+      const span = parts.spans[index]!;
+      await this.saveProfile(`${markdown.slice(0, span.start)}${markdown.slice(span.end)}`);
+    });
+  }
 
   async listUnreadable(): Promise<readonly UnreadableEntry[]> {
     const unreadable: UnreadableEntry[] = [];

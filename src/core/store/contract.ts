@@ -13,6 +13,7 @@
 import type {
   IntrinsicLocator,
   LearnerProfile,
+  ProfileObservation,
   Material,
   MaterialKind,
   SelectionAnchor,
@@ -68,7 +69,8 @@ export interface WorkspaceStore {
   ensureScaffold(): Promise<void>;
 
   readProfile(): Promise<LearnerProfile>;
-  writeProfile(markdown: string): Promise<void>;
+  addObservation(input: { text: string; topicId: string; noteId?: string }): Promise<ProfileObservation>;
+  removeObservation(observationId: string): Promise<void>;
 
   /** Topic and material folders whose ledger file fails to parse; `listTopics` and `listMaterials` omit them. */
   listUnreadable(): Promise<readonly UnreadableEntry[]>;

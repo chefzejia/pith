@@ -155,6 +155,7 @@ export function createObsidianHostPort(vault: ObsidianVaultAdapter, workspacePat
     createText: (value, data) => create(value, data),
     writeBinary: async (value, data) => vault.writeBinary(await checked(value), new Uint8Array(data).buffer),
     createBinary: (value, data) => create(value, data),
+    copy: async (from, to) => { const bytes = await vault.readBinary(await checked(from)); await create(to, new Uint8Array(bytes)); },
     processText: async (value, update) => { const target = await checked(value); const result = update(await vault.read(target)); await vault.write(target, result); return result; },
     mkdir: async value => { const target = await checked(value); await ensureRoot(); if (!await vault.exists(target)) await vault.mkdir(target); },
     list: async value => {
