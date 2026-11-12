@@ -6,6 +6,9 @@ import test from "node:test";
 import { build } from "esbuild";
 import type { GuideProvider } from "../src/core/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
+import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
+import { DefaultWorkspaceStore } from "../src/core/index.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { testSandbox } from "./sandbox.ts";
 
 const browserUnavailable = !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH;
@@ -53,10 +56,19 @@ async function assertChoicesFit(page: any, selector: string): Promise<void> {
 test("Web shows one waiting guide turn with its message once and keeps a failure visible", { timeout: 60000, skip: browserUnavailable }, async () => {
   const dir = await testSandbox("pith-guide-turn-web-");
   await mkdir(join(dir, "workspace"));
+  const storage = new NodeWorkspaceStorage(join(dir, "workspace")), store = new DefaultWorkspaceStore(storage);
   const received: string[] = [];
   let hold = false, failed = false, release: (() => void) | undefined, arrived: (() => void) | undefined;
   const provider: GuideProvider = { async run(input, options) {
     const text = input.text; received.push(text);
+    if (text === "请结题") {
+      assert.equal(input.scope.kind, "topic");
+      if (input.scope.kind !== "topic") throw new Error("Expected topic scope");
+      const topicId = input.scope.topicId, settle = createScopedTools({ topicId, store, storage, onChoices() {} }).find(tool => tool.name === "pith_settle_topic")!;
+      const args = { verificationSummary: "理解边界", observations: [{ text: "理解状态边界" }] }, result = await settle.execute(args);
+      options.onStep({ kind: "tool", name: settle.name, callId: "settle", inputPreview: "{}", status: "completed", effects: await settle.effects!(result, args) }, 0);
+      return { status: "completed" };
+    }
     if (hold) await new Promise<void>(resolve => { release = resolve; if (arrived) arrived(); });
     if (text.includes("触发故障") && !failed) { failed = true; throw new Error("受控向导故障"); }
     options.onStep({ kind: "reply", markdown: reply }, 0); options.onChoices(choices); return { status: "completed" };
@@ -124,6 +136,24 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     await page.locator(".pith-choice-btn").first().click();
     await page.waitForFunction((count: number) => (document.querySelector(".pith-guide-content")?.textContent ?? "").split("受控向导回复").length - 1 === count, 5);
     assert.equal(received[previous], choices[0]);
+    await pending.waitFor({ state: "detached" });
+    await input.fill("请结题"); await send.click();
+    await page.locator('.pith-guide-observation').waitFor();
+    const topic = (await store.listTopics())[0]!; assert.equal(topic.status, "settled");
+    await page.waitForFunction(() => (document.querySelector('.pith-guide textarea') as HTMLTextAreaElement).disabled);
+    assert.equal(await send.isDisabled(), true);
+    assert.equal(await input.getAttribute("placeholder"), "课题已沉淀");
+    const count = received.length;
+    await page.evaluate(() => { const input = document.querySelector<HTMLTextAreaElement>('.pith-guide textarea')!, button = document.querySelector<HTMLButtonElement>('[data-guide-send]')!; input.disabled = false; input.value = "不得发送"; button.disabled = false; button.click(); });
+    assert.equal(await input.inputValue(), "不得发送");
+    assert.equal(received.length, count);
+    await page.locator('[data-guide-undo]').click();
+    await page.locator('.pith-guide-observation').getByText('已撤销').waitFor();
+    assert.equal((await store.readProfile()).observations.length, 0);
+    await page.locator('[data-guide-tab="notes"]').click(); assert.equal(await input.isDisabled(), true);
+    const notes = (await store.getTopic(topic.id))!.notes.length;
+    await page.evaluate(() => { const input = document.querySelector<HTMLTextAreaElement>('.pith-guide textarea')!, button = document.querySelector<HTMLButtonElement>('[data-guide-send]')!; input.disabled = false; input.value = "不得写笔记"; button.disabled = false; button.click(); });
+    assert.equal(await input.inputValue(), "不得写笔记"); assert.equal((await store.getTopic(topic.id))!.notes.length, notes);
   } finally { if (browser) await browser.close(); if (release) release(); await closeServer(server); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -135,6 +165,7 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
   try {
     const address = origin.address(); assert.ok(address && typeof address !== "string");
     const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
+    const tools = await build({ entryPoints: ["src/plugins/guide-acp/tools.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithGuideTools" });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
     const page = await browser.newPage(); page.setDefaultTimeout(8000);
@@ -145,6 +176,7 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
       (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl: HTMLElement | null; constructor(leaf: any) { this.contentEl = leaf?.container || document.getElementById("root"); } }, Plugin: class {}, Notice: class { constructor(message: string) { (window as any).turn.notices.push(message); } } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {};
     });
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
+    await page.addScriptTag({ content: tools.outputFiles[0]!.text });
     await page.evaluate(async ({ guideReply, guideChoices }: { guideReply: string; guideChoices: string[] }) => {
       const state: any = (window as any).turn, native: any = (window as any).NativePith;
       const data = new Map<string, Uint8Array>(), folders = new Set<string>(), encoder = new TextEncoder(), decoder = new TextDecoder();
@@ -156,6 +188,7 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
         createText: async (path: string, text: string) => { if (data.has(path)) throw new Error("exists"); data.set(path, encoder.encode(text)); },
         writeBinary: async (path: string, bytes: Uint8Array) => { data.set(path, bytes); },
         createBinary: async (path: string, bytes: Uint8Array) => { if (data.has(path)) throw new Error("exists"); data.set(path, bytes); },
+        copy: async (from: string, to: string) => { if (!data.has(from) || data.has(to)) throw new Error("copy failed"); data.set(to, data.get(from)!.slice()); },
         processText: async (path: string, update: (text: string) => string) => { const result = update(decoder.decode(data.get(path))); data.set(path, encoder.encode(result)); return result; },
         mkdir: async (path: string) => { folders.add(path); },
         list: async (path: string) => [...folders, ...data.keys()].filter(item => item.startsWith(path + "/") && !item.slice(path.length + 1).includes("/")).map(item => ({ path: item, type: folders.has(item) ? "folder" : "file" })),
@@ -164,6 +197,12 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
       let controller: any;
       const provider = { async run({ scope, text }: any, options: any) {
         const topicId = scope.topicId; state.received.push(text);
+        if (text === "请结题") {
+          const settle = (window as any).PithGuideTools.createScopedTools({ topicId, store: controller.store, storage, onChoices() {} }).find((tool: any) => tool.name === "pith_settle_topic");
+          const args = { verificationSummary: "理解边界", observations: [{ text: "理解状态边界" }] }, result = await settle.execute(args);
+          options.onStep({ kind: "tool", name: settle.name, callId: "settle", inputPreview: "{}", status: "completed", effects: await settle.effects(result, args) }, 0);
+          return { status: "completed" };
+        }
         if (state.hold) await new Promise<void>(resolve => { state.release = resolve; if (state.arrived) state.arrived(); });
         if (text.includes("触发故障")) throw new Error("受控向导故障");
         if (text.includes("生成《00-课程大纲.md》")) {
@@ -244,5 +283,23 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     await article.getByText("02-第二讲.md 的正文。").waitFor();
     await pending.waitFor({ state: "detached" });
     assert.deepEqual(await page.evaluate(() => (window as any).turn.notices), []);
+    await page.locator('#side [data-guide-tab="chat"]').click();
+    await input.fill("请结题"); await send.click();
+    await page.locator('#side .pith-guide-observation').waitFor();
+    assert.equal(await page.evaluate(async () => (await (window as any).turn.controller.store.listTopics())[0].status), "settled");
+    await page.waitForFunction(() => (document.querySelector('#side textarea') as HTMLTextAreaElement).disabled);
+    assert.equal(await send.isDisabled(), true);
+    assert.equal(await input.getAttribute("placeholder"), "课题已沉淀");
+    const count = (await ledger()).received;
+    await page.evaluate(() => { const input = document.querySelector<HTMLTextAreaElement>('#side textarea')!, button = document.querySelector<HTMLButtonElement>('#side [data-guide-send]')!; input.disabled = false; input.value = "不得发送"; button.disabled = false; button.click(); });
+    assert.equal(await input.inputValue(), "不得发送");
+    assert.equal((await ledger()).received, count);
+    await page.locator('#side [data-guide-undo]').click();
+    await page.locator('#side .pith-guide-observation').getByText('已撤销').waitFor();
+    assert.equal(await page.evaluate(async () => (await (window as any).turn.controller.store.readProfile()).observations.length), 0);
+    await page.locator('#side [data-guide-tab="notes"]').click(); assert.equal(await input.isDisabled(), true);
+    const notes = (await ledger()).notes.length;
+    await page.evaluate(() => { const input = document.querySelector<HTMLTextAreaElement>('#side textarea')!, button = document.querySelector<HTMLButtonElement>('#side [data-guide-send]')!; input.disabled = false; input.value = "不得写笔记"; button.disabled = false; button.click(); });
+    assert.equal(await input.inputValue(), "不得写笔记"); assert.equal((await ledger()).notes.length, notes);
   } finally { if (browser) await browser.close(); await closeServer(origin); await rm(dir, { recursive: true, force: true }); }
 });

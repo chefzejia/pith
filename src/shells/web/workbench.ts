@@ -90,7 +90,7 @@ export class WebWorkbench {
         const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId);
         if (!topic) throw new Error("课题不存在");
         const actions = options.guideAvailable ? await options.request<readonly GuideQuickAction[]>(`/api/topics/${encodeURIComponent(topicId)}/actions`) : [];
-        return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions, observations };
+        return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions, observations, readOnly: topic.status === "settled" };
       },
       undoObservation: async observationId => { await options.request("/api/observations/undo", { topicId, observationId }); },
       openMaterial: async id => { await this.session.refresh(); if (!this.session.material || this.session.material.id !== id) throw new Error("材料不存在"); const file = this.session.material.files[0]; if (file) await this.session.openFile(file.name); },

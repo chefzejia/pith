@@ -45,7 +45,7 @@ export interface ObsidianViewActions {
   transcribeAudio?(bytes: Uint8Array, mimeType: string, signal?: AbortSignal): Promise<{ readonly text: string }>;
   loadAudio?(name: string): Promise<Uint8Array>;
   prepareInterline?: InterlineViewPrepare;
-  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[] }>;
+  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[]; readOnly?: boolean }>;
   undoObservation?(id: string): Promise<void>;
   openMaterial?(id: string): Promise<void>;
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
@@ -193,7 +193,7 @@ export class PithWorkbenchView {
   private guideTab: "chat" | "notes" = "chat";
   private guideGeneration = 0;
   private pendingAnchor: SelectionAnchor | undefined;
-  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[] } = { notes: [], conversation: [], actions: [] };
+  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean } = { notes: [], conversation: [], actions: [] };
   private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
   private guideSending = false;
   private guideClock: number | undefined;
@@ -391,6 +391,7 @@ export class PithWorkbenchView {
    * A failure stays visible in the panel until the next turn starts and reaches the caller unchanged.
    */
   async guideTurn<T>(text: string, run: () => Promise<T>): Promise<T> {
+    if (this.guideData.readOnly) throw new Error("已沉淀的课题不可发送消息");
     if (this.guideSending) throw new Error("向导正在回应上一条消息");
     this.guideSending = true; this.guideError = ""; this.guidePending = { text, from: this.guideData.conversation.length }; this.guideTab = "chat"; this.renderGuide();
     try { const value = await run(); await this.refreshGuide(); return value; }
@@ -594,12 +595,12 @@ export class PithWorkbenchView {
     if (button.dataset.guideCopy) { const turn = this.guideData.conversation.find(item => item.id === button.dataset.guideCopy), step = turn?.steps[Number(button.dataset.guideCopyIndex)]; if (step?.kind === "reply") { try { await this.win.navigator.clipboard.writeText(step.markdown); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } } return; }
     if (button.hasAttribute("data-guide-bottom")) { const content = this.guide.querySelector<HTMLElement>(".pith-guide-content"); if (content) content.scrollTop = content.scrollHeight; button.hidden = true; return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
-    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input && !this.guideSending) { input.value = button.dataset.guidePrompt; if (button.hasAttribute("data-guide-choice")) this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); else input.focus(); } return; }
+    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input && !this.guideSending && !this.guideData.readOnly) { input.value = button.dataset.guidePrompt; if (button.hasAttribute("data-guide-choice")) this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); else input.focus(); } return; }
     if (button.hasAttribute("data-guide-stop")) { if (this.actions.stopGuide) await this.actions.stopGuide(); return; }
-    if (button.dataset.guideRetry) { if (this.actions.retryGuide && !this.guideSending) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
+    if (button.dataset.guideRetry) { if (this.actions.retryGuide && !this.guideSending && !this.guideData.readOnly) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
     if (button.hasAttribute("data-guide-send")) {
       const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), sendGuide = this.actions.sendGuide;
-      if (!input || !input.value.trim() || !sendGuide || this.guideSending) return;
+      if (!input || !input.value.trim() || !sendGuide || this.guideSending || this.guideData.readOnly) return;
       const message = input.value, anchor = this.pendingAnchor, asNote = this.guideTab === "notes";
       input.value = ""; this.pendingAnchor = undefined;
       try {
