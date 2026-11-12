@@ -15,7 +15,7 @@
 1. **显性问题执行环 100% 自闭环，战略冲突才报 Brain**：`Router` 的触发源是自动化 Git Hook 而非人类聊天，遇到任何分支情况必须按以下两条确定性路径自动收敛，绝不在聊天框停下等人回复，也绝不拿显性 Bug 去打扰 `Brain`：
    - **路径 A（显性实现/体验缺陷与同切面支撑文件直接自愈 + 执笔 `LESSONS.md`）**：当独立 `Tester` 打回显性实现/体验问题，或发现完成本任务目标必须连带修改同切面的非核心支撑文件（且**未触碰任务包声明的【严禁触碰 / 不在范围内】红线**）时：
      1. **Router 亲自记账**：比对 Worker 自检报告与 Tester 翻车现场，将“为何该残次品逃过了 Worker 自检”写入或累加至 [`docs/LESSONS.md`](LESSONS.md)（`Seen N×`）；
-     2. **Router 直接拍板**：动态授权 Worker 修改关联支撑文件、明确指出根因修复方向（若某条显性规则已达 `Seen 3×`，直接命令 Worker 在返工时顺手固化为 `tests/` 守卫单测），重跑 `Tester` 直至一鼓作气跑完 `Status: verified`；
+     2. **Router 直接拍板**：动态授权 Worker 修改关联支撑文件、明确指出根因修复方向（若某条显性规则已达 `Seen 3×`，直接命令 Worker 在返工时顺手固化为 `tests/` 守卫单测，固化后把该条从 `LESSONS.md` 正文移到文末已晋升列表，只留指向守卫测试的记录），重跑 `Tester` 直至一鼓作气跑完 `Status: verified`；
    - **路径 B（核心契约冲突或战略二义性退回）**：仅当遇到真正的 `src/core/` 冻结接口自相矛盾、需求存在业务价值二义性需人类取舍、触及严禁修改红线或连续 3 轮战术自愈仍未通过 `Tester` 验收时，`Router` 才将精确阻塞证据写回对应 `## [Task #N]` 区块（状态改为 `- **Status**: blocked`）并执行 `git commit --only docs/TASKS.md` 退回给上游 `Brain`。
 2. **单文件滑动调度板与睡前排空（防并发覆盖与漏触发）**：
    - **`queued` 与自动放行**：状态为 `queued` 的任务有未完成的前置任务（见其 `Depends-On`），执行环不执行它，排空判断也不把它算作 `pending`。Router 把一个任务核销为 `verified` 时，在同一次提交里把 `Depends-On` 已全部满足的 `queued` 任务改为 `pending`，然后按下面的排空规则接着执行。前置任务被标为 `blocked` 时，依赖它的任务保持 `queued`，链条停在那里，等 Brain 处理。
@@ -25,7 +25,7 @@
    - 单任务且主目录空闲时直接在主工作树执行（同一工作树 Write = 1）；
    - 当 Tester 正在主工作树验收上一单（流水线重叠），或存在 2~3 个 `Scope` 100% 物理正交且 `src/core/` 契约已冻结的 `pending` 任务时，Router 在本仓库 `.tmp/worktrees/task-<ID>` 下开独立 Worktree（复用仓库根的 `node_modules`）派发 Worker 并行开发；Worker 在合入前将验收所需证据导出到主工作树的 `.tmp/evidence/task-<ID>/`；秒级内环单测全绿后由 Router 合回 `main`，停止该 Worktree 的自有进程并确认没有未归档证据或需要保留的未提交修改后，**立即删除该 Worktree 与任务分支**（启动时清扫孤儿 Worktree；具体 git 操作由 Router 自行处理）。
 4. **双速回路 + UI 自拍看镜子：秒级工程内环归 Worker，模拟真实用户终验（首轮穷尽）归 Tester**：全仓代码编译、单测、守卫测试、**手动破壁验证（`Broken by hand`）**与构建门禁由 `Worker` 在提交前 100% 跑通（涉及 UI 改动时，Worker 交卷前必须截 1~3 张真实渲染图存入 `.tmp/evidence/task-<ID>/` 并亲自看图自检，当场消除按钮重复、重叠或飞位）；`Tester` 在专用沙盒环境中**按产品形态模拟真实人类用户操作与审视产物**（首轮穷尽缺陷），并将最终通过验收的截图证据保留在 `.tmp/evidence/task-<ID>/` 供人类一秒审美终审。
-5. **睡前逆熵审计（Router 派生 Fresh-Context Auditor 子代理，水位线 = 5 个代码提交）**：不在 Git Hook 中另起场外后台进程；当 `Router` 排空全部 `pending` 任务准备休眠前，检查距 `LESSONS.md` 首行 `reviewed-through: <sha>` 若已累积 $\ge 5$ 个非 `docs/` 代码提交，直接新建一次性全新空白子代理 `Auditor`；仅在握有**手动破壁仍 PASS 的假单测实证、反模式源码行号实证、或违背 `ARCHITECTURE.md / PRODUCT.md` 的契约冲突实证**时，由 `Router` 当场命令 `Worker` 清创 + `Tester` 复验，最后按第 7 条归档证据并清理审计资源，再将 `reviewed-through` 更新至最新 `HEAD` 提交收工。
+5. **睡前逆熵审计（Router 派生 Fresh-Context Auditor 子代理，水位线 = 5 个代码提交）**：不在 Git Hook 中另起场外后台进程；当 `Router` 排空全部 `pending` 任务准备休眠前，检查距 `LESSONS.md` 首行 `reviewed-through: <sha>` 若已累积 $\ge 5$ 个非 `docs/` 代码提交，直接新建一次性全新空白子代理 `Auditor`；仅在握有**手动破壁仍 PASS 的假单测实证、反模式源码行号实证、或违背 `ARCHITECTURE.md / PRODUCT.md` 的契约冲突实证**时，由 `Router` 当场命令 `Worker` 清创 + `Tester` 复验，最后按第 7 条归档证据并清理审计资源，再将 `reviewed-through` 更新至最新 `HEAD` 并单独提交（该提交只含 `docs/LESSONS.md`，不夹带业务代码）后收工。
 6. **交付步骤（任务包写明「交付」时，由 Router 在独立验收通过后、该任务 `verified` 前执行）**：人类只做真机测试，构建与安装归执行环。在干净的主工作树上对通过验收的提交运行 `npm run install:obsidian`（默认 Vault），核对真实 Vault 插件目录内 `main.js`、`styles.css`、`manifest.json` 的 SHA-256 与 `dist/obsidian/` 一致、目录内其余文件未变，把提交 SHA 与三个哈希记入 `.tmp/evidence/task-<ID>/delivery.txt` 并写进该任务的验收结果。不启动、不退出、不重载人类的 Obsidian，不读取 Vault 内 Pith 工作区的正文。
 
 7. **归档与清理门禁（完成条件，不单独派清理任务）**：
