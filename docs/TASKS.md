@@ -3,7 +3,7 @@
 > **仓库根目录**：
 > **单文件滑动任务栈与多 Worktree 协同契约**：详见 [ROLES.md](ROLES.md) 等文档。
 >
-> **状态**：`pending`（执行环按序执行）· `queued`（前置任务未完成，执行环不执行）· `verified` · `blocked` · `superseded`。`queued` 的任务由 Brain 在前置任务 `verified` 后改为 `pending`；执行环不自行改。
+> **状态**：`pending`（执行环按序执行）· `queued`（前置任务未完成，执行环不执行）· `verified` · `blocked` · `superseded`。Router 核销一个任务时，在同一次提交里把 `Depends-On` 已全部满足的 `queued` 任务改为 `pending`（[ROLES.md](ROLES.md) 第 2 条）；前置任务 `blocked` 时链条停住，等 Brain。
 >
 > **本轮重构（#46 至 #53）的共同规则**，各任务不再重复：
 > 1. 目标契约在 `docs/`，源码与契约的差距列在 [ARCHITECTURE.md](ARCHITECTURE.md) 第六节。任务完成时删掉该表里属于自己的行；一行列了多个任务的，由其中最后完成的那个删。最后一行删掉后连同整节删除。
@@ -11,85 +11,6 @@
 > 3. 冻结的内核形状在 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节。发现契约自相矛盾或无法落地时标 `blocked` 并写明证据，不自行改契约。
 > 4. 每个任务的 Worker 门禁都包含 `npm run typecheck`、`npm test`；改到 `src/workbench/`、`src/shells/` 或舞台渲染的还包含 `npm run test:browser` 与 `npm run build:obsidian`。下面各任务只列额外的门禁。
 > 5. 清理按 [ROLES.md](ROLES.md) 第 7 条。
-
----
-
-## [Task #44] 看板列出读不出来的课题与材料
-
-- **Status**: verified
-- **Verified-Commit**: 3c6b3bb5a406daa69573227fe359c162f7ea8b73
-- **Updated**: 2026-11-12
-- **验收结果**: 全仓类型/构建通过；单测 291 通过、74 条件跳过，浏览器 107 通过、4 可选跳过，0 失败；恒空 listUnreadable 破壁回归准确失败。独立 Tester 在真实隔离 Obsidian 与 Web 验证损坏 topic/material、双类 ID 不一致、只读、完整恢复、零条隐藏、正常/窄栏路径换行均通过。原生总窗口 390px 且右侧栏占满时中央仅 22px 不作可用宽度保证，收起自有侧栏后 267px 验收通过。
-- **Evidence**: `.tmp/evidence/task-44/worker-report.md`、`tester-report.md`、`tester-*-errors-*.png`、`tester-*-restored-*.png`；已从干净 main `b5af6df` 交付 Worktree 安装到真实 ganfan-media，Tester 独立核对三文件 SHA-256 与主目录 dist 一致，其余目录条目未变；交付 Worktree 已删除，外部未提交讨论文档保持不变。详见 `delivery.txt`、`tester-delivery.md`。
-- **Scope**: `src/core/types.ts`, `src/core/store/**`, `src/core/engine/**`, `src/workbench/compass.ts`, `src/workbench/view/styles.ts`, `src/shells/web/**`, `src/shells/obsidian/index.ts`, `docs/subsystems/1-core-store-engine.md`, `docs/subsystems/5-spatial-ui-and-slots.md`, `tests/**`
-- **背景**：`DefaultWorkspaceStore.listTopics` 与 `listMaterials` 静默跳过解析失败的条目。在 Obsidian 里手改 `topic.md`（例如删掉笔记块里的一个空行）后，课题从看板消失且没有任何提示；沙盒复现的解析错误是 `Invalid note metadata`。
-- **冻结的内核契约**（Worker 原样落地，不另行扩展）：
-  ```ts
-  // src/core/types.ts
-  export interface UnreadableEntry { readonly kind: "topic" | "material"; readonly id: string; readonly path: string; readonly error: string }
-  // src/core/store/contract.ts · WorkspaceStore
-  /** Topic and material folders whose ledger file fails to parse; `listTopics` and `listMaterials` omit them. */
-  listUnreadable(): Promise<readonly UnreadableEntry[]>;
-  // src/core/engine/contract.ts · AttentionCompassSnapshot
-  readonly unreadable: readonly UnreadableEntry[];
-  ```
-  `id` 是目录名，`path` 是账本文件相对工作区的路径，`error` 是解析器给出的原因。账本 `id` 与目录名不一致的条目同样列出。
-- **行为契约**：看板在「探索中」「已沉淀」之外显示「无法读取（N）」分区，每条给出文件路径与原因；只读，不自动修复、不删除、不改写文件；N 为 0 时分区不出现；文件修好后重新打开看板，条目回到原分区。两个宿主壳一致。
-- **不在范围内**：放宽解析器；自动修复；笔记格式迁移。
-- **Worker 门禁**：`npm run typecheck`、`npm test`、`npm run test:browser`；回归从磁盘字节构造损坏文件；手动破壁（`listUnreadable` 恒返回空）后回归变红；界面自拍存 `.tmp/evidence/task-44/`。
-- **Tester 终验**：在沙盒工作区分别手改一个 `topic.md`（删掉笔记块里的空行）与一个 `material.md`，两个宿主壳的看板都出现对应条目与原因；恢复文件后条目回到原分区；截图归档。
-- **交付**：验收通过后执行 ROLES 第 6 条。
-
----
-
-## [Task #45] 调研：dsh 对话体验对齐清单（只读，不改产品代码）
-
-- **Status**: verified
-- **Verified-Commit**: 3c2f120ba130d4d9ac25b5d536059278a69574ab（Pith 研究基线；dsh 基线 fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159；本单无代码提交）
-- **Updated**: 2026-11-12
-- **验收结果**: 32 项对照清单、真实 ACP 多步回合记录、四状态明暗八张 Web 截图齐备；独立 Tester 抽查 24 项语义引用，核对冻结源码、协议事件与全部截图通过。旧文案 D45-01 已纠正并复验。二进制构建 SHA 未证实、thought/permission/HTTP MCP 等未实测边界均明列；不把 Web Stop 当 ACP 活动回合取消证明。两个仓库的跟踪文件均未为本调研改动。
-- **Evidence**: `.tmp/evidence/task-45/dsh-conversation-alignment.md`、`tester-final.md`、`acp-mcp-trace.jsonl`、`screenshots/`；报告 SHA-256 `a668e3882597732d505bea37ebd74b1ac81431dcbd3f9e5f78361567112462a7`。
-- **Scope**: 只写 `.tmp/evidence/task-45/`；不改两个仓库中任何被跟踪的文件，与其他任务的写集正交
-- **背景**：人类决定 Pith 向导栏的对话体验以 dsh 为基准（`/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`，提交 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，MIT 许可）。Brain 据本任务的清单冻结实现契约，再派实现任务。
-- **硬约束**（清单中每条提案都须满足）：Pith 工作台是全 Shell 共享的零依赖 DOM（`src/workbench/`）；向导只走标准 ACP（[AGENTS.md](../AGENTS.md) 核心约束 2）；dsh 的界面代码不引入 Pith，只对齐行为与观感。
-- **Brain 读代码得到的待核实事实**（逐条用源码与一次真实运行证实或推翻）：
-  1. dsh 的 ACP 服务只下发已提交的消息、思考、工具生命周期、配置变更与上下文用量，不下发逐字增量（`packages/acp/acp/README.md`、`packages/acp/acp/src/updates.ts`）。
-  2. 每个 ACP 会话同一时刻只有一个进行中的 prompt；支持 `session/resume`、`session/cancel` 与挂载 MCP 服务。
-  3. dsh 自己的 ACP 客户端对单次 prompt 不设期限，可配置的时长只有进程收尾宽限（`packages/subagent/subagent-acp/src/index.ts`）。
-  4. 停止控件在 `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx`；对话节点、过程折叠与失败行的规则在 `packages/client/ui-chat/README.md` 与 `docs/subsystems/conversation.md`。
-- **交付物**：`.tmp/evidence/task-45/dsh-conversation-alignment.md`，一张逐项对照表加参考材料：
-  - 覆盖面：一轮对话的组成（用户消息、助手回复、思考预览、工具与过程行、失败行、向用户提问）及完成后的折叠规则；运行中的输入区（停止、运行中再发送消息的去向、按键、禁用态）；等待、失败、停止与重试（失败回合的用户消息是否保留）；助手回复的 Markdown 渲染范围与跟随滚动；间距、字号、配色、圆角等观感取值（明暗两套）。
-  - 每一项给出：dsh 的做法与 `文件:行` 出处；标准 ACP 能否支撑及依据；Pith 现状与 `文件:行`；差距；在硬约束内的做法与工作量估计；不建议对齐时写明理由。
-  - 一份真实 `dsh --profile acp` 多步回合的 `session/update` 记录（各类更新及其到达时间），用来证实「标准 ACP 能否支撑」一栏。
-  - dsh Web 界面的参考截图：运行中、已完成、失败、被停止的回合各一组，明暗两套。
-- **运行约束**：真实 dsh 在 `.tmp/task-45/` 下的独立工作目录运行；不读取、不输出凭据；dsh 自身留下的会话与日志在报告中列出位置。
-- **不在范围内**：修改 Pith 或 dsh 的被跟踪文件；实现任何对齐项。
-- **Worker 门禁**：清单中每条 dsh 引用都能在上述提交按 `文件:行` 打开并支持其论断；截图扩展名与真实编码一致。
-- **Tester 终验**：独立抽查不少于 10 条引用；核对 `session/update` 记录与「标准 ACP 能否支撑」一栏一致；核对截图与文字描述一致。
-
----
-
-## [Task #46] 改名：`dojo` 统一为 `toolkit`
-
-- **Status**: verified
-- **Verified-Commit**: 6c7ea68145a3844b83990fc8e556e4700e125b40
-- **Updated**: 2026-11-12
-- **验收结果**: 类型检查、全仓单测与浏览器测试、Obsidian 构建通过；命名守卫与未知工具 ID 校验均经手动破壁。独立 Tester 在 Web 与隔离 Obsidian 操作行间、字幕跟读、费曼复述和工具开关，并检查实际加载产物哈希及无效 ID。译文、向导回复、音频和转写使用受控夹具，不代表真实模型或语音服务验收。
-- **Evidence**: `.tmp/evidence/task-46/worker-report.md`、`.tmp/evidence/task-46/tester/tester-report.md` 与同目录截图；运行沙盒与自有进程已清理。首次中止的浏览器测试曾写入 `.tmp/evidence/task-39/web-interline.png`，无法确认是否覆盖原有截图。
-- **Scope**: `src/**`、`tests/**`、`scripts/**`（只为改名）、`docs/ARCHITECTURE.md`（删差距行）、`docs/subsystems/3-toolkits.md`（更新验证命令）、`docs/subsystems/5-spatial-ui-and-slots.md`（只为同步类名）
-- **背景**：这个概念在契约里只叫 `Toolkit`（[3-toolkits.md](subsystems/3-toolkits.md) 第 1 节）。源码 22 个文件、测试 39 个文件含 `dojo`。先做完改名，后面的重构不用在两套名字之间来回。
-- **契约**：行为不变，只改名字。
-  1. 目录 `src/plugins/dojo-<id>/` 改为 `src/plugins/toolkit-<id>/`（用 `git mv`）；插件 ID `dojo-<id>` 改为 `toolkit-<id>`；服务名 `dojo.<id>` 改为 `toolkit.<id>`。
-  2. 类型：`DojoToolkitDescriptor` 改为 `ToolkitDescriptor`（删掉现有的同名别名），`DojoScaffoldStage` 改为 `ToolkitStage`，`DojoDiagnosisResult` 改为 `ToolkitDiagnosis`。
-  3. 其余标识符、函数名、字段名、CSS 类名、`data-*` 属性、元素 ID 里的 `dojo` / `Dojo` 一律换成 `toolkit` / `Toolkit`（例：`.pith-dojo-panel` 改为 `.pith-toolkit-panel`，`#open-dojo` 改为 `#open-toolkit`，`data-dojo-submit` 改为 `data-toolkit-submit`）。
-  4. 面向用户的文案与插件名里不出现 `Dojo` 或「道场」。
-  5. 测试文件名里的 `dojo` 改为 `toolkit`（`tests/dojo-interline.test.ts`、`tests/task18-dojo-browser.test.ts`、`tests/wave5-trackA-dojo-feynman.test.ts`）。
-  6. 账本里的工具 ID 只有不带前缀的一种写法。删除对 `dojo-<id>` 与 `none` 的识别和过滤（`src/workbench/toolkitSlot.ts` 及各调用点）；`pith_configure_toolkits` 与用户开关只接受已注册的工具 ID，未知 ID 报错。「不挂任何工具」就是空列表。
-  7. 在 `tests/boundaries.test.ts` 加一条守卫：`src/`、`tests/`、`scripts/` 的文件内容与文件名里不出现 `dojo`（不区分大小写）。
-- **不在范围内**：任何行为变化；工具角色（`aid` / `training`）拆分；`docs/TASKS.md` 与 `docs/LESSONS.md` 里的历史记录。
-- **Worker 门禁**：`npm run test:browser`、`npm run build:obsidian`；`git grep -il dojo -- src tests scripts` 无输出；手动破壁（把一处标识符改回 `dojo`）后新守卫变红。
-- **Tester 终验**：两个宿主壳各走一遍：打开带行间的外文材料、对一句字幕做影子跟读、对一段正文做费曼复述、在顶栏开关工具。行为与改名前一致，截图归档。
-- **交付**：不交付。真实 Vault 等 #52 之后整体换代。
 
 ---
 
@@ -145,7 +66,7 @@
 
 ## [Task #49] 向导回合：工具端点、过程步骤、停止
 
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #47 verified。（#46、#48 已 verified；Brain 已按 #48 的结论复核 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.1 至 2.6，见契约提交 `7446d5f`）
 - **Verified-Commit**: none
 - **Updated**: 2026-11-12
@@ -181,6 +102,7 @@
   2. [`renderMarkdown`](../src/plugins/stage-reader/index.ts) 的渲染范围按 [2-stages.md](subsystems/2-stages.md) 第 2 节：补上有序与无序列表（含嵌套）和 `http(s)` 链接。其余协议的链接显示为文本，原始 HTML 不作为标记渲染。讲义与回复用同一个渲染器；列表项与其他正文块一样带 `data-locator` 与 `data-prose`。
   3. 画像行在过程组之外单独成行、不随折叠消失，显示新增的那句话并带撤销；撤销调用 `removeObservation`，撤销后该行显示为已撤销；课题已沉淀后撤销仍可用。画像行只会出现在结题的回合。#47 第 8 条的守卫在这里放宽，允许工作台的撤销调用 `removeObservation`。
   4. 讲义行点击后在舞台打开该讲义；笔记行跳到原文。
+  5. 测试不写证据目录。现有浏览器测试把截图写进 `.tmp/evidence/task-27`、`task-29`、`task-33`、`task-35`、`task-37`、`task-38` 与 `audit-fix`，每跑一次就覆盖历史证据（#46 的报告记录过一次）。改为写进测试自己的沙盒（[`testSandbox`](../tests/sandbox.ts)）；Worker 需要留作证据的截图，从沙盒拷进本任务的证据目录。`tests/boundaries.test.ts` 加一条守卫：`tests/` 下的文件不出现 `.tmp/evidence` 路径。
 - **不在范围内**：详略模式设置、排队发送、同轮插话、双击 `Esc` 停止、用量显示（均已在第 6 节明确不做）。
 - **Worker 门禁**：`npm run test:browser`、`npm run build:obsidian`。浏览器用例覆盖：运行中、完成、失败、被停止四种状态的 DOM；读者向上滚动后新内容不带走视口；输入法组字期间回车不发送；链接只对 `http(s)` 生成 `<a>`。界面自拍明暗各一组存 `.tmp/evidence/task-50/`，并与 #45 的参考截图并排对看。
 - **Tester 终验**：两个宿主壳、明暗两套、正常与窄栏，各用真实 Agent 跑一个带工具调用的回合，逐项核对第 6 节；截图归档供人类终审观感。
@@ -229,7 +151,7 @@
 - **不在范围内**：向导从材料库批量规划课题（另行立项）；删除课题或材料的界面。
 - **Worker 门禁**：`npm run test:browser`、`npm run build:obsidian`。浏览器用例覆盖四种分流、多文件分组（音频加同名字幕合为一份）、立项失败后不留课题且输入回到立项框、材料库在 100 份材料下首页不读取原始文件（断言存储端口的读取调用）。界面自拍存 `.tmp/evidence/task-52/`。
 - **Tester 终验**：两个宿主壳各用真实 Agent 走完整条路径：拖入一本外文 EPUB（进入材料阅读，行间可用，记一条笔记）；以此立项；课题内向导能读到那条笔记；添加第二份材料；搁置；在材料库里看到两份材料各自的引用数。再断开 Agent 重复投喂与阅读。截图归档供人类终审。
-- **交付**：验收通过后执行 [ROLES.md](ROLES.md) 第 6 条。真实 Vault 里旧格式的课题与材料会出现在「无法读取」分区，这是预期结果，写进验收结果。
+- **交付**：不交付。整体在 #54 终验后交付。
 
 ---
 
@@ -247,6 +169,33 @@
 - **不在范围内**：按漏掉的要点安排复习（另行立项）。
 - **Worker 门禁**：`npm run test:browser`、`npm run build:obsidian`。单测用固定的模型输出覆盖：引用不在原文里的要点被丢弃；复述里找不到的「原话」标为未能核对；抽要点失败时复述照常保存。界面与记录里不出现数字比例（断言 DOM 与落盘内容）。手动破壁：去掉引用核对后对应回归变红。
 - **Tester 终验**：两个宿主壳各用真实 Agent，对同一段原文提交一份说反的和一份换说法的复述，核对逐条对照与追问只针对一个缺口；截图与第一步的实测数据一并归档。
-- **交付**：验收通过后执行 [ROLES.md](ROLES.md) 第 6 条。
+- **交付**：不交付。整体在 #54 终验后交付。
+
+---
+
+## [Task #54] 终验：整体验收与交付
+
+- **Status**: queued
+- **Depends-On**: #53 verified
+- **Verified-Commit**: none
+- **Updated**: 2026-11-12
+- **Scope**: 验收本身只写 `.tmp/evidence/task-54/` 与 `.tmp/runtime/task-54/`。发现的问题按 [ROLES.md](ROLES.md) 第 1 条处理：显性缺陷走路径 A，由 Router 派 Worker 在缺陷所在的模块修复，修完重跑受影响的部分；与契约冲突或需要取舍的走路径 B，退回 Brain。
+- **背景**：#46 至 #53 各自的验收只看自己的范围。交付到真实 Vault 之前做一次整体验收：契约与源码是否一致，整条用户路径能否走通。
+- **要做的四件事**：
+  1. **契约对照**。派生一次性全新的 Auditor（派生方式同 ROLES 第 5 条，不复用验收过 #46 至 #53 的任何上下文），逐份读 [PRODUCT.md](PRODUCT.md) 与五份子系统契约，对每条能在源码或运行中检验的陈述，给出实现位置（`文件:行`）或列为缺口。[ARCHITECTURE.md](ARCHITECTURE.md) 第六节此时应已删除；如果还在，逐行说明是哪个任务没有落地或没有删行。
+  2. **全量门禁**。在干净的 `main` 上依次运行 `npm run typecheck`、`npm test`、`npm run test:browser`、`npm run build:obsidian`、`npm run verify:obsidian`，全部无失败。
+  3. **真实用户路径**。新开一个 Tester 会话（不复用验收过 #46 至 #53 的会话），在两个宿主壳上用真实配置的 dsh，在一个全新的工作区里按顺序走完下面的路径。每一步截图，并核对落盘内容：
+     - **投喂**：拖入一本外文 EPUB（进入材料阅读，行间可用，记一条材料级笔记）；贴入一个本地仓库路径；贴入一个公开链接。三者都出现在材料库，没有产生课题。
+     - **立项**：用一句话目标带上 EPUB 与仓库两份材料立项。过程行逐步出现；课题创建后进入课题内，大纲与第一讲在课题目录下。另做两次：立项中途停止（不留课题，输入回到立项框）；只给材料不说目标（向导先问，回答后才创建）。
+     - **课题内**：问一个需要读仓库多个文件的问题（过程行逐步出现、完成后折叠、讲义行可点）；运行中停止一次；断开 Agent 后发一条消息（失败行写明原因），恢复后重新请求（不出现第二条你的消息）；点开讲义里的 `path:line` 出处，舞台打开仓库文件并定位到该行；再添加第三份材料。
+     - **训练**：对一段讲义做两次费曼复述，一份说反一条，一份换一套说法但意思正确（逐条对照、只追问一个缺口、没有数字比例）；对一句字幕做影子跟读。
+     - **结题**：请求结题，回答深水区一问后结题。`ME.md` 里手写的部分逐字节不变，新增观察带日期、课题与你写的证据笔记，`history/` 有上一版。在对话里撤销这条观察，`ME.md` 恢复，并再留一份底。
+     - **搁置与只读**：搁置一个课题再恢复；已沉淀的课题能打开阅读、查看对话，输入区不可用。
+     - **没有 Agent**：断开后投喂、阅读、高亮、材料级笔记、搁置与恢复可用；立项不可用，并给出原因与设置入口。
+     - **宿主沙盒**：要求向导「不用 Pith 的工具，直接用你自己的写文件工具在工作区里建一个文件」，文件没有出现。
+     - **旧格式**：用重构开始前的提交 `edf20bf` 建一个课题与一份材料，复制进新工作区，它们出现在「无法读取」分区。
+  4. **观感终审包**。首页、材料阅读、课题内三个场景，明暗两套，正常与窄栏，各一张截图；向导栏运行中、完成、失败、被停止四种状态，各与 `.tmp/evidence/task-45/screenshots/` 里 dsh 的同状态参考图并排。放在 `.tmp/evidence/task-54/review/`，供人类终审观感。
+- **报告**：`.tmp/evidence/task-54/final-report.md`，写明契约对照的缺口与处置、门禁结果、每段路径的结论与截图位置、修复过的缺陷与对应提交、交付记录、仍未覆盖的边界。
+- **交付**：以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。真实 Vault 里旧格式的课题与材料会出现在「无法读取」分区，这是预期结果，写进验收结果。交付后由人类做真机测试与观感终审。
 
 ---
