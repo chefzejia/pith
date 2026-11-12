@@ -56,9 +56,11 @@
 
 ## [Task #43] 修复 `npm run verify:obsidian`：隔离真机脚本与当前设置页行为一致
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: c59dcb513e060abbc1a4bfaa6fdc87922ef2261f
 - **Updated**: 2026-11-12
+- **验收结果**: 原失败复现；类型检查通过，单测 289 通过、73 条件跳过、0 失败；Worker 连续两次及 Tester 独立一次 verify:obsidian 均退出 0，报告与落盘模式/配置一致，两条自有健康检查命中且零密钥读取；抑制模式保存的破壁验证按预期失败。加载哈希、截图与进程/端口清理均核对；仅修改两个授权文件。
+- **Evidence**: `.tmp/evidence/task-43/worker-report.md`、`tester-report.md`、`tester-terminal.log`、同目录 PNG 截图。
 - **Scope**: `scripts/verify-obsidian-e2e.ts`, `tests/obsidian-e2e-safety.test.ts`
 - **背景**：在构建 `145e047`（与 `6017590` 只差文档）上运行 `npm run verify:obsidian`：真实 Obsidian 加载插件、挂载 `pith-reader` 视图并渲染设置页，随后在语音设置一步以 `Auto-save timed out` 失败，日志在 `.tmp/evidence/self-use-wave1/verify-obsidian-145e047.log`；失败后隔离工作区落盘的设置里 `speech` 为空对象。读代码得到的原因（未经运行证实，Worker 先复现确认）：脚本把语音模式设为本机后等待端点字段落盘，而设置页自 `f470ec8` 起只在云端模式保存这些字段（`src/shells/obsidian/index.ts` 的 `if (mode.value !== "cloud") return;`）；脚本自 `183c625`（11-06）后未再更新。
 - **契约**：
