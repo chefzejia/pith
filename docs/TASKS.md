@@ -66,10 +66,11 @@
 
 ## [Task #49] 向导回合：工具端点、过程步骤、停止
 
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #47 verified。（#46、#48 已 verified；Brain 已按 #48 的结论复核 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.1 至 2.6，见契约提交 `7446d5f`）
-- **Verified-Commit**: none
-- **Updated**: 2026-11-12
+- **Verified-Commit**: 28903c96bee07bd677ae57665136254f539e0511
+- **Updated**: 2026-11-13
+- **验收结果**: Web 与隔离 Obsidian 的真实 Agent 均完成多文件走读、讲义落盘、运行中停止、缺失 Agent 报错与无重复消息重试；自带写文件工具先被 dsh 只读层拒绝，随后 Pith 拒绝提权，目标文件未出现。原生长选项重叠经修复后双宿主复验通过。Worker 门禁、破壁与双方清理通过；未向真实 Vault 交付。证据：`.tmp/evidence/task-49/worker/worker-report.md`、`.tmp/evidence/task-49/choice-worker/report.md`、`.tmp/evidence/task-49/tester-ffcb166/tester-report.md`、`.tmp/evidence/task-49/tester-28903c9/tester-report.md`。Web 260px 极窄窗口顶部工具栏裁切作为观察保留。
 - **Scope**: `src/core/host.ts`、`src/core/seams.ts`、`src/core/engine/**`、`src/plugins/guide-acp/**`、`src/plugins/toolkit-*/**`（改用 `guide.prompt`）、`src/shells/**`、`src/workbench/**`（只做下面第 9 条的最小适配）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：工具现在是回复末尾的文本围栏，写操作在回复结束后才执行，一个回合最多起四次 Agent 进程；回合不能停止，界面拿不到过程。
 - **契约**：
@@ -91,7 +92,7 @@
 
 ## [Task #50] 向导栏：对话的显示
 
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #49 verified
 - **Verified-Commit**: none
 - **Updated**: 2026-11-12
