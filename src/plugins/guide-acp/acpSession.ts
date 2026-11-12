@@ -132,12 +132,14 @@ export function parseToolkitDirective(text: string): { text: string; toolkits: s
   }
 }
 
-function directiveFences(text: string, name: string): { last: { start: number; end: number; json: string } | null; open: boolean; openTool: boolean } {
+function directiveFences(text: string, name: string): { last: { start: number; end: number; json: string } | null; open: boolean; openTool: boolean; bareTool: boolean } {
   const lines = [...text.matchAll(/[^\n]*(?:\n|$)/g)].filter(match => match[0].length > 0);
   let fence: { marker: string; length: number; start: number; contentStart: number; tool: boolean } | null = null;
   let last: { start: number; end: number; json: string } | null = null;
-  for (const line of lines) {
+  let bareTool = false;
+  for (const [index, line] of lines.entries()) {
     const value = line[0].replace(/\r?\n$/, "");
+    if (!fence && name === "pith-tool" && /^ {0,3}pith-tool[ \t]*$/.test(value) && /^ {0,3}\{/.test(lines[index + 1]?.[0] ?? "")) bareTool = true;
     const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(value);
     if (!match) continue;
     const marker = match[1]![0]!;
@@ -151,7 +153,7 @@ function directiveFences(text: string, name: string): { last: { start: number; e
       fence = { marker, length: match[1]!.length, start: line.index!, contentStart: line.index! + line[0].length, tool: marker === "`" && match[1]!.length === 3 && suffix.trim() === name };
     }
   }
-  return { last, open: fence !== null, openTool: fence?.tool === true };
+  return { last, open: fence !== null, openTool: fence?.tool === true, bareTool };
 }
 
 function trailingDirective(text: string, name: string): { start: number; json: string } | null {
@@ -525,7 +527,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
         reply = reply.slice(0, match.start).trimEnd();
       }
       const remaining = directiveFences(reply, "pith-tool");
-      if (remaining.last || remaining.openTool) {
+      if (remaining.last || remaining.openTool || remaining.bareTool) {
         correctingDirective = true;
         if (turn === 3) throw new Error("Guide tool directive must be a standalone fence at the end of the reply; the rejected reply was not executed");
         promptText += "\n\n上一轮工具围栏格式错误，本轮没有执行任何工具。请重新回答；若需要执行工具，所有 pith-tool 围栏必须独立放在回复末尾，围栏之后不要写正文。示例和引用不要作为工具调用。";

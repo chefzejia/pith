@@ -138,7 +138,16 @@ test("ACP executes only scoped workspace directives", async () => {
     const profileBefore = await readFile(join(dir, "ME.md"));
     const directive = `\`\`\`pith-tool\n${JSON.stringify({ name: "pith_settle_topic", arguments: { topicId: topic.id, verificationSummary: "Learner explained ownership and lifecycle", observations: [{ text: "Understands dependency ownership", noteId }] } })}\n\`\`\``;
     const misplaced = `你的回答通过了结题门控。现在结题。\n\n${directive}\n\n结题已完成。`;
+    const bare = `结题判断：我按笔记记录观察并结题。\n\n---\n\npith-tool\n${JSON.stringify({ name: "pith_settle_topic", arguments: { topicId: topic.id, verificationSummary: "Learner explained ownership and lifecycle", observations: [{ text: "Understands dependency ownership", noteId }] } })}\n\n---\n\n画像里已有观察。`;
     response = misplaced;
+    promptCount = 0;
+    await assert.rejects(reply(), /directive|围栏/i);
+    assert.equal(promptCount, 4);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+    assert.deepEqual(await readFile(join(dir, "ME.md")), profileBefore);
+    assert.equal(await storage.exists("history"), false);
+
+    response = bare;
     promptCount = 0;
     await assert.rejects(reply(), /directive|围栏/i);
     assert.equal(promptCount, 4);
@@ -155,6 +164,9 @@ test("ACP executes only scoped workspace directives", async () => {
     responses = [`${misplaced}\n${trailingWrite}`, "结题已完成。"];
     await assert.rejects(reply(), /directive|围栏/i);
     assert.equal((await store.getTopic(topic.id))!.notes.length, 2);
+    responses = [`${bare}\n${trailingWrite}`, "结题已完成。"];
+    await assert.rejects(reply(), /directive|围栏/i);
+    assert.equal((await store.getTopic(topic.id))!.notes.length, 2);
 
     const wrongScope = `No.\n\`\`\`pith-tool\n${JSON.stringify({ name: "pith_settle_topic", arguments: { topicId: "topic-two", verificationSummary: "wrong" } })}\n\`\`\``;
     responses = [misplaced, wrongScope];
@@ -169,10 +181,17 @@ test("ACP executes only scoped workspace directives", async () => {
     assert.equal(promptCount, 1);
     assert.equal((await store.getTopic(topic.id))!.status, "exploring");
 
-    responses = [misplaced, `回答通过检验。\n${directive}`];
+    const example = `示例：\n\`\`\`\npith-tool\n{"name":"pith_settle_topic","arguments":{}}\n\`\`\`\n不要执行示例。`;
+    response = example;
+    promptCount = 0;
+    assert.equal(await reply(), example);
+    assert.equal(promptCount, 1);
+    assert.equal((await store.getTopic(topic.id))!.status, "exploring");
+
+    responses = [misplaced, bare, `回答通过检验。\n${directive}`];
     promptCount = 0;
     assert.equal(await reply(), "回答通过检验。");
-    assert.equal(promptCount, 2);
+    assert.equal(promptCount, 3);
     assert.equal((await store.getTopic(topic.id))!.status, "settled");
     assert.deepEqual((await store.readProfile()).observations.map(item => [item.text, item.noteId]), [["Understands dependency ownership", noteId]]);
     const history = await readdir(join(dir, "history"));

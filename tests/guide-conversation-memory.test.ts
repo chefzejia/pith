@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -48,7 +48,7 @@ async function fixture() {
   let provider: LocalAcpGuideProvider | undefined;
   const engine = new DefaultAttentionEngine(store, storage, () => provider);
   provider = new LocalAcpGuideProvider({ processPort: agent.port, store, engine, storage, getAgentConfig: () => ({ agentId: "dsh" }), resolveDescriptor: async () => descriptor, buildScenePrompt });
-  return { dir, engine, topicId: topic.id, prompts: agent.prompts, replies: agent.replies };
+  return { dir, engine, storage, store, topicId: topic.id, prompts: agent.prompts, replies: agent.replies };
 }
 
 const occurrences = (text: string, part: string): number => text.split(part).length - 1;
@@ -64,6 +64,40 @@ function historySection(prompt: string): string {
   assert.equal(occurrences(section, "\n# "), 0, "no other section sits between the history and the current message");
   return section;
 }
+
+test("explicit memory policy reaches the agent and confirmation follows a successful write", async () => {
+  const f = await fixture();
+  try {
+    const original = await readFile(join(f.dir, "ME.md"));
+    f.replies.push("依赖注入让替身更容易测试。");
+    await f.engine.sendMessage({ topicId: f.topicId, text: "请解释依赖注入" });
+    assert.deepEqual((await f.store.readProfile()).observations, []);
+
+    const command = `\`\`\`pith-tool\n${JSON.stringify({ name: "pith_remember", arguments: { topicId: f.topicId, text: "我熟悉依赖注入" } })}\n\`\`\``;
+    const confirmation = `已记住。\n\n${command}\n\n\`\`\`pith-choices\n- 继续\n- 考考我\n\`\`\``;
+    const copy = f.storage.copy.bind(f.storage);
+    f.storage.copy = async () => { throw new Error("backup failed"); };
+    f.replies.push(confirmation);
+    await assert.rejects(f.engine.sendMessage({ topicId: f.topicId, text: "请记住我熟悉依赖注入" }), /backup failed/);
+    assert.deepEqual(await readFile(join(f.dir, "ME.md")), original);
+    assert.equal((await f.engine.getConversation(f.topicId)).some(turn => turn.role === "guide" && turn.text.includes("已记住")), false);
+    const prompt = f.prompts.at(-1)!;
+    assert.match(prompt, /只有用户明确要求记住/);
+    assert.match(prompt, /明确要求记住[\s\S]*优先[\s\S]*pith_remember/);
+    assert.match(prompt, /工具成功[\s\S]*确认/);
+    assert.match(prompt, /pith-tool[\s\S]*pith-choices/);
+    assert.doesNotMatch(historySection(prompt), /此前回复中的工具操作均已执行/);
+
+    f.storage.copy = copy;
+    f.replies.push(confirmation);
+    const result = await f.engine.sendMessage({ topicId: f.topicId, text: "请记住我熟悉依赖注入" });
+    assert.equal(result.guideEntry?.text, "已记住。");
+    assert.deepEqual((await f.store.readProfile()).observations.map(item => item.text), ["我熟悉依赖注入"]);
+    const backups = await readdir(join(f.dir, "history"));
+    assert.equal(backups.length, 1);
+    assert.deepEqual(await readFile(join(f.dir, "history", backups[0]!)), original);
+  } finally { await rm(f.dir, { recursive: true, force: true }); }
+});
 
 test("a guide turn carries the earlier turns of the topic and states the current message once", async () => {
   const f = await fixture();
