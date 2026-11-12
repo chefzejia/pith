@@ -102,9 +102,11 @@
 
 ## [Task #45] 调研：dsh 对话体验对齐清单（只读，不改产品代码）
 
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 3c2f120ba130d4d9ac25b5d536059278a69574ab（Pith 研究基线；dsh 基线 fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159；本单无代码提交）
 - **Updated**: 2026-11-12
+- **验收结果**: 32 项对照清单、真实 ACP 多步回合记录、四状态明暗八张 Web 截图齐备；独立 Tester 抽查 24 项语义引用，核对冻结源码、协议事件与全部截图通过。旧文案 D45-01 已纠正并复验。二进制构建 SHA 未证实、thought/permission/HTTP MCP 等未实测边界均明列；不把 Web Stop 当 ACP 活动回合取消证明。两个仓库的跟踪文件均未为本调研改动。
+- **Evidence**: `.tmp/evidence/task-45/dsh-conversation-alignment.md`、`tester-final.md`、`acp-mcp-trace.jsonl`、`screenshots/`；报告 SHA-256 `a668e3882597732d505bea37ebd74b1ac81431dcbd3f9e5f78361567112462a7`。
 - **Scope**: 只写 `.tmp/evidence/task-45/`；不改两个仓库中任何被跟踪的文件，与其他任务的写集正交
 - **背景**：人类决定 Pith 向导栏的对话体验以 dsh 为基准（`/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`，提交 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，MIT 许可）。Brain 据本任务的清单冻结实现契约，再派实现任务。
 - **硬约束**（清单中每条提案都须满足）：Pith 工作台是全 Shell 共享的零依赖 DOM（`src/workbench/`）；向导只走标准 ACP（[AGENTS.md](../AGENTS.md) 核心约束 2）；dsh 的界面代码不引入 Pith，只对齐行为与观感。
