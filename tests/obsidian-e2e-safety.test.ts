@@ -5,7 +5,11 @@ import { cp, lstat, mkdir, readdir, readFile, rm, symlink, writeFile } from "nod
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { isolatedLaunchArgs, isolatedVaultRegistry, prepareIsolatedVault, startSpeechStub, stopOwnedChild } from "../scripts/verify-obsidian-e2e.ts";
+import { isolatedLaunchArgs, isolatedVaultRegistry, prepareIsolatedVault, startSpeechStub, stopOwnedChild, speechVerificationFixture, verifySavedSpeech } from "../scripts/verify-obsidian-e2e.ts";
+import { PithObsidianController } from "../src/shells/obsidian/index.ts";
+import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
+import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
+import type { SpeechTtsService, SpeechAsrService } from "../src/core/index.ts";
 import { testSandbox } from "./sandbox.ts";
 
 test("speech stub owns a dynamic port and releases it", async () => {
@@ -13,10 +17,41 @@ test("speech stub owns a dynamic port and releases it", async () => {
   try {
     assert.equal((await fetch(`${stub.base}/health`)).status, 200);
     assert.equal((await fetch(`${stub.base}/unexpected`)).status, 404);
-    assert.deepEqual(stub.requests, ["GET /health", "GET /unexpected"]);
+    assert.equal((await fetch(`${stub.base}/asr/health`)).status, 200);
+    assert.deepEqual(stub.requests, ["GET /health", "GET /unexpected", "GET /asr/health"]);
   } finally { await stub.close(); }
   await assert.rejects(fetch(`${stub.base}/health`));
 });
+test("verification requires a persisted cloud-to-local transition and probes both owned speech routes without secrets", async () => {
+  const root = await testSandbox("pith-e2e-mode-");
+  const stub = await startSpeechStub();
+  const storage = new NodeWorkspaceStorage(root);
+  let secretReads = 0;
+  const controller = new PithObsidianController({ id: "obsidian", storage, http: new NodeHttpPort(), secrets: { getSecret: async () => { secretReads++; throw new Error("No secrets in local verification"); } } });
+  try {
+    const { initial, expected } = speechVerificationFixture(stub.base);
+    await storage.mkdir("_cache");
+    await storage.writeText("_cache/web-settings.json", JSON.stringify(initial));
+    await controller.initialize();
+    assert.throws(() => verifySavedSpeech(initial, expected), /mode change/);
+    await controller.setSpeechMode("local");
+    const saved = JSON.parse(await storage.readText("_cache/web-settings.json"));
+    verifySavedSpeech(saved, expected);
+    assert.equal(saved.speech.ttsProvider, "kokoro-local");
+    assert.equal(saved.speech.asrProvider, "whisper-local");
+    assert.deepEqual(saved.speechProfiles.cloud, initial.speech);
+    assert.throws(() => verifySavedSpeech({ ...saved, speechProfiles: {} }, expected), /profiles/);
+    assert.throws(() => verifySavedSpeech({ ...saved, speechSettingsVersion: undefined }, expected), /version/);
+    const tts = controller.runtime.getService<SpeechTtsService>("speech.tts");
+    const asr = controller.runtime.getService<SpeechAsrService>("speech.asr");
+    assert.ok(tts && tts.checkHealth && asr && asr.checkHealth);
+    assert.equal((await tts.checkHealth()).ok, true);
+    assert.equal((await asr.checkHealth()).ok, true);
+    assert.deepEqual(stub.requests, ["GET /health", "GET /asr/health"]);
+    assert.equal(secretReads, 0);
+  } finally { controller.dispose(); await stub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("isolated launch uses the supplied profile, port and mock keychain", () => {
   assert.deepEqual(isolatedLaunchArgs("/isolated/profile", 54321), ["--user-data-dir=/isolated/profile", "--remote-debugging-port=54321", "--use-mock-keychain", "--password-store=basic"]);
   assert.deepEqual(isolatedVaultRegistry(123), { updateDisabled: true, vaults: { devvault00000001: { path: resolve(".dev-vault"), ts: 123 } } });

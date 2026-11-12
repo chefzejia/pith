@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFile, lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { migrateLegacySpeech, switchSpeechMode } from "../src/shells/speech/speechSettings.ts";
+import { switchSpeechMode } from "../src/shells/speech/speechSettings.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const devVault = resolve(root, ".dev-vault");
@@ -15,13 +16,25 @@ export async function startSpeechStub(): Promise<{ base: string; requests: strin
   const requests: string[] = [];
   const server = createHttpServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
-    if (request.method === "GET" && request.url === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end("{}"); }
+    if (request.method === "GET" && (request.url === "/health" || request.url === "/asr/health")) { response.writeHead(200, { "content-type": "application/json" }); response.end("{}"); }
     else { response.writeHead(404); response.end(); }
   });
   await new Promise<void>((resolveListen, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolveListen); });
   const address = server.address();
   if (!address || typeof address === "string") { server.close(); throw new Error("Speech stub has no TCP address"); }
   return { base: `http://127.0.0.1:${address.port}`, requests, close: () => new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())) };
+}
+
+export function speechVerificationFixture(base: string) {
+  const speech = { ttsProvider: "kokoro-local", asrProvider: "whisper-local", ttsEndpoint: `${base}/v1/audio/speech`, ttsModel: "e2e-tts-model", ttsVoice: "e2e-voice", asrLoopbackUrl: `${base}/asr` };
+  const initial = { preset: "all", persona: "sanctuary", plugins: {}, speech: { ttsProvider: "openai-tts", asrProvider: "openai-whisper" }, speechProfiles: { local: speech }, speechSettingsVersion: 1, agentId: "", agentConfigured: true };
+  return { initial, expected: switchSpeechMode(initial.speech, initial.speechProfiles, "local") };
+}
+
+export function verifySavedSpeech(persisted: { speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown }, expected: ReturnType<typeof speechVerificationFixture>["expected"]): void {
+  if (!isDeepStrictEqual(persisted.speech, expected.speech)) throw new Error("Saved speech settings do not match the mode change");
+  if (!isDeepStrictEqual(persisted.speechProfiles, expected.profiles)) throw new Error("Saved speech profiles do not match the mode change");
+  if (persisted.speechSettingsVersion !== 1) throw new Error("Saved speech settings version is not 1");
 }
 
 export function isolatedLaunchArgs(userDataDir: string, port: number): string[] {
@@ -88,24 +101,20 @@ async function pollJson(url: string, child: ChildProcess, matches: (url: string)
   throw new Error(`Timed out waiting for Obsidian CDP endpoint at ${url}`);
 }
 
-async function evaluateInPage<T>(wsUrl: string, expression: string): Promise<T> {
+async function cdpCommand<T>(wsUrl: string, method: string, params: Record<string, unknown>): Promise<T> {
   return new Promise((resolveEval, rejectEval) => {
     const ws = new WebSocket(wsUrl);
     const timer = setTimeout(() => {
       ws.close();
-      rejectEval(new Error("CDP Runtime.evaluate timed out"));
+      rejectEval(new Error(`CDP ${method} timed out`));
     }, 15_000);
 
     ws.addEventListener("open", () => {
       ws.send(
         JSON.stringify({
           id: 1,
-          method: "Runtime.evaluate",
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true,
-          },
+          method,
+          params,
         }),
       );
     });
@@ -123,7 +132,7 @@ async function evaluateInPage<T>(wsUrl: string, expression: string): Promise<T> 
         rejectEval(new Error(msg.result.exceptionDetails.exception?.description || msg.result.exceptionDetails.text || "CDP evaluation exception"));
         return;
       }
-      resolveEval(msg.result?.result?.value as T);
+      resolveEval(msg.result as T);
     });
 
     ws.addEventListener("error", () => {
@@ -133,18 +142,36 @@ async function evaluateInPage<T>(wsUrl: string, expression: string): Promise<T> 
   });
 }
 
+async function evaluateInPage<T>(wsUrl: string, expression: string): Promise<T> {
+  const result = await cdpCommand<{ result: { value: T } }>(wsUrl, "Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  return result.result.value;
+}
+
+async function screenshot(wsUrl: string, path: string): Promise<void> {
+  const result = await cdpCommand<{ data: string }>(wsUrl, "Page.captureScreenshot", { format: "png" });
+  await writeFile(path, Buffer.from(result.data, "base64"));
+}
+
 async function main(): Promise<void> {
   const tmp = resolve(root, ".tmp"); await mkdir(tmp, { recursive: true }); const tmpInfo = await lstat(tmp); if (!tmpInfo.isDirectory() || tmpInfo.isSymbolicLink()) throw new Error("Invalid .tmp directory");
   const runDir = await mkdtemp(resolve(tmp, "pith-obsidian-e2e-"));
   const userDataDir = resolve(runDir, "profile");
   const { configDir, workspacePath } = await prepareIsolatedVault(devVault, resolve(root, "dist/obsidian"));
   const settingsPath = `${workspacePath}/_cache/web-settings.json`;
-  const switched = switchSpeechMode(migrateLegacySpeech({}, undefined, undefined), {}, "local");
   const stub = await startSpeechStub();
   let stubFailure: unknown;
   let success: Record<string, unknown> | undefined;
   try {
-  const speech = { ...switched.speech, ttsEndpoint: `${stub.base}/v1/audio/speech`, ttsModel: "e2e-tts-model", ttsVoice: "e2e-voice", asrLoopbackUrl: `${stub.base}/v1/audio/transcriptions`, asrModel: "e2e-asr-model" };
+  const { initial, expected } = speechVerificationFixture(stub.base);
+  await mkdir(resolve(devVault, workspacePath, "_cache"), { recursive: true });
+  await writeFile(resolve(devVault, settingsPath), JSON.stringify(initial), { flag: "wx" });
+  const pluginHashes: Record<string, string> = {};
+  for (const name of ["main.js", "styles.css", "manifest.json"]) {
+    const built = await readFile(resolve(root, "dist/obsidian", name));
+    const deployed = await readFile(resolve(devVault, configDir, "plugins/pith", name));
+    if (!built.equals(deployed)) throw new Error(`Isolated plugin differs from build: ${name}`);
+    pluginHashes[name] = createHash("sha256").update(deployed).digest("hex");
+  }
   const appDataDir = resolve(userDataDir, "Library/Application Support/obsidian");
   await mkdir(appDataDir, { recursive: true });
   const registry = JSON.stringify(isolatedVaultRegistry(Date.now()));
@@ -154,7 +181,7 @@ async function main(): Promise<void> {
   const port = await findFreePort();
   const child = spawn(obsidianBin, isolatedLaunchArgs(userDataDir, port), {
     stdio: ["ignore", "ignore", "pipe"],
-    env: { ...process.env, HOME: userDataDir, CFFIXED_USER_HOME: userDataDir, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+    env: { ...process.env, HOME: userDataDir, CFFIXED_USER_HOME: userDataDir, PITH_SPEECH_HOME: resolve(runDir, "speech"), PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
   });
   let stderr = "";
   child.stderr?.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-8192); });
@@ -211,43 +238,52 @@ async function main(): Promise<void> {
           if (!plugin) return { ok: false, error: "pith plugin instance not loaded" };
           if (plugin.getWorkspacePath() !== ${JSON.stringify(workspacePath)}) return { ok: false, error: "unexpected Pith workspace" };
           if (!plugin.controller) return { ok: false, error: "pith controller unavailable" };
-          await plugin.openView();
-          const leaves = app.workspace.getLeavesOfType("pith-reader");
-          if (!leaves.length) return { ok: false, error: "pith-reader leaf not mounted" };
-
-          app.setting.open(); app.setting.openTabById("pith");
-          const tabInstance = (app.setting.pluginTabs || []).find((t) => t.id === "pith");
-          const hostEl = tabInstance && tabInstance.containerEl;
-          if (!hostEl || !hostEl.isConnected) throw new Error("Pith settings UI is not mounted");
-          const settingLabels = Array.from(hostEl.querySelectorAll("label")).map(l => l.childNodes[0]?.textContent?.trim() || "");
-          const fields = ${JSON.stringify({ "语音服务模式": "local", "TTS 端点 URL": speech.ttsEndpoint, "TTS 模型": speech.ttsModel, "音色": speech.ttsVoice, "ASR 端点 URL": speech.asrLoopbackUrl, "ASR 模型": speech.asrModel })};
-          for (const [label, value] of Object.entries(fields)) {
-            const row = Array.from(hostEl.querySelectorAll("label")).find(l => l.firstChild?.textContent === label);
-            const field = row && row.querySelector("input,select");
-            if (!field) throw new Error("Missing setting: " + label);
-            field.value = value; field.dispatchEvent(new Event("change", { bubbles: true }));
-          }
-          const statuses = hostEl.querySelectorAll('[role="status"]'), status = statuses[statuses.length - 1];
-          await new Promise((resolve, reject) => { const expected = ${JSON.stringify(speech)}; const observer = new MutationObserver(() => { if (Object.entries(expected).every(([key, value]) => plugin.controller.getSpeechConfig()[key] === value)) { observer.disconnect(); clearTimeout(timer); resolve(); } else if (status.textContent && status.textContent !== "设置已保存" && status.textContent !== "未发现可用 Agent") { observer.disconnect(); clearTimeout(timer); reject(new Error(status.textContent)); } }); const timer = setTimeout(() => { observer.disconnect(); reject(new Error("Auto-save timed out")); }, 10000); observer.observe(status, { childList: true, characterData: true, subtree: true }); });
-
           const access = plugin.secretAccess, originalGetSecret = access.getSecret; let secretReads = 0;
-          access.getSecret = (...args) => { secretReads++; return originalGetSecret.apply(access, args); };
+          access.getSecret = () => { secretReads++; throw new Error("Local verification must not read secrets"); };
           try {
-            await plugin.controller.runtime.getService("speech.tts").checkHealth();
-            await plugin.controller.runtime.getService("speech.asr").checkHealth();
-          } finally { access.getSecret = originalGetSecret; }
-          if (secretReads !== 0) throw new Error("Local speech accessed secret storage");
+            await plugin.openView();
+            const leaves = app.workspace.getLeavesOfType("pith-reader");
+            if (!leaves.length) return { ok: false, error: "pith-reader leaf not mounted" };
 
-          return {
-            ok: true,
-            vaultName: app.vault.getName(),
-            pluginLoaded: true,
-            viewType: leaves[0].view.getViewType(),
-            leftCollapsed: Boolean(app.workspace.leftSplit?.collapsed),
-            settingLabels,
-            savedSpeechConfig: plugin.controller.getSpeechConfig(),
-            localSecretReads: secretReads,
-          };
+            app.setting.open(); app.setting.openTabById("pith");
+            const tabInstance = (app.setting.pluginTabs || []).find((t) => t.id === "pith");
+            const hostEl = tabInstance && tabInstance.containerEl;
+            if (!hostEl || !hostEl.isConnected) throw new Error("Pith settings UI is not mounted");
+            const settingLabels = Array.from(hostEl.querySelectorAll("label")).map(l => l.childNodes[0]?.textContent?.trim() || "");
+            const row = Array.from(hostEl.querySelectorAll("label")).find(l => l.firstChild && l.firstChild.textContent === "语音服务模式");
+            const mode = row && row.querySelector("select");
+            if (!mode || mode.value !== "cloud") throw new Error("Expected seeded cloud speech mode");
+            mode.value = "local"; mode.dispatchEvent(new Event("change", { bubbles: true }));
+            if (!(tabInstance.pending instanceof Promise)) throw new Error("Settings save queue unavailable");
+            await tabInstance.pending;
+            const expected = ${JSON.stringify(expected.speech)};
+            const current = plugin.controller.getSpeechConfig();
+            if (Object.keys(current).length !== Object.keys(expected).length || !Object.entries(expected).every(([key, value]) => current[key] === value)) throw new Error("Speech mode change was not saved by settings");
+            const persisted = JSON.parse(await app.vault.adapter.read(${JSON.stringify(settingsPath)}));
+            if (persisted.speech.ttsProvider !== "kokoro-local" || persisted.speech.asrProvider !== "whisper-local") throw new Error("Local speech mode was not persisted");
+            const runtimePanel = hostEl.querySelector("#pith-runtime");
+            if (!runtimePanel || runtimePanel.hidden) throw new Error("Local speech controls are not mounted");
+            const ttsHealth = await plugin.controller.runtime.getService("speech.tts").checkHealth();
+            const asrHealth = await plugin.controller.runtime.getService("speech.asr").checkHealth();
+            if (!ttsHealth.ok || !asrHealth.ok) throw new Error("Owned speech stub health check failed: " + JSON.stringify({ ttsHealth, asrHealth }));
+            if (secretReads !== 0) throw new Error("Local speech accessed secret storage");
+
+            return {
+              ok: true,
+              vaultName: app.vault.getName(),
+              pluginLoaded: true,
+              viewType: leaves[0].view.getViewType(),
+              leftCollapsed: Boolean(app.workspace.leftSplit?.collapsed),
+              settingLabels,
+              savedSpeechConfig: plugin.controller.getSpeechConfig(),
+              localSecretReads: secretReads,
+              settingsMounted: true,
+              initialSpeechMode: "cloud",
+              savedSpeechMode: "local",
+              ttsHealth,
+              asrHealth,
+            };
+          } finally { access.getSecret = originalGetSecret; }
         } catch (err) {
           return { ok: false, error: err && err.stack ? err.stack : String(err) };
         }
@@ -266,9 +302,12 @@ async function main(): Promise<void> {
       throw new Error(`Pith view failed E2E check: ${JSON.stringify(report)}`);
     }
     const persisted = JSON.parse(await readFile(resolve(devVault, settingsPath), "utf8"));
-    if (!isDeepStrictEqual(persisted.speech, speech)) throw new Error("Saved speech settings do not match the form");
-    if (!isDeepStrictEqual(persisted.speechProfiles, switched.profiles)) throw new Error("Saved speech profiles do not match the mode change");
+    verifySavedSpeech(persisted, expected);
     if (!stub.requests.includes("GET /health")) throw new Error("TTS health check did not reach the owned stub");
+    if (!stub.requests.includes("GET /asr/health")) throw new Error("ASR health check did not reach the owned stub");
+    await screenshot(page.webSocketDebuggerUrl, resolve(runDir, "settings.png"));
+    await evaluateInPage(page.webSocketDebuggerUrl, "window.app.setting.close()");
+    await screenshot(page.webSocketDebuggerUrl, resolve(runDir, "reader.png"));
   } catch (error) {
     failure = error;
   } finally {
@@ -276,11 +315,14 @@ async function main(): Promise<void> {
     catch (error) { throw new AggregateError(failure ? [failure, error] : [error], `Cannot confirm child exit; profile retained at ${runDir}`); }
   }
   if (failure) throw new Error(`Obsidian E2E failed; isolated files retained at ${runDir}, ${configDir}, ${workspacePath}. Obsidian stderr: ${stderr}`, { cause: failure });
-  success = { ok: true, cdpPort: port, ...report, profile: userDataDir, configDir, workspacePath };
+  success = { ok: true, cdpPort: port, ...report, profile: userDataDir, configDir, workspacePath, pluginHashes, stubRequests: stub.requests, ownedChildStopped: child.exitCode !== null || child.signalCode !== null, screenshots: [resolve(runDir, "settings.png"), resolve(runDir, "reader.png")] };
   } catch (error) { stubFailure = error; }
   try { await stub.close(); }
   catch (error) { throw new AggregateError(stubFailure ? [stubFailure, error] : [error], "Speech stub cleanup failed"); }
   if (stubFailure) throw stubFailure;
+  if (!success) throw new Error("Missing verification result");
+  success.stubClosed = true;
+  await writeFile(resolve(runDir, "report.json"), JSON.stringify(success, null, 2) + "\n");
   console.log(JSON.stringify(success, null, 2));
 }
 
