@@ -8,7 +8,6 @@ import {
   type InterlineTranslator,
   type ToolkitDescriptor,
   type GuideAgentService,
-  type GuideConversationEntry,
   type GuideProvider,
   type GuideQuickAction,
   type HostPort,
@@ -186,19 +185,11 @@ registerPlugin({
 
     if (provider && engine && store && typeof engine.registerEffectHandler === "function") {
       const activeProvider = provider;
-      const dispose = engine.registerEffectHandler("prepare-next-action", async (payload) => {
+      const dispose = engine.registerEffectHandler("prepare-next-action", async (payload, signal) => {
         if (typeof payload.topicId !== "string") throw new Error("Effect topic is missing");
         const topicId = payload.topicId;
-        const prompt: GuideConversationEntry = {
-          id: crypto.randomUUID(),
-          role: "user",
-          text: "请为当前课题给出一个 15 分钟内可完成的具体下一步行动，只返回行动内容。",
-          createdAt: new Date().toISOString(),
-        };
-        const reply = await activeProvider.reply({
-          topicId,
-          conversation: [...(await engine.getConversation(topicId)), prompt],
-        });
+        if (!(activeProvider instanceof LocalAcpGuideProvider)) throw new Error("Background next action requires a tool-free local ACP provider");
+        const reply = await activeProvider.suggestNextAction(topicId, signal);
         const nextAction = parseGuideReply(reply).text.trim();
         if (!nextAction) throw new Error("Guide returned an empty next action");
         await store.updateTopic(topicId, { nextAction });

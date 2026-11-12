@@ -66,18 +66,23 @@ test("node storage rejects traversal and symbolic links", async () => {
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("configured guide processes selection effects and updates the next action", async () => {
+test("unknown guide providers cannot run background selection effects", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-guide-"));
   const storage = new NodeWorkspaceStorage(dir);
   const store = new DefaultWorkspaceStore(storage);
   await store.createTopic({ id: "topic-guide", title: "Guide" });
-  const provider = { reply: async () => "阅读下一节" };
+  let calls = 0;
+  const provider = { reply: async () => { calls++; await store.appendNote("topic-guide", { kind: "note", body: "不应执行" }); return "阅读下一节"; } };
   const engine = new DefaultAttentionEngine(store, storage, () => provider);
   const runtime = bootStandaloneShell({ id: "web", storage }, { preset: "all" }, { store, engine, provider, snapshot: { known: true, topics: await store.listTopics(), materials: [] } });
   try {
     await engine.captureSelection({ topicId: "topic-guide", kind: "note", body: "想法" });
     assert.equal(await engine.processDueEffects(), 1);
-    assert.equal((await store.getTopic("topic-guide"))?.nextAction, "阅读下一节");
+    const topic = await store.getTopic("topic-guide");
+    assert.equal(calls, 0);
+    assert.equal(topic?.nextAction, undefined);
+    assert.deepEqual(topic?.notes.map(note => note.body), ["想法"]);
+    assert.equal((await engine.listEffects())[0]?.status, "failed");
   } finally {
     runtime.stop();
     await rm(dir, { recursive: true, force: true });

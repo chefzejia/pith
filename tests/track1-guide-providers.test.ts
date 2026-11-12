@@ -429,6 +429,70 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
   assert.equal(updated?.nextAction, "用 15 分钟画一张 `setService` / `deleteService` 的栈顶切换时序图");
 });
 
+test("background next action rejects tool output without changing learner evidence", async () => {
+  const storage = createMemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const material = await store.importMaterial({ id: "material-bg", title: "Source", kind: "book", files: [{ name: "source.md", bytes: new TextEncoder().encode("Original") }] });
+  const topic = await store.createTopic({ id: "topic-bg", title: "Dependency injection", target: "Understand ownership", materialId: material.id });
+  const engine = new DefaultAttentionEngine(store, storage);
+  await engine.captureSelection({ topicId: topic.id, kind: "note", body: "A real learner note" });
+  const beforeTopic = await store.getTopic(topic.id), beforeMaterial = await store.getMaterial(material.id), beforeProfile = await storage.readBinary("ME.md");
+  const noteId = beforeTopic!.notes[0]!.id;
+  let response = "";
+  const prompts: string[] = [], sessions: Record<string, unknown>[] = [];
+  const { port } = createFakeProcessPort({ installed: { dsh: { path: "/sandbox/dsh", version: "1", helpText: "ACP" } }, onSpawn(_spec, server) {
+    server.onClientLine(line => {
+      const request = JSON.parse(line) as { id?: number; method: string; params: Record<string, unknown> };
+      if (request.method === "session/new") sessions.push(request.params);
+      if (request.method === "session/prompt") prompts.push((request.params.prompt as { text: string }[])[0]!.text);
+      if (request.id !== undefined) server.sendToClient({ jsonrpc: "2.0", id: request.id, result: request.method === "session/new" ? { sessionId: "bg" } : request.method === "session/prompt" ? { text: response } : {} });
+    });
+  } });
+  const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage, process: port }, store, engine, window: {} });
+  runtime.reconcile({ preset: "all", plugins: { "guide-acp": { enabled: true, config: { persona: "studio", agentId: "dsh", model: "fixture-model", effort: "high", timeoutMs: 15000 } } } });
+  const tool = (name: string, args: Record<string, unknown>) => `\`\`\`pith-tool\n${JSON.stringify({ name, arguments: args })}\n\`\`\``;
+  const examples = [
+    `15 分钟微实验。\n${tool("pith_save_note", { topicId: topic.id, body: "15 分钟微实验记录：测试时被迫触碰磁盘。" })}`,
+    tool("pith_write_lesson", { materialId: material.id, fileName: "lesson.md", markdown: "# fabricated" }),
+    tool("pith_remember", { topicId: topic.id, text: "fabricated", noteId }),
+    tool("pith_settle_topic", { topicId: topic.id, verificationSummary: "fabricated", observations: [{ text: "fabricated", noteId }] }),
+    tool("pith_configure_toolkits", { topicId: topic.id, toolkits: ["shadowing"] }),
+    tool("pith_ingest_external", { topicId: topic.id, url: "https://example.invalid/" }),
+    tool("pith_fetch_media_corpus", { topicId: topic.id, url: "https://example.invalid/" }),
+    tool("pith_get_context", { topicId: topic.id }),
+    `\`\`\`pith-toolkits\n["shadowing"]\n\`\`\``,
+    `pith-tool\n${JSON.stringify({ name: "pith_save_note", arguments: { topicId: topic.id, body: "fabricated" } })}`,
+    JSON.stringify({ name: "pith_remember", arguments: { topicId: topic.id, text: "fabricated" } }),
+  ];
+  try {
+    for (const [index, sample] of examples.entries()) {
+      if (index) await engine.enqueueEffect("prepare-next-action", topic.id, { topicId: topic.id });
+      response = sample;
+      assert.equal(await engine.processDueEffects(), 1);
+      const effect = (await engine.listEffects()).at(-1)!;
+      assert.equal(effect.status, "failed", sample);
+      assert.match(effect.lastError!, /tool|工具/i);
+      assert.deepEqual(await store.getTopic(topic.id), beforeTopic);
+      assert.deepEqual(await store.getMaterial(material.id), beforeMaterial);
+      assert.deepEqual(await storage.readBinary("ME.md"), beforeProfile);
+      assert.equal(await storage.exists("history"), false);
+    }
+    assert.ok(prompts.every(prompt => prompt.includes("A real learner note") && !prompt.includes("pith-tool")));
+    assert.ok(sessions.every(session => session.model === "fixture-model" && session.reasoningEffort === "high" && Array.isArray(session.mcpServers) && session.mcpServers.length === 0));
+
+    await engine.enqueueEffect("prepare-next-action", topic.id, { topicId: topic.id });
+    response = "画一张依赖所有权与释放顺序的时序图。";
+    assert.equal(await engine.processDueEffects(), 1);
+    assert.equal((await engine.listEffects()).at(-1)!.status, "completed");
+    assert.equal((await store.getTopic(topic.id))!.nextAction, response);
+
+    response = tool("pith_save_note", { topicId: topic.id, body: "Foreground learner note" });
+    const foreground = new LocalAcpGuideProvider({ processPort: port, store, engine, storage, getAgentConfig: () => ({ agentId: "dsh" }), resolveDescriptor: async () => ({ id: "dsh", label: "DSH", command: "/sandbox/dsh", args: [], version: null, available: true, note: "" }), buildScenePrompt });
+    await foreground.reply({ topicId: topic.id, conversation: [] });
+    assert.equal((await store.getTopic(topic.id))!.notes.at(-1)!.body, "Foreground learner note");
+  } finally { runtime.stop(); }
+});
+
 test("ACP practice prompt receives its anchor, explanation and rubric", async () => {
   const storage = createMemoryStorage(), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
   const topic = await store.createTopic({ title: "Practice" }); let sent = "";
