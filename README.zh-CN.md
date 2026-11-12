@@ -18,11 +18,11 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
 
 | 训练阶段 | AI 模型训练 | 人类认知进化（理论 + 具身实践） | Pith 机制 |
 | :--- | :--- | :--- | :--- |
-| **0. 算力调度与基座权重**<br>*(Compute & Base Weights)* | 集中有限算力预算；维护基座模型权重 | **注意力防噪与个人基座**：屏蔽信息流焦虑，聚焦极少数活跃课题与 15 分钟下一步动作 | **课题看板与今日焦点（Topic Board）** + **`ME.md`（个人认知基座）** |
-| **1. 预训练**<br>*(Pre-training)* | 清洗高质量一手语料，建立底座表征 | **一手原始材料摄入**：拒绝二手摘要阉割，直接精读原书、原论文、源码与长播客 | **阅读与时间轴舞台（`stage-*`）** + **输入降噪脚手架与神经伴读** |
-| **2. 监督微调**<br>*(SFT)* | 高质量专家示范，对齐解题路径 | **因人施教的拆解与讲义生成**：由熟知你背景（`ME.md`）的向导拆解因果链、编写精校讲义并编排课题工具 | **向导协同（`guide-*`）** |
-| **3. 强化学习后训练**<br>*(Post-training / RL)* | 模型先 Rollout 生成 → 环境返回误差信号 → 更新梯度 | **具身与生成式实训**：撤除原文提示，通过跟读、复述与主动阐述暴露认知盲区 | **舞台原位实训道场（`dojo-*`）** |
-| **4. 评测与权重合并**<br>*(Eval & Merge)* | 跑 Benchmark 验证泛化与迁移能力，合并权重落盘 | **结题门禁与认知沉淀**：抗住反例与跨场景迁移检验；无思考与实训记录禁止结题 | **结题门禁** → 课题归档并反哺更新 `ME.md` |
+| **0. 算力调度与基座权重**<br>*(Compute & Base Weights)* | 集中有限算力预算；维护基座模型权重 | **注意力防噪与个人基座**：屏蔽信息流焦虑，聚焦极少数活跃课题与 15 分钟下一步动作 | **课题看板、材料库与今日焦点** + **`ME.md`（个人认知基座）** |
+| **1. 预训练**<br>*(Pre-training)* | 清洗高质量一手语料，建立底座表征 | **一手原始材料摄入**：拒绝二手摘要阉割，直接精读原书、原论文、源码与长播客 | **阅读与时间轴舞台（`stage-*`）** + **行间双语与神经伴读** |
+| **2. 监督微调**<br>*(SFT)* | 高质量专家示范，对齐解题路径 | **因人施教的拆解与讲义生成**：由熟知你背景（`ME.md`）的向导把一个问题立成课题、拆解因果链、编写讲义并编排训练工具 | **向导（`guide-acp`）** |
+| **3. 强化学习后训练**<br>*(Post-training / RL)* | 模型先 Rollout 生成 → 环境返回误差信号 → 更新梯度 | **具身与生成式实训**：撤除原文提示，通过跟读、复述与主动阐述暴露认知盲区 | **舞台原位训练工具（`toolkit-*`）** |
+| **4. 评测与权重合并**<br>*(Eval & Merge)* | 跑 Benchmark 验证泛化与迁移能力，合并权重落盘 | **结题门禁与认知沉淀**：抗住反例与跨场景迁移检验；无思考与实训记录禁止结题 | **结题门禁** → 课题沉淀，观察条目写入 `ME.md` |
 
 ---
 
@@ -50,13 +50,13 @@ npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault
 ## 项目结构
 
 - [`src/core/`](src/core/)：零宿主与 UI 框架依赖的领域内核（`PluginRuntime`、`WorkspaceStore`、`AttentionEngine`、[`HostPort`](src/core/host.ts) 与能力契约 [`seams.ts`](src/core/seams.ts)）。
-- [`src/plugins/`](src/plugins/)：平级隔离的阅读/媒体舞台、实训道场、标准 ACP 向导与语音服务插件，统一在 [`src/plugins/all.ts`](src/plugins/all.ts) 注册。
-- `src/workbench/`：全 Shell（`obsidian`、`web`、`dsh`）共用的唯一一份五区图形工作台 UI 与交互状态机。
+- [`src/plugins/`](src/plugins/)：平级隔离的阅读/媒体舞台、阅读辅助与训练工具、标准 ACP 向导与语音服务插件，统一在 [`src/plugins/all.ts`](src/plugins/all.ts) 注册。
+- `src/workbench/`：全 Shell（`obsidian`、`web`、`dsh`）共用的唯一一份工作台 UI（首页、材料阅读、课题内三个场景）。
 - [`src/shells/`](src/shells/)：多态原生宿主薄壳适配器（`obsidian`、`web`、`dsh`、`speech`）。
 - [`tests/`](tests/)：架构边界守卫单测与各子系统验证套件。
 
 ## 文档入口
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)：产品定位、核心模块、空间交互铁律与领域词表。
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：四层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）与数据所有权。
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：四层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-toolkits`](docs/subsystems/3-toolkits.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）与数据所有权。
 - [`AGENTS.md`](AGENTS.md)：Agent 协作边界、验证命令与按需路由。

@@ -1,100 +1,182 @@
-# 子系统 4：认知管家向导、课程拆解、按需语音与多态宿主壳（`guide-acp` · `speech-service` · `shells`）
+# 子系统 4：向导、按需语音与宿主壳（`guide-acp` · `speech-service` · `shells`）
 
-> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [3-dojos.md](3-dojos.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
+> 总纲：[ARCHITECTURE.md](../ARCHITECTURE.md) · 产品定义：[PRODUCT.md](../PRODUCT.md) · 平行子系统：[1-core-store-engine.md](1-core-store-engine.md) · [2-stages.md](2-stages.md) · [3-toolkits.md](3-toolkits.md) · [5-spatial-ui-and-slots.md](5-spatial-ui-and-slots.md)
 
 ---
 
 ## 1. 职责与边界
 
-对应人类认知训练管线的 **第 2 阶段：SFT（认知管家、课程拆解与工具编排 [`guide-acp`](../../src/plugins/guide-acp/index.ts)）**、**第 4 阶段：Eval（结题门禁与权重合并 [`pith_settle_topic`](../../src/plugins/guide-acp/tools.ts)）**、**篇幅级神经语音伴读基础设施（[`speech-service`](../../src/plugins/speech-service/index.ts) & [`shells/speech`](../../src/shells/speech/index.ts)）**，以及将统一工作台适配到不同原生运行环境的**多态宿主薄壳（[`src/shells/`](../../src/shells/)）**。
+对应训练管线的监督微调（立项、拆课与工具编排，[`guide-acp`](../../src/plugins/guide-acp/index.ts)）与评测（结题门禁，[`pith_settle_topic`](../../src/plugins/guide-acp/tools.ts)），加上神经语音伴读（[`speech-service`](../../src/plugins/speech-service/index.ts) 与 [`shells/speech`](../../src/shells/speech/index.ts)）和把统一工作台适配到各运行环境的宿主壳（[`src/shells/`](../../src/shells/)）。
 
 ---
 
-## 2. 认知管家 Prompt 协议、三类课程拆解与工具动态编排（`guide-acp`）
+## 2. 向导（`guide-acp`）
 
-### 2.1 核心定位：私人课程架构师与注意力管家（继承并升级自 `ganfan-garden`）
+向导是本机的 ACP Agent（dsh、claude、codex）。Pith 与它之间只有两条标准通道：
 
-向导（Guide）绝不是阅读器旁边的被动问答机器人，而是**认知管理管家与私人课程架构师**。每次对话时，[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts) 自动聚合 `<workspace>/ME.md`（已知基座、擅长类比、学习偏好与常见卡点）、当前 `Topic` 元数据、绑定的 `Material`（含文件名清单或绑定的 Git 仓库 `externalPath / commitSha`）、历史 `notes` 账本、本课题的近期对话（[`selectConversationHistory`](../../src/plugins/guide-acp/conversationMemory.ts) 取当前消息之前最近 16 轮，单轮 2 000 字、合计 12 000 字以内，超长轮次保留首尾）、当前选区 `SelectionAnchor` 以及全量可用 `Toolkit` 的编排指南，注入以下结构化指导协议：
-
-```markdown
-你是用户的私人课程架构师、注意力管家与后训练（Post-training RL）教练。你的目标是结合学习者画像（`ME.md`），帮他用最省注意力的方式，在“一手材料/递进讲义理解 + 原位脚手架实训反馈”中真正吃透当前课题（Topic）。
-
-### 1. 开启或推进课题时（因人施教 · 三类课题分流）：
-- 先阅读学习者画像 `ME.md`，找准用户在本课题中最想解决的核心问题，并用他最熟悉的领域做类比跳板。
-- **情况 A：无现成教材的庞大认知/架构型课题（如学习 DSH / magpie 等代码仓库、攻克陌生学科或宽泛意图）**
-  1. 主动使用 `pith_list_repository_files` / `pith_read_repository_file`（或 `pith_read_material_section`）侦察材料结构，揪出**唯一主线论题**；
-  2. 先调用 `pith_write_lesson` 规划《`00-课程大纲.md`》（将庞大主题由浅入深拆解为 3~6 讲递进路线），并生成第一讲《`01-xxx.md`》精炼讲义（包含：学习目标、开场真问题、带可核对 `commit` 与 `path:line` 出处的有据走读、````pith-teaching```` 检验卡与 1 个 15 分钟微实验）；
-  3. **仓库走读铁律**：必须严格区分“源码直接支持的事实”、“基于证据的推断”与“教学类比”，每个源码事实须附带 `path:line` 出处；未读取的文件绝不编造。
-- **情况 B：已有现成书籍/论文/音视频的伴读型课题**
-  - 不做替代原著的速食摘要机；读取目录或当前章节，提炼全书/全篇主线论点与必读路线（必要时用 `pith_write_lesson` 生成《`00-导读路线.md`》），协助拆解卡壳段落，每节给出 1 个检验理解的生成式问题。
-- **情况 C：需要具身反馈的技能型课题（如外语口语跟读、表达训练、器乐/编程实操）**
-  - 结合学习者带回的 `practice` 漏词/盲区记录进行精准诊断，每次派发一个 15 分钟内可完成的具体微练习（更新 `nextAction`）。
-
-### 2. 脚手架工具（Toolkits）的自动识别与动态 CRUD：
-- 根据当前课题的真实意图，主动评估可用工具包（`interline` 行间双语、`shadowing` 影子跟读、`feynman` 费曼复述）：
-  - 外文原著阅读受阻时挂载 `interline`；需要口语/语音跟练时挂载 `shadowing`；需要检验概念、架构或源码因果链内化时挂载 `feynman`；若某工具不再需要或干扰专注，主动将其移除。
-- 需要挂载、增补或移除工具时，调用 `pith_configure_toolkits` 或在回复末尾输出 `pith-toolkits` JSON 数组围栏。
-
-### 3. 后训练笔记收录、选项胶囊（`pith-choices`）与毕业门控：
-- 当用户发来选区思考或实训复盘时，先调用 `pith_save_note` 原汁原味收入账本；发现用户新的知识基座或偏好时，同步更新 `ME.md`。
-- **每次回复末尾，必须用 ````pith-choices```` 代码块给出 2~4 个具体的下一步可点击选项胶囊**（每行一个选项），让用户点按即可丝滑推进下一讲或下一步实训。
-- **毕业门控（Settlement Gate）**：用户发起总结沉淀时，先回顾全部笔记并提出恰好 1 道需要独立解释因果链、反例辨析或跨场景迁移的深水区问题（本轮严禁直接调用 `pith_settle_topic`）；只有用户回答证明真懂后，才调用 `pith_settle_topic` 写入《核心认知总结》并反哺更新 `ME.md`。
+```text
+Pith（guide-acp 插件）                       本机 Agent 进程
+  │  ACP over stdio ───────────────────────▶  initialize · session/new · session/prompt
+  │  ◀───────────────────────────────────── session/update · session/request_permission
+  │
+  │  MCP over loopback HTTP（Pith 是服务端）
+  │  ◀───────────────────────────────────── tools/list · tools/call
 ```
 
-### 2.2 动态快捷胶囊槽（[`quickActionsForTopic`](../../src/plugins/guide-acp/index.ts)）
+回复正文只有文字。向导要读材料、写讲义、存笔记、给出下一步选项，一律调用工具；Pith 不从回复文本里解析任何指令。
 
-向导侧栏顶部的快捷胶囊区采用**「基础场景槽 + 已挂载 Toolkit 贡献槽」**动态合成：
-- **基础场景槽**：
-  - 若当前课题尚无阅读文件或刚绑定代码仓：优先显示 **`规划课程大纲与第一讲`**；
-  - 若已有材料文件：显示 `导读这一节`、`考考我 / 下一步`；
-  - 仅当课题已存在至少一条学习者笔记（`topic.notes.length > 0`）时，才解锁显示 **`总结沉淀`** 毕业胶囊；
-- **Toolkit 贡献槽**：遍历当前课题 `topic.toolkits` 中已激活的 `Toolkit`，动态合并其 `quickActions`（如 `shadowing` 注入 `分析跟读`，`feynman` 注入 `费曼深水区追问`）。
+### 2.1 一个回合
 
-### 2.3 多步工具读取与执行回路（Multi-Step Tool Loop & Trailing Directives）
+1. 引擎调用 [`GuideProvider.run`](../../src/core/engine/contract.ts)，作用域是「立项」或某个课题。
+2. 插件经 [`ToolServerPort`](../../src/core/host.ts) 打开一个只服务本回合的工具端点。作用域在打开时确定，所以工具没有 `topicId` 参数，向导无法指向别的课题。端点实现 MCP 的 HTTP 方式的最小子集：每个请求一条 JSON-RPC 消息，以 JSON 回应，不开事件流；支持 `initialize`、`notifications/initialized`、`ping`、`tools/list` 与 `tools/call`，其余方法回「方法不存在」。协议逻辑在插件里，宿主只负责收发。
+3. 启动 Agent 进程，`initialize`、`session/new`（`mcpServers` 里是这个端点的地址与请求头），按设置选定模型与思考强度。
+4. 发送一次 `session/prompt`，内容是场景提示词。整个回合只有这一次请求；Agent 在其中想调多少次工具就调多少次。
+5. 把 `session/update` 与工具端点收到的调用，按到达顺序变成回合步骤（2.3）。
+6. `session/prompt` 返回后回合结算，关闭会话、进程与端点。
 
-为了让向导在拆解代码仓库或长文档时能够**“先读取目录/源码，拿到真实内容后再撰写讲义”**，[`LocalAcpGuideProvider.reply`](../../src/plugins/guide-acp/acpSession.ts) 支持多步工具循环（最多 4 轮）：
-1. 若向导在某轮回复末尾输出了只读查询类 `pith-tool`（如 `pith_get_context`、`pith_read_material_section`、`pith_list_repository_files`、`pith_read_repository_file`），宿主立即在受控沙盒内执行该工具，并将工具返回的 JSON 结果作为下一拍上下文回喂给向导继续生成最终讲义与回复；
-2. 写操作工具（`pith_write_lesson`、`pith_save_note`、`pith_configure_toolkits`、`pith_settle_topic`、`pith_ingest_external`）与尾部围栏（`pith-toolkits`、`pith-choices`）在校验课题作用域后落盘执行，触发左侧 Stage 与顶栏工具槽即时刷新。
-3. 每轮向导请求与每次行间翻译请求的 `session/prompt` 期限取 `guide-acp` 插件的 `timeoutMs`（默认 [`AGENT_REQUEST_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts) 300 秒，范围 5～600 秒），两个宿主壳从设置文件 `_cache/web-settings.json` 的 `agentTimeoutMs` 读取；握手请求（`initialize`、`session/new`、配置项）各自以 [`AGENT_HANDSHAKE_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts) 60 秒为上限，使不支持 ACP 的可执行文件尽早失败。
+Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示词里的近期对话，不依赖 Agent 一侧的会话恢复。
 
-### 2.4 受控工作区工具表（[`tools.ts`](../../src/plugins/guide-acp/tools.ts)）
+**启动前的检查**（不满足即以 `failed` 结算并说明原因）：
 
-向导子进程以只读权限启动（[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)），所有工作区与绑定仓库操作仅能通过以下受控工具执行：
+- 设置里选了 Agent，且可执行文件可用。
+- 宿主提供了 `process` 与 `toolServer`。
+- `initialize` 的回应声明了 `mcpCapabilities.http`。
 
-| 工具名称 | 核心职责与安全门禁 |
+### 2.2 场景提示词
+
+[`buildScenePrompt`](../../src/plugins/guide-acp/index.ts) 每个回合重新组装，内容依次是：
+
+| 段落 | 内容 |
 | :--- | :--- |
-| `pith_get_context` | 读取 `ME.md`、课题看板快照、指定 `Topic` 详情及绑定的 `Material` 文件清单 |
-| `pith_read_material_section` | 按 `text:line:<N>` 有界读取材料包内文本文件（或列出材料文件清单） |
-| `pith_list_repository_files` | **代码仓库侦察**：分页列出当前课题绑定 Git 仓库（`kind === "repo"`）在绑定 `commitSha` 快照下的普通文件路径列表（拒绝符号链接与未提交工作区脏文件） |
-| `pith_read_repository_file` | **代码仓库精读**：只读当前课题绑定 Git 仓库在绑定 `commitSha` 下的指定 UTF-8 源码文件（支持行区间或有界截断，返回精确 `commitSha`、`path` 与 `startLine..endLine`） |
-| `pith_write_lesson` | **递进讲义生成**：向当前课题的材料包写入《`00-课程大纲.md`》或《`01-xxx.md`》讲义（若当前课题尚无 `materialId`，自动创建并绑定专属材料包；严禁覆盖原始导入文件） |
-| `pith_configure_toolkits` | **工具动态 CRUD**：校验并更新当前课题挂载的 `topic.toolkits`（支持增、删、重置） |
-| `pith_save_note` | 向当前课题追加 `note`、`highlight` 或 `practice` 记录及向导评注 `guideRemark` |
-| `pith_ingest_external` | 经 SSRF 公网 IP 校验抓取外部文章/讨论/媒体并导入为只读 `Material` |
-| `pith_search_media` | **主动搜索声学语料（`yt-dlp`）**：按关键词检索公开音视频/演讲候选列表（返回标题、URL、时长与来源），供外语听说与跟读课题挑选真实语料 |
-| `pith_fetch_media_corpus` | **拉取音视频轨、时间轴字幕与语义切片（`yt-dlp`）**：给定公开视频/播客 URL，提取轻量视频（`.mp4/.webm`）或音频轨及 `.vtt/.srt` 时间轴字幕导入当前课题 `Material`，自动按 30~60s 语义边界切出 `slices: MediaCorpusSlice[]` 写入《`00-跟读导读.md`》并自动挂载 `shadowing` 工具 |
-| `pith_settle_topic` | **硬性毕业门禁**：校验 `status === "exploring"` 且 `topic.notes.length > 0`，追加 `## 核心认知总结`、将课题置为 `settled` 并支持反哺更新 `ME.md` |
+| 角色与规则 | 见下 |
+| 画像 | `ME.md` 全文 |
+| 课题 | 标题、目标、状态、下一步、已挂载的训练工具；立项作用域下改为「尚未创建」 |
+| 材料 | 课题引用的每份材料：ID、标题、类型、文件清单或仓库的路径与提交。立项作用域下列出用户带来的材料和材料库的全部条目 |
+| 讲义 | 本课题已有讲义的文件名 |
+| 记录 | 课题的高亮、笔记与实训记录，加上所引用材料上的材料级记录 |
+| 当前选区 | 用户这条消息引用的原文及其来源 |
+| 可用训练工具 | 每个已注册训练工具的 ID 与 `whenToUse` |
+| 近期对话 | [`selectConversationHistory`](../../src/plugins/guide-acp/conversationMemory.ts) 从此前的回合里取：只取每个回合的用户消息与回复正文，最近 16 条，单条 2 000 字、合计 12 000 字以内，超长的保留首尾；最近一个回合附上当时给出的选项 |
+| 用户消息 | 本回合的输入 |
+| 本回合指令 | 工具经 `instruction` 给出的指令（如费曼复述的追问规则），没有则省略 |
 
----
+规则（写进提示词，由模型遵守）：
 
-## 3. 篇幅级神经语音伴读与按需本机网关（`speech-service` & `speechRuntime.ts`）
+- **立项**：先看材料再定课题。目标必须是一个能结题的问题；用户只给了材料没说清目标时，先问，不创建。创建课题后在同一回合写《`00-课程大纲.md`》（3 到 6 讲，每行 `- [01-xxx.md] 标题：一句话目标`）和第一讲正文，其余各讲等用户需要时再写。
+- **讲义**：包含学习目标、一个真实问题、带出处的走读、`pith-teaching` 检验卡和一个 15 分钟微实验。源码事实标注提交与 `path:line`，区分事实、推断与类比；没读过的内容不写成事实。
+- **书籍、长文与音视频**：读目录和当前章节，设计原作导读路线，不写替代原著的摘要；每节给一个检验理解的问题。
+- **技能训练**：依据实训记录诊断，每次安排一个 15 分钟内能完成的练习。
+- **工具**：按用户的真实目标增删训练工具。
+- **选项**：每个回合结束前调用 `pith_offer_choices` 给出 2 到 4 个具体的下一步。
+- **记住**：只有用户明确要求记住某件事时才调用 `pith_remember`。
+- **结题**：用户提出总结沉淀时，先提一道需要独立解释因果、辨析反例或迁移应用的问题，这一回合不调用 `pith_settle_topic`；用户的回答证明理解之后才调用。不替用户作答。
 
-1. **非正文严格剔除与双位置解耦**：[`filterProseOnly`](../../src/plugins/speech-service/index.ts) 仅提取 `isProse === true` 的块朗读；听读期间手动翻页不中断播放，底部播客甲板提供 `[跳回朗读处]`。
-2. **零 Python 依赖的 Vault 外本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）**：
-   - 模型与运行时安装在 Vault 之外的系统目录（默认路径与 `PITH_SPEECH_HOME` 规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)），支持实时下载进度、断点续传、SHA-256 强校验与取消控制；
-   - 默认 TTS 为 **ZipVoice INT8（中英双语）**，使用预置参考音色（[`ZIPVOICE_PRESETS`](../../src/shells/speech/speechVoices.ts)）与 8 步生成，ASR 为 **SenseVoice INT8（多语种）**；原生运行时、模型下载地址及哈希由 [`SPEECH_MODEL_ASSETS`](../../src/shells/speech/speechRuntime.ts) 定义，在设置面板提供本机/云端音色选择器，严禁在运行时调用宿主机 `python3` 或 `pip`。
+### 2.3 回合步骤的来源
 
----
+| 来源 | 变成的步骤 |
+| :--- | :--- |
+| `agent_message_chunk` | `reply`。带相同 `messageId` 的分块并入同一步；没有 `messageId` 时并入紧邻的上一个 `reply`。Agent 逐字发就逐字显示，整条发就整条显示 |
+| `agent_thought_chunk` | `thought`，合并规则同上 |
+| 工具端点收到 `tools/call` | `tool`。开始时 `running`，处理完成后带上摘要和可点开的结果（`TurnEffect`）。Pith 工具的步骤只由这一来源产生 |
+| `tool_call` / `tool_call_update`，且不是 Pith 工具 | `tool`，只有名称与状态，没有可点开的结果 |
+| `usage_update` 及其余更新 | 忽略 |
 
-## 4. 多态原生宿主薄壳（`src/shells/`）
+判断「是不是 Pith 工具」的依据是标题以某个已注册的 Pith 工具名结尾；Pith 工具名一律以 `pith_` 开头。
 
-同一套 `src/core/`、`src/plugins/` 与统一图形工作台 `src/workbench/` 通过 [`HostPort`](../../src/core/host.ts) 适配三种原生宿主环境：
+### 2.4 权限与只读
 
-| 宿主壳 | 入口文件 | 核心适配职责 |
+- Agent 改动工作区的唯一途径是 Pith 工具。为此有三层约束：
+  - 对 dsh，进程以只读权限模式启动（[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)）。其余 Agent 没有等价的启动开关，靠下一条约束。
+  - 对 `session/request_permission`：请求所指的工具调用是 Pith 工具时选择一次性允许，其余一律选择一次性拒绝。判断依据是此前收到的、带同一 `toolCallId` 的 `tool_call` 更新；没有收到过的一律拒绝。
+  - 工作目录是宿主提供的临时目录；绑定的本地仓库路径由宿主用系统沙盒禁止写入（目前只有 macOS 实现）。
+- 工具端点只监听本机回环地址，只接受带本回合随机令牌的请求，回合结束即关闭。
+- 每个工具在执行前校验作用域：`materialId` 必须属于本课题引用的材料（立项作用域下是材料库里的材料）；文件名与路径按 [1-core-store-engine.md](1-core-store-engine.md) 的规则校验。
+
+### 2.5 工具表（[`tools.ts`](../../src/plugins/guide-acp/tools.ts)）
+
+读取：
+
+| 工具 | 作用 |
+| :--- | :--- |
+| `pith_list_material` | 列出一份材料的文件；仓库材料分页列出绑定提交里的普通文件路径（不含符号链接与未提交的改动） |
+| `pith_read_material` | 读材料的一段。仓库材料按行区间读绑定提交里的 UTF-8 文件；其余材料经 `stage.reader` 服务取带坐标的文本块，所以 EPUB、PDF 与字幕都能读。单次返回有界，并指出是否截断 |
+| `pith_read_lesson` | 读本课题的一份讲义 |
+| `pith_search_media` | 按关键词搜索公开音视频（宿主提供 `mediaCorpus` 时才有） |
+
+写入：
+
+| 工具 | 作用 | 结果（`TurnEffect`） |
 | :--- | :--- | :--- |
-| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts) | 将 Obsidian `Vault.adapter` 映射为 `WorkspaceStoragePort`，注入本地 Git 仓库只读检视器（`repositoryPort`），挂载统一工作台视图并接入系统钥匙串 `secretStorage`。 |
-| **独立 Web 桌面壳** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 基于 Node 文件系统、本地 Git 仓库只读检视器与本地 HTTP 服务（默认 `http://127.0.0.1:4173`）挂载同一份统一图形工作台。 |
-| **DSH 宿主壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | 同时导出统一图形工作台视图与 [`createDshPluginBundle`](../../src/shells/dsh/index.ts)。 |
+| `pith_create_topic` | 创建课题：标题、目标、引用的材料、训练工具。只在立项作用域可用，一个回合一次；成功后本回合的作用域变为这个课题 | `topic` |
+| `pith_write_lesson` | 写入或覆盖本课题的一份讲义 | `lesson` |
+| `pith_save_note` | 向本课题追加一条记录，可带锚点与向导批注 | `note` |
+| `pith_configure_toolkits` | 把本课题的训练工具设为给定列表 | `toolkits` |
+| `pith_ingest_external` | 抓取一个公开网页或讨论，导入为材料；在课题作用域下同时引用它 | `material` |
+| `pith_fetch_media_corpus` | 拉取公开音视频与字幕，导入为材料并引用，挂载 `shadowing`，把切片导读写成讲义（宿主提供 `mediaCorpus` 时才有） | `material` |
+| `pith_offer_choices` | 给出本回合的下一步选项 | 无 |
+| `pith_remember` | 向画像追加一条观察，可带证据笔记 | `observation` |
+| `pith_settle_topic` | 结题：写入《核心认知总结》，把课题置为 `settled`，可同时追加和撤回观察 | `topic`，每条新增观察各一个 `observation` |
+
+规则：
+
+- 立项作用域下，在 `pith_create_topic` 成功之前只有三个写入工具可用：两个导入工具（此时只把内容导入材料库，不引用、不挂工具、不写讲义）与 `pith_offer_choices`。其余写入工具被拒绝，原因是「先创建课题」。
+- `pith_settle_topic` 的门禁：课题处于 `exploring`，至少有一条用户的笔记或实训记录，`verificationSummary` 非空。
+- 画像只有 `pith_remember` 与 `pith_settle_topic` 两个写入口，二者都只增删观察条目，都在对话里留下一行可撤销的记录。提交整篇画像的参数不存在。
+- 工具失败时把原因作为工具结果返回给模型，由它决定下一步；回合不因此中止。
+
+### 2.6 期限、停止与重新请求
+
+| 请求 | 期限 |
+| :--- | :--- |
+| 握手（`initialize`、`session/new`、配置项） | 各 60 秒（[`AGENT_HANDSHAKE_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts)） |
+| 前台回合的 `session/prompt` | 不设期限，用户用停止按钮结束 |
+| 后台一次性请求：下一步行动、行间翻译、复述要点与对照 | `guide-acp` 设置里的 `timeoutMs`（默认 300 秒，范围 5 到 600 秒） |
+
+后台一次性请求经 `guide.prompt` 服务发出：一段提示词进，一段文本出，不挂工具端点，不带画像与对话。其他插件（`toolkit-interline`、`toolkit-feynman`）通过这个服务使用本机 Agent，不导入 `guide-acp`。
+
+```ts
+// src/core/seams.ts
+export interface AgentPromptService {
+  /** One prompt to the configured local agent, without tools or workspace context. Rejects when no agent is available. */
+  prompt(text: string, options?: { readonly signal?: AbortSignal }): Promise<string>;
+}
+```
+
+- **停止**：发送 `session/cancel`，等这次 `session/prompt` 返回，最多 5 秒，然后关闭进程。回合以 `stopped` 结算，已经收到的步骤和已经生效的写入都保留。
+- **失败**：进程退出、协议错误或握手超时，回合以 `failed` 结算，`error` 是原始原因。用户消息保留。
+- **重新请求**：对 `failed` 或 `stopped` 的回合，用同一条用户消息再跑一次，替换原回合，不产生第二条用户消息。
+
+### 2.7 快捷动作（[`quickActionsForTopic`](../../src/plugins/guide-acp/index.ts)）
+
+向导栏在没有选项可显示时给出快捷动作：
+
+- 课题还没有讲义：`规划课程大纲与第一讲`。
+- 已有讲义：`导读这一节`、`下一讲 / 考考我`。
+- 课题至少有一条用户的笔记或实训记录：`总结沉淀`。
+- 已挂载的训练工具各自贡献的动作。
+
+---
+
+## 3. 神经语音伴读与按需本机网关（`speech-service` & `speechRuntime.ts`）
+
+1. **只读正文，两个位置解耦**：[`filterProseOnly`](../../src/plugins/speech-service/index.ts) 只提取 `isProse === true` 的块朗读；听读期间手动翻页不中断播放，底部播放条提供 `[跳回朗读处]`。
+2. **Vault 外的本机语音守护进程（[`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)）**：
+   - 模型与运行时安装在 Vault 之外的系统目录（默认路径与 `PITH_SPEECH_HOME` 规则见 [`NodeManagedSpeechRuntime`](../../src/shells/speech/speechRuntime.ts)），支持下载进度、断点续传、SHA-256 校验与取消；
+   - 默认 TTS 为 ZipVoice INT8（中英双语），用预置参考音色（[`ZIPVOICE_PRESETS`](../../src/shells/speech/speechVoices.ts)）与 8 步生成，ASR 为 SenseVoice INT8（多语种）；运行时、模型下载地址及哈希由 [`SPEECH_MODEL_ASSETS`](../../src/shells/speech/speechRuntime.ts) 定义，设置面板提供本机与云端音色选择，运行时不调用宿主机的 `python3` 或 `pip`。
+
+---
+
+## 4. 宿主壳（`src/shells/`）
+
+同一套 `src/core/`、`src/plugins/` 与 `src/workbench/` 经 [`HostPort`](../../src/core/host.ts) 适配三种宿主：
+
+| 宿主壳 | 入口 | 适配职责 |
+| :--- | :--- | :--- |
+| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts) | 把 `Vault.adapter` 映射为 `WorkspaceStoragePort`，注入仓库只读检视、Agent 进程与工具端点，挂载统一工作台视图，接入系统钥匙串 |
+| **独立 Web 桌面壳** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 基于 Node 文件系统与本地 HTTP 服务（默认 `http://127.0.0.1:4173`）挂载同一份工作台；回合进度经服务端推送送到浏览器 |
+| **DSH 宿主壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | 导出统一工作台视图与 [`createDshPluginBundle`](../../src/shells/dsh/index.ts)。后者的工具由 2.5 的同一工厂生成，只多一个必填的 `topicId` 来确定作用域；不另行定义工具 |
+
+`ToolServerPort` 的两个实现都在 `src/shells/` 下，监听回环地址上的随机端口。
 
 ---
 

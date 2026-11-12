@@ -18,11 +18,11 @@ Knowledge that never passes through your own forward generation (rollout), error
 
 | Stage | Model Training | Human Evolution (Theory + Practice) | Pith Mechanism |
 | :--- | :--- | :--- | :--- |
-| **0. Compute & Base Weights** | Allocate finite compute budget; maintain base model weights | **Attention defense & cognitive baseline**: Block out feed noise, focus on active topics and a 15-minute next step | **Topic Board & Next Step** + **`ME.md` (cognitive baseline)** |
-| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject second-hand summaries. Read original books, papers, code, and podcasts directly | **Reading & Media Stages (`stage-*`)** + **Input Scaffolding & Read-Aloud** |
-| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & lesson generation**: An agent grounded in your `ME.md` breaks down causal chains, writes lessons, and orchestrates topic toolkits | **Guide Collaborator (`guide-*`)** |
-| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied & generative practice**: Remove crutches so you shadow, recall, and explain from memory against immediate error feedback | **In-Place Practice Dojos (`dojo-*`)** |
-| **4. Eval & Merge** | Run benchmarks to verify generalization, then merge checkpoint | **Settlement gate & weight consolidation**: Defend against counterexamples and transfer questions; settlement requires your own practice and notes | **Settlement Gate** → Archives the topic and updates `ME.md` |
+| **0. Compute & Base Weights** | Allocate finite compute budget; maintain base model weights | **Attention defense & cognitive baseline**: Block out feed noise, focus on active topics and a 15-minute next step | **Topic Board, Library & Next Step** + **`ME.md` (cognitive baseline)** |
+| **1. Pre-training** | Curate high-quality primary corpora to build base representations | **Primary source ingestion**: Reject second-hand summaries. Read original books, papers, code, and podcasts directly | **Reading & Media Stages (`stage-*`)** + **Interline Translation & Read-Aloud** |
+| **2. SFT** | Expert demonstrations to align reasoning paths | **Tailored decomposition & lesson generation**: A guide agent grounded in your `ME.md` turns a question into a topic, breaks down causal chains, writes lessons, and mounts training toolkits | **Guide (`guide-acp`)** |
+| **3. Post-training RL** | Model rolls out first → environment returns error signal → update gradient | **Embodied & generative practice**: Remove crutches so you shadow, recall, and explain from memory against immediate error feedback | **In-Place Training Toolkits (`toolkit-*`)** |
+| **4. Eval & Merge** | Run benchmarks to verify generalization, then merge checkpoint | **Settlement gate & weight consolidation**: Defend against counterexamples and transfer questions; settlement requires your own practice and notes | **Settlement Gate** → Settles the topic and adds observations to `ME.md` |
 
 ---
 
@@ -50,13 +50,13 @@ npm run build:obsidian     # Build dist/obsidian/ and sync to .dev-vault/.obsidi
 ## Project Structure
 
 - [`src/core/`](src/core/): Zero-dependency domain kernel (`PluginRuntime`, `WorkspaceStore`, `AttentionEngine`, [`HostPort`](src/core/host.ts), and capability contracts in [`seams.ts`](src/core/seams.ts)).
-- [`src/plugins/`](src/plugins/): Isolated sibling plugins for presentation stages, practice dojos, standard ACP guide, and speech services, registered in [`src/plugins/all.ts`](src/plugins/all.ts).
-- `src/workbench/`: Single shared graphical workbench UI and interaction state machine consumed across every shell (`obsidian`, `web`, `dsh`).
+- [`src/plugins/`](src/plugins/): Isolated sibling plugins for presentation stages, reading aids and training toolkits, the standard ACP guide, and speech services, registered in [`src/plugins/all.ts`](src/plugins/all.ts).
+- `src/workbench/`: Single shared workbench UI (home, material reading, and topic scenes) consumed across every shell (`obsidian`, `web`, `dsh`).
 - [`src/shells/`](src/shells/): Thin native host adapters (`obsidian`, `web`, `dsh`, `speech`).
 - [`tests/`](tests/): Architecture boundary guards and subsystem verification suites.
 
 ## Documentation
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md): Product positioning, core modules, spatial interaction laws, and domain glossary.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 4-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-dojos`](docs/subsystems/3-dojos.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), and data ownership.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 4-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-toolkits`](docs/subsystems/3-toolkits.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), and data ownership.
 - [`AGENTS.md`](AGENTS.md): Agent collaboration boundaries, verification commands, and routing.
