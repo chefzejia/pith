@@ -30,7 +30,9 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     assert.equal(lesson.format, "markdown");
     const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length 15 >>\nstream\nBT (page) Tj ET\nendstream\nendobj\n%%EOF");
     const book = await post("/api/materials", { title: "book", kind: "book", files: [{ name: "book.pdf", mimeType: "application/pdf", data: pdf.toString("base64") }] });
-    assert.equal((await get(`/api/materials/${book.id}/file?name=book.pdf`)).format, "pdf");
+    const rawPdf = await fetch(`${base}/api/materials/${book.id}/raw?name=book.pdf`);
+    assert.equal(rawPdf.headers.get("content-type"), "application/pdf");
+    assert.deepEqual(Buffer.from(await rawPdf.arrayBuffer()), pdf);
     const before = await readFile(join(workspace, "materials", material.id, "files", "source.md"));
     await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "选中文本", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:1", quote: "选中文本" } });
     await post("/api/notes", { topicId: topic.id, kind: "note", body: "我的笔记" });

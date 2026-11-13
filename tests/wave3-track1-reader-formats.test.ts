@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deflateRawSync, deflateSync } from "node:zlib";
+import { deflateRawSync } from "node:zlib";
 import { renderFile } from "../src/plugins/stage-reader/index.ts";
 import { applyPaginationStyles, computePagination } from "../src/plugins/stage-reader/pagination.ts";
 
@@ -69,26 +69,6 @@ test("single image uses byte-preserving embedded source", async () => {
   assert.match(view.html, /data:image\/webp;base64,AP8=/);
 });
 
-test("PDF page tree order, referenced and Flate streams, escaped text", async () => {
-  const compressed = deflateSync(Buffer.from("BT (Second \\(page\\)) Tj ET"));
-  const pdf = Buffer.concat([
-    Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [4 0 R 3 0 R] /Count 2 >>\nendobj\n3 0 obj\n<< /Type /Page /Contents 6 0 R >>\nendobj\n4 0 obj\n<< /Type /Page /Contents 5 0 R >>\nendobj\n5 0 obj\n<< /Length 24 >>\nstream\nBT (First & <) Tj ET    \nendstream\nendobj\n7 0 obj\n" + compressed.length + "\nendobj\n6 0 obj\n<< /Filter /FlateDecode /Length 7 0 R >>\nstream\n"),
-    compressed,
-    Buffer.from("\nendstream\nendobj\n%%EOF"),
-  ]);
-  const view = await renderFile(file("book.pdf"), pdf);
-  assert.equal(view.format, "pdf");
-  assert.deepEqual(view.pages!.map(page => page.text), ["First & <", "Second (page)"]);
-  assert.deepEqual(view.blocks!.map(block => block.locator), ["page:1", "page:2"]);
-  assert.deepEqual(view.sections.map(section => section.locator), ["page:1", "page:2"]);
-  assert.match(view.html, /First &amp; &lt;/);
-});
-
-test("PDF rejects unknown or unsupported structures", async () => {
-  const encode = (text: string) => new TextEncoder().encode(text);
-  await assert.rejects(renderFile(file("x.pdf"), encode("not a PDF")), /Invalid PDF/);
-  await assert.rejects(renderFile(file("x.pdf"), encode("%PDF-1.4\n/Encrypt 4 0 R")), /Encrypted/);
-  await assert.rejects(renderFile(file("x.pdf"), encode("%PDF-1.5\n1 0 obj\n<< /Type /ObjStm >>\nendobj")), /object streams/);
-  await assert.rejects(renderFile(file("x.pdf"), encode("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj")), /Missing PDF content/);
-  await assert.rejects(renderFile(file("x.pdf"), encode("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length 3 0 R >>\nstream\nBT (text) Tj ET\nendstream\nendobj")), /length reference/);
+test("invalid PDF fails without a browser canvas", async () => {
+  await assert.rejects(renderFile(file("x.pdf"), new TextEncoder().encode("not a PDF")), /Invalid PDF|Invalid PDF structure/);
 });

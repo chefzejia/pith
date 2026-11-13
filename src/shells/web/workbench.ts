@@ -6,6 +6,7 @@ import type { GuideTurn, GuideQuickAction, Material, SelectionAnchor, Topic } fr
 import type { InterlineViewUnit } from "../../plugins/toolkit-interline/index.ts";
 import { MaterialSession, type SessionDocument, type SessionState } from "../../workbench/materialSession.ts";
 import { renderRepositoryText } from "../../workbench/repositoryIntake.ts";
+import { renderFile } from "../../plugins/stage-reader/index.ts";
 
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
 
@@ -114,7 +115,15 @@ export class WebWorkbench {
         if (source.kind === "lesson") return options.request<SessionDocument>(`/api/topic-lesson?topicId=${encodeURIComponent(topicId)}&name=${encodeURIComponent(name)}`);
         const state = await options.request<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(topicId)}`), material = state.materials.find(item => item.id === source.materialId);
         if (!material) throw new Error("材料不存在");
-        if (material.kind !== "repo") return options.request<SessionDocument>(fileUrl(material, name));
+        if (material.kind !== "repo") {
+          const file = material.files.find(item => item.name === name);
+          if (file && (/\.pdf$/i.test(file.name) || file.mimeType === "application/pdf")) {
+            const response = await fetch(`/api/materials/${encodeURIComponent(material.id)}/raw?name=${encodeURIComponent(name)}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return renderFile(file, new Uint8Array(await response.arrayBuffer()));
+          }
+          return options.request<SessionDocument>(fileUrl(material, name));
+        }
         const result = await options.request<{ text: string; commitSha: string }>(`/api/topic-repository?topicId=${encodeURIComponent(topicId)}&materialId=${encodeURIComponent(material.id)}&name=${encodeURIComponent(name)}`);
         return { ...renderRepositoryText(result.commitSha, name, result.text), text: result.text };
       },

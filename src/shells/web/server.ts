@@ -361,8 +361,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const material = await store.getMaterial(id);
         const entry = material && material.files.find(item => item.name === name);
         if (!entry) return send(res, 404, { error: "File not found" });
-        const mimeType = audioContentType(entry) ?? videoContentType(entry);
-        if (!mimeType) return send(res, 415, { error: "Not an audio or video file" });
+        const mimeType = audioContentType(entry) ?? videoContentType(entry) ?? (/\.pdf$/i.test(entry.name) || entry.mimeType === "application/pdf" ? "application/pdf" : undefined);
+        if (!mimeType) return send(res, 415, { error: "Unsupported file" });
         const bytes = await storage.readBinary(`materials/${id}/files/${entry.name}`);
         const range = req.headers.range;
         const match = range && /^bytes=(\d*)-(\d*)$/.exec(range);

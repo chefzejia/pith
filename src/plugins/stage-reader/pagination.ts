@@ -64,6 +64,7 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
     }
   }
   for (const figure of body.querySelectorAll<HTMLElement>("figure")) {
+    if (figure.querySelector(".pith-pdf-page")) continue;
     const media = Array.from(figure.querySelectorAll<HTMLElement>("img, svg, math"));
     if (!media.length) continue;
     for (const item of media) item.style.setProperty("--pith-page-media-height", "1px");
