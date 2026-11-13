@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
@@ -32,7 +33,7 @@ test("opening a synthetic EPUB supports keyboard paging and dark cascade contras
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, data: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "合成 EPUB 对比测试" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "合成 EPUB 对比测试" });
     await post("/api/materials", { topicId: topic.id, title: "合成 EPUB", kind: "book", files: [{ name: "fixture.epub", data: Buffer.from(fixture()).toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 800 } });

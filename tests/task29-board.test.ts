@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { cleanMaterialTitle, inspectEpubPackage, inspectMaterialCover } from "../src/plugins/stage-reader/epub.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
@@ -14,12 +15,16 @@ test("short IDs handle collisions, mixed scripts and old UUIDs", async () => {
   const root = await testSandbox("task29-ids-");
   try {
     const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
-    const first = await store.createTopic({ title: "数学101" }), second = await store.createTopic({ title: "数学101" });
+    const first = await store.createTopic({ title: "数学101" , target: "数学101", materialIds: [], toolkits: [] }), second = await store.createTopic({ title: "数学101" , target: "数学101", materialIds: [], toolkits: [] });
     assert.match(first.id, /^topic-\d{8}-[a-z0-9]{7}$/); assert.equal(second.id, `${first.id}-2`); assert.doesNotMatch(first.id, /-101$/);
     const mixed = await store.importMaterial({ title: "第1章 ABC", kind: "book", files: [] }); assert.match(mixed.id, /^material-\d{8}-[a-z0-9]{7}$/);
-    const english = await store.createTopic({ title: "Learning Design" }); assert.match(english.id, /^topic-\d{8}-learning-design$/);
-    const dirty = await store.createTopic({ title: "数学101 = Maths (z-library.sk, 1lib.sk, z-lib.sk)" }); assert.equal(dirty.id, `${first.id}-3`);
-    const legacy = await store.createTopic({ id: "topic-8bdc0803-1234-4567-aaaa-0123456789ab", title: "旧课题" }); assert.equal((await store.getTopic(legacy.id))?.title, "旧课题");
+    const english = await store.createTopic({ title: "Learning Design" , target: "Learning Design", materialIds: [], toolkits: [] }); assert.match(english.id, /^topic-\d{8}-learning-design$/);
+    const dirty = await store.createTopic({ title: "数学101 = Maths (z-library.sk, 1lib.sk, z-lib.sk)" , target: "数学101 = Maths (z-library.sk, 1lib.sk, z-lib.sk)", materialIds: [], toolkits: [] }); assert.equal(dirty.id, `${first.id}-3`);
+    const legacyId = "topic-8bdc0803-1234-4567-aaaa-0123456789ab";
+    const ledger = await readFile(join(root, "topics", first.id, "topic.md"), "utf8");
+    await mkdir(join(root, "topics", legacyId));
+    await writeFile(join(root, "topics", legacyId, "topic.md"), ledger.replace(`id: "${first.id}"`, `id: "${legacyId}"`));
+    assert.equal((await store.getTopic(legacyId))?.title, first.title);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -33,9 +38,15 @@ test("EPUB titles and raster covers use actual package bytes", async () => {
 
 test("Web import and Obsidian board render a real cover in light and dark", { timeout: 90000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const root = await testSandbox("task29-browser-"); const workspace = join(root, "workspace"); await mkdir(workspace);
-  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(workspace));
-  const done = await store.createTopic({ title: "已完成的探索" }); await store.updateTopic(done.id, { status: "settled" });
-  const server = await createPithWebServer({ workspaceDir: workspace }); let browser: any;
+  const storage = new NodeWorkspaceStorage(workspace), store = new DefaultWorkspaceStore(storage);
+  const done = await store.createTopic({ title: "已完成的探索" , target: "已完成的探索", materialIds: [], toolkits: [] }); await store.updateTopic(done.id, { status: "settled" });
+  const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async run(input, options) {
+    if (input.scope.kind !== "intake") throw new Error("intake required");
+    const create = createScopedTools({ store, storage, materialIds: input.scope.materialIds, onChoices() {} }).find(tool => tool.name === "pith_create_topic")!;
+    const args = { title: "真实书名", target: input.text, materialIds: input.scope.materialIds, toolkits: [] }, topic = await create.execute(args);
+    options.onStep({ kind: "tool", name: create.name, callId: "create", inputPreview: "{}", status: "completed", effects: await create.effects!(topic, args) }, 0);
+    return { status: "completed" };
+  } } }); let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
@@ -43,7 +54,8 @@ test("Web import and Obsidian board render a real cover in light and dark", { ti
     const page = await browser.newPage(); page.setDefaultTimeout(15000); await page.goto(base);
     const book = Buffer.from(coveredEpub());
     const filename = "女人的性爱动机 = Why Women Have Sex (z-library.sk, 1lib.sk, z-lib.sk).epub";
-    await page.locator("#material-files").setInputFiles({ name: filename, mimeType: "application/epub+zip", buffer: book });
+    await page.locator('.pith-intake-box input[type="file"]').setInputFiles({ name: filename, mimeType: "application/epub+zip", buffer: book });
+    await page.locator('[name="title"]').fill("理解这本书"); await page.locator('[data-intake-open]').click();
     await page.locator(".pith-reader").waitFor(); await page.locator('[data-command="home"]').click();
     const card = page.locator(".pith-topic-card").filter({ hasText: "真实书名" }); await card.waitFor();
     assert.equal(await card.locator("strong").textContent(), "真实书名");

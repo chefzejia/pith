@@ -16,7 +16,7 @@ function gate() { let release!: () => void; const promise = new Promise<void>(re
 for (const phase of ["before", "after"] as const) test(`stopping ${phase} a note write follows the actual disk state`, async () => {
   const root = await testSandbox("task49-durable-stop-"), disk = new NodeWorkspaceStorage(root), initialStore = new DefaultWorkspaceStore(disk);
   await initialStore.ensureScaffold();
-  const topic = await initialStore.createTopic({ title: "Stop fixture" }), path = `topics/${topic.id}/topic.md`;
+  const topic = await initialStore.createTopic({ title: "Stop fixture", target: "Understand stopping", materialIds: [], toolkits: [] }), path = `topics/${topic.id}/topic.md`;
   const before = await readFile(join(root, path), "utf8"), arrived = gate(), resume = gate();
   let active = true;
   const storage: WorkspaceStoragePort = {
@@ -41,7 +41,7 @@ for (const phase of ["before", "after"] as const) test(`stopping ${phase} a note
 
 test("ACP cancellation persists a started disk write and rejects a queued write", async () => {
   const root = await testSandbox("task49-acp-durable-"), disk = new NodeWorkspaceStorage(root), initial = new DefaultWorkspaceStore(disk);
-  await initial.ensureScaffold(); const topic = await initial.createTopic({ title: "Durable" });
+  await initial.ensureScaffold(); const topic = await initial.createTopic({ title: "Durable", target: "Understand durability", materialIds: [], toolkits: [] });
   const entered = gate(), resume = gate(), queued = gate(); let intercept = true;
   const storage: WorkspaceStoragePort = {
     mutationIdentity: disk.mutationIdentity, exists: path => disk.exists(path), readText: path => disk.readText(path), readBinary: path => disk.readBinary(path), list: path => disk.list(path),

@@ -7,7 +7,7 @@ import { shadowingToolkit } from "../src/plugins/toolkit-shadowing/index.ts";
 import { buildScenePrompt, quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 
 function topic(toolkits: string[]): Topic {
-  return { id: "t", title: "Mechanisms", target: "Explain", status: "exploring", toolkits, notes: [], createdAt: "today", updatedAt: "today" };
+  return { id: "t", title: "Mechanisms", target: "Explain", status: "exploring", materialIds: [], lessons: [], toolkits, notes: [], createdAt: "today", updatedAt: "today" };
 }
 
 test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind recall", () => {
@@ -67,9 +67,9 @@ test("Guide merges only mounted toolkit actions and defaults to both toolkit des
   assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "feynman-coach", "shadowing-coach"]);
   assert.deepEqual(actions[1], feynmanToolkit.quickActions[0]);
   assert.deepEqual(quickActionsForTopic(topic([]), [feynmanToolkit]).map(action => action.id), ["plan-curriculum"]);
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain", availableToolkits: [shadowingToolkit, feynmanToolkit] });
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, materials: [], userMessage: "Explain", availableToolkits: [shadowingToolkit, feynmanToolkit] });
   assert.match(prompt, /影子跟读/);
   assert.match(prompt, /费曼复述/);
-  const explicit = buildScenePrompt({ profileMarkdown: "", topic: current, userMessage: "Explain", availableToolkits: [] });
+  const explicit = buildScenePrompt({ profileMarkdown: "", topic: current, materials: [], userMessage: "Explain", availableToolkits: [] });
   assert.doesNotMatch(explicit, /费曼复述/);
 });

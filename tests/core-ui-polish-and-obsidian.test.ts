@@ -34,7 +34,7 @@ test("web serves the real WOFF2 with an explicit font policy and reader styling"
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("Obsidian empty topic accepts an import and rejects replacement", async () => {
+test("Obsidian topic accepts multiple immutable materials", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-obsidian-import-"));
   const storage = new NodeWorkspaceStorage(dir);
   const adapter = {
@@ -49,16 +49,17 @@ test("Obsidian empty topic accepts an import and rejects replacement", async () 
   const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", undefined, adapter));
   try {
     await controller.initialize();
-    const topic = await controller.store.createTopic({ title: "阅读", nextAction: "阅读一节" });
+    const topic = await controller.store.createTopic({ title: "阅读", nextAction: "阅读一节" , target: "阅读", materialIds: [], toolkits: [] });
     assert.equal((await controller.openCompass()).focusRecommendation!.topicId, topic.id);
-    assert.equal((await controller.openTopic(topic.id))!.materialId, undefined);
+    assert.deepEqual((await controller.openTopic(topic.id))!.materialIds, []);
     const input = { title: "source.md", kind: "article" as const, files: [{ name: "source.md", bytes: new TextEncoder().encode("# 标题\n\n正文。") }] };
     const material = await controller.importMaterial(input, topic.id);
-    assert.equal((await controller.openTopic(topic.id))!.materialId, material.id);
+    assert.deepEqual((await controller.openTopic(topic.id))!.materialIds, [material.id]);
     const rendered = await controller.renderMaterialFile(material.id, "source.md");
     assert.match(rendered.html, /正文/);
-    await assert.rejects(controller.importMaterial(input, topic.id), /已有材料/);
-    assert.equal((await controller.openTopic(topic.id))!.materialId, material.id);
+    const second = await controller.importMaterial(input, topic.id);
+    assert.deepEqual((await controller.openTopic(topic.id))!.materialIds, [material.id, second.id]);
+    assert.match((await controller.renderMaterialFile(material.id, "source.md")).html, /正文/);
     assert.equal((await controller.openCompass()).exploring.length, 1);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });
@@ -148,16 +149,19 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
   const actions: { mountToolkit?: (id: string) => Promise<void> }[] = [];
   const toolkitWrites: string[][] = [];
   let updates = 0;
-  const topics = { a: { id: "a", title: "A", materialId: "m", toolkits: [] }, b: { id: "b", title: "B", materialId: "m", toolkits: [] } };
+  const topics = { a: { id: "a", title: "A", materialIds: [], lessons: [], toolkits: [] }, b: { id: "b", title: "B", materialIds: [], lessons: [], toolkits: [] } };
+  let deferredLookup = false;
   const controller = {
     openTopic: async (id: "a" | "b") => topics[id],
-    store: { getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: () => lookup, updateTopic: async () => { updates++; return topics.a; } },
+    topicSession: async (id: "a" | "b") => ({ topic: topics[id], materials: [], repositoryFiles: {} }),
+    store: { getTopic: (id: "a" | "b") => id === "a" && deferredLookup ? lookup : Promise.resolve(topics[id]), updateTopic: async () => { updates++; return topics.a; } },
     runtime: { getService: () => undefined },
     createView: (_root: unknown, action: { mountToolkit?: (id: string) => Promise<void> }) => { actions.push(action); const writes: string[] = []; toolkitWrites.push(writes); return { setGuideVisible() {}, setToolkits: (ids: readonly string[]) => { writes.push(...ids); }, render() {}, refreshGuide: async () => {} }; },
     releaseView() {}, renderMaterialFile: async () => ({ html: "", sections: [] }),
   };
   Object.assign(workspace, { generation: 0, view: null, controller, contentEl: {}, guideByTopic: new Map() });
   await workspace.openTopic("a");
+  deferredLookup = true;
   const pendingMount = actions[0]!.mountToolkit!("feynman");
   await workspace.openTopic("b");
   resolveLookup(topics.a);
@@ -186,12 +190,13 @@ test("Obsidian guide refresh synchronizes mounted toolkits and ignores older res
 test("Obsidian guide snapshot and already-mounted action update the originating view", async () => {
   type Workspace = { controller: unknown; view: unknown; generation: number; homeRequest: number; contentEl: object; openTopic: (id: string) => Promise<void> };
   const workspace = Object.create(PithWorkspaceView.prototype) as Workspace;
-  const current = { id: "a", title: "A", materialId: "m", toolkits: ["feynman"], notes: [] };
+  const current = { id: "a", title: "A", materialIds: [], lessons: [], toolkits: ["feynman"], notes: [] };
   let actions!: { guideData: () => Promise<{ toolkits: readonly string[] }>; mountToolkit: (id: string) => Promise<void> };
   const writes: string[][] = [];
   let updates = 0;
   const controller = {
     openTopic: async () => ({ ...current, toolkits: [] }),
+    topicSession: async () => ({ topic: { ...current, toolkits: [] }, materials: [], repositoryFiles: {} }),
     openCompass: async () => ({}),
     store: { readProfile: async () => ({ markdown: "", observations: [] }), getMaterial: async () => ({ id: "m", files: [{ name: "x.md" }] }), getTopic: async () => current, updateTopic: async () => { updates++; return current; } },
     runtime: { getService: () => undefined }, engine: { getConversation: async () => [] },

@@ -10,7 +10,7 @@ test("turns persist progress, stop, and retry the same user message", async () =
   const root = await testSandbox("task49-turn-");
   try {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
-    const topic = await store.createTopic({ id: "topic-turn", title: "Turn" });
+    const topic = await store.createTopic({ title: "Turn", target: "Understand the turn", materialIds: [], toolkits: [] });
     let release!: () => void, started!: () => void;
     const running = new Promise<void>(resolve => { started = resolve; }), block = new Promise<void>(resolve => { release = resolve; });
     let attempt = 0;

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Script } from "node:vm";
 import test from "node:test";
-import type { ToolkitDescriptor } from "../src/core/index.ts";
+import { DefaultWorkspaceStore, type ToolkitDescriptor } from "../src/core/index.ts";
 import { PithObsidianController, createObsidianHostPort } from "../src/shells/obsidian/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
@@ -28,8 +28,9 @@ test("Obsidian controller persists quoted conversation and practice from both re
   const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", undefined, adapter));
   try {
     await controller.initialize();
-    const topic = await controller.store.createTopic({ title: "阅读", target: "理解" });
-    const anchor = { file: "article.md", locator: "text:offset:8", quote: "quoted text" };
+    const topic = await controller.store.createTopic({ title: "阅读", target: "理解" , materialIds: [], toolkits: [] });
+    await controller.store.writeLesson(topic.id, "article.md", "quoted text");
+    const anchor = { source: { kind: "lesson" as const }, file: "article.md", locator: "text:offset:8", quote: "quoted text" };
     await controller.engine.runTurn({ topicId: topic.id, text: "解释一下", anchor });
     assert.deepEqual((await controller.engine.getConversation(topic.id))[0]!.user.anchor, anchor);
     for (const id of ["shadowing", "feynman"]) {
@@ -37,7 +38,7 @@ test("Obsidian controller persists quoted conversation and practice from both re
       assert.equal(toolkit.stages.length, toolkit.id === "feynman" ? 1 : 4);
       for (const stage of toolkit.stages) assert.ok(toolkit.transformCue("A useful concept", stage));
       const diagnosis = toolkit.diagnose("A useful concept", "useful concept");
-      await controller.engine.captureSelection({ topicId: topic.id, kind: "practice", body: diagnosis.summaryMarkdown, anchor });
+      await controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body: diagnosis.summaryMarkdown, anchor });
     }
     const saved = await controller.store.getTopic(topic.id); assert.ok(saved);
     assert.equal(saved.notes.filter(note => note.kind === "practice").length, 2);
@@ -69,12 +70,12 @@ test("web toolkit API defaults to shadowing and validates explicit toolkit", asy
   const dir = await mkdtemp(join(tmpdir(), "pith-track-b-web-"));
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
   try {
+    const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir));
+    const topic = await store.createTopic({ title: "理解", target: "理解概念", materialIds: [], toolkits: ["shadowing", "feynman"] });
     server = await createPithWebServer({ workspaceDir: dir, port: 0 });
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = (path: string, data: unknown) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
-    const created = await post("/api/topics", { title: "理解" }); assert.equal(created.status, 201); const topic = await created.json();
-    assert.equal((await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] })).status, 200);
     const data = { topicId: topic.id, targetText: "A useful concept", stage: "blind-produce" };
     const old = await post("/api/toolkit/transform", data); assert.equal(old.status, 200); assert.equal((await old.json()).text, "A useful concept");
     const modern = await post("/api/toolkit/transform", { ...data, toolkit: "feynman" }); assert.equal(modern.status, 200); assert.match((await modern.json()).text, /解释/);

@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { readFile, rm } from "node:fs/promises";
@@ -13,7 +14,7 @@ test("both shells record and transcribe shadowing input, and release tracks", { 
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Voice" });
+    const topic = await createTestTopic(dir, { title: "Voice" });
     await post("/api/materials", { topicId: topic.id, title: "Voice", kind: "article", files: [{ name: "voice.md", data: Buffer.from("Test voice input.").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
@@ -43,7 +44,7 @@ test("both shells record and transcribe shadowing input, and release tracks", { 
     await page.evaluate(() => {
       const state: any = (window as any).voiceTest;
       const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async (bytes: Uint8Array, mime: string, signal: AbortSignal) => { state.calls.push({ size: bytes.length, mime }); if (state.defer) return new Promise(resolve => { state.signal = signal; state.finish = resolve; }); return { text: "recognized" }; } });
-      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Voice", currentFile: "voice.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">Voice</p>' }); view.setGuideVisible(true);
+      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Voice", currentFile: "voice.md", source: { kind: "material", materialId: "material" }, files: [], sections: [], format: "markdown", html: '<p data-prose="true">Voice</p>' }); view.setGuideVisible(true);
       state.toolkit = (window as any).Shadow.shadowingToolkit;
     });
     await page.evaluate(() => (window as any).voiceTest.view.refreshGuide());
@@ -81,7 +82,7 @@ test("Web recorded WebM reaches the isolated native ASR", { timeout: 90000, skip
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Native ASR" });
+    const topic = await createTestTopic(dir, { title: "Native ASR" });
     await post("/api/materials", { topicId: topic.id, title: "Native ASR", kind: "article", files: [{ name: "voice.md", data: Buffer.from("Voice input test.").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);

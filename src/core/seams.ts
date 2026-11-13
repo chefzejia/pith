@@ -11,6 +11,7 @@
 
 import type {
   IntrinsicLocator,
+  Material,
   MaterialFileEntry,
   SelectionAnchor,
   SurfacePersona,
@@ -337,15 +338,8 @@ export interface GuideAgentService {
   ingestExternalUrl?(input: ExternalIngestInput): Promise<ExternalIngestBundle>;
   buildScenePrompt?(input: {
     readonly profileMarkdown: string;
-    readonly topic: Topic;
-    readonly material?: {
-      readonly id: string;
-      readonly title: string;
-      readonly kind: string;
-      readonly files: readonly { readonly name: string; readonly mimeType?: string }[];
-      readonly externalPath?: string;
-      readonly commitSha?: string;
-    } | null;
+    readonly topic: Topic | null;
+    readonly materials: readonly Material[];
     readonly userMessage: string;
     /** Turns before `userMessage`, oldest first. */
     readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];

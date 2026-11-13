@@ -4,14 +4,15 @@ import { feynmanToolkit } from "../../plugins/toolkit-feynman/index.ts";
 import { interlineToolkit } from "../../plugins/toolkit-interline/index.ts";
 import type { GuideTurn, GuideQuickAction, Material, SelectionAnchor, Topic } from "../../core/index.ts";
 import type { InterlineViewUnit } from "../../plugins/toolkit-interline/index.ts";
-import { MaterialSession, type SessionDocument } from "../../workbench/materialSession.ts";
+import { MaterialSession, type SessionDocument, type SessionState } from "../../workbench/materialSession.ts";
+import { renderRepositoryText } from "../../workbench/repositoryIntake.ts";
 
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
 
 export interface WebWorkbenchOptions {
   root: HTMLElement;
   topic: Topic;
-  material: Material | undefined;
+  sessionState: SessionState;
   request: Request;
   guideAvailable: boolean;
   guideVisible: boolean;
@@ -68,50 +69,57 @@ export class WebWorkbench {
       return response;
     };
     this.view = mountPithWorkbench(options.root, {
-      autoInterline: options.topic.toolkitsOrigin === "default" && options.topic.toolkits.length === 1 && options.topic.toolkits[0] === "interline",
       home: options.home,
       openSettings: options.settings,
       importMaterial: options.importMaterial,
-      openFile: name => this.session.openFile(name),
+      openFile: (name, source) => this.session.openFile(name, source),
       generateLesson: (name, title) => { if (!options.guideAvailable) throw new Error("向导不可用，无法生成讲义"); return this.session.generateLesson(name, title); },
-      openToolkit: (text, locator) => this.view.openToolkit(toolkits, text, text === undefined ? undefined : { file: this.session.file, locator: locator || "text:offset:0", quote: text }),
+      openToolkit: (text, locator) => this.view.openToolkit(toolkits, text, text === undefined || !this.session.source ? undefined : { source: this.session.source, file: this.session.file, locator: locator || "text:offset:0", quote: text }),
       selection: (action, text, locator) => {
-        const anchor = { file: this.session.file, locator: locator || "text:offset:0", quote: text };
+        if (!this.session.source) throw new Error("文件来源不存在");
+        const anchor = { source: this.session.source, file: this.session.file, locator: locator || "text:offset:0", quote: text };
         if (action !== "highlight") { this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; }
         void options.request("/api/notes", { topicId, kind: "highlight", body: text, anchor }).then(() => this.view.refreshGuide()).catch(options.report);
       },
       guideVisibilityChanged: visible => { this.updateGuideLayout(visible); options.visibility(visible); },
       guideData: async () => {
         const [state, conversation, observations] = await Promise.all([
-          options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"),
+          options.request<{ compass: { exploring: readonly Topic[]; shelved: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"),
           options.request<readonly GuideTurn[]>(`/api/chat?topicId=${encodeURIComponent(topicId)}`),
           options.request<readonly string[]>(`/api/observations?topicId=${encodeURIComponent(topicId)}`),
         ]);
-        const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId);
+        const topic = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === topicId);
         if (!topic) throw new Error("课题不存在");
         const actions = options.guideAvailable ? await options.request<readonly GuideQuickAction[]>(`/api/topics/${encodeURIComponent(topicId)}/actions`) : [];
         return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions, observations, readOnly: topic.status === "settled" };
       },
       undoObservation: async observationId => { await options.request("/api/observations/undo", { topicId, observationId }); },
-      openMaterial: async id => { await this.session.refresh(); if (!this.session.material || this.session.material.id !== id) throw new Error("材料不存在"); const file = this.session.material.files[0]; if (file) await this.session.openFile(file.name); },
+      openMaterial: async id => { await this.session.refresh(); await this.session.openMaterial(id); },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) await options.request("/api/notes", { topicId, kind: "note", body: text, anchor }); else { await streamTurn({ text, anchor }); await this.session.refresh(); } },
       stopGuide: async () => { await options.request("/api/chat/stop", { topicId }); },
       retryGuide: async turnId => { await streamTurn({ turnId }); await this.session.refresh(); },
-      toggleToolkit: async (id, enabled) => { if (!toolkits.some(toolkit => toolkit.id === id)) throw new Error("Invalid toolkit ID"); const state = await options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const selected = topic.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits: selected }); this.view.setToolkits(updated.toolkits); },
+      toggleToolkit: async (id, enabled) => { if (!toolkits.some(toolkit => toolkit.id === id)) throw new Error("Invalid toolkit ID"); const state = await options.request<{ compass: { exploring: readonly Topic[]; shelved: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const selected = topic.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits: selected }); this.view.setToolkits(updated.toolkits); },
       savePractice: async (body, anchor) => { await options.request("/api/notes", { topicId, kind: "practice", body, anchor }); },
       submitPractice: async (body, anchor, toolkit) => { await options.request("/api/notes", { topicId, kind: "practice", body, anchor }); if (!options.guideAvailable) return { guided: false }; if (!toolkit.evaluationRubric) throw new Error("实训评价规程不可用"); const turn = await streamTurn({ text: body, instruction: toolkit.evaluationRubric, anchor }); return { guided: turn?.status === "completed", ...(turn?.error ? { guideError: turn.error } : {}) }; },
-      prepareInterline: async (units: readonly InterlineViewUnit[], index, mode) => options.request<{ html: string; status: string; error?: string }>("/api/interline", { topicId, file: this.session.file, units, index, mode }),
+      prepareInterline: async (units: readonly InterlineViewUnit[], index, mode) => { if (!this.session.material) throw new Error("材料不存在"); return options.request<{ html: string; status: string; error?: string }>("/api/interline", { topicId, materialId: this.session.material.id, file: this.session.file, units, index, mode }); },
       synthesizeSpeech: async (text, signal) => { const response = await postAudio("/api/speech/synthesize", { text }, signal); return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: response.headers.get("content-type") || "audio/wav" }; },
       transcribeAudio: async (bytes, mimeType, signal) => { let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); const response = await postAudio("/api/speech/transcribe", { audio: btoa(binary), mimeType }, signal ?? new AbortController().signal); return response.json() as Promise<{ text: string }>; },
       loadAudio: async name => { if (!this.session.material) throw new Error("材料不存在"); const response = await fetch(`/api/materials/${encodeURIComponent(this.session.material.id)}/raw?name=${encodeURIComponent(name)}`); if (!response.ok) throw new Error(`HTTP ${response.status}`); return new Uint8Array(await response.arrayBuffer()); },
     });
     const fileUrl = (material: Material, file: string) => `/api/materials/file?id=${encodeURIComponent(material.id)}&name=${encodeURIComponent(file)}`;
-    this.session = new MaterialSession(options.material, {
+    this.session = new MaterialSession(options.sessionState, {
       title: options.topic.title, active: () => !this.disposed,
-      loadMaterial: async () => { const state = await options.request<{ compass: { exploring: readonly Topic[]; settled: readonly Topic[] }; materials: readonly Material[] }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); return state.materials.find(item => item.id === topic.materialId); },
-      readFile: (material, name) => options.request<SessionDocument>(fileUrl(material, name)),
-      readOutline: async (material, name, document) => !material.files.some(file => file.name === "00-课程大纲.md") ? undefined : (name === "00-课程大纲.md" && document ? document : await options.request<SessionDocument>(fileUrl(material, "00-课程大纲.md"))).text || "",
-      render: document => this.view.render(document), updateNavigation: (files, curriculum) => this.view.updateMaterialNavigation(files, curriculum), afterOpen: () => this.view.refreshGuide(),
+      loadState: () => options.request<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(topicId)}`),
+      readFile: async (source, name) => {
+        if (source.kind === "lesson") return options.request<SessionDocument>(`/api/topic-lesson?topicId=${encodeURIComponent(topicId)}&name=${encodeURIComponent(name)}`);
+        const state = await options.request<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(topicId)}`), material = state.materials.find(item => item.id === source.materialId);
+        if (!material) throw new Error("材料不存在");
+        if (material.kind !== "repo") return options.request<SessionDocument>(fileUrl(material, name));
+        const result = await options.request<{ text: string; commitSha: string }>(`/api/topic-repository?topicId=${encodeURIComponent(topicId)}&materialId=${encodeURIComponent(material.id)}&name=${encodeURIComponent(name)}`);
+        return { ...renderRepositoryText(result.commitSha, name, result.text), text: result.text };
+      },
+      readOutline: async () => { const state = await options.request<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(topicId)}`); return state.topic.lessons.some(lesson => lesson.name === "00-课程大纲.md") ? (await options.request<SessionDocument>(`/api/topic-lesson?topicId=${encodeURIComponent(topicId)}&name=${encodeURIComponent("00-课程大纲.md")}`)).text : undefined; },
+      render: document => this.view.render(document), updateNavigation: (files, curriculum, groups) => this.view.updateMaterialNavigation(files, curriculum, groups), afterOpen: () => this.view.refreshGuide(),
       beforeLesson: async title => { this.view.showLessonLoading(title); this.view.setGuideVisible(true); this.updateGuideLayout(true); options.visibility(true); },
       sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await this.view.guideTurn(text, () => streamTurn({ text })); },
     });
@@ -127,6 +135,8 @@ export class WebWorkbench {
   }
 
   async open(): Promise<void> { await this.session.open(); }
+
+  setGuideVisible(): void { this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true); }
 
   async startCurriculum(prompt = ""): Promise<void> {
     this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true);

@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import { build } from "esbuild";
@@ -8,26 +9,29 @@ import { buildScenePrompt } from "../src/plugins/guide-acp/index.ts";
 import { shadowingToolkit } from "../src/plugins/toolkit-shadowing/index.ts";
 import { feynmanToolkit } from "../src/plugins/toolkit-feynman/index.ts";
 import { installSyntheticVoice, recordSyntheticVoice } from "./task37-voice-fixture.ts";
+import { DefaultWorkspaceStore } from "../src/core/store/WorkspaceStore.ts";
+import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 
 test("rubrics and alignment represent the two evaluation modes", () => {
   const result = shadowingToolkit.diagnose("one two one", "one one");
   assert.match(result.summaryMarkdown, /one <mark>two<\/mark> one/);
   assert.doesNotMatch(result.summaryMarkdown, /准确率/);
   assert.equal(feynmanToolkit.evalMode, "guide-rubric");
-  const topic = { id: "t", title: "t", target: "", status: "exploring" as const, toolkits: [], notes: [], createdAt: "", updatedAt: "" };
-  const prompt = buildScenePrompt({ topic, profileMarkdown: "", userMessage: "复述", instruction: feynmanToolkit.evaluationRubric! });
+  const topic = { id: "t", title: "t", target: "", status: "exploring" as const, materialIds: [], lessons: [], toolkits: [], notes: [], createdAt: "", updatedAt: "" };
+  const prompt = buildScenePrompt({ topic, materials: [], profileMarkdown: "", userMessage: "复述", instruction: feynmanToolkit.evaluationRubric! });
   assert.match(prompt, /本回合指令/); assert.match(prompt, /反例/);
 });
 
 test("unconfigured guide saves practice and reports offline fallback", async () => {
-  const dir = await testSandbox("pith-toolkit18-offline-"); const server = await createPithWebServer({ workspaceDir: dir });
+  const dir = await testSandbox("pith-toolkit18-offline-");
+  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir));
+  const material = await store.importMaterial({ title: "Offline", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode("Source text.") }] });
+  const topic = await store.createTopic({ title: "Offline", target: "Understand source", materialIds: [material.id], toolkits: ["feynman"] });
+  const server = await createPithWebServer({ workspaceDir: dir });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Offline" });
-    await post("/api/materials", { topicId: topic.id, title: "Offline", kind: "article", files: [{ name: "source.md", data: Buffer.from("Source text.").toString("base64") }] });
-    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
-    const result = await post("/api/toolkit/submit", { topicId: topic.id, toolkit: "feynman", file: "source.md", targetText: "Source text.", producedText: "My reasoning", anchor: { file: "source.md", locator: "text:offset:0", quote: "Source text." } });
+    const result = await post("/api/toolkit/submit", { topicId: topic.id, materialId: material.id, toolkit: "feynman", file: "source.md", targetText: "Source text.", producedText: "My reasoning", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:0", quote: "Source text." } });
     assert.equal(result.guided, false); assert.equal(result.note.kind, "practice"); assert.equal(result.note.body, "My reasoning");
     const state = await (await fetch(`${base}/api/state`)).json(); assert.ok(state.compass.exploring.find((item: any) => item.id === topic.id).notes.some((note: any) => note.id === result.note.id));
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
@@ -38,7 +42,7 @@ test("toolbar practice anchors the visible paragraph after scrolling", { timeout
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Visible paragraph" });
+    const topic = await createTestTopic(dir, { title: "Visible paragraph" });
     await post("/api/materials", { topicId: topic.id, title: "Visible paragraph", kind: "article", files: [{ name: "source.md", data: Buffer.from(`${"First paragraph. ".repeat(400)}\n\nVisible target paragraph.\n\n${"Following text. ".repeat(100)}`).toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 500 } });
@@ -61,7 +65,7 @@ test("Obsidian toolkit renders one input, anchored source and mode-specific acti
     await page.evaluate(() => {
       const state: any = (window as any).toolkitTest = { calls: [] };
       const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit(text?: string, locator?: string) { state.view.openToolkit([state.shadow, state.feynman], text, text === undefined ? undefined : { file: "toolkit.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), transcribeAudio: async () => ({ text: "One three four" }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
-      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Toolkit", currentFile: "toolkit.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
+      state.view = view; document.body.append(view.guideElement()); view.render({ title: "Toolkit", currentFile: "toolkit.md", source: { kind: "material", materialId: "material" }, files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
       state.shadow = (window as any).Shadow.shadowingToolkit; state.feynman = (window as any).Feynman.feynmanToolkit; view.openToolkit([state.shadow, state.feynman]);
     });
     await page.locator('[data-toolkit-choose="shadowing"]').click(); assert.equal(await page.locator(".pith-inline-toolkit textarea").count(), 0); assert.equal(await page.locator('[data-voice="toolkit"]').count(), 1);
@@ -97,7 +101,7 @@ test("Web toolkit anchors source, aligns omissions, and persists guided practice
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Toolkit" });
+    const topic = await createTestTopic(dir, { title: "Toolkit" });
     await post("/api/materials", { topicId: topic.id, title: "Toolkit", kind: "article", files: [{ name: "toolkit.md", data: Buffer.from("One two three four.").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);

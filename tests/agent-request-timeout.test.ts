@@ -132,13 +132,13 @@ test("Web translation uses persisted timeout and preserves it across settings ch
     const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-web-")), storage = new NodeWorkspaceStorage(dir), store = new DefaultWorkspaceStore(storage), agent = silentAgent("session/prompt");
     await store.ensureScaffold();
     const material = await store.importMaterial({ title: "Article", kind: "article", files: [{ name: "a.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("Hello") }] });
-    const topic = await store.createTopic({ title: "Timeout", materialId: material.id, toolkits: ["interline"] });
+    const topic = await store.createTopic({ title: "Timeout", target: "Understand timeout", materialIds: [material.id], toolkits: ["interline"] });
     const path = join(dir, "_cache/web-settings.json"); await writeFile(path, savedSettings(settings));
     const server: Server = await createPithWebServer({ workspaceDir: dir, processPort: agent.port }), address = server.address(); assert.ok(address && typeof address !== "string");
     try {
       assert.equal((await post(address.port, "/api/settings", { persona: "studio" })).status, 200);
       const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.persona, "studio");
-      const result = await afterEveryDeadline(t, agent, () => post(address.port, "/api/interline", { topicId: topic.id, file: "a.md", mode: "bilingual", index: 0, units }));
+      const result = await afterEveryDeadline(t, agent, () => post(address.port, "/api/interline", { topicId: topic.id, materialId: material.id, file: "a.md", mode: "bilingual", index: 0, units }));
       assert.ok(!(result instanceof Error)); assert.equal(result.status, 200); assert.equal(result.body.status, "failed"); assert.match(String(result.body.error), new RegExp(`session/prompt timed out after ${expected}ms`));
     } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
   }

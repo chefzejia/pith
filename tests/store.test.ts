@@ -1,7 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { DefaultWorkspaceStore, parseFrontmatter, stringifyFrontmatter } from "../src/core/index.ts";
 import type { StorageEntry, WorkspaceStoragePort } from "../src/core/host.ts";
 
@@ -40,147 +38,79 @@ class MemoryStorage implements WorkspaceStoragePort {
   }
 }
 
-class ReadOnlyStorage implements WorkspaceStoragePort {
-  private root = join(process.cwd(), "workspace");
-  async exists(path: string): Promise<boolean> {
-    try { await stat(join(this.root, path)); return true; } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-      throw error;
-    }
-  }
-  async readText(path: string): Promise<string> { return readFile(join(this.root, path), "utf8"); }
-  async readBinary(path: string): Promise<Uint8Array> { return readFile(join(this.root, path)); }
-  async list(path: string): Promise<readonly StorageEntry[]> {
-    return (await readdir(join(this.root, path), { withFileTypes: true })).filter(entry => entry.isDirectory() || entry.isFile())
-      .map(entry => ({ path: `${path}/${entry.name}`, type: entry.isDirectory() ? "folder" : "file" }));
-  }
-  async writeText(): Promise<never> { throw new Error("Read-only"); }
-  async createText(): Promise<never> { throw new Error("Read-only"); }
-  async writeBinary(): Promise<never> { throw new Error("Read-only"); }
-  async createBinary(): Promise<never> { throw new Error("Read-only"); }
-  async copy(): Promise<never> { throw new Error("Read-only"); }
-  async processText(): Promise<never> { throw new Error("Read-only"); }
-  async mkdir(): Promise<never> { throw new Error("Read-only"); }
-}
-
-test("reads the real workspace without writing to it", async () => {
-  const storage = new ReadOnlyStorage();
-  const store = new DefaultWorkspaceStore(storage);
-  assert.equal((await store.readProfile()).markdown, await storage.readText("ME.md"));
-  const topic = await store.getTopic("topic-001-architecture-foundations");
-  assert.ok(topic);
-  assert.equal(topic.title, "吃透 Magpie · DSH · Super-agent 的微内核与去 Session 化设计");
-  assert.equal(topic.target, "彻底搞懂如何划定 Core 与 Plugin 的边界、如何用 Capability Seam 消灭特权模块、以及如何用 Engine + Effects 实现不阻塞注意力的去 Session 化向导，并能独立演进 Pith 内核。");
-  assert.equal(topic.status, "exploring");
-  assert.equal(topic.materialId, "material-001-magpie-dsh-anatomy");
-  assert.equal(topic.nextAction, "阅读《00-course-outline.md》与《01-magpie-pragmatic-core-and-plugins.md》，跑通 InUse 保活边界实验");
-  assert.deepEqual(topic.toolkits, []);
-  assert.equal(topic.createdAt, "2026-11-01");
-  assert.equal(topic.updatedAt, "2026-11-01");
-  assert.deepEqual(topic.notes, [{
-    id: "n-1", kind: "note", createdAt: "2026-11-01 21:45",
-    anchor: { file: "00-course-outline.md", locator: "text:section:0;block:1;offset:0", quote: "如何在不陷入“80 个碎包过度工程”的前提下，为 Pith 打造一个主干极简、万物可插拔、去 Session 化、且一套内核通吃多端原生壳的架构？" },
-    body: "之前最大的纠结在于：1）把花园/园丁的隐喻写进了内核导致频繁改名；2）不知道怎么切分 Core 和 Plugin（差点把阅读器当成特权 Core）；3）觉得 DSH 全盘插件化太重，而 Magpie 的极简 Core + Plugin 更对胃口。",
-    guideRemark: "已将这三个痛点分别对应拆解为本材料包的第 01、02、03 讲。读完每一讲后请直接回答文末的 15 分钟微实验题。",
-  }]);
-  const material = await store.getMaterial("material-001-magpie-dsh-anatomy");
-  assert.ok(material);
-  assert.equal(material.title, "Magpie · DSH · Super-agent 核心机制拆解讲义");
-  assert.equal(material.kind, "article");
-  assert.equal(material.createdAt, "2026-11-01");
-  assert.deepEqual(material.files, [
-    { name: "00-course-outline.md", mimeType: "text/markdown", bytes: 3504, sha256: "d772a3ef390f2c1451b2d07835b175181ddd06b7ca5fc4c7e0f99ccc4d550856", locator: "text:section:0;block:0;offset:0", lastActiveAt: "2026-11-01T22:02:00+08:00" },
-    { name: "01-magpie-pragmatic-core-and-plugins.md", mimeType: "text/markdown", bytes: 12631, sha256: "d45a7e2b17c46a350f15956bd6a70ccfb6fe838e9ecab7802003d0ac7bbbb245", locator: "text:section:0;block:0;offset:0", lastActiveAt: undefined },
-    { name: "02-dsh-capability-seams-and-effects.md", mimeType: "text/markdown", bytes: 11168, sha256: "e98e555198d9be7e21e4f0bffc5457ad31444ab2e71fc767186b0b05ae7c5a3b", locator: "text:section:0;block:0;offset:0", lastActiveAt: undefined },
-    { name: "03-superagent-sessionless-attention.md", mimeType: "text/markdown", bytes: 9080, sha256: "13b3afab24d76671c43493360316ab165be8efd55dcc4047c6797a6f031d9266", locator: "text:section:0;block:0;offset:0", lastActiveAt: undefined },
-  ]);
-  assert.equal((await store.listTopics()).length, 1);
-  assert.equal((await store.listMaterials()).length, 1);
+test("legacy ledgers are isolated without modifying their bytes", async () => {
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  const topic = '---\ntype: pith-topic\nid: topic-old\ntitle: Old\ntarget: Learn\nstatus: exploring\nmaterialId: material-old\ntoolkits: []\ncreatedAt: today\nupdatedAt: today\n---\n';
+  const material = '---\ntype: pith-material\nid: material-old\ntitle: Old\nkind: article\nfiles: []\ncreatedAt: today\n---\n';
+  await storage.mkdir("topics"); await storage.mkdir("topics/topic-old"); await storage.writeText("topics/topic-old/topic.md", topic);
+  await storage.mkdir("materials"); await storage.mkdir("materials/material-old"); await storage.writeText("materials/material-old/material.md", material);
+  assert.deepEqual(await store.listTopics(), []); assert.deepEqual(await store.listMaterials(), []);
+  const unreadable = await store.listUnreadable();
+  assert.ok(unreadable.some(item => item.id === "topic-old"));
+  assert.ok(unreadable.some(item => item.id === "material-old"));
+  assert.equal(await storage.readText("topics/topic-old/topic.md"), topic);
+  assert.equal(await storage.readText("materials/material-old/material.md"), material);
 });
 
 test("serializes concurrent mutations across adapters sharing an identity", async () => {
-  const storage = new MemoryStorage();
-  const store = new DefaultWorkspaceStore(storage);
-  const other = new DefaultWorkspaceStore(new MemoryStorage(storage));
-  await store.ensureScaffold();
-  await storage.writeText("ME.md", "# Existing profile\n");
-  await other.ensureScaffold();
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage), other = new DefaultWorkspaceStore(new MemoryStorage(storage));
+  await store.ensureScaffold(); await storage.writeText("ME.md", "# Existing profile\n"); await other.ensureScaffold();
   assert.equal((await store.readProfile()).markdown, "# Existing profile\n");
-  await store.createTopic({ id: "topic-one", title: "Title" });
-  const noteRequests = Array.from({ length: 5 }, (_, index) => (index % 2 ? store : other).appendNote("topic-one", {
-    kind: "highlight", body: `line ${index}\n\nlast\n`, anchor: { file: "x.md", locator: "page:1", quote: `first\n\nlast ${index}` }, guideRemark: "first\n\nlast\n",
+  const material = await store.importMaterial({ title: "Material", kind: "article", files: [{ name: "x.md", bytes: new TextEncoder().encode("original") }] });
+  const created = await store.createTopic({ title: "Title", target: "Learn", materialIds: [material.id], toolkits: [] });
+  const noteRequests = Array.from({ length: 5 }, (_, index) => (index % 2 ? store : other).appendTopicNote(created.id, {
+    kind: "highlight", author: "user", body: `line ${index}\n\nlast\n`, anchor: { source: { kind: "material", materialId: material.id }, file: "x.md", locator: "page:1", quote: `first\n\nlast ${index}` }, guideRemark: "first\n\nlast\n",
   }));
-  const [notes] = await Promise.all([Promise.all(noteRequests), other.updateTopic("topic-one", { title: "Updated", materialId: "material-one", toolkits: ["x"] })]);
-  const topic = await store.getTopic("topic-one");
-  assert.ok(topic);
-  assert.equal(topic.title, "Updated");
-  assert.equal(topic.materialId, "material-one");
-  assert.deepEqual(topic.notes, notes);
-  assert.match(await storage.readText("topics/topic-one/topic.md"), /\[\[materials\/material-one\/material\]\]/);
-  await assert.rejects(store.updateTopic("topic-one", { title: "" }));
-  assert.equal((await other.updateTopic("topic-one", { title: "Recovered" })).title, "Recovered");
+  const [notes] = await Promise.all([Promise.all(noteRequests), other.updateTopic(created.id, { title: "Updated", toolkits: ["feynman"] })]);
+  const topic = await store.getTopic(created.id); assert.ok(topic);
+  assert.equal(topic.title, "Updated"); assert.deepEqual(topic.materialIds, [material.id]); assert.deepEqual(topic.notes, notes.map(note => ({ ...note, result: undefined })));
+  assert.match(await storage.readText(`topics/${created.id}/topic.md`), new RegExp(`materials/${material.id}/material`));
+  await assert.rejects(store.updateTopic(created.id, { title: "" }));
+  assert.equal((await other.updateTopic(created.id, { title: "Recovered" })).title, "Recovered");
 });
 
-test("preserves real topic and material bodies while changing their metadata", async () => {
-  const source = new ReadOnlyStorage();
-  const storage = new MemoryStorage();
-  const store = new DefaultWorkspaceStore(storage);
-  const topicPath = "topics/topic-001-architecture-foundations/topic.md";
-  const materialPath = "materials/material-001-magpie-dsh-anatomy/material.md";
-  await storage.writeText(topicPath, await source.readText(topicPath));
-  await storage.writeText(materialPath, await source.readText(materialPath));
-  const originalTopic = await store.getTopic("topic-001-architecture-foundations");
+test("preserves topic and material bodies while changing their metadata", async () => {
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  const material = await store.importMaterial({ title: "Material", kind: "article", files: [{ name: "original.md", bytes: new TextEncoder().encode("original") }] });
+  const topic = await store.createTopic({ title: "Topic", target: "Learn", materialIds: [material.id], toolkits: [] });
+  await store.appendTopicNote(topic.id, { kind: "note", author: "user", body: "topic note" });
+  await store.appendMaterialNote(material.id, { kind: "note", author: "user", body: "material note" });
+  const topicPath = `topics/${topic.id}/topic.md`, materialPath = `materials/${material.id}/material.md`;
+  const originalNotes = (await store.getTopic(topic.id))!.notes;
   const originalTopicBody = parseFrontmatter(await storage.readText(topicPath)).body;
   const originalMaterialBody = parseFrontmatter(await storage.readText(materialPath)).body;
-  await store.updateTopic("topic-001-architecture-foundations", { status: "settled" });
-  assert.deepEqual((await store.getTopic("topic-001-architecture-foundations"))?.notes, originalTopic?.notes);
+  await store.updateTopic(topic.id, { status: "settled" });
+  assert.deepEqual((await store.getTopic(topic.id))!.notes, originalNotes);
   assert.equal(parseFrontmatter(await storage.readText(topicPath)).body, originalTopicBody);
-  await store.updateReadingLocator("material-001-magpie-dsh-anatomy", "00-course-outline.md", "page:5");
+  await store.updateReadingLocator(material.id, "original.md", "page:5");
   assert.equal(parseFrontmatter(await storage.readText(materialPath)).body, originalMaterialBody);
 });
 
 test("isolates malformed topics and materials", async () => {
-  const storage = new MemoryStorage();
-  const store = new DefaultWorkspaceStore(storage);
-  await store.createTopic({ id: "topic-good", title: "Good", target: "Learn" });
-  await storage.mkdir("topics/topic-corrupt");
-  await storage.writeText("topics/topic-corrupt/topic.md", "---\ntype: pith-topic\nid: bad\n---\n");
-  await store.importMaterial({ id: "material-good", title: "Good", kind: "book", files: [] });
-  await storage.mkdir("materials/material-corrupt");
-  await storage.writeText("materials/material-corrupt/material.md", "not frontmatter");
-  assert.deepEqual((await store.listTopics()).map(topic => topic.id), ["topic-good"]);
-  assert.deepEqual((await store.listMaterials()).map(material => material.id), ["material-good"]);
-  const created = await store.createTopic({ id: "topic-origin", title: "Origin", toolkits: ["feynman"], toolkitsOrigin: "default" });
-  assert.equal(created.toolkitsOrigin, "default");
-  assert.equal((await store.updateTopic("topic-origin", { title: "Renamed" })).toolkitsOrigin, "default");
-  assert.equal((await store.updateTopic("topic-origin", { toolkits: ["feynman"] })).toolkitsOrigin, undefined);
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  const good = await store.createTopic({ title: "Good", target: "Learn", materialIds: [], toolkits: ["feynman"] });
+  await storage.mkdir("topics/topic-corrupt"); await storage.writeText("topics/topic-corrupt/topic.md", "---\ntype: pith-topic\nid: bad\n---\n");
+  const material = await store.importMaterial({ title: "Good", kind: "book", files: [] });
+  await storage.mkdir("materials/material-corrupt"); await storage.writeText("materials/material-corrupt/material.md", "not frontmatter");
+  assert.deepEqual((await store.listTopics()).map(topic => topic.id), [good.id]);
+  assert.deepEqual((await store.listMaterials()).map(item => item.id), [material.id]);
+  assert.deepEqual((await store.updateTopic(good.id, { title: "Renamed" })).toolkits, ["feynman"]);
   await assert.rejects(store.getTopic("topic-corrupt"));
 });
 
-test("imports immutable files, updates generated files and records reading progress", async () => {
-  const storage = new MemoryStorage();
-  const store = new DefaultWorkspaceStore(storage);
-  const material = await store.importMaterial({ id: "material-one", title: "Material", kind: "article", files: [{ name: "original.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("abc") }] });
+test("imports immutable files, stores lessons on topics and records independent reading progress", async () => {
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  const material = await store.importMaterial({ title: "Material", kind: "article", files: [{ name: "original.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("abc") }] });
   assert.equal(material.files[0]?.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  await assert.rejects(store.writeGeneratedFile(material.id, "original.md", "overwrite"));
-  assert.equal(await storage.readText("materials/material-one/files/original.md"), "abc");
-  await store.writeGeneratedFile(material.id, "lesson.md", "first");
-  await store.updateReadingLocator(material.id, "lesson.md", "page:3");
-  const updated = await store.writeGeneratedFile(material.id, "lesson.md", "second");
-  assert.equal(updated.files[1]?.bytes, 6);
-  assert.equal(updated.files[1]?.locator, "page:3");
-  assert.ok(updated.files[1]?.lastActiveAt);
-  assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
-  const files = [{ name: "clip.mp3", mimeType: "audio/mpeg", bytes: new Uint8Array([1, 2, 3]) }, { name: "clip.vtt", mimeType: "text/vtt", bytes: new TextEncoder().encode("WEBVTT\n\n00:00.000 --> 00:01.000\nhi\n") }];
-  const appended = await store.appendMaterialFiles(material.id, files);
-  assert.deepEqual(appended.files.map(file => file.name), ["original.md", "lesson.md", "clip.mp3", "clip.vtt"]);
-  for (const file of files) assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/${file.name}`), file.bytes);
-  await assert.rejects(store.appendMaterialFiles(material.id, [{ name: "clip.mp3", bytes: new Uint8Array([9]) }]), /Cannot overwrite existing material file/);
-  for (const file of files) assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/${file.name}`), file.bytes);
-  assert.deepEqual(await storage.readBinary(`materials/${material.id}/files/original.md`), new TextEncoder().encode("abc"));
-  assert.equal(await storage.readText("materials/material-one/files/lesson.md"), "second");
-  await assert.rejects(store.importMaterial({ id: "material-one", title: "Duplicate", kind: "book", files: [] }));
-  await assert.rejects(store.writeGeneratedFile(material.id, "../escape.md", "x"));
+  const topic = await store.createTopic({ title: "Topic", target: "Learn", materialIds: [material.id], toolkits: [] });
+  await store.writeLesson(topic.id, "original.md", "first"); await store.updateLessonLocator(topic.id, "original.md", "page:3");
+  const updated = await store.writeLesson(topic.id, "original.md", "second");
+  assert.equal(updated.lessons[0]?.locator, "page:3"); assert.ok(updated.lessons[0]?.lastActiveAt);
+  assert.equal(await store.readLesson(topic.id, "original.md"), "second");
+  assert.equal(await storage.readText(`materials/${material.id}/files/original.md`), "abc");
+  await store.updateReadingLocator(material.id, "original.md", "page:5");
+  assert.equal((await store.getMaterial(material.id))!.files[0]!.locator, "page:5");
+  await assert.rejects(store.writeLesson(topic.id, "../escape.md", "x"));
   await assert.rejects(store.updateReadingLocator(material.id, "missing.md", "page:1"));
 });
 

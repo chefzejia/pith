@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { rm } from "node:fs/promises";
@@ -28,10 +29,10 @@ test("practice notes do not create persistent marks across EPUB pages and chapte
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Practice pages" });
-    await post("/api/materials", { topicId: topic.id, title: "Book", kind: "book", files: [{ name: "book.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    const topic = await createTestTopic(dir, { title: "Practice pages" });
+    const material = await post("/api/materials", { topicId: topic.id, title: "Book", kind: "book", files: [{ name: "book.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] });
-    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "Keep", anchor: { file: "book.epub", locator: "text:offset:0", quote: "Decoy" } });
+    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "Keep", anchor: { source: { kind: "material", materialId: material.id }, file: "book.epub", locator: "text:offset:0", quote: "Decoy" } });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 } });
     const page = await browser.newPage(); page.setDefaultTimeout(5000); await installSyntheticVoice(page, "other"); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(`.pith-article mark[data-pith-note="${highlight.id}"]`).waitFor();
@@ -53,10 +54,10 @@ test("Web and Obsidian practice highlight and save Chinese omissions", { timeout
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "中文跟读" });
-    await post("/api/materials", { topicId: topic.id, title: "中文跟读", kind: "article", files: [{ name: "source.md", data: Buffer.from("清晨阳光照进窗户\n\n这是另一段文字").toString("base64") }] });
+    const topic = await createTestTopic(dir, { title: "中文跟读" });
+    const material = await post("/api/materials", { topicId: topic.id, title: "中文跟读", kind: "article", files: [{ name: "source.md", data: Buffer.from("清晨阳光照进窗户\n\n这是另一段文字").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] });
-    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "用户高亮", anchor: { file: "source.md", locator: "text:line:0", quote: "清晨" } });
+    const highlight = await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "用户高亮", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:line:0", quote: "清晨" } });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(`${dir}/profile`, { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
     const page = await browser.newPage(); await installSyntheticVoice(page, "清晨阳光照进"); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="shadowing"]').click();
     await page.waitForFunction(() => document.querySelector("[data-toolkit-display]")?.textContent?.includes("清晨阳光")); await recordSyntheticVoice(page);
@@ -83,7 +84,7 @@ test("Web and Obsidian practice highlight and save Chinese omissions", { timeout
     const viewBundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     const toolkitBundle = await build({ entryPoints: ["src/plugins/toolkit-shadowing/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "Shadow" });
     await page.route('http://localhost:31419/**', (route: any) => route.fulfill({ contentType: 'text/html', body: '<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>' })); await page.goto('http://localhost:31419/'); await page.addScriptTag({ content: viewBundle.outputFiles[0]!.text }); await page.addScriptTag({ content: toolkitBundle.outputFiles[0]!.text });
-    await page.evaluate(async () => { const state: any = (window as any).cjkTest = { saved: "", notes: [{ id: "existing", kind: "highlight", body: "用户高亮", anchor: { file: "source.md", locator: "text:line:0", quote: "清晨" } }] }; const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes: state.notes, conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async () => ({ text: "清晨阳光照进" }), savePractice: async (body: string, anchor: unknown) => { state.saved = body; state.notes.push({ id: "practice", kind: "practice", body, anchor }); } }); state.view = view; view.render({ title: "中文跟读", currentFile: "source.md", files: [], sections: [], format: "markdown", html: '<p data-prose="true">清晨阳光照进窗户</p>' }); await view.refreshGuide(); view.setToolkits(["shadowing"]); view.openToolkit([(window as any).Shadow.shadowingToolkit]); });
+    await page.evaluate(async () => { const source = { kind: "material", materialId: "material" }; const state: any = (window as any).cjkTest = { saved: "", notes: [{ id: "existing", kind: "highlight", body: "用户高亮", anchor: { source, file: "source.md", locator: "text:line:0", quote: "清晨" } }] }; const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes: state.notes, conversation: [], actions: [], toolkits: ["shadowing"] }), transcribeAudio: async () => ({ text: "清晨阳光照进" }), savePractice: async (body: string, anchor: unknown) => { state.saved = body; state.notes.push({ id: "practice", kind: "practice", body, anchor }); } }); state.view = view; view.render({ title: "中文跟读", currentFile: "source.md", source, files: [], sections: [], format: "markdown", html: '<p data-prose="true">清晨阳光照进窗户</p>' }); await view.refreshGuide(); view.setToolkits(["shadowing"]); view.openToolkit([(window as any).Shadow.shadowingToolkit]); });
     await recordSyntheticVoice(page); assert.equal((await page.locator("[data-toolkit-display] mark").allTextContents()).join(""), "窗户");
     await page.locator("[data-toolkit-save]").click(); await page.waitForFunction(() => Boolean((window as any).cjkTest.saved)); assert.doesNotMatch(await page.evaluate(() => (window as any).cjkTest.saved), /漏词：无/);
     assert.match(await page.evaluate(() => (window as any).cjkTest.saved), /照进<mark>窗<\/mark><mark>户<\/mark>/);

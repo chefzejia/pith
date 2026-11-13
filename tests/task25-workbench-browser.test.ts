@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,7 +25,7 @@ test("topic board controls and timeline practice retain timestamps without readi
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, data: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "时间轴练习", target: "理解内容", nextAction: "继续学习" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "时间轴练习", target: "理解内容", nextAction: "继续学习" });
     await post("/api/materials", { topicId: topic.id, title: "字幕", kind: "media", files: [{ name: "speech.srt", data: Buffer.from("1\n00:00:01,000 --> 00:00:03,000\nA spoken sentence.\n").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing", "feynman"] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
@@ -82,7 +83,7 @@ test("Obsidian workspace board connects settings and maintains readable hover", 
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(async () => {
       const state: any = (window as any).nativeBoard = { opened: 0 };
-      const compass = { exploring: [], settled: [], unreadable: [], focusRecommendation: { topicId: "t", title: "测试课题", nextAction: "继续探索" } };
+      const compass = { exploring: [], shelved: [], settled: [], unreadable: [], focusRecommendation: { topicId: "t", title: "测试课题", nextAction: "继续探索" } };
       const controller = { guideVisibility: new Map(), openCompass: async () => compass, openBoardMaterials: async () => [] };
       state.view = new (window as any).NativePith.PithWorkspaceView({}, controller, {}, undefined, () => { state.opened++; });
       await state.view.onOpen();

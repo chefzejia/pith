@@ -149,6 +149,40 @@ test("only the settlement tool accesses profile observation writes", () => {
   assert.deepEqual(results.flatMap(result => result.writes).sort(), ["addObservation", "removeObservation", "removeObservation"]);
 });
 
+function topicActionViolations(path: string, source: string): string[] {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS), violations: string[] = [];
+  const inTool = (node: ts.Node, tool: string): boolean => {
+    if (path !== "src/plugins/guide-acp/tools.ts") return false;
+    for (let parent = node.parent; parent; parent = parent.parent) if (ts.isMethodDeclaration(parent) && parent.name.getText(file) === "execute" && ts.isObjectLiteralExpression(parent.parent)) return parent.parent.properties.some(property => ts.isPropertyAssignment(property) && property.name.getText(file) === "name" && ts.isStringLiteral(property.initializer) && property.initializer.text === tool);
+    return false;
+  };
+  const visit = (node: ts.Node): void => {
+    const property = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : ts.isBindingElement(node) ? (node.propertyName ?? node.name).getText(file).replace(/^['"]|['"]$/g, "") : "";
+    if ((property === "createTopic" || property === "updateTopic") && !ts.isTypeOfExpression(node.parent)) {
+      const call = ts.isCallExpression(node.parent) && node.parent.expression === node ? node.parent : null;
+      if (property === "createTopic" && (!call || !inTool(node, "pith_create_topic"))) violations.push(`${path}: createTopic outside tool`);
+      if (property === "updateTopic" && !inTool(node, "pith_settle_topic")) {
+        const patch = call?.arguments[1];
+        if (!patch || !ts.isObjectLiteralExpression(patch) || patch.properties.some(item => {
+          if (ts.isSpreadAssignment(item) || ts.isComputedPropertyName(item.name)) return true;
+          const key = item.name?.getText(file).replace(/^['"]|['"]$/g, "");
+          return key === "status" && (!ts.isPropertyAssignment(item) || !ts.isStringLiteral(item.initializer) || !["exploring", "shelved"].includes(item.initializer.text));
+        })) violations.push(`${path}: uncontrolled topic update`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file); return violations;
+}
+
+test("topic creation and settlement are restricted to their guide tools", () => {
+  assert.notDeepEqual(topicActionViolations("src/shells/example.ts", 'store.createTopic({});'), []);
+  assert.notDeepEqual(topicActionViolations("src/shells/example.ts", 'store["updateTopic"]("x", { status: "settled" });'), []);
+  assert.notDeepEqual(topicActionViolations("src/shells/example.ts", 'store.updateTopic("x", patch);'), []);
+  assert.deepEqual(topicActionViolations("src/shells/example.ts", 'typeof store.updateTopic === "function";'), []);
+  assert.deepEqual(walkTsFiles(SRC).flatMap(file => topicActionViolations(relative(ROOT, file).replace(/\\/g, "/"), readFileSync(file, "utf8"))), []);
+});
+
 test("tests never write to archived evidence", () => {
   const forbidden = [".tmp", "evidence"].join("/");
   const inspect = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => { const path = join(directory, entry.name); return entry.isDirectory() ? inspect(path) : entry.isFile() && readFileSync(path).includes(Buffer.from(forbidden)) ? [path] : []; });

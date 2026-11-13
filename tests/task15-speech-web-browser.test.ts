@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import { resolve, sep } from "node:path";
@@ -36,7 +37,7 @@ test("Web reader plays real gateway audio and advances its visible progress", { 
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Speech test" });
+    const topic = await createTestTopic(dir, { title: "Speech test" });
     const text = "Reading carefully begins with the decision to notice what is in front of us. A quiet moment gives each idea enough room to develop.";
     const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>Speech test</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": `<html><body><h1>Chapter One: Attention</h1><p>${text}</p><p>We can return to the same sentence and discover a different detail.</p></body></html>` });
     await post("/api/materials", { topicId: topic.id, title: "Speech test", kind: "book", files: [{ name: "speech.epub", data: Buffer.from(book).toString("base64") }] });
@@ -79,7 +80,7 @@ test("short Chinese chapter plays every real Kokoro sentence and retains its res
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "短文验收" });
+    const topic = await createTestTopic(dir, { title: "短文验收" });
     const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>短文</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": '<html><body><h1>短文</h1><p>清晨阳光照进窗户。我们安静地读完这一段文字。</p></body></html>' });
     await post("/api/materials", { topicId: topic.id, title: "短文", kind: "book", files: [{ name: "short.epub", data: Buffer.from(book).toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);

@@ -11,36 +11,42 @@ import { testSandbox } from "./sandbox.ts";
 
 async function damagedWorkspace(root: string) {
   const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
-  await store.createTopic({ id: "topic-good", title: "正常探索", nextAction: "阅读一页" });
-  await store.createTopic({ id: "topic-settled", title: "已沉淀的课题" });
-  await store.updateTopic("topic-settled", { status: "settled" });
-  await store.createTopic({ id: "topic-notes", title: "需要恢复的笔记" });
-  await store.appendNote("topic-notes", { kind: "note", body: "保留的笔记" });
-  await store.createTopic({ id: "topic-identity", title: "目录身份" });
-  await store.importMaterial({ id: "material-kind", title: "需要恢复的材料", kind: "article", files: [{ name: "original.md", bytes: new TextEncoder().encode("原始材料只读") }] });
+  const topic = (title: string, nextAction?: string) => store.createTopic({ title, target: title, materialIds: [], toolkits: [], nextAction });
+  const good = await topic("正常探索", "阅读一页");
+  const settled = await topic("已沉淀的课题");
+  await store.updateTopic(settled.id, { status: "settled" });
+  const notes = await topic("需要恢复的笔记");
+  await store.appendTopicNote(notes.id, { kind: "note", author: "user", body: "保留的笔记" });
+  const identity = await topic("目录身份");
+  const material = await store.importMaterial({ title: "需要恢复的材料", kind: "article", files: [{ name: "original.md", bytes: new TextEncoder().encode("原始材料只读") }] });
   const longId = `material-${"long-path-".repeat(14)}identity`;
-  await store.importMaterial({ id: longId, title: "材料目录身份", kind: "article", files: [] });
-  const paths = ["topics/topic-notes/topic.md", "topics/topic-identity/topic.md", "materials/material-kind/material.md", `materials/${longId}/material.md`];
+  const longMaterial = await store.importMaterial({ title: "材料目录身份", kind: "article", files: [] });
+  const longPath = join(root, "materials", longId);
+  await mkdir(longPath);
+  const materialLedger = await readFile(join(root, "materials", longMaterial.id, "material.md"), "utf8");
+  await writeFile(join(longPath, "material.md"), materialLedger.replace(`id: "${longMaterial.id}"`, `id: "${longId}"`));
+  await rm(join(root, "materials", longMaterial.id), { recursive: true, force: true });
+  const paths = [`topics/${notes.id}/topic.md`, `topics/${identity.id}/topic.md`, `materials/${material.id}/material.md`, `materials/${longId}/material.md`];
   const originals = await Promise.all(paths.map(path => readFile(join(root, path))));
   const damaged = [
     originals[0]!.toString().replace("\n\n<!-- pith-note:body -->", "\n<!-- pith-note:body -->"),
-    originals[1]!.toString().replace('id: "topic-identity"', 'id: "another-topic"'),
+    originals[1]!.toString().replace(`id: "${identity.id}"`, 'id: "another-topic"'),
     originals[2]!.toString().replace('kind: "article"', 'kind: "invalid"'),
     originals[3]!.toString().replace(`id: "${longId}"`, 'id: "another-material"'),
   ];
   for (let i = 0; i < paths.length; i++) { assert.notEqual(damaged[i], originals[i]!.toString()); await writeFile(join(root, paths[i]!), damaged[i]!); }
   const expected: UnreadableEntry[] = [
-    { kind: "topic", id: "topic-notes", path: paths[0]!, error: "Invalid note metadata" },
-    { kind: "topic", id: "topic-identity", path: paths[1]!, error: "Topic id does not match path" },
-    { kind: "material", id: "material-kind", path: paths[2]!, error: "Invalid material kind" },
+    { kind: "topic", id: notes.id, path: paths[0]!, error: "Invalid note metadata" },
+    { kind: "topic", id: identity.id, path: paths[1]!, error: "Topic id does not match path" },
+    { kind: "material", id: material.id, path: paths[2]!, error: "Invalid material kind" },
     { kind: "material", id: longId, path: paths[3]!, error: "Material id does not match path" },
   ];
   const restore = async () => { for (let i = 0; i < paths.length; i++) await writeFile(join(root, paths[i]!), originals[i]!); };
   const assertUntouched = async () => {
     for (let i = 0; i < paths.length; i++) assert.equal((await readFile(join(root, paths[i]!))).toString(), damaged[i]);
-    assert.equal(await readFile(join(root, "materials/material-kind/files/original.md"), "utf8"), "原始材料只读");
+    assert.equal(await readFile(join(root, "materials", material.id, "files/original.md"), "utf8"), "原始材料只读");
   };
-  return { storage, store, expected, restore, assertUntouched };
+  return { storage, store, expected, restore, assertUntouched, good, settled, notes, identity };
 }
 const sorted = <T extends { path: string }>(entries: readonly T[]): T[] => [...entries].sort((a, b) => a.path.localeCompare(b.path));
 
@@ -54,12 +60,15 @@ test("missing referenced material is reported without changing the topic and cle
   const root = await testSandbox("task44-reference-");
   try {
     const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
-    await store.createTopic({ id: "topic-broken", title: "Missing material", materialId: "material-missing" });
-    await store.createTopic({ id: "topic-free", title: "No material" });
-    const path = join(root, "topics/topic-broken/topic.md"), before = await readFile(path);
-    assert.deepEqual(await store.listUnreadable(), [{ kind: "topic", id: "topic-broken", path: "topics/topic-broken/topic.md", error: "Referenced material not found: material-missing" }]);
+    const material = await store.importMaterial({ title: "Restored", kind: "article", files: [] });
+    const topic = await store.createTopic({ title: "Missing material", target: "Understand material", materialIds: [material.id], toolkits: [] });
+    await store.createTopic({ title: "No material", target: "Understand", materialIds: [], toolkits: [] });
+    const materialPath = join(root, "materials", material.id, "material.md"), materialBytes = await readFile(materialPath);
+    await rm(materialPath);
+    const relativePath = `topics/${topic.id}/topic.md`, path = join(root, relativePath), before = await readFile(path);
+    assert.deepEqual(await store.listUnreadable(), [{ kind: "topic", id: topic.id, path: relativePath, error: `Referenced material not found: ${material.id}` }]);
     assert.deepEqual(await readFile(path), before);
-    await store.importMaterial({ id: "material-missing", title: "Restored", kind: "article", files: [] });
+    await writeFile(materialPath, materialBytes);
     assert.deepEqual(await store.listUnreadable(), []);
     assert.deepEqual(await readFile(path), before);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -75,23 +84,23 @@ test("disk corruption and identity mismatches remain read-only and recover in en
     const webSnapshot = async (): Promise<AttentionCompassSnapshot> => { const response = await fetch(`http://127.0.0.1:${address.port}/api/state`); assert.equal(response.status, 200); return (await response.json() as { compass: AttentionCompassSnapshot }).compass; };
     await native.initialize();
     assert.deepEqual(sorted(await fixture.store.listUnreadable()), sorted(fixture.expected));
-    assert.deepEqual((await fixture.store.listTopics()).map(t => t.id).sort(), ["topic-good", "topic-settled"]);
+    assert.deepEqual((await fixture.store.listTopics()).map(t => t.id).sort(), [fixture.good.id, fixture.settled.id].sort());
     assert.deepEqual(await fixture.store.listMaterials(), []);
-    await assert.rejects(fixture.store.getTopic("topic-notes"), /Invalid note metadata/);
-    await assert.rejects(fixture.store.getTopic("topic-identity"), /Topic id does not match path/);
+    await assert.rejects(fixture.store.getTopic(fixture.notes.id), /Invalid note metadata/);
+    await assert.rejects(fixture.store.getTopic(fixture.identity.id), /Topic id does not match path/);
     for (const snapshot of [await new DefaultAttentionEngine(fixture.store, fixture.storage).compass(), await native.openCompass(), await webSnapshot()]) {
       assert.deepEqual(sorted(snapshot.unreadable), sorted(fixture.expected));
-      assert.deepEqual(snapshot.exploring.map(t => t.id), ["topic-good"]);
-      assert.deepEqual(snapshot.settled.map(t => t.id), ["topic-settled"]);
-      assert.equal(snapshot.focusRecommendation!.topicId, "topic-good");
+      assert.deepEqual(snapshot.exploring.map(t => t.id), [fixture.good.id]);
+      assert.deepEqual(snapshot.settled.map(t => t.id), [fixture.settled.id]);
+      assert.equal(snapshot.focusRecommendation!.topicId, fixture.good.id);
     }
     await fixture.assertUntouched();
     await fixture.restore();
     for (const snapshot of [await native.openCompass(), await webSnapshot()]) {
       assert.deepEqual(snapshot.unreadable, []);
-      assert.deepEqual(snapshot.exploring.map(t => t.id).sort(), ["topic-good", "topic-identity", "topic-notes"]);
-      assert.deepEqual(snapshot.settled.map(t => t.id), ["topic-settled"]);
-      assert.equal(snapshot.exploring.find(t => t.id === "topic-notes")!.notes[0]!.body, "保留的笔记");
+      assert.deepEqual(snapshot.exploring.map(t => t.id).sort(), [fixture.good.id, fixture.identity.id, fixture.notes.id].sort());
+      assert.deepEqual(snapshot.settled.map(t => t.id), [fixture.settled.id]);
+      assert.equal(snapshot.exploring.find(t => t.id === fixture.notes.id)!.notes[0]!.body, "保留的笔记");
     }
     assert.equal((await fixture.store.listMaterials()).length, 2);
   } finally { native.dispose(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }

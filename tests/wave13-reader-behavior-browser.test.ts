@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
@@ -21,7 +22,7 @@ test("reader speech checks visible words across chapters in both rendered shells
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Speech visibility" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Speech visibility" });
     await post("/api/materials", { topicId: topic.id, title: "Speech", kind: "book", files: [{ name: "book.epub", data: Buffer.from(bytes).toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
@@ -39,6 +40,7 @@ test("reader speech checks visible words across chapters in both rendered shells
       }
       const article = page.locator(".pith-article");
       const button = page.locator('[data-command="read"]');
+      await article.locator(".pith-epub-chapter").first().waitFor();
       await article.evaluate((node: HTMLElement) => { node.innerHTML = '<section class="pith-epub-chapter"><p data-prose="true"><span>。</span><span style="position:fixed;left:3000px">Later words</span></p></section>'; });
       await button.click();
       assert.match((await page.locator(".pith-stage .pith-toast-tip").textContent()) || "", /当前页面没有可朗读的正文段落/);
@@ -71,8 +73,8 @@ test("Web clears quoted text between topics and retains per-topic guide visibili
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
-    const first = await post("/api/topics", { title: "First topic" });
-    const second = await post("/api/topics", { title: "Second topic" });
+    const first = await createTestTopic(join(dir, "workspace"), { title: "First topic" });
+    const second = await createTestTopic(join(dir, "workspace"), { title: "Second topic" });
     for (const topic of [first, second]) await post("/api/materials", { topicId: topic.id, title: topic.title, kind: "article", files: [{ name: "text.md", data: Buffer.from(`# ${topic.title}\n\nQuoted text.`).toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
@@ -130,7 +132,7 @@ test("Web subtitle cues anchor the mounted practice toolkit without mounting ano
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Subtitle" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Subtitle" });
     await post("/api/materials", { topicId: topic.id, title: "Subtitle", kind: "media", files: [{ name: "speech.srt", data: Buffer.from("1\n00:00:01,000 --> 00:00:03,000\nA spoken sentence.\n").toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["feynman"] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1000, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });

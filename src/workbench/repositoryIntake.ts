@@ -23,3 +23,10 @@ export function emptyMaterialHtml(material: Material | null | undefined): string
   const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
   return `<h2>仓库已绑定</h2><p>路径：${escape(material.externalPath || "未提供")}</p><p>Commit：${escape(material.commitSha || "未提供")}</p><p>尚无讲义。</p>`;
 }
+
+export function renderRepositoryText(commit: string, path: string, text: string): { html: string; sections: []; format: "markdown" } {
+  const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  const lines = text.split("\n");
+  const html = `<pre><code>${lines.map((line, index) => `<span data-locator="${escape(`repo:${commit}:${path}#L${index + 1}-L${index + 1}`)}" data-prose="false" data-trainable="true">${escape(line)}</span>`).join("\n")}</code></pre>`;
+  return { html, sections: [], format: "markdown" };
+}

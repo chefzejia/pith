@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { HttpRequestSpec, SpeechAsrService, SpeechTtsService } from "../src/core/index.ts";
+import { DefaultWorkspaceStore, type HttpRequestSpec, type SpeechAsrService, type SpeechTtsService } from "../src/core/index.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";
 import { switchSpeechMode } from "../src/shells/speech/speechSettings.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -77,16 +77,17 @@ test("essentials mode only activates and authorizes explicitly mounted tools", a
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
   try {
     await controller.initialize(); await controller.setPlugins({ preset: "essentials" });
-    const topic = await controller.store.createTopic({ title: "reading" });
+    const topic = await controller.store.createTopic({ title: "reading" , target: "reading", materialIds: [], toolkits: [] });
     await controller.importMaterial({ title: "reading", kind: "article", files: [{ name: "article.md", bytes: new TextEncoder().encode("A useful concept") }] }, topic.id);
     assert.equal(controller.runtime.getService("toolkit.feynman"), undefined);
     await controller.store.updateTopic(topic.id, { toolkits: ["feynman"] }); await controller.setPlugins({ preset: "essentials" });
     assert.ok(controller.runtime.getService("toolkit.feynman"));
+    const webStore = new DefaultWorkspaceStore(new NodeWorkspaceStorage(join(dir, "web")));
+    const webTopic = await webStore.createTopic({ title: "reading", target: "reading", materialIds: [], toolkits: [] });
     server = await createPithWebServer({ workspaceDir: join(dir, "web") }); const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = (path: string, data: unknown) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
     assert.equal((await post("/api/plugins", { preset: "essentials" })).status, 200);
-    const created = await post("/api/topics", { title: "reading" }); assert.equal(created.status, 201); const webTopic = await created.json();
     assert.equal((await post("/api/materials", { topicId: webTopic.id, title: "reading", kind: "article", files: [{ name: "article.md", data: Buffer.from("A useful concept").toString("base64") }] })).status, 201);
     assert.equal((await post("/api/toolkit/transform", { topicId: webTopic.id, file: "article.md", toolkit: "feynman", targetText: "A useful concept", stage: "blind-produce" })).status, 403);
     assert.equal((await post(`/api/topics/${webTopic.id}/toolkits`, { toolkits: ["feynman"] })).status, 200);

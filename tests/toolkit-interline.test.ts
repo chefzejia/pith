@@ -119,7 +119,7 @@ test("corrupt cache is recomputed and missing translations remain independently 
 });
 
 test("runtime retains interline and reader with injected topic usage", () => {
-  const topic = (id: string, toolkit: string): Topic => ({ id, title: id, target: "read", status: "exploring", toolkits: [toolkit], notes: [], createdAt: "today", updatedAt: "today" });
+  const topic = (id: string, toolkit: string): Topic => ({ id, title: id, target: "read", status: "exploring", materialIds: [], lessons: [], toolkits: [toolkit], notes: [], createdAt: "today", updatedAt: "today" });
   let topics = [topic("one", "interline"), topic("two", "interline")];
   const manifest = builtinRegistry.list().find(item => item.id === "toolkit-interline"); assert.ok(manifest);
   const reader = { id: "reader", name: "Reader", description: "Reader", provides: ["stage.reader"], apply: (ctx: PluginContext) => ctx.provide("stage.reader", {}) };

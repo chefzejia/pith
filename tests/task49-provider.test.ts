@@ -13,7 +13,7 @@ test("one ACP prompt reads multiple times, survives a tool error, and writes a n
   const root = await testSandbox("task49-provider-"), storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
   const material = await store.importMaterial({ title: "Fixture", kind: "article", files: [{ name: "source.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("alpha\nbeta") }] });
-  const topic = await store.createTopic({ title: "Fixture", materialId: material.id });
+  const topic = await store.createTopic({ title: "Fixture", target: "Understand the fixture", materialIds: [material.id], toolkits: [] });
   let prompts = 0, calls: string[] = [], closed = false;
   const descriptor: DiscoveredAgentDescriptor = { id: "dsh", label: "fixture", command: "/fixture", args: [], available: true, version: null, note: "fixture", pithToolTitlePrefix: "mcp__pith__" };
   const port: AgentProcessPort = {
@@ -65,7 +65,7 @@ test("one ACP prompt reads multiple times, survives a tool error, and writes a n
 
 test("tool-shaped reply text never executes or changes profile evidence", async () => {
   const root = await testSandbox("task49-text-only-"), storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
-  await store.ensureScaffold(); const topic = await store.createTopic({ title: "Text fixture" });
+  await store.ensureScaffold(); const topic = await store.createTopic({ title: "Text fixture", target: "Understand text", materialIds: [], toolkits: [] });
   const original = await readFile(join(root, "ME.md"));
   const call = JSON.stringify({ name: "pith_settle_topic", arguments: { verificationSummary: "claimed" } });
   const examples = [`结题已完成。\n\n\`\`\`pith-tool\n${call}\n\`\`\`\n后续说明`, `已结题。\n\npith-tool\n${call}`, `已记下。\n\n${JSON.stringify({ name: "pith_remember", arguments: { text: "claimed" } })}`, `现在结题。 \`\`\`pith-tool\n${call}\n\`\`\``];
@@ -95,7 +95,7 @@ test("tool-shaped reply text never executes or changes profile evidence", async 
 
 test("agent exit during a prompt persists a failed turn with its original error", async () => {
   const root = await testSandbox("task49-agent-exit-"), storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
-  await store.ensureScaffold(); const topic = await store.createTopic({ title: "Exit fixture" });
+  await store.ensureScaffold(); const topic = await store.createTopic({ title: "Exit fixture", target: "Understand exit", materialIds: [], toolkits: [] });
   const descriptor: DiscoveredAgentDescriptor = { id: "dsh", label: "fixture", command: "/fixture", args: [], available: true, version: null, note: "", pithToolTitlePrefix: "mcp__pith__" };
   const port: AgentProcessPort = { findExecutable: async () => null, probeExecutable: async () => null, async spawnStdio() {
     let line: ((message: string) => void) | undefined, exit: ((code: number | null, signal: string | null) => void) | undefined;

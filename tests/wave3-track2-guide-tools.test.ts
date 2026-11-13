@@ -13,17 +13,24 @@ test("scoped tools and dsh share names and enforce topic scope", async () => {
   try {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const material = await store.importMaterial({ title: "Source", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode("original") }] });
-    const topic = await store.createTopic({ title: "Topic", materialId: material.id });
+    const topic = await store.createTopic({ title: "Topic", target: "Understand the source", materialIds: [material.id], toolkits: [] });
     const scoped = createScopedTools({ topicId: topic.id, store, storage, http: { request: async () => { throw new Error("offline"); } }, onChoices: () => {} });
     const dsh = createDshPluginBundle({ storage }).tools;
     assert.deepEqual(dsh.map(tool => tool.name).sort(), scoped.map(tool => tool.name).sort());
+    const lessonSchema = dsh.find(tool => tool.name === "pith_write_lesson")!.inputSchema as { properties: Record<string, unknown>; required: string[] };
+    assert.deepEqual(Object.keys(lessonSchema.properties).sort(), ["fileName", "markdown", "topicId"]);
+    assert.deepEqual(lessonSchema.required.sort(), ["fileName", "markdown", "topicId"]);
     const call = (name: string, input: Record<string, unknown>) => scoped.find(tool => tool.name === name)!.execute(input);
     assert.ok(!scoped.some(tool => tool.name === "pith_remember"));
     await assert.rejects(call("pith_write_lesson", { topicId: "other", fileName: "lesson.md", markdown: "x" }), /Invalid/);
-    await assert.rejects(call("pith_write_lesson", { fileName: "source.md", markdown: "replace" }), /original material/);
+    await assert.rejects(dsh.find(tool => tool.name === "pith_write_lesson")!.execute({ topicId: topic.id, materialId: material.id, fileName: "lesson.md", markdown: "x" }), /Invalid/);
+    await call("pith_write_lesson", { fileName: "source.md", markdown: "lesson" });
     assert.equal(await storage.readText(`materials/${material.id}/files/source.md`), "original");
+    assert.equal(await store.readLesson(topic.id, "source.md"), "lesson");
     await assert.rejects(call("pith_settle_topic", { verificationSummary: "understood" }), /learner note/);
     await call("pith_save_note", { body: "evidence" });
+    await assert.rejects(call("pith_settle_topic", { verificationSummary: "understood" }), /learner note/);
+    await store.appendTopicNote(topic.id, { kind: "note", author: "user", body: "user evidence" });
     await call("pith_configure_toolkits", { toolkits: [] });
     assert.deepEqual((await store.getTopic(topic.id))!.toolkits, []);
     const result = await call("pith_settle_topic", { verificationSummary: "explained" }) as { topic: { status: string } };

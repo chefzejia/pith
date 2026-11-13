@@ -1,11 +1,30 @@
-import type { ReaderSectionHeading } from "../../core/index.ts";
+import type { AnchorSource, ReaderSectionHeading } from "../../core/index.ts";
 import { renderTocTree, type CurriculumItem } from "../../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "../icons.ts";
 
-export function renderNavigation(navigation: HTMLElement, document: { files: readonly { name: string }[]; curriculum?: readonly CurriculumItem[]; sections: readonly ReaderSectionHeading[]; currentFile: string }, navigate: (locator: string) => void): void {
+export function renderNavigation(navigation: HTMLElement, document: { files: readonly { name: string }[]; curriculum?: readonly CurriculumItem[]; sections: readonly ReaderSectionHeading[]; currentFile: string; source?: AnchorSource; materialGroups?: readonly { readonly id: string; readonly title: string; readonly files: readonly { readonly name: string }[] }[] }, navigate: (locator: string) => void): void {
   const doc = navigation.ownerDocument; navigation.replaceChildren();
   const group = (label: string): void => { const heading = doc.createElement("h2"); heading.textContent = label; navigation.append(heading); };
   const fileButton = (name: string): void => { const button = doc.createElement("button"); button.textContent = name; button.dataset.file = name; button.setAttribute("aria-current", String(name === document.currentFile)); navigation.append(button); };
+  if (document.materialGroups) {
+    group("讲义");
+    const planned = document.curriculum ?? [];
+    for (const item of planned) {
+      const button = doc.createElement("button"); button.className = "pith-lesson"; button.textContent = item.title;
+      if (item.status === "ready") { button.dataset.file = item.fileName; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && item.fileName === document.currentFile)); }
+      else { button.dataset.plannedLesson = item.fileName; button.dataset.plannedTitle = item.title; const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "待生成"; button.append(badge); }
+      navigation.append(button);
+    }
+    for (const file of document.files.filter(file => !planned.some(item => item.fileName === file.name))) {
+      const button = doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && file.name === document.currentFile)); navigation.append(button);
+    }
+    for (const material of document.materialGroups) {
+      group(material.title);
+      for (const file of material.files) { const button = doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.dataset.materialId = material.id; button.setAttribute("aria-current", String(document.source?.kind === "material" && document.source.materialId === material.id && file.name === document.currentFile)); navigation.append(button); }
+    }
+    group("目录"); renderTocTree(navigation, document.sections, navigate, pithIcon("chevron-right"));
+    return;
+  }
   if (document.curriculum?.length) {
     group("课程目录");
     for (const item of document.curriculum) {

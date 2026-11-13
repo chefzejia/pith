@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -19,7 +20,7 @@ test("Web keeps EPUB host-named IDs separate from host controls", { skip: !proce
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Host IDs" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Host IDs" });
     await post("/api/materials", { topicId: topic.id, title: "Host IDs", kind: "book", files: [{ name: "ids.epub", data: Buffer.from(linkedEpub(true)).toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
@@ -68,7 +69,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
     await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok, `${path}: ${response.status}`); return response.json(); };
-    const topic = await post("/api/topics", { title: "链接书" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "链接书" });
     await post("/api/materials", { topicId: topic.id, title: "链接书", kind: "book", files: [{ name: "links.epub", data: Buffer.from(book).toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 900, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage(); let external = 0;

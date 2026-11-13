@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -50,7 +51,7 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     const webAddress = web.address(); assert.ok(webAddress && typeof webAddress !== "string"); const base = `http://127.0.0.1:${webAddress.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };
     await post("/api/settings", { agentId: "dsh", model: "old-profile-model", effort: "low" });
-    const topic = await post("/api/topics", { title: "English reading" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "English reading" });
     const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>Speech test</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": "<html><body><h1>Chapter One: Attention</h1><p>Reading carefully begins with the decision to notice what is in front of us.</p></body></html>" });
     await post("/api/materials", { topicId: topic.id, title: "English", kind: "book", files: [{ name: "english.epub", data: Buffer.from(book).toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);

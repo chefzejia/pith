@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -16,7 +17,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
   const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
   const browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1400, height: 900 }, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   try {
-    const topic = await post("/api/topics", { title: "共享工作台" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "共享工作台" });
     await post("/api/materials", { topicId: topic.id, title: "book", kind: "book", files: [{ name: "book.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
     const page = await browser.newPage(); page.setDefaultTimeout(5000); const errors: string[] = []; let sends = 0;
@@ -75,8 +76,8 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.locator("[data-home-settings]").click();
     await page.locator("#simple-mode").waitFor();
     await page.locator("#close-drawer").click();
-    await page.locator('.pith-intake-box input[name="title"]').fill("新课题");
-    await page.locator("[data-intake-open]").click();
+    const nextTopic = await createTestTopic(join(dir, "workspace"), { title: "新课题" });
+    await page.reload(); await page.locator(`[data-topic="${nextTopic.id}"]`).first().click();
     await page.getByText("这个课题还没有关联材料。").waitFor();
     await page.locator("#material-files").setInputFiles({ name: "material.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported\n\nA real imported paragraph.") });
     await page.getByText("A real imported paragraph.").waitFor();

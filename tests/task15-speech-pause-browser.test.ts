@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
@@ -12,7 +13,7 @@ test("speech pause waits for pending play in Web and Obsidian", { timeout: 45000
     await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Pause" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Pause" });
     await post("/api/materials", { topicId: topic.id, title: "Pause", kind: "article", files: [{ name: "read.md", data: Buffer.from("A sentence long enough for this test.").toString("base64") }] });
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);

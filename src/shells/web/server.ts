@@ -45,9 +45,12 @@ function anchor(value: unknown): SelectionAnchor | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid anchor");
   const a = value as Record<string, unknown>;
+  if (!a.source || typeof a.source !== "object" || Array.isArray(a.source)) throw new Error("Invalid anchor source");
+  const source = a.source as Record<string, unknown>;
+  if (source.kind !== "lesson" && source.kind !== "material") throw new Error("Invalid anchor source");
   const quote = a.quote;
   if (quote !== undefined && typeof quote !== "string") throw new Error("Invalid quote");
-  return { file: str(a, "file"), locator: str(a, "locator"), ...(typeof quote === "string" ? { quote } : {}) };
+  return { source: source.kind === "lesson" ? { kind: "lesson" } : { kind: "material", materialId: str(source, "materialId") }, file: str(a, "file"), locator: str(a, "locator"), ...(typeof quote === "string" ? { quote } : {}) };
 }
 function send(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
@@ -160,23 +163,25 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const operation = speechRuntime[action]; if (!operation) throw new Error("本宿主不支持该操作");
         return send(res, 200, await operation.call(speechRuntime));
       }
-      if (method === "POST" && url.pathname === "/api/topics") {
+      if (method === "POST" && url.pathname === "/api/intake") {
         const data = await body(req);
-        if (data.toolkits !== undefined && (!Array.isArray(data.toolkits) || !data.toolkits.every(item => typeof item === "string"))) throw new Error("Invalid toolkits");
-        const material = typeof data.materialId === "string" && data.materialId ? await store.getMaterial(data.materialId) : null;
-        if (data.materialId && !material) throw new Error("Material not found");
-        let sampleText = material?.title;
-        const first = material?.files[0];
-        if (material && first && /\.epub$/i.test(first.name)) sampleText = await sampleEpubLanguage(await storage.readBinary(`materials/${material.id}/files/${first.name}`)) || sampleText;
-        if (material && first && !/\.(?:epub|pdf|cbz|png|jpe?g|gif|webp|avif)$/i.test(first.name) && (isSourceTextFile(first.name) || !/^(?:audio|video|image)\//.test(first.mimeType))) {
-          const bytes = await storage.readBinary(`materials/${material.id}/files/${first.name}`);
-          try { const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, 16384)); if (!/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) sampleText = text; } catch { /* Binary material has no text sample. */ }
-        }
-        if (data.guideDefault !== undefined && (data.guideDefault !== true || material || data.toolkits !== undefined)) throw new Error("Invalid guide default");
-        const toolkits = data.toolkits !== undefined ? normalizeToolkits(data.toolkits as string[]) : material ? defaultToolkitsForMaterial({ kind: material.kind, files: material.files, sampleText }) : data.guideDefault ? ["feynman"] : undefined;
-        const topic = await store.createTopic({ title: str(data, "title"), target: typeof data.target === "string" ? data.target : "", nextAction: typeof data.nextAction === "string" ? data.nextAction : undefined,
-          materialId: typeof data.materialId === "string" && data.materialId ? data.materialId : undefined, ...(toolkits !== undefined ? { toolkits } : {}), ...((data.guideDefault || (material && data.toolkits === undefined)) ? { toolkitsOrigin: "default" as const } : {}) });
-        await refresh(); return send(res, 201, topic);
+        if (!Array.isArray(data.materialIds) || !data.materialIds.every(id => typeof id === "string")) throw new Error("Invalid materialIds");
+        if (data.previous !== undefined && !Array.isArray(data.previous)) throw new Error("Invalid previous turns");
+        if (guideTurns.has("intake")) return send(res, 409, { error: "Intake already running" });
+        const controller = new AbortController(); guideTurns.set("intake", controller);
+        try {
+          const result = await engine.intake({ text: str(data, "text"), materialIds: data.materialIds as string[], ...(data.previous ? { previous: data.previous as import("../../core/index.ts").GuideTurn[] } : {}) }, { signal: controller.signal });
+          await refresh(); return send(res, 201, result);
+        } finally { guideTurns.delete("intake"); }
+      }
+      if (method === "POST" && url.pathname === "/api/intake/stop") { guideTurns.get("intake")?.abort(); return send(res, 200, { stopped: true }); }
+      const statusPath = /^\/api\/topics\/([^/]+)\/status$/.exec(url.pathname);
+      if (method === "POST" && statusPath) {
+        const data = await body(req);
+        if (data.status !== "exploring" && data.status !== "shelved") throw new Error("Invalid status");
+        const id = decodeURIComponent(statusPath[1]!);
+        const topic = data.status === "shelved" ? await store.updateTopic(id, { status: "shelved" }) : await store.updateTopic(id, { status: "exploring" });
+        await refresh(); return send(res, 200, topic);
       }
       const toolkitPath = /^\/api\/topics\/([^/]+)\/toolkits$/.exec(url.pathname);
       if (method === "POST" && toolkitPath) {
@@ -193,24 +198,23 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const guide = runtime.getService<GuideAgentService>("guide.agent");
         if (!guide || !guide.quickActionsForTopic) return send(res, 503, { error: "Guide service unavailable" });
         const toolkits = ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; });
-        const material = topic.materialId ? await store.getMaterial(topic.materialId) : null;
-        const topicWithMaterial = { ...topic, material };
-        return send(res, 200, guide.quickActionsForTopic(topicWithMaterial, toolkits));
+        return send(res, 200, guide.quickActionsForTopic(topic, toolkits));
       }
       if (method === "POST" && url.pathname === "/api/interline") {
         const data = await body(req), topicId = str(data, "topicId"), file = str(data, "file"), mode = str(data, "mode");
         const topic = await store.getTopic(topicId);
-        if (!topic || !topic.materialId || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间未挂载" });
-        const material = await store.getMaterial(topic.materialId);
+        const materialId = str(data, "materialId");
+        if (!topic || !topic.materialIds.includes(materialId) || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间未挂载" });
+        const material = await store.getMaterial(materialId);
         if (!material || !material.files.some(item => item.name === file)) return send(res, 404, { error: "材料不存在" });
         const service = runtime.getService<InterlineService>("toolkit.interline");
         if (!service) return send(res, 503, { error: "行间不可用" });
         if (!Array.isArray(data.units) || !data.units.length || data.units.length > 10000 || JSON.stringify(data.units).length > 10_000_000 || !data.units.every((unit: any) => unit && typeof unit.html === "string" && Array.isArray(unit.segments) && unit.segments.every((segment: any) => segment && typeof segment.locator === "string" && typeof segment.sourceText === "string" && Number.isInteger(segment.blockIndex)))) throw new Error("Invalid interline units");
         const units = data.units as InterlineUnitInput[], index = data.index;
         if (typeof index !== "number") throw new Error("Invalid interline unit");
-        const signature = JSON.stringify(units), key = JSON.stringify([topicId, topic.materialId, file]);
+        const signature = JSON.stringify(units), key = JSON.stringify([topicId, materialId, file]);
         let entry = interlineSessions.get(key);
-        if (!entry || entry.signature !== signature) { entry = { signature, session: new InterlineSession(service, storage, interlineTranslator, topic.materialId, file, units) }; interlineSessions.set(key, entry); }
+        if (!entry || entry.signature !== signature) { entry = { signature, session: new InterlineSession(service, storage, interlineTranslator, materialId, file, units) }; interlineSessions.set(key, entry); }
         return send(res, 200, await entry.session.render(index, mode as InterlineDisplayMode));
       }
       if (method === "POST" && url.pathname === "/api/speech/sentences") {
@@ -248,6 +252,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           return send(res, 200, await asr.transcribeAudio(new Uint8Array(Buffer.from(encoded, "base64")), typeof data.mimeType === "string" ? data.mimeType : undefined, abort.signal));
         } catch (error) { return send(res, 503, { error: `语音引擎不可用，请前往 ⚙ 设置检查配置：${speechErrorMessage(error, url.pathname.endsWith("synthesize") ? tts : asr)}` }); }
       }
+      if (method === "POST" && url.pathname === "/api/repo/inspect") {
+        const data = await body(req); return send(res, 200, await resolveRepositoryIntake(str(data, "repoPath"), repository));
+      }
       if (method === "POST" && url.pathname === "/api/materials/repo") {
         const data = await body(req), { info, description } = await resolveRepositoryIntake(str(data, "repoPath"), repository);
         const material = await store.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha });
@@ -263,7 +270,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const kind = str(data, "kind");
         if (!["book", "article", "media", "discussion", "repo"].includes(kind) || !Array.isArray(data.files) || !data.files.length) throw new Error("Invalid material");
         const topicId = typeof data.topicId === "string" && data.topicId ? data.topicId : undefined;
-        if (topicId) { const topic = await store.getTopic(topicId); if (!topic) return send(res, 404, { error: "Topic not found" }); if (topic.materialId) return send(res, 409, { error: "课题已有材料，无法替换" }); }
+        if (topicId && !await store.getTopic(topicId)) return send(res, 404, { error: "Topic not found" });
         const files = data.files.map((item: unknown) => {
           if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid file");
           const entry = item as Record<string, unknown>; const encoded = str(entry, "data");
@@ -271,8 +278,38 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           return { name: str(entry, "name"), mimeType: typeof entry.mimeType === "string" ? entry.mimeType : "application/octet-stream", bytes: new Uint8Array(Buffer.from(encoded, "base64")) };
         });
         const material = await store.importMaterial({ title: str(data, "title"), kind: kind as "book" | "article" | "media" | "discussion" | "repo", files });
-        if (topicId) await store.updateTopic(topicId, { materialId: material.id });
+        if (topicId) await store.attachMaterial(topicId, material.id);
         await refresh(); return send(res, 201, material);
+      }
+      if (method === "GET" && url.pathname === "/api/topic-session") {
+        const topicId = url.searchParams.get("topicId");
+        if (!topicId) throw new Error("Missing topic");
+        const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found");
+        const materials = await Promise.all(topic.materialIds.map(async id => { const material = await store.getMaterial(id); if (!material) throw new Error(`Material not found: ${id}`); return material; }));
+        const repositoryFiles: Record<string, string[]> = {};
+        for (const material of materials) if (material.kind === "repo") {
+          if (!material.externalPath || !material.commitSha) throw new Error("Repository binding missing");
+          const paths: string[] = []; let offset: number | null = 0;
+          while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); paths.push(...page.files); offset = page.nextOffset; }
+          repositoryFiles[material.id] = paths;
+        }
+        return send(res, 200, { topic, materials, repositoryFiles });
+      }
+      if (method === "GET" && url.pathname === "/api/topic-lesson") {
+        const topicId = url.searchParams.get("topicId"), fileName = url.searchParams.get("name");
+        if (!topicId || !fileName) throw new Error("Missing topic or lesson");
+        const text = await store.readLesson(topicId, fileName), reader = runtime.getService<StageReaderService>("stage.reader");
+        if (!reader) throw new Error("Reader unavailable");
+        return send(res, 200, { text, html: reader.render(text), sections: reader.sections(text), format: "markdown" });
+      }
+      if (method === "GET" && url.pathname === "/api/topic-repository") {
+        const topicId = url.searchParams.get("topicId"), materialId = url.searchParams.get("materialId"), fileName = url.searchParams.get("name");
+        if (!topicId || !materialId || !fileName) throw new Error("Missing repository file");
+        const topic = await store.getTopic(topicId), material = await store.getMaterial(materialId);
+        if (!topic?.materialIds.includes(materialId) || material?.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository is not in topic");
+        const parts: string[] = []; let startLine = 1;
+        for (;;) { const page = await repository.readFile(material.externalPath, material.commitSha, fileName, startLine, 1000); parts.push(page.text); if (!page.truncated) break; startLine = page.endLine + 1; }
+        return send(res, 200, { text: parts.join("\n"), commitSha: material.commitSha });
       }
       if (method === "POST" && (url.pathname === "/api/toolkit/diagnose" || url.pathname === "/api/toolkit/transform" || url.pathname === "/api/toolkit/submit")) {
         const data = await body(req);
@@ -282,7 +319,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!topic) return send(res, 404, { error: "Topic not found" });
         const toolkitId = data.toolkit === undefined ? "shadowing" : data.toolkit;
         if (toolkitId !== "shadowing" && toolkitId !== "feynman") throw new Error("Invalid toolkit");
-        const material = topic.materialId ? await store.getMaterial(topic.materialId) : null;
+        const materialId = typeof data.materialId === "string" ? data.materialId : undefined;
+        if (materialId && !topic.materialIds.includes(materialId)) throw new Error("Material does not belong to topic");
+        const material = materialId ? await store.getMaterial(materialId) : null;
         const requestedFile = typeof data.file === "string" ? material?.files.find(item => item.name === data.file) : undefined;
         const format = requestedFile?.name ?? material?.files[0]?.name ?? material?.kind ?? "";
         if (!effectiveToolkits(topic.toolkits, format).includes(toolkitId)) return send(res, 403, { error: `${toolkitId} is not enabled for this topic` });
@@ -294,7 +333,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const producedText = str(data, "producedText");
           const practiceAnchor = anchor(data.anchor);
           if (!practiceAnchor || !requestedFile || practiceAnchor.file !== requestedFile.name || practiceAnchor.quote !== targetText) throw new Error("原文锚点无效");
-          const note = await engine.captureSelection({ topicId, kind: "practice", body: producedText, anchor: practiceAnchor });
+          const note = await engine.capture({ owner: { topicId }, kind: "practice", body: producedText, anchor: practiceAnchor });
           processEffects();
           if (!options.guideProvider && !settings.agentId) return send(res, 201, { note, guided: false });
           try { const turn = await engine.runTurn({ topicId, text: producedText, instruction: toolkit.evaluationRubric, anchor: practiceAnchor }); return send(res, 201, { note, guided: turn.status === "completed", ...(turn.error ? { guideError: turn.error } : {}) }); }
@@ -309,7 +348,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const result = toolkit.diagnose(targetText, data.producedText);
         if (data.saveNote !== undefined && typeof data.saveNote !== "boolean") throw new Error("Invalid saveNote");
         if (data.saveNote === true) {
-          const note = await engine.captureSelection({ topicId, kind: "practice", body: result.summaryMarkdown, anchor: { file: str(data, "file"), locator: str(data, "locator"), quote: targetText } });
+          if (!materialId) throw new Error("Material required");
+          const note = await engine.capture({ owner: { topicId }, kind: "practice", body: result.summaryMarkdown, anchor: { source: { kind: "material", materialId }, file: str(data, "file"), locator: str(data, "locator"), quote: targetText } });
           processEffects(); return send(res, 201, { ...result, note });
         }
         return send(res, 200, result);
@@ -369,7 +409,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && url.pathname === "/api/notes") {
         const data = await body(req); const kind = str(data, "kind");
         if (kind !== "highlight" && kind !== "note" && kind !== "practice") throw new Error("Invalid kind");
-        const note = await engine.captureSelection({ topicId: str(data, "topicId"), kind, body: str(data, "body"), anchor: anchor(data.anchor) });
+        const note = await engine.capture({ owner: { topicId: str(data, "topicId") }, kind, body: str(data, "body"), anchor: anchor(data.anchor) });
         processEffects(); return send(res, 201, note);
       }
       if (url.pathname === "/api/chat" && method === "GET") {

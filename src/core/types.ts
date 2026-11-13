@@ -8,7 +8,7 @@
  * - Note & SelectionAnchor: highlights, reflections, and toolkit practice diagnostics
  */
 
-export type TopicStatus = "exploring" | "settled";
+export type TopicStatus = "exploring" | "shelved" | "settled";
 
 export type MaterialKind = "book" | "article" | "media" | "discussion" | "repo";
 
@@ -24,19 +24,30 @@ export type NoteKind = "highlight" | "note" | "practice";
  */
 export type IntrinsicLocator = string;
 
+export type AnchorSource = { readonly kind: "material"; readonly materialId: string } | { readonly kind: "lesson" };
+
 export interface SelectionAnchor {
+  readonly source: AnchorSource;
   readonly file: string;
   readonly locator: IntrinsicLocator;
   readonly quote?: string;
 }
 
-export interface TopicNote {
+export interface Note {
   readonly id: string;
   readonly kind: NoteKind;
+  readonly author: "user" | "guide";
   readonly createdAt: string;
   readonly anchor?: SelectionAnchor;
   readonly body: string;
   readonly guideRemark?: string;
+  readonly result?: Readonly<Record<string, unknown>>;
+}
+
+export interface LessonEntry {
+  readonly name: string;
+  readonly locator?: IntrinsicLocator;
+  readonly lastActiveAt?: string;
 }
 
 export interface Topic {
@@ -44,14 +55,13 @@ export interface Topic {
   readonly title: string;
   readonly target: string;
   readonly status: TopicStatus;
-  readonly materialId?: string;
+  readonly materialIds: readonly string[];
   /** Single concrete 15-minute next step shown on the Attention Compass. */
   readonly nextAction?: string;
   /** Dynamically injected toolkit/practice toolkit plugin IDs (e.g. ["shadowing"]). */
   readonly toolkits: readonly string[];
-  /** Whether `toolkits` was provisionally pre-filled by intake defaults before material binding (`"default"`) or explicitly configured (`"explicit"`). */
-  readonly toolkitsOrigin?: "default" | "explicit";
-  readonly notes: readonly TopicNote[];
+  readonly lessons: readonly LessonEntry[];
+  readonly notes: readonly Note[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -73,6 +83,8 @@ export interface Material {
   readonly files: readonly MaterialFileEntry[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  readonly aids: readonly string[];
+  readonly notes: readonly Note[];
 }
 
 export interface UnreadableEntry { readonly kind: "topic" | "material"; readonly id: string; readonly path: string; readonly error: string }

@@ -49,9 +49,13 @@ test("repository port reads only bounded ordinary UTF-8 files in the pinned comm
     const excerpt = await port.readFile(binding.externalPath, binding.commitSha, "src/main.ts", 2, 1);
     assert.deepEqual({ text: excerpt.text, start: excerpt.startLine, end: excerpt.endLine, truncated: excerpt.truncated }, { text: "second committed line", start: 2, end: 2, truncated: true });
     assert.equal(excerpt.commitSha, binding.commitSha);
+    for (const path of ["./src/main.ts", "src/./main.ts", "./src/./main.ts"]) {
+      const relative = await port.readFile(binding.externalPath, binding.commitSha, path, 2, 1);
+      assert.equal(relative.text, "second committed line");
+    }
     assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).text.length, 13000);
     assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).truncated, false);
-    for (const path of ["link", "nested", "untracked.txt", "../src/main.ts", "/etc/passwd", "src\\main.ts", "binary.bin", "invalid.txt", "large.txt"]) await assert.rejects(port.readFile(binding.externalPath, binding.commitSha, path), path);
+    for (const path of ["link", "nested", "untracked.txt", "../src/main.ts", "src/../src/main.ts", "./../src/main.ts", "/etc/passwd", "C:/src/main.ts", "src\\main.ts", "binary.bin", "invalid.txt", "large.txt"]) await assert.rejects(port.readFile(binding.externalPath, binding.commitSha, path), path);
     for (const [offset, limit] of [[-1, 1], [0, 0], [0, 1001], [1.5, 1]]) await assert.rejects(port.listFiles(binding.externalPath, binding.commitSha, offset, limit));
     await assert.rejects(port.readFile(binding.externalPath, binding.commitSha, "src/main.ts", 0));
     await assert.rejects(port.listFiles(binding.externalPath, "HEAD"));
@@ -70,7 +74,7 @@ test("scoped repository tools read the pinned commit and reject other materials"
     const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const material = await store.importMaterial({ title: "代码", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
     const other = await store.importMaterial({ title: "其他", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
-    const topic = await store.createTopic({ title: "读源码", target: "理解入口", materialId: material.id });
+    const topic = await store.createTopic({ title: "读源码", target: "理解入口", materialIds: [material.id], toolkits: [] });
     const tools = createScopedTools({ topicId: topic.id, store, storage, repository, onChoices: () => {} });
     const call = (name: string, args: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(args);
     const listed = await call("pith_list_material", { materialId: material.id }) as { files: string[] };
@@ -80,21 +84,21 @@ test("scoped repository tools read the pinned commit and reject other materials"
     await assert.rejects(call("pith_read_material", { materialId: other.id, file: "src/main.ts" }), /does not belong/);
     await assert.rejects(call("pith_read_material", { materialId: material.id, file: "../src/main.ts" }));
     await call("pith_write_lesson", { fileName: "00-课程大纲.md", markdown: "# 大纲" });
-    assert.equal(await storage.readText(`materials/${material.id}/files/00-课程大纲.md`), "# 大纲");
+    assert.equal(await store.readLesson(topic.id, "00-课程大纲.md"), "# 大纲");
     await assert.rejects(call("pith_write_lesson", { topicId: topic.id, fileName: "bad.md", markdown: "x" }));
-    assert.equal(quickActionsForTopic({ ...topic, material }, []).at(0)?.id, "plan-curriculum");
+    assert.equal(quickActionsForTopic(topic, []).at(0)?.id, "plan-curriculum");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("lesson tool creates and binds a material when none exists", async () => {
+test("lesson tool writes to a topic without creating a material", async () => {
   const root = await testSandbox("pith-task32-lesson-");
   try {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
-    const topic = await store.createTopic({ title: "课题", target: "学习" });
+    const topic = await store.createTopic({ title: "课题", target: "学习" , materialIds: [], toolkits: [] });
     const lesson = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
     await lesson.execute({ fileName: "00-课程大纲.md", markdown: "# 大纲" });
-    const updated = await store.getTopic(topic.id); assert.ok(updated?.materialId);
-    assert.equal(await storage.readText(`materials/${updated.materialId}/files/00-课程大纲.md`), "# 大纲");
+    const updated = await store.getTopic(topic.id); assert.deepEqual(updated?.materialIds, []);
+    assert.equal(await store.readLesson(topic.id, "00-课程大纲.md"), "# 大纲");
     await assert.rejects(lesson.execute({ fileName: "../bad.md", markdown: "x" }));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -105,8 +109,8 @@ test("existing Web topic shows the curriculum quick action", { timeout: 30000, s
   const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); let browser: any;
   try {
-    const created = await fetch(`${base}/api/topics`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "理解代码仓库", target: "从入口建立课程主线" }) });
-    assert.equal(created.status, 201); const topic = await created.json() as { id: string };
+    const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
+    const topic = await store.createTopic({ title: "理解代码仓库", target: "从入口建立课程主线", materialIds: [], toolkits: [] });
     browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true }); const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator(".pith-guide-toggle").click();
     await page.getByRole("button", { name: "规划课程大纲与第一讲" }).waitFor();

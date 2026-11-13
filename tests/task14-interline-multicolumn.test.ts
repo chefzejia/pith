@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,7 +37,7 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
       server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), interlineTranslator: translator });
       const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
       const post = async (path: string, data: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
-      const topic = await post("/api/topics", { title: "Three chapters" });
+      const topic = await createTestTopic(join(dir, "workspace"), { title: "Three chapters" });
       await post("/api/materials", { topicId: topic.id, title: "Three chapters", kind: "book", files: [{ name: "book.epub", data: Buffer.from(bytes).toString("base64") }] });
       await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
       await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();

@@ -1,4 +1,4 @@
-import type { ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, TopicNote } from "../core/index.ts";
+import type { AnchorSource, ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, Note } from "../core/index.ts";
 import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
@@ -27,16 +27,19 @@ export interface ObsidianReaderDocument {
   readonly title: string;
   readonly html: string;
   readonly files: readonly { name: string; mimeType?: string }[];
+  readonly mediaFiles?: readonly { name: string; mimeType?: string }[];
   readonly currentFile: string;
   readonly mediaFile?: string | null;
   readonly format?: "markdown" | "epub" | "pdf" | "cbz" | "image";
   readonly sections: readonly ReaderSectionHeading[];
   readonly curriculum?: readonly CurriculumItem[];
+  readonly source?: AnchorSource;
+  readonly materialGroups?: readonly { readonly id: string; readonly title: string; readonly kind?: string; readonly files: readonly { readonly name: string }[] }[];
 }
 
 export interface ObsidianViewActions {
   autoInterline?: boolean;
-  openFile(name: string): void | Promise<void>;
+  openFile(name: string, source?: AnchorSource): void | Promise<void>;
   generateLesson?(fileName: string, title: string): Promise<void>;
   home?(): void | Promise<void>;
   openToolkit(text?: string, locator?: string): void;
@@ -45,7 +48,7 @@ export interface ObsidianViewActions {
   transcribeAudio?(bytes: Uint8Array, mimeType: string, signal?: AbortSignal): Promise<{ readonly text: string }>;
   loadAudio?(name: string): Promise<Uint8Array>;
   prepareInterline?: InterlineViewPrepare;
-  guideData?(): Promise<{ notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[]; readOnly?: boolean }>;
+  guideData?(): Promise<{ notes: readonly Note[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[]; readOnly?: boolean }>;
   undoObservation?(id: string): Promise<void>;
   openMaterial?(id: string): Promise<void>;
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
@@ -58,6 +61,10 @@ export interface ObsidianViewActions {
   guideVisibilityChanged?(visible: boolean): void;
   openSettings?(): void;
   importMaterial?(): void;
+}
+
+function sameSource(a: AnchorSource | undefined, b: AnchorSource | undefined): boolean {
+  return a?.kind === b?.kind && (a?.kind !== "material" || (b?.kind === "material" && a.materialId === b.materialId));
 }
 
 export function pageDirectionForKey(key: string): -1 | 0 | 1 {
@@ -185,6 +192,7 @@ export class PithWorkbenchView {
   private interline: InterlineView | null = null;
   private interlineMode: InterlineDisplayMode = "original";
   private currentFile = "";
+  private currentSource: AnchorSource | undefined;
   private pageMode: "single" | "double" | "triple" = "single";
   private readerPosition: ReaderPosition | null = null;
   private restoredScrollLeft: number | null = null;
@@ -193,8 +201,8 @@ export class PithWorkbenchView {
   private guideTab: "chat" | "notes" = "chat";
   private guideGeneration = 0;
   private pendingAnchor: SelectionAnchor | undefined;
-  private guideData: { notes: readonly TopicNote[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean } = { notes: [], conversation: [], actions: [] };
-  private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile"> | null = null;
+  private guideData: { notes: readonly Note[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean } = { notes: [], conversation: [], actions: [] };
+  private navigationDocument: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile" | "source" | "materialGroups"> | null = null;
   private guideSending = false;
   private guideClock: number | undefined;
   private guidePending: { readonly text: string; readonly from: number } | undefined;
@@ -292,12 +300,14 @@ export class PithWorkbenchView {
     if (this.interline) this.interline.dispose(); this.interline = null; this.interlineMode = "original";
     this.readerPosition = null;
     this.currentFile = document.currentFile;
+    this.currentSource = document.source;
     this.setToolkits(this.configuredToolkits);
     this.paged = document.format ? ["epub", "pdf", "cbz"].includes(document.format) : /\.(epub|pdf|cbz)$/i.test(document.currentFile);
     this.stopSpeech(); this.selectionRange = null; this.popover.hidden = true;
     this.clearAudioAsset(); this.assetSource = null;
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
     this.article.innerHTML = document.html;
+    if (document.source?.kind === "lesson") this.renderRepositoryCitations(document.materialGroups ?? []);
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
     this.navigationDocument = document;
@@ -308,18 +318,48 @@ export class PithWorkbenchView {
     const active = this.doc.activeElement;
     if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const typeOf = (file: ObsidianReaderDocument["files"][number]) => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name: file.name, mimeType: file.mimeType ?? "" });
-    const asset = document.mediaFile === undefined ? resolveMediaPair(document.files, document.currentFile).media : document.files.find(file => file.name === document.mediaFile) ?? null;
+    const mediaFiles = document.mediaFiles ?? document.files;
+    const asset = document.mediaFile === undefined ? resolveMediaPair(mediaFiles, document.currentFile).media : mediaFiles.find(file => file.name === document.mediaFile) ?? null;
     const video = this.article.querySelector<HTMLVideoElement>(".pith-timeline-video"); if (video) video.removeAttribute("src");
     if (asset && this.actions.loadAudio) { const type = typeOf(asset); if (type) { this.assetSource = { name: asset.name, type }; void this.loadAsset(); } }
   }
 
-  updateMaterialNavigation(files: ObsidianReaderDocument["files"], curriculum: ObsidianReaderDocument["curriculum"]): void {
+  private renderRepositoryCitations(groups: NonNullable<ObsidianReaderDocument["materialGroups"]>): void {
+    const sources = new Map<string, { id: string; title: string }[]>();
+    for (const group of groups) if (group.kind === "repo") for (const file of group.files) {
+      const matches = sources.get(file.name) ?? []; matches.push({ id: group.id, title: group.title }); sources.set(file.name, matches);
+    }
+    if (!sources.size) return;
+    const names = [...sources.keys()].sort((a, b) => b.length - a.length).map(name => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_./-])(${names.join("|")}):(\\d+)`, "gu");
+    const walker = this.doc.createTreeWalker(this.article, 4), nodes: Text[] = []; let node: Node | null;
+    while ((node = walker.nextNode())) if (!(node.parentElement?.closest("pre,a,button"))) nodes.push(node as Text);
+    for (const text of nodes) {
+      const value = text.data, matches = [...value.matchAll(pattern)]; if (!matches.length) continue;
+      const fragment = this.doc.createDocumentFragment(); let offset = 0;
+      for (const match of matches) {
+        fragment.append(this.doc.createTextNode(value.slice(offset, match.index)));
+        const candidates = sources.get(match[1]!)!, line = Number(match[2]);
+        if (!Number.isSafeInteger(line) || line < 1) { fragment.append(this.doc.createTextNode(match[0])); offset = match.index! + match[0].length; continue; }
+        for (const [index, candidate] of candidates.entries()) {
+          if (index) fragment.append(this.doc.createTextNode(" / "));
+          const button = this.doc.createElement("button"); button.type = "button"; button.className = "pith-source-citation";
+          button.dataset.citationPath = match[1]!; button.dataset.citationMaterial = candidate.id; button.dataset.citationLine = String(line);
+          button.textContent = candidates.length === 1 ? match[0] : `${match[0]} (${candidate.title})`; fragment.append(button);
+        }
+        offset = match.index! + match[0].length;
+      }
+      fragment.append(this.doc.createTextNode(value.slice(offset))); text.replaceWith(fragment);
+    }
+  }
+
+  updateMaterialNavigation(files: ObsidianReaderDocument["files"], curriculum: ObsidianReaderDocument["curriculum"], materialGroups?: ObsidianReaderDocument["materialGroups"]): void {
     if (!this.navigationDocument || this.disposed) return;
-    this.navigationDocument = { ...this.navigationDocument, files, curriculum };
+    this.navigationDocument = { ...this.navigationDocument, files, curriculum, materialGroups };
     this.renderNavigation(this.navigationDocument);
   }
 
-  private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile">): void {
+  private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile" | "source" | "materialGroups">): void {
     const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
     renderNavigation(this.navigation, document, navigate);
   }
@@ -377,13 +417,13 @@ export class PithWorkbenchView {
   private seekMedia(value: number): void {
     const media = this.assetAudio; if (!media || !Number.isFinite(value)) return; this.stopCuePlayback(); media.currentTime = Math.max(0, Math.min(Number.isFinite(media.duration) ? media.duration : value, value));
     const cues = Array.from(this.article.querySelectorAll<HTMLElement>('.pith-cue[data-locator^="time:"]')); const cue = cues.find((item, i) => { const start = Number(item.dataset.locator!.slice(5)), end = item.dataset.endSec === undefined ? (cues[i + 1] ? Number(cues[i + 1]!.dataset.locator!.slice(5)) : Infinity) : Number(item.dataset.endSec); return media.currentTime >= start && media.currentTime < end; });
-    if (cue) { if (this.inlineToolkit && this.toolkitId === "shadowing" && cue !== this.toolkitBlock) { const playing = !media.paused, copy = cue.cloneNode(true) as HTMLElement; copy.querySelector("time")?.remove(); const text = (copy.textContent ?? "").trim(); this.closeInlineToolkit(); this.toolkitTarget = text; this.toolkitAnchor = { file: this.currentFile, locator: cue.dataset.locator!, quote: text }; this.requestedToolkitBlock = cue; this.toolkitResult = null; this.toolkitStatus = ""; this.renderToolkit(); if (playing) void media.play().catch(error => this.tip(error instanceof Error ? error.message : String(error))); } cue.scrollIntoView({ block: "nearest" }); }
+    if (cue) { if (this.inlineToolkit && this.toolkitId === "shadowing" && cue !== this.toolkitBlock) { const playing = !media.paused, copy = cue.cloneNode(true) as HTMLElement; copy.querySelector("time")?.remove(); const text = (copy.textContent ?? "").trim(); this.closeInlineToolkit(); this.toolkitTarget = text; this.toolkitAnchor = this.currentSource ? { source: this.currentSource, file: this.currentFile, locator: cue.dataset.locator!, quote: text } : undefined; this.requestedToolkitBlock = cue; this.toolkitResult = null; this.toolkitStatus = ""; this.renderToolkit(); if (playing) void media.play().catch(error => this.tip(error instanceof Error ? error.message : String(error))); } cue.scrollIntoView({ block: "nearest" }); }
     this.updateAssetControls();
   }
   private updateAssetControls(): void { const audio = this.speaking ? this.speechAudio : this.cuePlayer ?? this.recordedPlayer ?? this.assetAudio; if (!audio) return; const cue = this.cueRange; if (!this.speaking && cue && cue.audio === audio && audio.currentTime >= cue.end) { if (cue.loop) audio.currentTime = cue.start; else { this.stopCuePlayback(); audio.currentTime = cue.end; } } const format = (value: number): string => { const n = Number.isFinite(value) ? Math.floor(value) : 0; return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; }; const time = this.assetControls.querySelector<HTMLElement>("[data-media-time]"); if (time) time.textContent = `${format(audio.currentTime)} / ${format(audio.duration)}`; const seek = this.assetControls.querySelector<HTMLInputElement>(".pith-media-seek"); if (seek) { seek.max = String(Number.isFinite(audio.duration) ? audio.duration : 0); seek.value = String(audio.currentTime); } const play = this.assetControls.querySelector<HTMLButtonElement>('[data-media="play"]'); if (play) { play.innerHTML = pithIcon(audio.paused ? "play" : "pause"); play.setAttribute("aria-label", audio.paused ? "播放" : "暂停"); } if (this.speaking || this.cuePlayer || this.recordedPlayer) return; const cues = Array.from(this.article.querySelectorAll<HTMLElement>('.pith-cue[data-locator^="time:"]')); for (let i = 0; i < cues.length; i++) { const item = cues[i]!; const start = Number(item.dataset.locator!.slice(5)), end = item.dataset.endSec !== undefined ? Number(item.dataset.endSec) : cues[i + 1] ? Number(cues[i + 1]!.dataset.locator!.slice(5)) : Infinity; item.classList.toggle("pith-speech-active", audio.currentTime >= start && audio.currentTime < end); } }
 
   private applyPageMode(position: ReaderPosition | null = null): void { const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches }); this.root.dataset.formFactor = decision.formFactor; this.root.dataset.sheetMode = decision.sheetMode; this.root.dataset.hitTarget = String(decision.hitTargetPx); const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]'); if (double) double.disabled = decision.maxColumns < 2; if (triple) triple.disabled = decision.maxColumns < 3; const controls = this.root.querySelector<HTMLElement>("[data-pages]"); if (controls) controls.hidden = !this.paged; const modes = this.root.querySelector<HTMLElement>("[data-page-modes]"); if (modes) modes.hidden = !this.paged; this.reader.classList.toggle("pith-paged", this.paged); if (this.paged) { applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded); restoreReaderPosition(this.reader, this.article, position); this.restoredScrollLeft = position ? this.reader.scrollLeft : null; this.readerPosition = position ?? captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else { for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height"]) this.article.style.removeProperty(property); this.reader.style.removeProperty("overflow-x"); this.reader.style.removeProperty("overflow-y"); } if (this.interline) this.interline.activate(); }
-  private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (note.kind === "practice" || !anchor || anchor.file !== this.currentFile || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
+  private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const note of this.guideData.notes) { const anchor = note.anchor; if (note.kind === "practice" || !anchor || anchor.file !== this.currentFile || !sameSource(anchor.source, this.currentSource) || !anchor.quote) continue; const walker = this.doc.createTreeWalker(this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; range.surroundContents(mark); } } }
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
   updateGuideTurn(turn: GuideTurn): void { const conversation = [...this.guideData.conversation]; const index = conversation.findIndex(item => item.id === turn.id); if (index < 0) conversation.push(turn); else conversation[index] = turn; this.guideData = { ...this.guideData, conversation }; if (!this.disposed) this.renderGuide(); }
   /**
@@ -413,7 +453,7 @@ export class PithWorkbenchView {
       const explicit = this.requestedToolkitBlock && this.article.contains(this.requestedToolkitBlock) ? this.requestedToolkitBlock : this.toolkitBlock;
       if (this.inlineToolkit) this.closeInlineToolkit();
       if (explicit && this.article.contains(explicit) && this.toolkitAnchor?.file === this.currentFile && this.toolkitTarget) this.requestedToolkitBlock = explicit;
-      else { this.requestedToolkitBlock = null; const current = visibleToolkitTarget(this.article, this.reader, this.currentFile); if (current) { this.toolkitTarget = current.quote; this.toolkitAnchor = current; } }
+      else { this.requestedToolkitBlock = null; const current = visibleToolkitTarget(this.article, this.reader, this.currentFile); if (current && this.currentSource) { this.toolkitTarget = current.quote; this.toolkitAnchor = { ...current, source: this.currentSource }; } }
       this.popover.hidden = true; renderToolkitMenu(this.toolkit, toolkits, this.mountedToolkits);
       return;
     }
@@ -423,7 +463,7 @@ export class PithWorkbenchView {
     if (text !== undefined) { this.toolkitTarget = text; this.toolkitAnchor = anchor; }
     else {
       const current = visibleToolkitTarget(this.article, this.reader, this.currentFile);
-      if (current) { this.toolkitTarget = current.quote; this.toolkitAnchor = current; }
+      if (current && this.currentSource) { this.toolkitTarget = current.quote; this.toolkitAnchor = { ...current, source: this.currentSource }; }
     }
     this.toolkitResult = null; this.toolkitStatus = ""; this.toolkitVersion++;
     if (mounted.length > 1) {
@@ -588,8 +628,9 @@ export class PithWorkbenchView {
     }
     if (button.hasAttribute("data-toolkit-close")) { this.closeInlineToolkit(); return; }
     if (button.hasAttribute("data-toolkit-reveal")) { this.readToolkit(); this.toolkitReveal = !this.toolkitReveal; this.renderToolkit(); return; }
-    if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile) await this.actions.openFile(anchor.file); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
-    if (button.dataset.guideLesson) { try { await this.actions.openFile(button.dataset.guideLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.citationPath && button.dataset.citationMaterial && button.dataset.citationLine) { try { await this.actions.openFile(button.dataset.citationPath, { kind: "material", materialId: button.dataset.citationMaterial }); const suffix = `#L${button.dataset.citationLine}-L${button.dataset.citationLine}`; const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator?.endsWith(suffix)); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.noteId) { const note = this.guideData.notes.find(item => item.id === button.dataset.noteId); if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile || !sameSource(anchor.source, this.currentSource)) await this.actions.openFile(anchor.file, anchor.source); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.guideLesson) { try { await this.actions.openFile(button.dataset.guideLesson, { kind: "lesson" }); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideMaterial && this.actions.openMaterial) { try { await this.actions.openMaterial(button.dataset.guideMaterial); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideUndo && this.actions.undoObservation) { try { button.disabled = true; await this.actions.undoObservation(button.dataset.guideUndo); await this.refreshGuide(); } catch (error) { button.disabled = false; this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideCopy) { const turn = this.guideData.conversation.find(item => item.id === button.dataset.guideCopy), step = turn?.steps[Number(button.dataset.guideCopyIndex)]; if (step?.kind === "reply") { try { await this.win.navigator.clipboard.writeText(step.markdown); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } } return; }
@@ -649,7 +690,7 @@ export class PithWorkbenchView {
     else if (button === this.navigationButton) { this.navigation.hidden = !this.navigation.hidden; button.setAttribute("aria-expanded", String(!this.navigation.hidden)); if (!this.navigation.hidden) updateTocLocation(this.navigation, this.article, this.reader, this.paged); }
     else if (button === this.guideButton) { const visible = this.guide.hidden; this.setGuideVisible(visible); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(visible); }
     else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.actions.generateLesson) { this.tip("向导不可用，无法生成讲义"); return; } if (this.guideSending) { this.tip("向导正在回应上一条消息"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
-    else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
+    else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file, button.dataset.materialId ? { kind: "material", materialId: button.dataset.materialId } : button.hasAttribute("data-lesson") ? { kind: "lesson" } : undefined); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.locator) { this.closeNavigation(); const heading = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === button.dataset.locator); if (heading) heading.scrollIntoView({ block: "start" }); }
     else if (button.dataset.command === "toolkit") { if (this.toolkitMenuOpen()) { this.toolkit.hidden = true; return; } const range = this.selectionRange; if (this.toolkit.hidden && range && !range.collapsed && this.article.contains(range.startContainer)) { const prefix = this.doc.createRange(); prefix.selectNodeContents(this.article); prefix.setEnd(range.startContainer, range.startOffset); this.requestedToolkitBlock = (range.startContainer.parentElement?.closest<HTMLElement>('[data-prose="true"],[data-trainable="true"],.pith-cue') ?? null); this.actions.openToolkit(range.toString(), `text:offset:${prefix.toString().length}`); } else this.actions.openToolkit(); }
     else if (button.dataset.command === "read") { this.stopCuePlayback(); this.stopRecordedPlayback(); if (this.speaking) this.stopSpeech(); else if (this.assetSource && !this.assetAudio) await this.loadAsset(); else if (this.assetAudio && this.mediaDeck.hidden) this.mediaDeck.hidden = false; else this.startSpeech(); }

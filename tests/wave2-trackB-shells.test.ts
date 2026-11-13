@@ -34,7 +34,7 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
   };
   const storage = new NodeWorkspaceStorage(dir);
   const store = new DefaultWorkspaceStore(storage);
-  await store.createTopic({ id: "track-b", title: "Track B" });
+  const topic = await store.createTopic({ title: "Track B", target: "Understand Track B", materialIds: [], toolkits: [] });
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
   const close = async () => { if (server) { const current = server; server = undefined; await new Promise<void>((resolve, reject) => current.close(error => error ? reject(error) : resolve())); } };
   try {
@@ -54,29 +54,29 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     assert.equal((await post("/api/settings", config)).status, 200);
     const saved = JSON.parse(await readFile(join(dir, "_cache/web-settings.json"), "utf8"));
     for (const [key, value] of Object.entries(config)) assert.equal(saved[key], value);
-    const chat = await (await post("/api/chat", { topicId: "track-b", text: "Question" })).json() as { status: string; steps: { kind: string; markdown?: string }[] };
+    const chat = await (await post("/api/chat", { topicId: topic.id, text: "Question" })).json() as { status: string; steps: { kind: string; markdown?: string }[] };
     assert.equal(chat.status, "completed"); assert.ok(chat.steps.some(step => step.kind === "reply" && step.markdown === "阅读下一节"));
     assert.equal(sessions[0]?.model, "test-model"); assert.equal(sessions[0]?.reasoningEffort, "high");
-    assert.equal((await post("/api/notes", { topicId: "track-b", kind: "note", body: "Note" })).status, 201);
+    assert.equal((await post("/api/notes", { topicId: topic.id, kind: "note", body: "Note" })).status, 201);
     let action: string | undefined;
-    for (let i = 0; i < 1000 && action !== "阅读下一节"; i++) { await new Promise<void>(resolve => setImmediate(resolve)); action = (await store.getTopic("track-b"))?.nextAction; }
+    for (let i = 0; i < 1000 && action !== "阅读下一节"; i++) { await new Promise<void>(resolve => setImmediate(resolve)); action = (await store.getTopic(topic.id))?.nextAction; }
     assert.equal(action, "阅读下一节"); assert.equal(closed, 2);
     await close();
     server = await createPithWebServer({ workspaceDir: dir }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;
     const restored = await (await fetch(base + "/api/state")).json() as { settings: typeof config };
     assert.equal(restored.settings.agentId, "dsh");
-    const reply = await (await post("/api/chat", { topicId: "track-b", text: "Again" })).json() as typeof chat;
+    const reply = await (await post("/api/chat", { topicId: topic.id, text: "Again" })).json() as typeof chat;
     assert.equal(reply.status, "completed"); assert.ok(reply.steps.some(step => step.kind === "reply" && step.markdown === "阅读下一节"));
     assert.equal((await post("/api/settings", { model: "new-model" })).status, 200);
-    await post("/api/chat", { topicId: "track-b", text: "New model" });
+    await post("/api/chat", { topicId: topic.id, text: "New model" });
     assert.equal(sessions[3]?.model, "new-model");
     assert.equal((await post("/api/settings", { agentId: "" })).status, 200);
-    const offline = await (await post("/api/chat", { topicId: "track-b", text: "Offline" })).json() as { status: string; error?: string };
+    const offline = await (await post("/api/chat", { topicId: topic.id, text: "Offline" })).json() as { status: string; error?: string };
     assert.equal(offline.status, "failed"); assert.ok(offline.error);
     assert.equal((await post("/api/settings", { agentId: "dsh" })).status, 200);
     await close();
     server = await createPithWebServer({ workspaceDir: dir, guideProvider: { run: async (_input, options) => { options.onStep({ kind: "reply", markdown: "mock reply" }, 0); return { status: "completed" }; } } }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;
-    const mocked = await (await post("/api/chat", { topicId: "track-b", text: "Mock" })).json() as typeof chat;
+    const mocked = await (await post("/api/chat", { topicId: topic.id, text: "Mock" })).json() as typeof chat;
     assert.ok(mocked.steps.some(step => step.kind === "reply" && step.markdown === "mock reply")); assert.equal(sessions.length, 4);
     assert.equal((await post("/api/settings", { agentId: "" })).status, 200);
   } finally {

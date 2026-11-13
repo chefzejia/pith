@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -54,7 +55,7 @@ test("Web settings and reader tools work in desktop and narrow browser layouts",
     server = await createPithWebServer({ workspaceDir: dir }); const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "浏览器回归" });
+    const topic = await createTestTopic(dir, { title: "浏览器回归" });
     await post("/api/materials", { topicId: topic.id, title: "文章", kind: "article", files: [{ name: "article.md", data: Buffer.from("# 内容\n\nA useful concept.").toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();

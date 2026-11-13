@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { markdownSections } from "../src/plugins/stage-reader/index.ts";
@@ -57,17 +57,20 @@ test("four-stage scaffolding, Unicode LCS, and contextual guide actions", () => 
   assert.equal(result.accuracyScore, 4 / 6);
   assert.match(result.summaryMarkdown, /漏词/);
   assert.throws(() => diagnose("× ÷ !", ""), /没有可对齐/);
-  const topic: Topic = { id: "t", title: "Title", target: "Understand", status: "exploring", toolkits: ["shadowing"], notes: [{ id: "n", kind: "note", body: "reflection", createdAt: "today" }], createdAt: "today", updatedAt: "today" };
+  const topic: Topic = { id: "t", title: "Title", target: "Understand", status: "exploring", materialIds: [], lessons: [], toolkits: ["shadowing"], notes: [{ id: "n", kind: "note", author: "user", body: "reflection", createdAt: "today" }], createdAt: "today", updatedAt: "today" };
   assert.deepEqual(quickActionsForTopic(topic, [shadowingToolkit]).map(action => action.label), ["规划课程大纲与第一讲", "总结沉淀", "分析跟读"]);
-  const prompt = buildScenePrompt({ profileMarkdown: "# Profile", topic, userMessage: "Why?", anchor: { file: "lesson.md", locator: "page:2", quote: "Example" } });
+  const prompt = buildScenePrompt({ profileMarkdown: "# Profile", topic, materials: [], userMessage: "Why?", anchor: { source: { kind: "lesson" }, file: "lesson.md", locator: "page:2", quote: "Example" } });
   for (const item of ["# Profile", "Understand", "reflection", "Example", "Why?", "结题", "独立解释"]) assert.ok(prompt.includes(item));
 });
 
 test("Web, Obsidian adapter and DSH tools share a temporary workspace", async () => {
   const root = await mkdtemp(join(tmpdir(), "pith-three-shells-"));
   const workspace = join(root, "Pith");
-  await cp(join(process.cwd(), "workspace"), workspace, { recursive: true });
+  await mkdir(workspace);
   const storage = new NodeWorkspaceStorage(workspace);
+  const store = new DefaultWorkspaceStore(storage);
+  const material = await store.importMaterial({ title: "Source", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode("The green book") }] });
+  const topic = await store.createTopic({ title: "Practice", target: "Understand", materialIds: [material.id], toolkits: [] });
   const vaultStorage = new NodeWorkspaceStorage(root);
   const vault: ObsidianVaultAdapter = {
     getFullPath: path => join(root, path),
@@ -90,18 +93,18 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
       assert.ok(response.ok, await response.clone().text());
       return response.json() as Promise<any>;
     };
-    const topicId = "topic-001-architecture-foundations";
+    const topicId = topic.id;
     const before = (await controller.openTopic(topicId))!.notes.length;
     const blocked = await fetch(base + "/api/toolkit/diagnose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topicId, targetText: "hello", producedText: "hello" }) });
     assert.equal(blocked.status, 403);
     await post(`/api/topics/${topicId}/toolkits`, { toolkits: ["shadowing"] });
     const transformed = await post("/api/toolkit/transform", { topicId, targetText: "It's in the book", stage: "scaffold-cloze" });
     assert.equal(transformed.text, "It's ___ ___ book");
-    const diagnosis = await post("/api/toolkit/diagnose", { topicId, file: "00-course-outline.md", locator: "text:line:1", targetText: "The green book", producedText: "The book", saveNote: true });
+    const diagnosis = await post("/api/toolkit/diagnose", { topicId, materialId: material.id, file: "source.md", locator: "text:line:1", targetText: "The green book", producedText: "The book", saveNote: true });
     assert.deepEqual(diagnosis.missedTokens, ["green"]);
     assert.equal(diagnosis.note.kind, "practice");
     assert.equal((await controller.openTopic(topicId))!.notes.length, before + 1);
-    await controller.captureHighlight(topicId, "Obsidian highlight", { file: "00-course-outline.md", locator: "text:line:1", quote: "Obsidian highlight" });
+    await controller.captureHighlight(topicId, "Obsidian highlight", { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:line:1", quote: "Obsidian highlight" });
     const tools = createDshPluginBundle({ storage }).tools;
     const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
     await tool("pith_save_note").execute({ topicId, body: "DSH note" });
@@ -112,7 +115,8 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     assert.equal(state.compass.exploring[0]!.notes.length, before + 3);
     assert.equal(state.compass.pendingEffectsCount, 1);
     await tool("pith_write_lesson").execute({ topicId, fileName: "new-lesson.md", markdown: "# New lesson" });
-    assert.ok((await new DefaultWorkspaceStore(storage).getMaterial(dshTopic.materialId!))!.files.some(file => file.name === "new-lesson.md"));
+    assert.equal(await store.readLesson(topicId, "new-lesson.md"), "# New lesson");
+    assert.equal(await storage.readText(`materials/${material.id}/files/source.md`), "The green book");
     assert.equal(tools.some(item => item.name === "pith_update_profile"), false);
     assert.equal(tools.some(item => item.name === "pith_remember"), false);
     assert.equal((await controller.openCompass()).exploring[0]?.id, topicId);

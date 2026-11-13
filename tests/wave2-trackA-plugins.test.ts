@@ -29,7 +29,7 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
     const storage = new NodeWorkspaceStorage(dir);
     const store = new DefaultWorkspaceStore(storage);
     await store.ensureScaffold();
-    const topic = await store.createTopic({ title: "Language", target: "Speak clearly" });
+    const topic = await store.createTopic({ title: "Language", target: "Speak clearly", materialIds: [], toolkits: [] });
     const engine = new DefaultAttentionEngine(store, storage);
     const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage }, store, engine, window: {} });
     runtime.reconcile({});
@@ -43,9 +43,9 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       assert.deepEqual((await guide.configureTopicToolkits!(topic.id, ["shadowing", "shadowing"])).toolkits, ["shadowing"]);
       const mounted = await store.getTopic(topic.id);
       assert.ok(mounted);
-      const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", category: "music" }] });
+      const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, materials: [], userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", category: "music" }] });
       for (const text of ["可用训练工具", "custom", "Custom", "shadowing"]) assert.ok(prompt.includes(text));
-      assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, userMessage: "Help" }), /shadowing/);
+      assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, materials: [], userMessage: "Help" }), /shadowing/);
       await assert.rejects(guide.configureTopicToolkits!(topic.id, ["shadowing", "../unsafe"]), /Invalid toolkit/);
       assert.deepEqual((await store.getTopic(topic.id))!.toolkits, ["shadowing"]);
       const tool = createDshPluginBundle({ storage }).tools.find(item => item.name === "pith_configure_toolkits")!;

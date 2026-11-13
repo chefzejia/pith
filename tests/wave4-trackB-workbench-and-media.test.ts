@@ -5,6 +5,8 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPithWebServer } from "../src/shells/web/server.ts";
+import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
+import { DefaultWorkspaceStore } from "../src/core/index.ts";
 
 async function close(server: Server): Promise<void> { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 async function listen(server: Server): Promise<string> {
@@ -32,6 +34,8 @@ test("web workbench fails closed, connects a local speech engine, and imports su
     res.writeHead(404); res.end();
   });
   const engineBase = await listen(engine);
+  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(dir));
+  const topic = await store.createTopic({ title: "课题", target: "理解字幕", materialIds: [], toolkits: [] });
   const app = await createPithWebServer({ workspaceDir: dir, port: 0 });
   try {
     const address = app.address(); assert.ok(address && typeof address !== "string");
@@ -43,10 +47,9 @@ test("web workbench fails closed, connects a local speech engine, and imports su
     response = await post("/api/speech/synthesize", { text: "测试。" }); assert.equal(response.status, 200); assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [1, 2, 3, 4]);
     response = await post("/api/speech/transcribe", { audio: Buffer.from("audio").toString("base64"), mimeType: "audio/webm" }); assert.equal(response.status, 200); assert.equal((await response.json()).text, "跟读结果");
     const presets = await (await fetch(base + "/api/speech/presets")).json(); assert.equal(presets.ttsHealth.ok, true); assert.equal(presets.asrHealth.ok, true);
-    response = await post("/api/topics", { title: "课题" }); assert.equal(response.status, 201); const topic = await response.json();
     response = await post("/api/materials", { title: "字幕", kind: "media", topicId: topic.id, files: [{ name: "test.vtt", mimeType: "text/vtt", data: Buffer.from("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n第一句。\n").toString("base64") }] }); assert.equal(response.status, 201); const material = await response.json();
     response = await fetch(`${base}/api/materials/${material.id}/file?name=test.vtt`); assert.equal(response.status, 200); const document = await response.json(); assert.match(document.html, /pith-timeline-stage/); assert.match(document.html, /pith-cue/); assert.match(document.html, /第一句/);
-    const state = await (await fetch(base + "/api/state")).json(); assert.equal(state.compass.exploring[0].materialId, material.id);
+    const state = await (await fetch(base + "/api/state")).json(); assert.deepEqual(state.compass.exploring[0].materialIds, [material.id]);
     response = await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["shadowing"] }); assert.equal(response.status, 200);
     response = await post("/api/settings", { speech: { ttsProvider: "kokoro-local", ttsEndpoint: "http://127.0.0.1:1/v1/audio/speech" } }); assert.equal(response.status, 200);
     response = await post("/api/speech/synthesize", { text: "不应使用旧端点。" }); assert.equal(response.status, 503);

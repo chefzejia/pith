@@ -413,8 +413,8 @@ export interface LocalAcpGuideProviderOptions {
   readonly resolveDescriptor: (agentId: string) => Promise<DiscoveredAgentDescriptor | null>;
   readonly buildScenePrompt: (input: {
     readonly profileMarkdown: string;
-    readonly topic: Topic;
-    readonly material?: Material | null;
+    readonly topic: Topic | null;
+    readonly materials: readonly Material[];
     readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
     readonly userMessage: string;
     readonly conversation?: readonly GuideHistoryTurn[];
@@ -445,15 +445,14 @@ export class LocalAcpGuideProvider implements GuideProvider {
   async run(input: Parameters<GuideProvider["run"]>[0], options: Parameters<GuideProvider["run"]>[1]): ReturnType<GuideProvider["run"]> {
     let endpoint: Awaited<ReturnType<typeof openTurnTools>> | undefined;
     try {
-      if (input.scope.kind !== "topic") throw new Error("Intake is not available");
       if (!this.options.toolServer || !this.options.storage) throw new Error("Host tool server unavailable");
       const { config, descriptor } = await this.resolveAgent();
-      const topic = await this.options.store.getTopic(input.scope.topicId);
-      if (!topic) throw new Error("Topic not found");
+      const topic = input.scope.kind === "topic" ? await this.options.store.getTopic(input.scope.topicId) : null;
+      if (input.scope.kind === "topic" && !topic) throw new Error("Topic not found");
       const profile = await this.options.store.readProfile();
-      const material = topic.materialId ? await this.options.store.getMaterial(topic.materialId) : null;
+      const materials = topic ? (await Promise.all(topic.materialIds.map(id => this.options.store.getMaterial(id)))).filter((material): material is Material => material !== null) : await this.options.store.listMaterials();
       const prompt = this.options.buildScenePrompt({
-        profileMarkdown: profile.markdown, topic, material,
+        profileMarkdown: profile.markdown, topic, materials,
         availableToolkits: this.options.getToolkits ? this.options.getToolkits() : undefined,
         userMessage: input.text, conversation: selectConversationHistory(input.history),
         anchor: input.anchor, instruction: input.instruction,
@@ -462,7 +461,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       const steps: TurnStep[] = [];
       const nextIndex = () => count++;
       const publish = (step: TurnStep, index: number) => { steps[index] = step; options.onStep(step, index); };
-      const tools = createScopedTools({ topicId: topic.id, store: this.options.store, storage: this.options.storage,
+      const tools = createScopedTools({ ...(topic ? { topicId: topic.id } : { materialIds: input.scope.kind === "intake" ? input.scope.materialIds : [] }), store: this.options.store, storage: this.options.storage,
         engine: this.options.engine, http: this.options.http, repository: this.options.repository,
         mediaCorpus: this.options.mediaCorpus, reader: this.options.getReader?.(), onChoices: options.onChoices });
       endpoint = await openTurnTools(this.options.toolServer, tools, options.signal, publish, nextIndex);
@@ -501,7 +500,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       };
       const result = await runOneShotAcpPrompt(prompt, {
         descriptor, processPort: this.options.processPort, cwd: config.cwd,
-        readOnlyPaths: [...(config.readOnlyPaths ?? []), ...(material?.externalPath ? [material.externalPath] : [])],
+        readOnlyPaths: [...(config.readOnlyPaths ?? []), ...materials.flatMap(material => material.externalPath ? [material.externalPath] : [])],
         model: config.model, effort: config.effort, timeoutMs: config.timeoutMs,
         mcp: { url: endpoint.endpoint.url, headers: endpoint.endpoint.headers, toolNames: tools.map(tool => tool.name), onUpdate: update },
       }, options.signal);

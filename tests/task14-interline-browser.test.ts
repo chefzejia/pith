@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ import { linkedEpub } from "./wave12-epub-fixture.ts";
 import { testSandbox } from "./sandbox.ts";
 
 test("interline appears in guide discovery", () => {
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic: { id: "t", title: "English", target: "Read", status: "exploring", toolkits: [], notes: [], createdAt: "", updatedAt: "" }, userMessage: "Read", availableToolkits: [interlineToolkit] });
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic: { id: "t", title: "English", target: "Read", status: "exploring", materialIds: [], lessons: [], toolkits: [], notes: [], createdAt: "", updatedAt: "" }, materials: [], userMessage: "Read", availableToolkits: [interlineToolkit] });
   assert.match(prompt, /"id":"interline"/);
   assert.match(prompt, /行间/);
 });
@@ -39,7 +40,7 @@ test("Obsidian keeps mounted interline active under essentials and replays cache
   const controller = new PithObsidianController({ id: "obsidian", storage }, translator);
   try {
     await controller.initialize(); assert.equal(controller.runtime.active("toolkit-interline"), false);
-    const topic = await controller.store.createTopic({ title: "English" }); await controller.store.updateTopic(topic.id, { toolkits: ["interline"] }); await controller.openCompass();
+    const topic = await controller.store.createTopic({ title: "English" , target: "English", materialIds: [], toolkits: [] }); await controller.store.updateTopic(topic.id, { toolkits: ["interline"] }); await controller.openCompass();
     assert.equal(controller.runtime.active("toolkit-interline"), true); assert.equal(controller.runtime.statuses().find(status => status.id === "toolkit-interline")!.inUseCount, 1);
     const units = [{ html: '<p data-locator="p:0" data-prose="true">Hello.</p>', segments: [{ locator: "p:0", blockIndex: 0, sourceText: "Hello.", sourceHash: "" }] }];
     const first = controller.createInterlineSession("material", "book.epub", units); assert.match((await first.render(0, "bilingual")).html, /翻译/); await first.whenIdle();
@@ -61,7 +62,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     server = await createPithWebServer({ workspaceDir: join(dir, "web"), interlineTranslator: translator });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
-    const topic = await post("/api/topics", { title: "Interline" });
+    const topic = await createTestTopic(join(dir, "web"), { title: "Interline" });
     const bytes = linkedEpub();
     await post("/api/materials", { topicId: topic.id, title: "Interline", kind: "book", files: [{ name: "book.epub", data: Buffer.from(bytes).toString("base64") }] });
     await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
@@ -70,6 +71,7 @@ test("Web and Obsidian render interline modes, warm neighbors, and speak only so
     const page = await browser.newPage();
     await page.route("**/api/speech/synthesize", async (route: any) => { spoken.push(route.request().postDataJSON().text); await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"stub"}' }); });
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    await page.locator('.pith-article .pith-epub-chapter').first().waitFor();
     assert.match((await page.locator("#open-toolkit").textContent())!, /行间/);
     await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-interline-subtitle").first().waitFor();

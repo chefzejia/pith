@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
@@ -17,7 +18,7 @@ test("wide pagination centers each screen without visible scrollbars in both she
     await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const r = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(r.ok); return r.json(); };
-    const topic = await post("/api/topics", { title: "Wide" }); await post("/api/materials", { topicId: topic.id, title: "Wide", kind: "book", files: [{ name: "wide.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Wide" }); await post("/api/materials", { topicId: topic.id, title: "Wide", kind: "book", files: [{ name: "wide.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 2200, height: 900 } });
     const page = await browser.newPage();
@@ -52,7 +53,7 @@ test("Web page buttons advance with fractional zoom and an audio deck", { timeou
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Pagination" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Pagination" });
     const wav = Buffer.from("UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=", "base64");
     await post("/api/materials", { topicId: topic.id, title: "Pagination", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(linkedEpub()).toString("base64") }, { name: "sound.wav", mimeType: "audio/wav", data: wav.toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1801, height: 900 } });
@@ -156,8 +157,8 @@ test("continuous resizes keep the original visible Chinese character in both she
     server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Chinese resize" });
-    await post("/api/materials", { topicId: topic.id, title: "Chinese resize", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    const material = await post("/api/materials", { title: "Chinese resize", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Chinese resize", materialIds: [material.id] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1600, height: 900 } });
     const page = await browser.newPage();
     for (const shell of ["web", "obsidian"] as const) {
@@ -170,6 +171,7 @@ test("continuous resizes keep the original visible Chinese character in both she
       }
       const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
       if (shell === "web") {
+        await page.locator('.pith-epub-chapter-0').waitFor();
         await page.locator(".pith-article").evaluate((article: HTMLElement) => { article.innerHTML = '<p data-locator="chapter">' + "深度阅读需要保持当前可见位置".repeat(1500) + '</p>'; });
         await page.locator(`[data-command="typography"]`).click(); await page.locator('[data-size="17"]').click();
       }
@@ -203,9 +205,9 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
     server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const result = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(result.ok); return result.json(); };
-    const topic = await post("/api/topics", { title: "Pagination" });
     const wav = Buffer.from("UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=", "base64");
-    await post("/api/materials", { topicId: topic.id, title: "Pagination", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(bytes).toString("base64") }, { name: "sound.wav", mimeType: "audio/wav", data: wav.toString("base64") }] });
+    const material = await post("/api/materials", { title: "Pagination", kind: "book", files: [{ name: "pages.epub", data: Buffer.from(bytes).toString("base64") }, { name: "sound.wav", mimeType: "audio/wav", data: wav.toString("base64") }] });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Pagination", materialIds: [material.id] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1500, height: 700 }, args: ["--no-first-run", "--no-default-browser-check"] });
     const page = await browser.newPage();
     page.setDefaultTimeout(5000);
@@ -218,6 +220,7 @@ test("Web and Obsidian paginate one, two and three columns at reader width", { t
       }
       const reader = page.locator(shell === "web" ? ".pith-reader" : ".pith-reader");
       const article = page.locator(shell === "web" ? ".pith-reader > .pith-article" : ".pith-article");
+      await page.locator('.pith-epub-chapter-0').waitFor();
       const toggle = page.locator(shell === "web" ? `[data-command="typography"]` : '[data-command="typography"]');
       const widthFor = async (columns: number) => article.evaluate((node: HTMLElement, columns: number) => { const viewport = node.parentElement!; return Math.abs(parseFloat(node.style.columnWidth) * columns + parseFloat(node.style.columnGap) * columns - viewport.clientWidth) < 2; }, columns);
       assert.equal(await widthFor(1), true);
@@ -309,7 +312,7 @@ test("CBZ image page remains visible across repagination in both renderers", { t
     await mkdir(join(dir, "workspace")); server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "Images" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Images" });
     await post("/api/materials", { topicId: topic.id, title: "Images", kind: "book", files: [{ name: "images.cbz", data: cbz.toString("base64") }] });
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1500, height: 700 } });
     const page = await browser.newPage();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPithWebServer } from "../src/shells/web/server.ts";
@@ -11,7 +11,10 @@ import { bootStandaloneShell } from "../src/shells/web/index.ts";
 test("web shell serves course, records notes and honors plugin in-use locks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pith-web-"));
   const workspace = join(dir, "workspace");
-  await cp(join(process.cwd(), "workspace"), workspace, { recursive: true });
+  await mkdir(workspace);
+  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(workspace));
+  const material = await store.importMaterial({ title: "Course", kind: "article", files: [{ name: "source.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("# Magpie\nContent") }] });
+  const created = await store.createTopic({ title: "Course", target: "Understand the course", materialIds: [material.id], toolkits: [] });
   const server = await createPithWebServer({ workspaceDir: workspace, port: 0 });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string");
@@ -21,15 +24,15 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     assert.match(await (await fetch(base)).text(), /<script src="\/app\.js" defer>/);
     assert.match(await (await fetch(`${base}/app.js`)).text(), /pith-home-scroll/);
     const state = await get("/api/state");
-    const topic = state.compass.exploring[0]; assert.equal(topic.id, "topic-001-architecture-foundations");
-    const lesson = await get(`/api/materials/${topic.materialId}/file?name=00-course-outline.md`);
+    const topic = state.compass.exploring[0]; assert.equal(topic.id, created.id);
+    const lesson = await get(`/api/materials/${material.id}/file?name=source.md`);
     assert.match(lesson.text, /Magpie/);
     assert.equal(lesson.format, "markdown");
     const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length 15 >>\nstream\nBT (page) Tj ET\nendstream\nendobj\n%%EOF");
     const book = await post("/api/materials", { title: "book", kind: "book", files: [{ name: "book.pdf", mimeType: "application/pdf", data: pdf.toString("base64") }] });
     assert.equal((await get(`/api/materials/${book.id}/file?name=book.pdf`)).format, "pdf");
-    const before = await readFile(join(workspace, "materials", topic.materialId, "files", "00-course-outline.md"));
-    await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "选中文本", anchor: { file: "00-course-outline.md", locator: "text:offset:1", quote: "选中文本" } });
+    const before = await readFile(join(workspace, "materials", material.id, "files", "source.md"));
+    await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "选中文本", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:1", quote: "选中文本" } });
     await post("/api/notes", { topicId: topic.id, kind: "note", body: "我的笔记" });
     const chat = await post("/api/chat", { topicId: topic.id, text: "我的问题" });
     assert.equal(chat.guideEntry, undefined);
@@ -38,7 +41,6 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     assert.equal(settings.settings.persona, "studio");
     const locked = await post("/api/plugins", { id: "stage-reader", enabled: false });
     assert.equal(locked.plugins.find((p: any) => p.id === "stage-reader").source, "in-use");
-    const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(workspace));
     await store.updateTopic(topic.id, { toolkits: ["shadowing"] });
     const guarded = await get("/api/state");
     assert.equal(guarded.plugins.find((p: any) => p.id === "toolkit-shadowing").inUseCount, 1);
@@ -46,7 +48,7 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     assert.equal(guarded.plugins.find((p: any) => p.id === "stage-timeline").state, "active");
     assert.equal(guarded.plugins.find((p: any) => p.id === "speech-service").state, "active");
     assert.equal((await get("/api/state")).compass.exploring[0].notes.length, topic.notes.length + 2);
-    assert.deepEqual(await readFile(join(workspace, "materials", topic.materialId, "files", "00-course-outline.md")), before);
+    assert.deepEqual(await readFile(join(workspace, "materials", material.id, "files", "source.md")), before);
     assert.equal((await fetch(base + "/api/plugins", { method: "POST", body: "{}" })).status, 415);
     assert.equal((await fetch(base + "/api/state", { headers: { origin: "http://evil.example" } })).status, 403);
   } finally {
@@ -70,15 +72,15 @@ test("unknown guide providers cannot run background selection effects", async ()
   const dir = await mkdtemp(join(tmpdir(), "pith-guide-"));
   const storage = new NodeWorkspaceStorage(dir);
   const store = new DefaultWorkspaceStore(storage);
-  await store.createTopic({ id: "topic-guide", title: "Guide" });
+  const created = await store.createTopic({ title: "Guide", target: "Understand the guide", materialIds: [], toolkits: [] });
   let calls = 0;
-  const provider: import("../src/core/index.ts").GuideProvider = { run: async () => { calls++; await store.appendNote("topic-guide", { kind: "note", body: "不应执行" }); return { status: "completed" }; } };
+  const provider: import("../src/core/index.ts").GuideProvider = { run: async () => { calls++; await store.appendTopicNote(created.id, { kind: "note", author: "guide", body: "不应执行" }); return { status: "completed" }; } };
   const engine = new DefaultAttentionEngine(store, storage, () => provider);
   const runtime = bootStandaloneShell({ id: "web", storage }, { preset: "all" }, { store, engine, provider, snapshot: { known: true, topics: await store.listTopics(), materials: [] } });
   try {
-    await engine.captureSelection({ topicId: "topic-guide", kind: "note", body: "想法" });
+    await engine.capture({ owner: { topicId: created.id }, kind: "note", body: "想法" });
     assert.equal(await engine.processDueEffects(), 1);
-    const topic = await store.getTopic("topic-guide");
+    const topic = await store.getTopic(created.id);
     assert.equal(calls, 0);
     assert.equal(topic?.nextAction, undefined);
     assert.deepEqual(topic?.notes.map(note => note.body), ["想法"]);

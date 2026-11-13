@@ -23,8 +23,8 @@ test("curriculum parses markdown formats and marks existing lesson files", () =>
 });
 
 test("guide is instructed to generate only the first lesson initially", () => {
-  const topic = { id: "t", title: "课程", target: "", status: "exploring", toolkits: [], notes: [], createdAt: "", updatedAt: "" } as const;
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic, userMessage: "学习" });
+  const topic = { id: "t", title: "课程", target: "学习", status: "exploring", materialIds: [], lessons: [], toolkits: [], notes: [], createdAt: "", updatedAt: "" } as const;
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic, materials: [], userMessage: "学习" });
   assert.match(prompt, /首轮仅写第一讲正文/); assert.match(prompt, /禁止一次写完全部章节/); assert.match(prompt, /\[01-xxx\.md\]/);
 });
 
@@ -32,9 +32,9 @@ test("web generates the requested lesson after persistence and ignores stale res
   const root = await testSandbox("task36-web-"), storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
   const material = await store.importMaterial({ title: "课程", kind: "article", files: [] });
-  const topic = await store.createTopic({ title: "课程", materialId: material.id });
-  await store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲：深入理解异步数据流中的状态更新与并发边界");
-  await store.writeGeneratedFile(material.id, "01-intro.md", "# 第一讲\n## 概览\n阅读内容");
+  const topic = await store.createTopic({ title: "课程", target: "学习课程", materialIds: [material.id], toolkits: [] });
+  await store.writeLesson(topic.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲：深入理解异步数据流中的状态更新与并发边界");
+  await store.writeLesson(topic.id, "01-intro.md", "# 第一讲\n## 概览\n阅读内容");
   const write = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
   const received: string[] = []; let release: (() => void) | undefined; let started: (() => void) | undefined; let releaseMessage: (() => void) | undefined; let messageStarted: (() => void) | undefined; let releaseSix: (() => void) | undefined; let sixStarted: (() => void) | undefined;
   const waiting = new Promise<void>(resolve => { started = resolve; });
@@ -58,8 +58,8 @@ test("web generates the requested lesson after persistence and ignores stale res
     assert.equal(await page.locator('[data-planned-lesson="02-flow.md"]').count(), 1);
     const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-36`); await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, "web-curriculum.png") });
     await page.locator('[data-planned-lesson="02-flow.md"]').click(); await page.locator('.pith-article').getByText('02-flow.md 正文').waitFor();
-    assert.match(received[0]!, /02-flow\.md.*数据流/); assert.equal((await store.getMaterial(material.id))!.files.some(file => file.name === "02-flow.md"), true);
-    await page.locator(".pith-nav-toggle").click(); assert.equal(await page.locator('[data-file="02-flow.md"][aria-current="true"]').count(), 1); assert.equal(await page.locator('[data-toc-locator]').count(), 1); await page.screenshot({ path: join(evidence, "web-current-lesson.png") });
+    assert.match(received[0]!, /02-flow\.md.*数据流/); assert.equal((await store.getTopic(topic.id))!.lessons.some(lesson => lesson.name === "02-flow.md"), true);
+    await page.locator(".pith-nav-toggle").click(); assert.equal(await page.locator('[data-file="02-flow.md"][aria-current="true"]').count(), 1); assert.equal(await page.locator('[data-toc-locator]').filter({ hasText: "小节" }).count(), 1); await page.screenshot({ path: join(evidence, "web-current-lesson.png") });
     await page.locator('[data-planned-lesson="03-runtime.md"]').click(); await waiting; await page.locator('.pith-article').getByText('向导正在结合课程大纲与源码为你撰写本讲讲义…').waitFor();
     await page.screenshot({ path: join(evidence, "web-loading.png") });
     let releaseGuide!: () => void, guideArrived!: () => void; const guideWaiting = new Promise<void>(resolve => { guideArrived = resolve; }); const guideGate = new Promise<void>(resolve => { releaseGuide = resolve; });

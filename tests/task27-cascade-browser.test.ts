@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
@@ -36,7 +37,7 @@ async function verify(mode: "dark" | "light"): Promise<void> {
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, data: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); assert.ok(response.ok); return response.json(); };
-    const topic = await post("/api/topics", { title: "继承与背景" });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "继承与背景" });
     await post("/api/materials", { topicId: topic.id, title: "继承与背景", kind: "book", files: [{ name: "fixture.epub", data: Buffer.from(fixture()).toString("base64") }] });
     const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
     const rendered = await renderEpub(fixture());

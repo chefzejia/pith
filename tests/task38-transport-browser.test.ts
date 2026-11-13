@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -14,7 +15,7 @@ test("Web transport drives real video, cue targets and controlled speech", { tim
     const realVideo = process.env.PITH_TASK38_VIDEO; const video = await readFile(realVideo || "tests/fixtures/task38-video.webm"); const videoName = realVideo ? "clip.mp4" : "clip.webm", videoType = realVideo ? "video/mp4" : "video/webm";
     const transcript = Buffer.from("WEBVTT\n\n00:00:00.000 --> 00:00:01.500\nFirst sentence.\n\n00:00:01.500 --> 00:00:03.500\nSecond sentence.\n");
     const material = await post("/api/materials", { title: "Transport", kind: "media", files: [{ name: "clip.vtt", mimeType: "text/vtt", data: transcript.toString("base64") }, { name: videoName, mimeType: videoType, data: video.toString("base64") }] });
-    const topic = await post("/api/topics", { title: "Transport", materialId: material.id, toolkits: ["shadowing", "feynman", "interline"] });
+    const topic = await createTestTopic(join(dir, "workspace"), { title: "Transport", materialIds: [material.id], toolkits: ["shadowing", "feynman", "interline"] });
     const raw = await fetch(`${base}/api/materials/${material.id}/raw?name=${videoName}`); assert.equal(raw.headers.get("content-type"), videoType); assert.deepEqual(Buffer.from(await raw.arrayBuffer()), video);
     const wav = Buffer.alloc(44 + 16000 * 2 * 8); wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });

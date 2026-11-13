@@ -6,7 +6,8 @@ import { pithIcon } from "../../workbench/icons.ts";
 import { speechMode } from "../speech/speechSettings.ts";
 import { prepareMaterialImport } from "../../workbench/importMaterial.ts";
 import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
-import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
+import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, GuideTurn, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
+import type { SessionState } from "../../workbench/materialSession.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
 interface WebState { compass: AttentionCompassSnapshot; materials: readonly Material[]; boardMaterials: readonly BoardMaterial[]; settings: WebSettings; guideConfigured: boolean; plugins: readonly PluginStatus[] }
@@ -18,6 +19,7 @@ const requiredButton = (selector: string): HTMLButtonElement => { const node = r
 const main = requiredElement("#main"), drawer = requiredElement("#drawer");
 async function api<T = unknown>(path: string, data?: unknown): Promise<T> { const response = await fetch(path, data === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); const result: unknown = await response.json(); if (!response.ok) throw new Error(result && typeof result === "object" && "error" in result ? String(result.error) : `HTTP ${response.status}`); return result as T; }
 let state: WebState, topic: Topic | null = null, workbench: WebWorkbench | null = null, navigation = 0;
+let intakePrevious: GuideTurn[] = [], intakeMaterialIds: string[] = [];
 const guideVisibility = new Map<string, boolean>();
 async function refresh(): Promise<void> { state = await api<WebState>("/api/state"); }
 async function goHome(): Promise<void> { const request = ++navigation; await refresh(); if (request === navigation) home(); }
@@ -28,14 +30,19 @@ function home(): void {
   renderCompass(main, state.compass, {
     materials: state.boardMaterials,
     open: id => { void openTopic(id).catch(notify); },
+    setStatus: async (id, status) => { await api(`/api/topics/${encodeURIComponent(id)}/status`, { status }); await goHome(); },
     create: async data => {
-      let material: Material | undefined; let target = "";
-      if (data.repoPath) { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath: data.repoPath }); material = result; target = result.intakeDescription; }
-      else if (data.url) material = await api<Material>("/api/materials/url", { url: data.url });
-      else if (data.files.length) material = await importFiles(data.files);
-      const title = material?.title || data.title;
-      const item = await api<Topic>("/api/topics", { title, ...(target ? { target } : {}), ...(material ? { materialId: material.id } : {}), ...(!material && data.guide ? { guideDefault: true } : {}) });
-      try { await openTopic(item.id, data.guide, intakeGuidePrompt(target || data.title, data.files)); } catch (error) { notify(error); }
+      const materials: Material[] = []; const target = data.title;
+      if (!target.trim()) throw new Error("请写下想搞懂的问题");
+      for (const repoPath of [...(data.repoPath ? [data.repoPath] : []), ...data.repoPaths]) materials.push(await api<Material>("/api/materials/repo", { repoPath }));
+      if (data.url) materials.push(await api<Material>("/api/materials/url", { url: data.url }));
+      if (data.files.length) materials.push(await importFiles(data.files));
+      const materialIds = [...new Set([...intakeMaterialIds, ...materials.map(material => material.id)])];
+      const result = await api<{ topic: Topic | null; turn: GuideTurn }>("/api/intake", { text: target, materialIds, previous: intakePrevious });
+      if (result.topic) { intakePrevious = []; intakeMaterialIds = []; await openTopic(result.topic.id, true); return; }
+      if (result.turn.status !== "completed") throw new Error(result.turn.error || "立项失败");
+      intakePrevious.push(result.turn); intakeMaterialIds = materialIds;
+      throw new Error(result.turn.steps.filter(step => step.kind === "reply").map(step => step.kind === "reply" ? step.markdown : "").join("\n") || "请补充目标");
     },
     settings: openSimpleSettings,
   });
@@ -43,18 +50,20 @@ function home(): void {
 async function openTopic(id: string, guide = false, prompt = ""): Promise<void> {
   const request = ++navigation;
   await refresh(); if (request !== navigation) return;
-  const next = [...state.compass.exploring, ...state.compass.settled].find(item => item.id === id);
+  const next = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === id);
   if (!next) throw new Error("课题不存在");
   if (workbench) workbench.dispose();
   topic = next;
   main.classList.remove("pith-view"); main.replaceChildren();
   const root = document.createElement("div"); root.style.height = "100vh"; main.append(root);
-  const instance = new WebWorkbench({ root, topic: next, material: state.materials.find(item => item.id === next.materialId), request: api,
+  const sessionState = await api<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(id)}`);
+  if (request !== navigation) return;
+  const instance = new WebWorkbench({ root, topic: next, sessionState, request: api,
     guideAvailable: state.plugins.some(item => item.id === "guide-acp" && item.state === "active"), guideVisible: guideVisibility.get(id) ?? false,
     home: () => goHome().catch(notify), settings: openSimpleSettings, importMaterial: () => requiredElement("#material-files").click(), visibility: visible => guideVisibility.set(id, visible), report: notify });
   workbench = instance;
   await instance.open();
-  if (guide && state.guideConfigured && request === navigation) await instance.startCurriculum(prompt);
+  if (guide && request === navigation) instance.setGuideVisible();
 }
 document.addEventListener("click", event => {
   const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button") : null;
@@ -72,8 +81,7 @@ document.addEventListener("change", event => {
   const input = event.target, fileList = input.files; if (!fileList) return;
   const files = Array.from(fileList), topicId = topic?.id;
   void importFiles(files, topicId).then(async material => {
-    const id = topicId || (await api<Topic>("/api/topics", { title: material.title, materialId: material.id })).id;
-    if (!topicId || topic?.id === topicId) await openTopic(id);
+    if (topicId && topic?.id === topicId) await openTopic(topicId);
   }).catch(notify).finally(() => { input.value = ""; });
 });
 let settingsPending = Promise.resolve(), agentIntent: string | undefined;

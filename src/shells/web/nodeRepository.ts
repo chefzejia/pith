@@ -19,7 +19,7 @@ async function git(root: string, args: string[], maxBuffer = maxTreeBytes): Prom
 }
 
 function validPath(path: string): boolean {
-  return !!path && !isAbsolute(path) && !/[\\\u0000-\u001f\u007f]/u.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== "..");
+  return !!path && !isAbsolute(path) && !/^[a-z]:\//i.test(path) && !/[\\\u0000-\u001f\u007f]/u.test(path) && path.split("/").every(part => part !== "" && part !== "..");
 }
 
 async function entries(root: string, commit: string): Promise<{ path: string; oid: string }[]> {
@@ -55,7 +55,8 @@ export class NodeRepositoryPort implements RepositoryPort {
   }
   async readFile(externalPath: string, commitSha: string, filePath: string, startLine = 1, maxLines = 120): Promise<RepositoryFileExcerpt> {
     if (!validPath(filePath) || !Number.isSafeInteger(startLine) || startLine < 1 || !Number.isSafeInteger(maxLines) || maxLines < 1 || maxLines > 1000) throw new Error("仓库文件参数无效");
-    const entry = (await entries(externalPath, commitSha)).find(item => item.path === filePath);
+    const canonicalPath = filePath.split("/").filter(part => part !== ".").join("/");
+    const entry = (await entries(externalPath, commitSha)).find(item => item.path === canonicalPath);
     if (!entry) throw new Error("仓库快照中没有这个普通文件");
     const size = Number(decoder.decode(await git(externalPath, ["cat-file", "-s", entry.oid], 1024)).trim());
     if (!Number.isSafeInteger(size) || size < 0 || size > maxFileBytes) throw new Error("仓库文件超过大小限制");

@@ -18,29 +18,25 @@ import type {
   MaterialKind,
   SelectionAnchor,
   Topic,
-  TopicNote,
+  Note,
   TopicStatus,
   UnreadableEntry,
 } from "../types.ts";
 
 export interface CreateTopicInput {
-  readonly id?: string;
   readonly title: string;
-  readonly target?: string;
-  readonly materialId?: string;
+  readonly target: string;
+  readonly materialIds: readonly string[];
   readonly nextAction?: string;
-  readonly toolkits?: readonly string[];
-  readonly toolkitsOrigin?: "default" | "explicit";
+  readonly toolkits: readonly string[];
 }
 
 export interface UpdateTopicPatch {
   readonly title?: string;
   readonly target?: string;
   readonly status?: TopicStatus;
-  readonly materialId?: string;
   readonly nextAction?: string;
   readonly toolkits?: readonly string[];
-  readonly toolkitsOrigin?: "default" | "explicit" | null;
 }
 
 export interface ImportMaterialFileInput {
@@ -50,19 +46,21 @@ export interface ImportMaterialFileInput {
 }
 
 export interface ImportMaterialInput {
-  readonly id?: string;
   readonly title: string;
   readonly kind: MaterialKind;
   readonly files: readonly ImportMaterialFileInput[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  readonly aids?: readonly string[];
 }
 
 export interface AppendNoteInput {
-  readonly kind: TopicNote["kind"];
+  readonly kind: Note["kind"];
+  readonly author: "user" | "guide";
   readonly body: string;
   readonly anchor?: SelectionAnchor;
   readonly guideRemark?: string;
+  readonly result?: Readonly<Record<string, unknown>>;
 }
 
 export interface WorkspaceStore {
@@ -79,14 +77,16 @@ export interface WorkspaceStore {
   getTopic(topicId: string): Promise<Topic | null>;
   createTopic(input: CreateTopicInput): Promise<Topic>;
   updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic>;
-  /** Compares material binding and toolkit state inside the mutation queue; null indicates a conflict. */
-  updateTopicIfUnchanged?(topicId: string, expected: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">, patch: UpdateTopicPatch): Promise<Topic | null>;
-  appendNote(topicId: string, note: AppendNoteInput): Promise<TopicNote>;
+  attachMaterial(topicId: string, materialId: string): Promise<Topic>;
+  appendTopicNote(topicId: string, note: AppendNoteInput): Promise<Note>;
+  writeLesson(topicId: string, fileName: string, markdown: string): Promise<Topic>;
+  readLesson(topicId: string, fileName: string): Promise<string>;
+  updateLessonLocator(topicId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
 
   listMaterials(): Promise<readonly Material[]>;
   getMaterial(materialId: string): Promise<Material | null>;
   importMaterial(input: ImportMaterialInput): Promise<Material>;
-  appendMaterialFiles?(materialId: string, files: readonly ImportMaterialFileInput[]): Promise<Material>;
-  writeGeneratedFile(materialId: string, fileName: string, markdown: string): Promise<Material>;
+  setMaterialAids(materialId: string, aids: readonly string[]): Promise<Material>;
+  appendMaterialNote(materialId: string, note: AppendNoteInput): Promise<Note>;
   updateReadingLocator(materialId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
 }

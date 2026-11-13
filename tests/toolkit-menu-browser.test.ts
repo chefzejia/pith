@@ -1,3 +1,4 @@
+import { createTestTopic } from "./topic-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -12,7 +13,7 @@ test("toolkit menu opens, enables and removes tools without stale actions", { ti
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok, await response.clone().text()); return response.json() as Promise<any>; };
-    const topic = await post("/api/topics", { title: "工具菜单", toolkits: ["feynman"] });
+    const topic = await createTestTopic(workspace, { title: "工具菜单", toolkits: ["feynman"] });
     await post("/api/materials", { topicId: topic.id, title: "阅读", kind: "article", files: [{ name: "reading.md", data: Buffer.from("# 标题\n\n第一段内容。\n\n第二段用于练习的内容。").toString("base64") }] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } }); let updates = 0, fail = false, hold = false, release: (() => void) | undefined, seen: (() => void) | undefined;

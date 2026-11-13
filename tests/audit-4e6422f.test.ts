@@ -17,8 +17,8 @@ async function setup() {
   const root = await testSandbox("audit-four-");
   const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
-  const topic = await store.createTopic({ id: "topic-audit", title: "Audit" });
-  const note = await store.appendNote(topic.id, { kind: "note", body: "Evidence" });
+  const topic = await store.createTopic({ title: "Audit", target: "Understand the audit", materialIds: [], toolkits: [] });
+  const note = await store.appendTopicNote(topic.id, { kind: "note", author: "user", body: "Evidence" });
   return { root, storage, store, topic, note };
 }
 
@@ -108,7 +108,7 @@ test("DSH reads markdown and pinned repository through its published tools", asy
   const f = await setup();
   try {
     const file = await f.store.importMaterial({ title: "Document", kind: "article", files: [{ name: "document.md", bytes: new TextEncoder().encode("# Heading\n\nActual content") }] });
-    await f.store.updateTopic(f.topic.id, { materialId: file.id });
+    await f.store.attachMaterial(f.topic.id, file.id);
     const tools = createDshPluginBundle({ storage: f.storage }).tools;
     const read = tools.find(tool => tool.name === "pith_read_material")!, list = tools.find(tool => tool.name === "pith_list_material")!;
     assert.match(JSON.stringify(await read.execute({ topicId: f.topic.id, materialId: file.id, file: "document.md" })), /Actual content/);
@@ -122,7 +122,7 @@ test("DSH reads markdown and pinned repository through its published tools", asy
     git("init", "-q"); git("add", "file.txt", "long.txt", "at-limit.txt"); git("commit", "-qm", "fixture"); const commitSha = git("rev-parse", "HEAD");
     await writeFile(join(repo, "file.txt"), "uncommitted\n");
     const material = await f.store.importMaterial({ title: "Repository", kind: "repo", files: [], externalPath: repo, commitSha });
-    await f.store.updateTopic(f.topic.id, { materialId: material.id });
+    await f.store.attachMaterial(f.topic.id, material.id);
     assert.match(JSON.stringify(await list.execute({ topicId: f.topic.id, materialId: material.id })), /file\.txt/);
     const result = JSON.stringify(await read.execute({ topicId: f.topic.id, materialId: material.id, file: "file.txt" }));
     assert.match(result, /committed/); assert.doesNotMatch(result, /uncommitted/);
@@ -153,7 +153,7 @@ test("rendered material pages bound every field and resume within long blocks", 
   try {
     const content = "A".repeat(11999) + "😀HIDDENSUFFIX";
     const material = await f.store.importMaterial({ title: "Long", kind: "article", files: [{ name: "long.md", bytes: new TextEncoder().encode(content) }] });
-    await f.store.updateTopic(f.topic.id, { materialId: material.id });
+    await f.store.attachMaterial(f.topic.id, material.id);
     const read = createScopedTools({ topicId: f.topic.id, store: f.store, storage: f.storage, reader: { formats: ["markdown"], sections: () => [], render: () => "", renderFile }, onChoices() {} }).find(tool => tool.name === "pith_read_material")!;
     const first = await read.execute({ materialId: material.id, file: "long.md" }) as { blocks: { text: string; [key: string]: unknown }[]; truncated: boolean; next: { startLine: number; startOffset: number } };
     assert.equal(first.truncated, true); assert.equal(first.blocks[0]!.text.length, 11999); assert.doesNotMatch(JSON.stringify(first), /HIDDENSUFFIX/);

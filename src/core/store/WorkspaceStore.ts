@@ -1,5 +1,5 @@
 import type { WorkspaceStoragePort } from "../host.ts";
-import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, ProfileObservation, SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
+import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, Note, ProfileObservation, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
@@ -85,20 +85,21 @@ function section(text: string, marker: string, end: string): string {
   return text.slice(index + start.length, endIndex);
 }
 
-function parseNotes(body: string): TopicNote[] {
+function parseNotes(body: string): Note[] {
   body = body.replace(/\r\n/g, "\n");
-  const notes: TopicNote[] = [];
+  const notes: Note[] = [];
   for (const match of body.matchAll(notePattern)) {
     const content = `${match[3]!}<!-- pith-note:end -->`;
     const metadataEnd = content.indexOf("\n\n<!-- pith-note:");
     if (metadataEnd < 0) throw new Error("Invalid note metadata");
     const fields: Record<string, string> = {};
     for (const line of content.slice(0, metadataEnd).split("\n")) {
-      const entry = /^- (id|file|locator): (.+)$/.exec(line);
+      const entry = /^- (id|author|material|lesson|file|locator): (.+)$/.exec(line);
       if (!entry || !entry[1] || !entry[2] || Object.hasOwn(fields, entry[1])) throw new Error("Invalid note metadata");
       const parsed = parseFrontmatter(`---\nvalue: ${entry[2]}\n---\n`).attributes.value;
-      if (typeof parsed !== "string") throw new Error("Invalid note metadata value");
-      fields[entry[1]] = parsed;
+      if (entry[1] === "lesson" && parsed === true) fields.lesson = "true";
+      else if (typeof parsed === "string") fields[entry[1]] = parsed;
+      else throw new Error("Invalid note metadata value");
     }
     const id = required(fields, "id");
     const hasQuote = content.includes("<!-- pith-note:quote -->\n");
@@ -108,7 +109,14 @@ function parseNotes(body: string): TopicNote[] {
       return line.slice(2);
     }).join("\n") : undefined;
     const hasRemark = content.includes("<!-- pith-note:remark -->\n");
-    const noteBody = section(content, "body", hasRemark ? "remark" : "no-remark");
+    const hasResult = content.includes("<!-- pith-note:result -->\n");
+    const noteBody = section(content, "body", hasResult ? "result" : hasRemark ? "remark" : "end");
+    let result: Readonly<Record<string, unknown>> | undefined;
+    if (hasResult) {
+      const parsed: unknown = JSON.parse(section(content, "result", hasRemark ? "remark" : "end"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || match[1] !== "practice") throw new Error("Invalid note result");
+      result = parsed as Readonly<Record<string, unknown>>;
+    }
     let guideRemark: string | undefined;
     if (hasRemark) {
       const raw = section(content, "remark", "end");
@@ -119,12 +127,16 @@ function parseNotes(body: string): TopicNote[] {
         if (!line.startsWith("> ")) throw new Error("Invalid guide remark");
         return line.slice(2);
       })].join("\n");
-    } else if (!content.includes("<!-- pith-note:no-remark -->")) throw new Error("Missing note remark marker");
-    let anchor: SelectionAnchor | undefined;
-    if (fields.file !== undefined || fields.locator !== undefined || quote !== undefined) {
-      anchor = { file: required(fields, "file"), locator: required(fields, "locator"), ...(quote !== undefined ? { quote } : {}) };
     }
-    notes.push({ id, kind: match[1] as TopicNote["kind"], createdAt: match[2]!, anchor, body: noteBody, guideRemark });
+    let anchor: SelectionAnchor | undefined;
+    if (fields.file !== undefined || fields.locator !== undefined || quote !== undefined || fields.material !== undefined || fields.lesson !== undefined) {
+      if ((fields.material !== undefined) === (fields.lesson !== undefined)) throw new Error("Invalid note source");
+      const source = fields.material !== undefined ? { kind: "material" as const, materialId: name(fields.material) } : { kind: "lesson" as const };
+      anchor = { source, file: required(fields, "file"), locator: required(fields, "locator"), ...(quote !== undefined ? { quote } : {}) };
+    }
+    const author = required(fields, "author");
+    if (author !== "user" && author !== "guide") throw new Error("Invalid note author");
+    notes.push({ id, kind: match[1] as Note["kind"], author, createdAt: match[2]!, anchor, body: noteBody, guideRemark, result });
   }
   if ((body.match(/<!-- pith-note:v1 -->/g) ?? []).length !== notes.length) throw new Error("Invalid note block");
   return notes;
@@ -134,18 +146,26 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
   const { attributes: a, body } = parseFrontmatter(markdown);
   if (a.type !== "pith-topic") throw new Error("Invalid topic type");
   const status = required(a, "status");
-  if (status !== "exploring" && status !== "settled") throw new Error("Invalid topic status");
+  if (status !== "exploring" && status !== "shelved" && status !== "settled") throw new Error("Invalid topic status");
   if (!Array.isArray(a.toolkits) || !a.toolkits.every(item => typeof item === "string")) throw new Error("Invalid toolkits");
-  const toolkitsOrigin = optional(a, "toolkitsOrigin");
-  if (toolkitsOrigin !== undefined && toolkitsOrigin !== "default" && toolkitsOrigin !== "explicit") throw new Error("Invalid toolkitsOrigin");
-  const material = optional(a, "material");
-  const materialId = material?.startsWith("[[") ? /^\[\[materials\/([^/]+)\/material\]\]$/.exec(material)?.[1] : material;
-  if (material && !materialId) throw new Error("Invalid material link");
-  if (materialId) name(materialId);
+  if (!Array.isArray(a.materials)) throw new Error("Invalid materials");
+  const materialIds = a.materials.map(item => {
+    const id = typeof item === "string" ? /^\[\[materials\/([^/]+)\/material\]\]$/.exec(item)?.[1] : undefined;
+    if (!id) throw new Error("Invalid material link");
+    return name(id);
+  });
+  if (new Set(materialIds).size !== materialIds.length) throw new Error("Duplicate material link");
+  if (!Array.isArray(a.lessons)) throw new Error("Invalid lessons");
+  const lessons = a.lessons.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid lesson");
+    const fileName = name(required(item, "name"));
+    if (!fileName.endsWith(".md")) throw new Error("Invalid lesson name");
+    return { name: fileName, locator: optional(item, "locator"), lastActiveAt: optional(item, "lastActiveAt") };
+  });
+  if (new Set(lessons.map(lesson => lesson.name)).size !== lessons.length) throw new Error("Duplicate lesson");
   return { attributes: a, body, topic: {
-    id: name(required(a, "id")), title: required(a, "title"), target: text(a, "target"), status,
-    materialId, nextAction: optional(a, "nextAction"), toolkits: a.toolkits as string[],
-    ...(toolkitsOrigin ? { toolkitsOrigin } : {}),
+    id: name(required(a, "id")), title: required(a, "title"), target: required(a, "target"), status,
+    materialIds, lessons, nextAction: optional(a, "nextAction"), toolkits: a.toolkits as string[],
     createdAt: required(a, "createdAt"), updatedAt: required(a, "updatedAt"), notes: parseNotes(body),
   } };
 }
@@ -156,6 +176,7 @@ function parseMaterial(markdown: string): { material: Material; attributes: Fron
   const kind = required(a, "kind");
   if (!["book", "article", "media", "discussion", "repo"].includes(kind)) throw new Error("Invalid material kind");
   if (!Array.isArray(a.files)) throw new Error("Invalid material files");
+  if (!Array.isArray(a.aids) || !a.aids.every(item => typeof item === "string")) throw new Error("Invalid material aids");
   const files = a.files.map(item => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid material file");
     const bytes = item.bytes;
@@ -166,22 +187,28 @@ function parseMaterial(markdown: string): { material: Material; attributes: Fron
       locator: optional(item, "locator"), lastActiveAt: optional(item, "lastActiveAt") };
   });
   if (new Set(files.map(file => file.name)).size !== files.length) throw new Error("Duplicate material file");
-  return { attributes: a, body, material: { id: name(required(a, "id")), title: required(a, "title"), kind: kind as MaterialKind,
-    createdAt: required(a, "createdAt"), files, externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha") } };
+  const id = name(required(a, "id")), notes = parseNotes(body);
+  if (notes.some(note => note.author !== "user" || note.kind === "practice" || (note.anchor && (note.anchor.source.kind !== "material" || note.anchor.source.materialId !== id)))) throw new Error("Invalid material note");
+  return { attributes: a, body, material: { id, title: required(a, "title"), kind: kind as MaterialKind,
+    createdAt: required(a, "createdAt"), files, aids: a.aids as string[], notes, externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha") } };
 }
 
-function noteMarkdown(note: TopicNote): string {
+function noteMarkdown(note: Note): string {
   for (const value of [note.body, note.anchor?.quote, note.guideRemark]) {
-    if (value && /^<!-- pith-note:(?:v1|quote|body|remark|no-remark|end) -->$/m.test(value)) throw new Error("Reserved note marker");
+    if (value && /^<!-- pith-note:(?:v1|quote|body|remark|result|end) -->$/m.test(value)) throw new Error("Reserved note marker");
   }
-  const lines = [`## [${note.kind}] ${note.createdAt}`, "<!-- pith-note:v1 -->", `- id: ${JSON.stringify(note.id)}`];
-  if (note.anchor) lines.push(`- file: ${JSON.stringify(note.anchor.file)}`, `- locator: ${JSON.stringify(note.anchor.locator)}`);
+  const lines = [`## [${note.kind}] ${note.createdAt}`, "<!-- pith-note:v1 -->", `- id: ${JSON.stringify(note.id)}`, `- author: ${JSON.stringify(note.author)}`];
+  if (note.anchor) lines.push(note.anchor.source.kind === "material" ? `- material: ${JSON.stringify(name(note.anchor.source.materialId))}` : "- lesson: true", `- file: ${JSON.stringify(note.anchor.file)}`, `- locator: ${JSON.stringify(note.anchor.locator)}`);
   if (note.anchor?.quote !== undefined) lines.push("", "<!-- pith-note:quote -->", ...note.anchor.quote.split("\n").map(line => `> ${line}`));
   lines.push("", "<!-- pith-note:body -->", note.body, "");
+  if (note.result !== undefined) {
+    if (note.kind !== "practice") throw new Error("Result requires practice note");
+    lines.push("<!-- pith-note:result -->", JSON.stringify(note.result), "");
+  }
   if (note.guideRemark !== undefined) {
     const [first, ...rest] = note.guideRemark.split("\n");
     lines.push("<!-- pith-note:remark -->", `> [guide] ${first ?? ""}`, ...rest.map(line => `> ${line}`), "");
-  } else lines.push("<!-- pith-note:no-remark -->", "");
+  }
   lines.push("<!-- pith-note:end -->");
   return lines.join("\n");
 }
@@ -237,7 +264,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       if (/\s|·/.test(topicId) || (input.noteId !== undefined && /\s|·/.test(name(input.noteId)))) throw new Error("Invalid observation reference");
       const topic = await this.getTopic(topicId);
       if (!topic) throw new Error("Topic not found");
-      if (input.noteId !== undefined && !topic.notes.some(note => note.id === input.noteId)) throw new Error("Note does not belong to topic");
+      if (input.noteId !== undefined && !topic.notes.some(note => note.id === input.noteId && note.author === "user")) throw new Error("Note is not user evidence in this topic");
       await this.scaffold();
       const { markdown } = await this.readProfile(), parts = profileParts(markdown);
       const observation: ProfileObservation = { id: `obs-${crypto.randomUUID()}`, date: new Date().toISOString().slice(0, 10), text, topicId, ...(input.noteId !== undefined ? { noteId: input.noteId } : {}) };
@@ -268,7 +295,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         try {
           if (kind === "topic") {
             const topic = await this.getTopic(id);
-            if (topic?.materialId && !await this.storage.exists(`materials/${name(topic.materialId)}/material.md`)) throw new Error(`Referenced material not found: ${topic.materialId}`);
+            if (topic) for (const materialId of topic.materialIds) if (!await this.storage.exists(`materials/${name(materialId)}/material.md`)) throw new Error(`Referenced material not found: ${materialId}`);
           }
           else await this.getMaterial(id);
         } catch (error) {
@@ -298,13 +325,12 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   createTopic(input: CreateTopicInput): Promise<Topic> {
     return this.queue.run(async () => {
       await this.scaffold();
-      const id = name(input.id ?? await this.uniqueId("topic", input.title));
+      const id = name(await this.uniqueId("topic", input.title));
       const path = `topics/${id}/topic.md`;
       if (await this.storage.exists(path)) throw new Error("Topic already exists");
       const now = new Date().toISOString();
-      const a: Frontmatter = { type: "pith-topic", id, title: input.title, target: input.target ?? "", status: "exploring", toolkits: [...(input.toolkits ?? [])], createdAt: now, updatedAt: now };
-      if (input.toolkitsOrigin !== undefined) a.toolkitsOrigin = input.toolkitsOrigin;
-      if (input.materialId !== undefined) a.material = `[[materials/${name(input.materialId)}/material]]`;
+      for (const materialId of input.materialIds) if (!await this.getMaterial(materialId)) throw new Error("Material not found");
+      const a: Frontmatter = { type: "pith-topic", id, title: input.title, target: input.target, status: "exploring", materials: input.materialIds.map(materialId => `[[materials/${name(materialId)}/material]]`), toolkits: [...input.toolkits], lessons: [], createdAt: now, updatedAt: now };
       if (input.nextAction !== undefined) a.nextAction = input.nextAction;
       const markdown = stringifyFrontmatter(a, "\n");
       const topic = parseTopic(markdown).topic;
@@ -314,25 +340,13 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     });
   }
   updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic> {
-    return this.patchTopic(topicId, patch).then(topic => { if (!topic) throw new Error("Topic update failed"); return topic; });
-  }
-  updateTopicIfUnchanged(topicId: string, expected: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">, patch: UpdateTopicPatch): Promise<Topic | null> {
-    return this.patchTopic(topicId, patch, expected);
-  }
-  private patchTopic(topicId: string, patch: UpdateTopicPatch, expected?: Pick<Topic, "materialId" | "toolkits" | "toolkitsOrigin">): Promise<Topic | null> {
     return this.queue.run(async () => {
       const path = `topics/${name(topicId)}/topic.md`;
       const { attributes: a, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
-      if (expected && (topic.materialId !== expected.materialId || topic.toolkitsOrigin !== expected.toolkitsOrigin || topic.toolkits.length !== expected.toolkits.length || topic.toolkits.some((id, index) => id !== expected.toolkits[index]))) return null;
+      if (patch.status !== undefined && patch.status !== topic.status && !(topic.status === "exploring" && (patch.status === "shelved" || patch.status === "settled")) && !(topic.status === "shelved" && patch.status === "exploring")) throw new Error("Invalid topic status transition");
       for (const key of ["title", "target", "status", "nextAction"] as const) if (patch[key] !== undefined) a[key] = patch[key]!;
-      if (patch.toolkits !== undefined) {
-        a.toolkits = [...patch.toolkits];
-        if (patch.toolkitsOrigin === undefined) delete a.toolkitsOrigin;
-      }
-      if (patch.toolkitsOrigin === null) delete a.toolkitsOrigin;
-      else if (patch.toolkitsOrigin !== undefined) a.toolkitsOrigin = patch.toolkitsOrigin;
-      if (patch.materialId !== undefined) a.material = `[[materials/${name(patch.materialId)}/material]]`;
+      if (patch.toolkits !== undefined) a.toolkits = [...patch.toolkits];
       a.updatedAt = new Date().toISOString();
       const markdown = stringifyFrontmatter(a, body);
       const updated = parseTopic(markdown).topic;
@@ -340,12 +354,32 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       return updated;
     });
   }
-  appendNote(topicId: string, input: AppendNoteInput): Promise<TopicNote> {
+  attachMaterial(topicId: string, materialId: string): Promise<Topic> {
+    return this.queue.run(async () => {
+      if (!await this.getMaterial(materialId)) throw new Error("Material not found");
+      const path = `topics/${name(topicId)}/topic.md`, { attributes, body, topic } = parseTopic(await this.storage.readText(path));
+      if (topic.id !== topicId) throw new Error("Topic id does not match path");
+      if (topic.materialIds.includes(materialId)) return topic;
+      attributes.materials = [...topic.materialIds, name(materialId)].map(id => `[[materials/${id}/material]]`);
+      attributes.updatedAt = new Date().toISOString();
+      const markdown = stringifyFrontmatter(attributes, body), updated = parseTopic(markdown).topic;
+      await this.storage.writeText(path, markdown);
+      return updated;
+    });
+  }
+  appendTopicNote(topicId: string, input: AppendNoteInput): Promise<Note> {
     return this.queue.run(async () => {
       const path = `topics/${name(topicId)}/topic.md`;
       const { attributes, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
-      const note: TopicNote = { ...input, id: `n-${crypto.randomUUID()}`, createdAt: new Date().toISOString() };
+      if (input.anchor?.source.kind === "material" && !topic.materialIds.includes(input.anchor.source.materialId)) throw new Error("Material not in topic");
+      if (input.anchor?.source.kind === "lesson" && !topic.lessons.some(lesson => lesson.name === input.anchor!.file)) throw new Error("Lesson not in topic");
+      if (input.anchor?.source.kind === "material") {
+        const material = await this.getMaterial(input.anchor.source.materialId);
+        if (!material) throw new Error("Material not found");
+        if (material.kind !== "repo" && !material.files.some(file => file.name === name(input.anchor!.file))) throw new Error("Material file not found");
+      }
+      const note: Note = { ...input, id: `n-${crypto.randomUUID()}`, createdAt: new Date().toISOString() };
       const nextBody = `${body}${body.endsWith("\n\n") ? "" : body.endsWith("\n") ? "\n" : "\n\n"}${noteMarkdown(note)}\n`;
       attributes.updatedAt = note.createdAt;
       const markdown = stringifyFrontmatter(attributes, nextBody);
@@ -374,7 +408,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   importMaterial(input: ImportMaterialInput): Promise<Material> {
     return this.queue.run(async () => {
       await this.scaffold();
-      const id = name(input.id ?? await this.uniqueId("material", input.title));
+      const id = name(await this.uniqueId("material", input.title));
       const dir = `materials/${id}`;
       if (await this.storage.exists(dir)) throw new Error("Material already exists");
       const filenames = input.files.map(file => name(file.name));
@@ -384,7 +418,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         type: "pith-material", id, title: input.title, kind: input.kind, createdAt: new Date().toISOString(),
         ...(input.externalPath !== undefined ? { externalPath: input.externalPath } : {}),
         ...(input.commitSha !== undefined ? { commitSha: input.commitSha } : {}),
-        files: files.map(file => fileFields(file)),
+        files: files.map(file => fileFields(file)), aids: [...(input.aids ?? [])],
       };
       const markdown = stringifyFrontmatter(a, "\n");
       const material = parseMaterial(markdown).material;
@@ -395,49 +429,65 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       return material;
     });
   }
-  appendMaterialFiles(materialId: string, files: readonly { readonly name: string; readonly mimeType?: string; readonly bytes: Uint8Array }[]): Promise<Material> {
-    return this.queue.run(async () => {
-      const dir = `materials/${name(materialId)}`, path = `${dir}/material.md`;
-      const parsed = parseMaterial(await this.storage.readText(path));
-      if (parsed.material.id !== materialId) throw new Error("Material id does not match path");
-      if (!files.length) return parsed.material;
-      const filenames = files.map(file => name(file.name));
-      if (new Set(filenames).size !== filenames.length) throw new Error("Duplicate file name");
-      const existingNames = new Set(parsed.material.files.map(file => file.name));
-      for (const fileName of filenames) {
-        if (existingNames.has(fileName) || await this.storage.exists(`${dir}/files/${fileName}`)) throw new Error("Cannot overwrite existing material file");
-      }
-      const entries = parsed.attributes.files as Record<string, string | number | boolean | null>[];
-      const added = await Promise.all(files.map(file => fileEntry(file.name, file.mimeType ?? "application/octet-stream", file.bytes)));
-      for (const item of added) entries.push(fileFields(item));
-      const markdown = stringifyFrontmatter(parsed.attributes, parsed.body);
-      const updated = parseMaterial(markdown).material;
-      await this.storage.mkdir(`${dir}/files`);
-      for (const file of files) await this.storage.createBinary(`${dir}/files/${file.name}`, file.bytes);
-      await this.storage.writeText(path, markdown);
-      return updated;
-    });
-  }
-  writeGeneratedFile(materialId: string, fileName: string, markdown: string): Promise<Material> {
+  writeLesson(topicId: string, fileName: string, markdown: string): Promise<Topic> {
     return this.queue.run(async () => {
       name(fileName);
-      if (!fileName.endsWith(".md")) throw new Error("Generated file must be Markdown");
-      const dir = `materials/${name(materialId)}`;
-      const path = `${dir}/material.md`;
-      const parsed = parseMaterial(await this.storage.readText(path));
-      if (parsed.material.id !== materialId) throw new Error("Material id does not match path");
-      const entries = parsed.attributes.files as Record<string, string | number | boolean | null>[];
-      const index = parsed.material.files.findIndex(file => file.name === fileName);
-      const filePath = `${dir}/files/${fileName}`;
-      if ((index >= 0 && entries[index]?.generated !== true) || (index < 0 && await this.storage.exists(filePath))) throw new Error("Cannot overwrite original material");
-      const file = await fileEntry(fileName, "text/markdown", encoder.encode(markdown));
-      const existing = index >= 0 ? parsed.material.files[index] : undefined;
-      const entry = fileFields({ ...file, locator: existing?.locator, lastActiveAt: existing?.lastActiveAt }, { ...(entries[index] ?? {}), generated: true });
-      if (index >= 0) entries[index] = entry; else entries.push(entry);
-      await this.storage.mkdir(`${dir}/files`);
-      if (index >= 0) await this.storage.writeText(filePath, markdown); else await this.storage.createText(filePath, markdown);
+      if (!fileName.endsWith(".md")) throw new Error("Lesson must be Markdown");
+      const dir = `topics/${name(topicId)}`, path = `${dir}/topic.md`;
+      const parsed = parseTopic(await this.storage.readText(path));
+      if (parsed.topic.id !== topicId) throw new Error("Topic id does not match path");
+      const filePath = `${dir}/lessons/${fileName}`, entries = parsed.attributes.lessons as Record<string, string | number | boolean | null>[];
+      if (!parsed.topic.lessons.some(lesson => lesson.name === fileName)) {
+        if (await this.storage.exists(filePath)) throw new Error("Untracked lesson already exists");
+        entries.push({ name: fileName });
+      }
+      await this.storage.mkdir(`${dir}/lessons`);
+      if (await this.storage.exists(filePath)) await this.storage.writeText(filePath, markdown); else await this.storage.createText(filePath, markdown);
+      parsed.attributes.updatedAt = new Date().toISOString();
+      const ledger = stringifyFrontmatter(parsed.attributes, parsed.body), topic = parseTopic(ledger).topic;
+      await this.storage.writeText(path, ledger);
+      return topic;
+    });
+  }
+  async readLesson(topicId: string, fileName: string): Promise<string> {
+    name(fileName);
+    const topic = await this.getTopic(topicId);
+    if (!topic?.lessons.some(lesson => lesson.name === fileName)) throw new Error("Lesson not found");
+    return this.storage.readText(`topics/${name(topicId)}/lessons/${fileName}`);
+  }
+  updateLessonLocator(topicId: string, fileName: string, locator: string): Promise<void> {
+    return this.queue.run(async () => {
+      const path = `topics/${name(topicId)}/topic.md`, parsed = parseTopic(await this.storage.readText(path));
+      if (parsed.topic.id !== topicId) throw new Error("Topic id does not match path");
+      const index = parsed.topic.lessons.findIndex(lesson => lesson.name === name(fileName));
+      if (index < 0) throw new Error("Lesson not found");
+      const entries = parsed.attributes.lessons as Record<string, string | number | boolean | null>[];
+      entries[index] = { ...entries[index]!, locator, lastActiveAt: new Date().toISOString() };
       await this.storage.writeText(path, stringifyFrontmatter(parsed.attributes, parsed.body));
-      return parseMaterial(stringifyFrontmatter(parsed.attributes, parsed.body)).material;
+    });
+  }
+  setMaterialAids(materialId: string, aids: readonly string[]): Promise<Material> {
+    return this.queue.run(async () => {
+      const path = `materials/${name(materialId)}/material.md`, parsed = parseMaterial(await this.storage.readText(path));
+      if (parsed.material.id !== materialId) throw new Error("Material id does not match path");
+      parsed.attributes.aids = [...aids];
+      const markdown = stringifyFrontmatter(parsed.attributes, parsed.body), material = parseMaterial(markdown).material;
+      await this.storage.writeText(path, markdown);
+      return material;
+    });
+  }
+  appendMaterialNote(materialId: string, input: AppendNoteInput): Promise<Note> {
+    return this.queue.run(async () => {
+      const path = `materials/${name(materialId)}/material.md`, parsed = parseMaterial(await this.storage.readText(path));
+      if (parsed.material.id !== materialId) throw new Error("Material id does not match path");
+      if (input.author !== "user" || input.kind === "practice" || (input.anchor && (input.anchor.source.kind !== "material" || input.anchor.source.materialId !== materialId))) throw new Error("Invalid material note");
+      if (input.anchor && parsed.material.kind !== "repo" && !parsed.material.files.some(file => file.name === name(input.anchor!.file))) throw new Error("Material file not found");
+      const note: Note = { ...input, id: `n-${crypto.randomUUID()}`, createdAt: new Date().toISOString() };
+      const body = `${parsed.body}${parsed.body.endsWith("\n\n") ? "" : parsed.body.endsWith("\n") ? "\n" : "\n\n"}${noteMarkdown(note)}\n`;
+      const markdown = stringifyFrontmatter(parsed.attributes, body);
+      parseMaterial(markdown);
+      await this.storage.writeText(path, markdown);
+      return note;
     });
   }
   updateReadingLocator(materialId: string, fileName: string, locator: string): Promise<void> {

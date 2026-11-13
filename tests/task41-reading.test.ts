@@ -10,6 +10,7 @@ import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { defaultToolkitsForMaterial } from "../src/workbench/toolkitSlot.ts";
 import { storedZip } from "./task29-fixture.ts";
 import { testSandbox } from "./sandbox.ts";
+import { createTestTopic } from "./topic-fixture.ts";
 
 const html = '<html><head><title>English &amp; Reading</title></head><body><nav>unwanted navigation</nav><article><h1>Learning together</h1><p>This is a complete English paragraph about learning and reading.</p><blockquote><p>Practice makes progress.</p><p>Another quote.</p><blockquote><p>Nested quote.</p></blockquote><p>Outer again.</p></blockquote><ul><li>First list item.</li><li>Second list item.</li></ul><pre><code>if (a &lt; b) {\n\n\n  print(`hello`);\n}</code></pre><script>bad()</script></article></body></html>';
 const http = { request: async () => { throw new Error("unexpected request"); }, requestPublic: async () => ({ status: 200, headers: { "content-type": "text/html" }, bytes: new TextEncoder().encode(html) }) };
@@ -43,7 +44,7 @@ test("EPUB classification reads bounded spine text rather than its title", async
   assert.deepEqual(await classify("这是中文正文，应当保留中文的默认工具。"), ["feynman"]);
 });
 
-test("URL intake persists a structured article and defaults without ACP", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+test("URL import preserves a structured article and translation in a topic", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const root = await testSandbox("task41-reading-"), workspace = join(root, "workspace"); await mkdir(workspace);
   let requests = 0, rejectTranslation = false, releaseNeighbor!: () => void, neighborStarted!: () => void, neighborFinished!: () => void;
   const neighborBlocked = new Promise<void>(resolve => { releaseNeighbor = resolve; }), neighborReady = new Promise<void>(resolve => { neighborStarted = resolve; }), neighborDone = new Promise<void>(resolve => { neighborFinished = resolve; });
@@ -54,15 +55,19 @@ test("URL intake persists a structured article and defaults without ACP", { time
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true });
     const page = await browser.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(8000); await page.goto(base);
-    await page.locator('[name="title"]').fill("http://127.0.0.1/private"); await page.locator('[data-intake-open]').click(); await page.getByRole("status").getByText(/not public/).waitFor();
+    const postUrl = (url: string) => fetch(`${base}/api/materials/url`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+    const rejected = await postUrl("http://127.0.0.1/private"); assert.equal(rejected.ok, false); assert.match(await rejected.text(), /not public/);
     let state = await (await fetch(base + "/api/state")).json() as any; assert.equal(state.compass.exploring.length, 0);
+    const material = await (await postUrl("https://public.com/post")).json() as { id: string }; const created = await createTestTopic(workspace, { title: "Learning together", materialIds: [material.id], toolkits: ["interline"] });
+    await page.reload(); await page.locator(`[data-topic="${created.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor();
+    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click();
     const secondRequest = page.waitForRequest((request: any) => request.url().endsWith('/api/interline') && request.postDataJSON().index === 1);
-    await page.locator('[name="title"]').fill("https://public.com/post"); await page.locator('[data-intake-open]').click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor();
+    await page.locator('button[data-interline-mode="bilingual"]').click();
     await page.locator('.pith-interline-subtitle').first().waitFor(); assert.ok(requests > 0); assert.equal(sizes[0], 1); await neighborReady; await secondRequest; assert.equal(await page.locator('.pith-interline-subtitle').count(), 1);
     assert.equal(await page.locator('.pith-article pre code').textContent(), 'if (a < b) {\n\n\n  print(`hello`);\n}'); assert.equal(await page.locator('.pith-article blockquote blockquote').count(), 1); assert.equal(await page.locator('.pith-article pre').getAttribute('data-prose'), 'false');
-    state = await (await fetch(base + "/api/state")).json() as any; const topic = state.compass.exploring[0]; assert.deepEqual(topic.toolkits, ["interline"]); assert.equal(topic.toolkitsOrigin, "default");
-    assert.match(await new NodeWorkspaceStorage(workspace).readText(`materials/${topic.materialId}/files/article.md`), /# Learning together/);
-    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click(); assert.equal(await page.locator('button[data-interline-mode="bilingual"]').getAttribute("aria-pressed"), "true");
+    state = await (await fetch(base + "/api/state")).json() as any; const topic = state.compass.exploring[0]; assert.deepEqual(topic.toolkits, ["interline"]);
+    assert.match(await new NodeWorkspaceStorage(workspace).readText(`materials/${material.id}/files/article.md`), /# Learning together/);
+    assert.equal(await page.locator('button[data-interline-mode="bilingual"]').getAttribute("aria-pressed"), "true");
     await mkdir(resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41`), { recursive: true }); await page.screenshot({ path: resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41/web-bilingual.png`) });
     const position = await page.locator('.pith-reader').evaluate((node: HTMLElement) => node.scrollTop); const anchor = await page.locator('.pith-article h1').getAttribute('data-locator');
     const staleResponse = page.waitForResponse((response: any) => response.url().endsWith('/api/interline') && response.request().postDataJSON().index === 1);
@@ -71,6 +76,6 @@ test("URL intake persists a structured article and defaults without ACP", { time
     await page.locator('button[data-interline-mode="bilingual"]').click(); await page.locator('.pith-interline-subtitle').first().waitFor(); assert.equal(await page.locator('.pith-article [data-prose="true"]').evaluateAll((nodes: Element[]) => nodes.every(node => node.querySelectorAll('.pith-interline-subtitle').length <= 1)), true); assert.equal(await page.locator('.pith-article [data-prose="true"]').filter({ hasText: 'First list item.' }).count(), 1);
     const update = await fetch(`${base}/api/topics/${encodeURIComponent(topic.id)}/toolkits`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ toolkits: ["feynman"] }) }); assert.equal(update.status, 200);
     await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); assert.match(await page.locator('#open-toolkit').textContent(), /费曼/); assert.equal(await page.locator('.pith-interline-subtitle').count(), 0);
-    rejectTranslation = true; await page.locator('[data-command="home"]').click(); await page.locator('[name="title"]').fill("https://public.com/failure"); await page.locator('[data-intake-open]').click(); await page.locator('.pith-toast-tip').getByText(/受控翻译不可用/).waitFor();
+    rejectTranslation = true; const secondMaterial = await (await postUrl("https://public.com/failure")).json() as { id: string }; const secondTopic = await createTestTopic(workspace, { title: "Translation failure", materialIds: [secondMaterial.id], toolkits: ["interline"] }); await page.locator('[data-command="home"]').click(); await page.reload(); await page.locator(`[data-topic="${secondTopic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('button[data-interline-mode="bilingual"]').click(); await page.locator('.pith-toast-tip').getByText(/受控翻译不可用/).waitFor();
   } finally { releaseNeighbor(); if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });

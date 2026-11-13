@@ -361,6 +361,7 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
   const topic = await store.createTopic({
     title: "Cordis 插件与能力接缝",
     target: "独立写出带栈式回退的微内核",
+    materialIds: [], toolkits: [],
   });
 
   const { port } = createFakeProcessPort({
@@ -415,8 +416,8 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
     },
   });
 
-  await engine.captureSelection({
-    topicId: topic.id,
+  await engine.capture({
+    owner: { topicId: topic.id },
     kind: "highlight",
     body: "当栈顶服务卸载时，自动回退到下一层服务实例而不销毁消费方。",
   });
@@ -431,10 +432,10 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
 test("background next action rejects tool output without changing learner evidence", async () => {
   const storage = createMemoryStorage(), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
-  const material = await store.importMaterial({ id: "material-bg", title: "Source", kind: "book", files: [{ name: "source.md", bytes: new TextEncoder().encode("Original") }] });
-  const topic = await store.createTopic({ id: "topic-bg", title: "Dependency injection", target: "Understand ownership", materialId: material.id });
+  const material = await store.importMaterial({ title: "Source", kind: "book", files: [{ name: "source.md", bytes: new TextEncoder().encode("Original") }] });
+  const topic = await store.createTopic({ title: "Dependency injection", target: "Understand ownership", materialIds: [material.id], toolkits: [] });
   const engine = new DefaultAttentionEngine(store, storage);
-  await engine.captureSelection({ topicId: topic.id, kind: "note", body: "A real learner note" });
+  await engine.capture({ owner: { topicId: topic.id }, kind: "note", body: "A real learner note" });
   const beforeTopic = await store.getTopic(topic.id), beforeMaterial = await store.getMaterial(material.id), beforeProfile = await storage.readBinary("ME.md");
   const noteId = beforeTopic!.notes[0]!.id;
   let response = "";
@@ -489,7 +490,7 @@ test("background next action rejects tool output without changing learner eviden
 });
 
 test("practice prompt keeps its anchor, explanation and rubric", () => {
-  const topic = { id: "t", title: "Practice", target: "Explain", status: "exploring" as const, notes: [], toolkits: [], createdAt: "", updatedAt: "" };
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic, userMessage: "自己的复述", anchor: { file: "test.md", locator: "text:offset:0", quote: "目标原文" }, instruction: "指出前提并给出反例" });
+  const topic = { id: "t", title: "Practice", target: "Explain", status: "exploring" as const, materialIds: [], lessons: [], notes: [], toolkits: [], createdAt: "", updatedAt: "" };
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic, materials: [], userMessage: "自己的复述", anchor: { source: { kind: "lesson" }, file: "test.md", locator: "text:offset:0", quote: "目标原文" }, instruction: "指出前提并给出反例" });
   assert.match(prompt, /目标原文/); assert.match(prompt, /自己的复述/); assert.match(prompt, /本回合指令/); assert.match(prompt, /指出前提并给出反例/);
 });

@@ -57,6 +57,7 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
   const dir = await testSandbox("pith-guide-turn-web-");
   await mkdir(join(dir, "workspace"));
   const storage = new NodeWorkspaceStorage(join(dir, "workspace")), store = new DefaultWorkspaceStore(storage);
+  const initialTopic = await store.createTopic({ title: "学习宿主边界", target: "学习宿主边界", materialIds: [], toolkits: [] });
   const received: string[] = [];
   let hold = false, failed = false, release: (() => void) | undefined, arrived: (() => void) | undefined;
   const provider: GuideProvider = { async run(input, options) {
@@ -87,7 +88,9 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     const replies = (count: number) => page.waitForFunction((expected: number) => (document.querySelector(".pith-guide-content")?.textContent ?? "").split("受控向导回复").length - 1 === expected, count);
 
     let waiting = held();
-    await page.locator('[name="title"]').fill("学习宿主边界"); await page.locator('[name="title"]').press("Enter");
+    await page.locator(`[data-topic="${initialTopic.id}"]`).first().click();
+    await page.locator('.pith-article').getByText('这个课题还没有关联材料。').waitFor(); await page.locator('.pith-guide-toggle').click();
+    await input.fill("学习宿主边界"); await send.click();
     await waiting; await pending.waitFor();
     assert.match(await pending.textContent(), /向导正在回应/);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);
@@ -157,7 +160,7 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
   } finally { if (browser) await browser.close(); if (release) release(); await closeServer(server); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("Obsidian runs intake, chat and lessons as one visible guide turn at a time and captures notes without one", { timeout: 60000, skip: browserUnavailable }, async () => {
+test("Obsidian runs chat and lessons as one visible guide turn at a time and captures notes without one", { timeout: 60000, skip: browserUnavailable }, async () => {
   const dir = await testSandbox("pith-guide-turn-native-");
   const origin = createServer((_request, response) => { response.writeHead(200, { "content-type": "text/html; charset=utf-8" }); response.end("<!doctype html><title>host</title>"); });
   await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
@@ -205,17 +208,14 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
         }
         if (state.hold) await new Promise<void>(resolve => { state.release = resolve; if (state.arrived) state.arrived(); });
         if (text.includes("触发故障")) throw new Error("受控向导故障");
-        if (text.includes("生成《00-课程大纲.md》")) {
-          const material = await controller.store.importMaterial({ title: "课程", kind: "article", files: [] });
-          await controller.store.updateTopic(topicId, { materialId: material.id });
-          await controller.store.writeGeneratedFile(material.id, "00-课程大纲.md", "# 课程大纲\n- [01-第一讲.md] 第一讲\n- [02-第二讲.md] 第二讲\n- [03-第三讲.md] 第三讲");
-          await controller.store.writeGeneratedFile(material.id, "01-第一讲.md", "# 第一讲\n\n第一讲正文。");
-        }
         const lesson = /《(0[23]-[^》]+\.md)》/.exec(text);
-        if (lesson) { const topic = await controller.store.getTopic(topicId); await controller.store.writeGeneratedFile(topic.materialId, lesson[1], `# ${lesson[1]}\n\n${lesson[1]} 的正文。`); }
+        if (lesson) await controller.store.writeLesson(topicId, lesson[1], `# ${lesson[1]}\n\n${lesson[1]} 的正文。`);
         options.onStep({ kind: "reply", markdown: guideReply }, 0); options.onChoices(guideChoices); return { status: "completed" };
       } };
       controller = new native.PithObsidianController(host, undefined, provider); await controller.initialize();
+      const topic = await controller.store.createTopic({ title: "学习宿主边界", target: "学习宿主边界", materialIds: [], toolkits: [] });
+      await controller.store.writeLesson(topic.id, "00-课程大纲.md", "# 课程大纲\n- [01-第一讲.md] 第一讲\n- [02-第二讲.md] 第二讲\n- [03-第三讲.md] 第三讲");
+      await controller.store.writeLesson(topic.id, "01-第一讲.md", "# 第一讲\n\n第一讲正文。");
       const leaf: any = { container: document.getElementById("side"), detach() {}, async setViewState() { this.view = new native.PithGuideView(this); } };
       const workspace = { rightSplit: { expand() {}, collapse() {} }, getRightLeaf: () => leaf, getLeavesOfType: () => leaf.view ? [leaf] : [], revealLeaf: async () => {} };
       state.controller = controller; state.workspaceView = new native.PithWorkspaceView({}, controller, host, workspace);
@@ -230,7 +230,8 @@ test("Obsidian runs intake, chat and lessons as one visible guide turn at a time
     const replies = (count: number) => page.waitForFunction((expected: number) => (document.querySelector("#side .pith-guide-content")?.textContent ?? "").split("受控向导回复").length - 1 === expected, count);
 
     await hold();
-    await page.locator('[name="title"]').fill("学习宿主边界"); await page.locator("[data-intake-open]").click();
+    await page.locator('[data-topic]').first().click(); await article.getByText("课程大纲").first().waitFor();
+    await page.locator('.pith-guide-toggle').click(); await input.fill("学习宿主边界"); await send.click();
     await arrived(); await pending.waitFor();
     assert.match(await pending.textContent(), /向导正在回应/);
     assert.equal(await occurrences(content, "学习宿主边界"), 1);

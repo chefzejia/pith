@@ -10,22 +10,23 @@ test("shared material session preserves reading while a generated lesson arrives
   const root = await testSandbox("task40-session-"); const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
   let release!: () => void, started!: () => void; const held = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>(resolve => { started = resolve; });
   try {
-    const material = await store.importMaterial({ title: "课程", kind: "article", files: [{ name: "01.md", bytes: new TextEncoder().encode("# 第一讲\n正文") }] });
-    const topic = await store.createTopic({ title: "课程", materialId: material.id });
+    const material = await store.importMaterial({ title: "材料一", kind: "article", files: [{ name: "01.md", bytes: new TextEncoder().encode("第一份") }] });
+    const second = await store.importMaterial({ title: "材料二", kind: "article", files: [{ name: "01.md", bytes: new TextEncoder().encode("第二份") }] });
+    const topic = await store.createTopic({ title: "课程", target: "理解材料", materialIds: [material.id, second.id], toolkits: [] });
     const shown: string[] = [], navigation: string[][] = []; let active = true;
-    const session = new MaterialSession(material, {
+    const loadState = async () => ({ topic: (await store.getTopic(topic.id))!, materials: [material, second], repositoryFiles: {} });
+    const session = new MaterialSession(await loadState(), {
       title: topic.title, active: () => active,
-      loadMaterial: async () => { const latest = await store.getTopic(topic.id); return latest?.materialId ? (await store.getMaterial(latest.materialId)) ?? undefined : undefined; },
-      readFile: async (item, name) => ({ html: await storage.readText(`materials/${item.id}/files/${name}`), sections: [] }),
-      readOutline: async item => item.files.some(file => file.name === "00-课程大纲.md") ? storage.readText(`materials/${item.id}/files/00-课程大纲.md`) : undefined,
-      render: document => { shown.push(document.currentFile); }, updateNavigation: files => { navigation.push(files.map(file => file.name)); },
-      beforeLesson: async () => {}, sendLesson: async name => { started(); await held; await store.writeGeneratedFile(material.id, name, "# 第二讲\n实际落盘"); },
+      loadState,
+      readFile: async (source, name) => ({ html: source.kind === "lesson" ? await store.readLesson(topic.id, name) : await storage.readText(`materials/${source.materialId}/files/${name}`), sections: [] }),
+      readOutline: async () => undefined,
+      render: document => { shown.push(document.html); }, updateNavigation: files => { navigation.push(files.map(file => file.name)); },
+      beforeLesson: async () => {}, sendLesson: async name => { started(); await held; await store.writeLesson(topic.id, name, "# 第二讲\n实际落盘"); },
     });
-    await session.open(); assert.deepEqual(shown, ["01.md"]); await session.refresh(); assert.deepEqual(shown, ["01.md"]);
-    const generating = session.generateLesson("02.md", "第二讲"); await ready; await session.openFile("01.md"); release(); await generating;
-    assert.equal(session.file, "01.md"); assert.deepEqual(shown, ["01.md", "01.md"]); assert.ok(navigation.at(-1)?.includes("02.md")); assert.match(await storage.readText(`materials/${material.id}/files/02.md`), /实际落盘/);
-    const subtitle = new TextEncoder().encode("WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n"); await store.appendMaterialFiles(material.id, [{ name: "clip.en.vtt", mimeType: "text/vtt", bytes: subtitle }]); await session.refresh();
-    assert.equal(session.file, "clip.en.vtt"); assert.deepEqual(new Uint8Array(await storage.readBinary(`materials/${material.id}/files/clip.en.vtt`)), subtitle);
-    active = false; await session.open(); assert.equal(shown.at(-1), "clip.en.vtt"); session.dispose();
+    await session.open(); assert.deepEqual(shown, ["第一份"]); await session.refresh(); assert.deepEqual(shown, ["第一份"]);
+    const generating = session.generateLesson("02.md", "第二讲"); await ready; await session.openMaterial(second.id); release(); await generating;
+    assert.equal(session.file, "01.md"); assert.deepEqual(session.source, { kind: "material", materialId: second.id });
+    assert.deepEqual(shown, ["第一份", "第二份"]); assert.ok(navigation.at(-1)?.includes("02.md")); assert.match(await store.readLesson(topic.id, "02.md"), /实际落盘/);
+    active = false; await session.open(); assert.equal(shown.at(-1), "第二份"); session.dispose();
   } finally { release(); await rm(root, { recursive: true, force: true }); }
 });

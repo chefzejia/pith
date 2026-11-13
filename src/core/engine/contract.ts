@@ -15,7 +15,7 @@
  *    held or skipped.
  */
 
-import type { SelectionAnchor, Topic, TopicNote, UnreadableEntry } from "../types.ts";
+import type { Material, Note, NoteKind, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
 
 export type EffectKind =
   | "curate-topic"
@@ -79,7 +79,9 @@ export interface GuideProvider {
 export interface AttentionCompassSnapshot {
   readonly unreadable: readonly UnreadableEntry[];
   readonly exploring: readonly Topic[];
+  readonly shelved: readonly Topic[];
   readonly settled: readonly Topic[];
+  readonly library: readonly LibraryEntry[];
   readonly focusRecommendation: {
     readonly topicId: string;
     readonly title: string;
@@ -88,17 +90,20 @@ export interface AttentionCompassSnapshot {
   readonly pendingEffectsCount: number;
 }
 
+export interface LibraryEntry { readonly material: Material; readonly topicIds: readonly string[] }
+
 export interface AttentionEngine {
   /** Build the first-screen Attention Compass snapshot ("What waits for a person?"). */
   compass(): Promise<AttentionCompassSnapshot>;
 
-  /** Record a highlight or user note on a Topic immediately, and coalesce a background `prepare-next-action` effect. */
-  captureSelection(input: {
-    readonly topicId: string;
-    readonly kind: "highlight" | "note" | "practice";
+  intake(input: { text: string; materialIds: readonly string[]; previous?: readonly GuideTurn[] }, options?: TurnOptions): Promise<{ readonly topic: Topic | null; readonly turn: GuideTurn }>;
+  capture(input: {
+    readonly owner: { topicId: string } | { materialId: string };
+    readonly kind: NoteKind;
     readonly body: string;
     readonly anchor?: SelectionAnchor;
-  }): Promise<TopicNote>;
+    readonly result?: Readonly<Record<string, unknown>>;
+  }): Promise<Note>;
 
   getConversation(topicId: string): Promise<readonly GuideTurn[]>;
   runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor; instruction?: string }, options?: TurnOptions): Promise<GuideTurn>;

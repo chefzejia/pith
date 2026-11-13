@@ -37,17 +37,54 @@ export class DefaultAttentionEngine implements AttentionEngine {
     await this.storage.writeText(path, `${JSON.stringify(value, null, 2)}\n`);
   }
   async compass(): Promise<AttentionCompassSnapshot> {
-    const [topics, effects, unreadable] = await Promise.all([this.store.listTopics(), this.listEffects(), this.store.listUnreadable()]);
+    const [topics, materials, effects, unreadable] = await Promise.all([this.store.listTopics(), this.store.listMaterials(), this.listEffects(), this.store.listUnreadable()]);
     const exploring = topics.filter(topic => topic.status === "exploring");
+    const shelved = topics.filter(topic => topic.status === "shelved");
     const settled = topics.filter(topic => topic.status === "settled");
+    const library = materials.map(material => ({ material, topicIds: topics.filter(topic => topic.materialIds.includes(material.id)).map(topic => topic.id) }));
     const focus = exploring.find(topic => Boolean(topic.nextAction));
-    return { exploring, settled, unreadable, focusRecommendation: focus && focus.nextAction ? { topicId: focus.id, title: focus.title, nextAction: focus.nextAction } : null,
+    return { exploring, shelved, settled, library, unreadable, focusRecommendation: focus && focus.nextAction ? { topicId: focus.id, title: focus.title, nextAction: focus.nextAction } : null,
       pendingEffectsCount: effects.filter(effect => effect.status === "pending" || effect.status === "running").length };
   }
-  async captureSelection(input: Parameters<AttentionEngine["captureSelection"]>[0]): ReturnType<AttentionEngine["captureSelection"]> {
-    const note = await this.store.appendNote(input.topicId, { kind: input.kind, body: input.body, anchor: input.anchor });
-    await this.enqueueEffect("prepare-next-action", input.topicId, { topicId: input.topicId, noteId: note.id });
+  async capture(input: Parameters<AttentionEngine["capture"]>[0]): ReturnType<AttentionEngine["capture"]> {
+    const data = { kind: input.kind, author: "user" as const, body: input.body, anchor: input.anchor, result: input.result };
+    if ("materialId" in input.owner) return this.store.appendMaterialNote(input.owner.materialId, data);
+    const note = await this.store.appendTopicNote(input.owner.topicId, data);
+    await this.enqueueEffect("prepare-next-action", input.owner.topicId, { topicId: input.owner.topicId, noteId: note.id });
     return note;
+  }
+  async intake(input: Parameters<AttentionEngine["intake"]>[0], options?: TurnOptions): ReturnType<AttentionEngine["intake"]> {
+    const provider = this.provider?.();
+    if (!provider) throw new Error("向导不可用");
+    if (!input.text.trim()) throw new Error("Message is empty");
+    const controller = new AbortController(), abort = () => controller.abort(options?.signal?.reason);
+    if (options?.signal?.aborted) abort(); else options?.signal?.addEventListener("abort", abort, { once: true });
+    let turn: GuideTurn = { id: crypto.randomUUID(), status: "running", startedAt: new Date().toISOString(), user: { text: input.text }, steps: [], choices: [] };
+    let topicId: string | undefined, pending = Promise.resolve();
+    const publish = (next: GuideTurn) => {
+      turn = next; options?.onUpdate?.(next);
+      const found = next.steps.flatMap(step => step.kind === "tool" ? step.effects : []).find(effect => effect.kind === "topic");
+      if (found?.kind === "topic") topicId = found.topicId;
+      if (topicId) {
+        const id = component(topicId);
+        pending = pending.then(() => this.queue.run(async () => {
+          await this.storage.writeText(`topics/${id}/conversation.json`, `${JSON.stringify([...(input.previous ?? []), next], null, 2)}\n`);
+        }));
+      }
+    };
+    options?.onUpdate?.(turn);
+    try {
+      let result: Awaited<ReturnType<GuideProvider["run"]>>;
+      try { result = await provider.run({ scope: { kind: "intake", materialIds: input.materialIds }, text: input.text, history: input.previous ?? [] }, {
+        signal: controller.signal,
+        onStep: (step, index) => { const steps = [...turn.steps]; if (index < 0 || index > steps.length) throw new Error("Invalid step index"); steps[index] = step; publish({ ...turn, steps }); },
+        onChoices: choices => publish({ ...turn, choices: [...choices] }),
+      }); } catch (error) { result = controller.signal.aborted ? { status: "stopped" } : { status: "failed", error: error instanceof Error ? error.message : String(error) }; }
+      const status = controller.signal.aborted ? "stopped" : result.status;
+      publish({ ...turn, status, endedAt: new Date().toISOString(), ...(status === "failed" && result.status === "failed" ? { error: result.error } : status === "stopped" ? { error: "已停止" } : {}) });
+      await pending;
+      return { topic: topicId ? await this.store.getTopic(topicId) : null, turn };
+    } finally { options?.signal?.removeEventListener("abort", abort); }
   }
   getConversation(topicId: string): Promise<readonly GuideTurn[]> {
     const id = component(topicId), path = `topics/${id}/conversation.json`;
