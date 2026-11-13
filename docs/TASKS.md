@@ -33,9 +33,11 @@
 ---
 
 ## [Task #55] PDF 核心渲染与锚点支持
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #51
-- **Updated**: 2026-11-13
+- **Verified-Commit**: 77f18b705a597a4134faccf5ec80aa216f6a23f7
+- **Updated**: 2026-11-14
+- **验收结果**: PDF 渲染业务 `8282ac32509e5273ca2726c19657c2d65b358134` 与尺寸锚点修复通过工程门禁和独立复验，被测组合为 `63927424428ec9d4a7b9a6331bd67ff5f1c17e4a`。独立 Chrome 和专属 `.dev-vault` Obsidian 实测中英文真实 PDF、鼠标选字、笔记跨文档/页码回跳及高亮；连续宽高变化后保持第 3 页和批注，首轮跳页缺陷已修复。尺寸变化为渲染视口模拟，未做系统窗口拖拽或单独缩放命令；未穷举扫描/加密 PDF。Worker 全仓门禁通过，移除尺寸守卫精准报红；加载产物哈希一致，自有进程及运行沙盒已回收，临时 Worktree 已销毁，Cleanup: PASS。终验截图与报告：`.tmp/evidence/task-55/tester-retry/tester-report.md`、`.tmp/evidence/task-55/tester-retry/`；首轮及修复证据：`.tmp/evidence/task-55/tester/tester-report.md`、`.tmp/evidence/task-55/resize-fix/worker-report.md`。未交付真实 Vault。
 - **Scope**: `src/plugins/stage-reader/**`, `tests/**`
 - **契约**: 移植 `ganfan-garden` 中的 PDF 渲染实现，作为 `stage-reader` 独立插件。PDF 元素需正确映射 `data-locator`，支持跨文档锚点跳转及高亮。
 - **交付**: 不交付。
@@ -55,9 +57,9 @@
 ---
 
 ## [Task #52] 工作台：材料库、材料阅读、立项与工具归属
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #55, #56
-- **Updated**: 2026-11-13
+- **Updated**: 2026-11-14
 - **Scope**: `src/workbench/**`、`src/shells/**`、`src/plugins/toolkit-*/**`、`src/core/seams.ts`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 首页立项分流与材料库、材料阅读场景（高亮/笔记）、课题内目录/抽屉、工具归属（按角色/role）与行间驱动。
 - **交付**: 不交付。整体在 #54 终验后交付。
