@@ -15,10 +15,11 @@
 ---
 
 ## [Task #51] 内核：材料与课题分离
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: None
-- **Verified-Commit**: none
+- **Verified-Commit**: 1f371310c869bfe619b8905cf8423474c88e80cd
 - **Updated**: 2026-11-13
+- **验收结果**: Worker 全仓门禁与四项手动破壁通过；Web 与隔离 Obsidian 的真实 Agent 完成多材料立项、讲义、笔记回跳、材料复用与用户证据结题，补验覆盖快捷动作及已测路径/状态边界。补验的 Web 工具负例由受控客户端调用真实产品模块，未冒充模型回合。本轮双方资源已清理；旧浏览器退出回执缺失，经 Router 精确查询专属 profile 无活动进程及目录占用后清理剩余沙盒。报告及截图：`.tmp/evidence/task-51/tester-1f37131/`、`.tmp/evidence/task-51/tester-boundaries/`；Worker 报告：`.tmp/evidence/task-51/resume-worker/report.md`；清理复核：`.tmp/evidence/task-51/router-cleanup.md`。未交付真实 Vault。
 - **Scope**: `src/core/**`、`src/plugins/**`、`src/shells/**`、`src/workbench/**`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 
   1. 类型、磁盘格式与存储接口按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 2、3、4 节落地。
@@ -32,7 +33,7 @@
 ---
 
 ## [Task #55] PDF 核心渲染与锚点支持
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #51
 - **Updated**: 2026-11-13
 - **Scope**: `src/plugins/stage-reader/**`, `tests/**`
@@ -42,7 +43,7 @@
 ---
 
 ## [Task #56] ACP 通信稳健性与错误处理
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #51
 - **Updated**: 2026-11-13
 - **Scope**: `src/plugins/guide-acp/**`, `src/shells/**`
