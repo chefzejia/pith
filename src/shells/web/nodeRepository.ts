@@ -66,8 +66,7 @@ export class NodeRepositoryPort implements RepositoryPort {
     const lines = content.split(/\r?\n/);
     if (startLine > lines.length) throw new Error("仓库文件行号超出范围");
     const selected = lines.slice(startLine - 1, startLine - 1 + maxLines).join("\n");
-    const text = selected.slice(0, 12000);
-    const endLine = startLine + (text.match(/\n/g) ?? []).length;
-    return { externalPath, commitSha, path: filePath, startLine, endLine, text, truncated: selected.length > text.length || startLine - 1 + maxLines < lines.length };
+    const endLine = startLine + (selected.match(/\n/g) ?? []).length;
+    return { externalPath, commitSha, path: filePath, startLine, endLine, text: selected, truncated: startLine - 1 + maxLines < lines.length };
   }
 }

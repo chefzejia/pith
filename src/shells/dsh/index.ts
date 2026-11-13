@@ -6,6 +6,8 @@ import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type Http
 import { createScopedTools } from "../../plugins/guide-acp/tools.ts";
 import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
 import { withHttpDeadline } from "../../core/host.ts";
+import { markdownSections, renderFile, renderMarkdown } from "../../plugins/stage-reader/index.ts";
+import { NodeRepositoryPort } from "../web/nodeRepository.ts";
 export { mountPithWorkbench, PithWorkbenchView, renderCompass, workbenchStyles } from "../../workbench/index.ts";
 
 export interface DshTool {
@@ -59,7 +61,9 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
   const engine = new DefaultAttentionEngine(store, options.storage);
   const field = { type: "string" };
   const tools: DshTool[] = [];
-  const scoped = (topicId: string) => createScopedTools({ topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), onChoices: () => {} });
+  const reader = { formats: ["markdown", "epub", "pdf", "cbz", "image"] as const, sections: markdownSections, render: renderMarkdown, renderFile };
+  const repository = new NodeRepositoryPort();
+  const scoped = (topicId: string) => createScopedTools({ topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), repository, reader, onChoices: () => {} });
   tools.push(...scoped("scope").map(tool => {
     const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
     return { name: tool.name, description: tool.description, inputSchema: { ...tool.inputSchema, properties: { ...source.properties, topicId: field }, required: [...(source.required ?? []), "topicId"] }, async execute(input: Readonly<Record<string, unknown>>) {

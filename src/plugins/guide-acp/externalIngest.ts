@@ -1,4 +1,5 @@
 import type { ExternalIngestBundle, ExternalIngestInput, HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
+import { withHttpDeadline } from "../../core/host.ts";
 
 // The transport resolves and pins only public addresses, rejects redirects, and enforces the byte limit while streaming.
 export interface PublicHttpPort extends HttpPort {
@@ -65,14 +66,15 @@ function safeMarkdown(value: string): string {
   return value.replace(/<[^>]*>/g, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\u0000/g, "").trim();
 }
 
-export async function ingestExternalUrl(input: ExternalIngestInput, http: HttpPort | undefined): Promise<ExternalIngestBundle> {
+export async function ingestExternalUrl(input: ExternalIngestInput, http: HttpPort | undefined, signal?: AbortSignal): Promise<ExternalIngestBundle> {
   if (!isPublicHttpUrl(input.url)) throw new Error("External URL is not public HTTP(S)");
   if (!http || !("requestPublic" in http) || typeof http.requestPublic !== "function") throw new Error("Safe public HTTP transport unavailable: DNS pinning and redirect protection required");
   const kind = input.kind ?? "article";
   if (kind !== "article" && kind !== "discussion" && kind !== "media") throw new Error("Invalid external material kind");
   if (input.transcriptMarkdown && (kind !== "media" || encoder.encode(input.transcriptMarkdown).length > 4 * 1024 * 1024)) throw new Error("Invalid transcript");
   const limit = (kind === "media" ? 64 : 4) * 1024 * 1024;
-  const response = await (http as PublicHttpPort).requestPublic({ url: input.url, headers: { Accept: kind === "media" ? "audio/*, video/*" : "text/html, text/markdown, text/plain", "Accept-Encoding": "identity" } }, limit);
+  const spec: HttpRequestSpec = { url: input.url, headers: { Accept: kind === "media" ? "audio/*, video/*" : "text/html, text/markdown, text/plain", "Accept-Encoding": "identity" }, signal };
+  const response = await withHttpDeadline(spec, requestSignal => (http as PublicHttpPort).requestPublic({ ...spec, signal: requestSignal }, limit));
   if (response.status < 200 || response.status >= 300 || response.bytes.byteLength > limit || response.bytes.byteLength === 0) throw new Error("External response is invalid or exceeds size limit");
   const type = (Object.entries(response.headers).find(([key]) => key.toLowerCase() === "content-type")?.[1] ?? "").split(";")[0]!.trim().toLowerCase();
   const url = new URL(input.url);

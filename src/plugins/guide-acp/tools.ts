@@ -1,6 +1,6 @@
 import { DefaultWorkspaceStore, builtinRegistry, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
-import type { TurnTool } from "./mcpTools.ts";
+import { ToolExecutionFailure, type TurnTool } from "./mcpTools.ts";
 
 export function normalizeToolkits(value: readonly unknown[]): string[] {
   const registered = new Set(builtinRegistry.list().filter(manifest => manifest.id.startsWith("toolkit-")).map(manifest => manifest.id.slice("toolkit-".length)));
@@ -19,6 +19,15 @@ function text(input: Readonly<Record<string, unknown>>, key: string, max = 4000)
   const value = input[key];
   if (typeof value !== "string" || !value.trim() || value.length > max) throw new Error(`Invalid ${key}`);
   return value.trim();
+}
+
+function splitsCharacter(value: string, offset: number): boolean {
+  return offset > 0 && /[\uD800-\uDBFF]/.test(value[offset - 1]!) && /[\uDC00-\uDFFF]/.test(value[offset] ?? "");
+}
+
+function boundedEnd(value: string, start: number, length: number): number {
+  const end = Math.min(start + length, value.length);
+  return splitsCharacter(value, end) ? end - 1 : end;
 }
 
 function anchorValue(value: unknown): SelectionAnchor {
@@ -55,7 +64,8 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
       const topicId = input.topicId === undefined ? undefined : text(input, "topicId", 200);
       const initialTopic = topicId ? await store.getTopic(topicId) : null;
       if (topicId && !initialTopic) throw new Error("Topic not found");
-      const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http);
+      const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http, signal);
+      signal?.throwIfAborted();
       const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
       if (topicId) {
         if (!store.updateTopicIfUnchanged) throw new Error("Conditional topic update unavailable");
@@ -158,9 +168,29 @@ export function createScopedTools(options: { topicId: string; store: WorkspaceSt
       const currentStore = write ? new DefaultWorkspaceStore(guarded) : store;
       const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal).find(item => item.name === tool.name)!;
       const before = tool.name === "pith_settle_topic" ? (await store.readProfile()).observations : [];
-      const result = await current.execute({ ...input, ...(tool.name === "pith_search_media" ? {} : { topicId }) });
-      if (tool.name === "pith_settle_topic") return { topic: result, observations: (await store.readProfile()).observations.filter(item => !before.some(previous => previous.id === item.id)) };
-      return result;
+      const topicBefore = tool.name === "pith_settle_topic" ? await store.getTopic(topicId) : null;
+      const historyBefore = tool.name === "pith_settle_topic" && await storage.exists("history") ? new Set((await storage.list("history")).map(item => item.path)) : new Set<string>();
+      try {
+        const result = await current.execute({ ...input, ...(tool.name === "pith_search_media" ? {} : { topicId }) });
+        if (tool.name === "pith_settle_topic") return { topic: result, observations: (await store.readProfile()).observations.filter(item => !before.some(previous => previous.id === item.id)) };
+        return result;
+      } catch (cause) {
+        if (tool.name !== "pith_settle_topic") throw cause;
+        const message = cause instanceof Error ? cause.message : String(cause);
+        try {
+          const after = (await store.readProfile()).observations;
+          const added = after.filter(item => item.topicId === topicId && !before.some(previous => previous.id === item.id));
+          const removed = before.filter(item => !after.some(currentItem => currentItem.id === item.id));
+          const topicAfter = await store.getTopic(topicId);
+          const notes = topicAfter?.notes.filter(note => !topicBefore?.notes.some(previous => previous.id === note.id)) ?? [];
+          const backups = await storage.exists("history") ? (await storage.list("history")).map(item => item.path).filter(path => !historyBefore.has(path)).sort() : [];
+          const details = `${removed.length ? `；已撤回观察 ${removed.map(item => item.id).join(", ")}` : ""}${added.length || removed.length ? `；写前留底：${backups.join(", ") || "无法确认"}` : ""}`;
+          throw new ToolExecutionFailure(`${message}；课题状态：${topicAfter?.status ?? "未知"}${added.length ? `；已写入观察：${added.map(item => `${item.id} ${item.text}`).join("；")}；对应对话若有观察行可撤销，否则请核对画像与留底` : ""}${details}`, [...notes.map(note => ({ kind: "note" as const, noteId: note.id })), ...added.map(item => ({ kind: "observation" as const, observationId: item.id, text: item.text }))]);
+        } catch (reconciliation) {
+          if (reconciliation instanceof ToolExecutionFailure) throw reconciliation;
+          throw new ToolExecutionFailure(`${message}；无法核对画像写入，请检查 ME.md 和 history 留底`, []);
+        }
+      }
     }, effects(result, input) {
       const value = result as Record<string, unknown>;
       if (tool.name === "pith_save_note" && typeof value?.id === "string") return [{ kind: "note", noteId: value.id }];
@@ -187,25 +217,44 @@ export function createScopedTools(options: { topicId: string; store: WorkspaceSt
     if (material.kind === "repo") { if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable"); return repository.listFiles(material.externalPath, material.commitSha, number(input, "offset"), number(input, "limit")); }
     return { files: material.files };
   } });
-  tools.push({ name: "pith_read_material", description: "Read a bounded portion of the current material.", inputSchema: { type: "object", properties: { materialId: { type: "string" }, file: { type: "string" }, startLine: { type: "integer" }, maxLines: { type: "integer" } }, required: ["materialId", "file"], additionalProperties: false }, write: false, async execute(input) {
-    checkKeys(input, ["materialId", "file", "startLine", "maxLines"]); const material = await scopedMaterial(input);
+  tools.push({ name: "pith_read_material", description: "Read a bounded portion of the current material. Continue using next.startLine and next.startOffset.", inputSchema: { type: "object", properties: { materialId: { type: "string" }, file: { type: "string" }, startLine: { type: "integer" }, startOffset: { type: "integer" }, maxLines: { type: "integer" } }, required: ["materialId", "file"], additionalProperties: false }, write: false, async execute(input) {
+    checkKeys(input, ["materialId", "file", "startLine", "startOffset", "maxLines"]); const material = await scopedMaterial(input);
     if (typeof input.file !== "string" || !input.file) throw new Error("Invalid file");
-    if (material.kind === "repo") { if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable"); return repository.readFile(material.externalPath, material.commitSha, input.file, number(input, "startLine"), number(input, "maxLines")); }
+    if (material.kind === "repo") {
+      if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable");
+      if (material.externalPath.length > 4096 || input.file.length > 4096 || material.commitSha.length > 64) throw new Error("Repository binding exceeds limit");
+      const startLine = number(input, "startLine") ?? 1, startOffset = number(input, "startOffset") ?? 0;
+      const excerpt = await repository.readFile(material.externalPath, material.commitSha, input.file, startLine, number(input, "maxLines"));
+      const firstEnd = excerpt.text.indexOf("\n"), firstLength = firstEnd < 0 ? excerpt.text.length : firstEnd;
+      if (startOffset > firstLength || splitsCharacter(excerpt.text, startOffset)) throw new Error("Invalid material cursor");
+      const available = excerpt.text.slice(startOffset) + (excerpt.truncated ? "\n" : "");
+      const end = boundedEnd(available, 0, 12000), value = available.slice(0, end);
+      const lines = (value.match(/\n/g) ?? []).length, lastBreak = value.lastIndexOf("\n");
+      const truncated = end < available.length || excerpt.truncated;
+      const next = truncated ? { startLine: startLine + lines, startOffset: lines ? value.length - lastBreak - 1 : startOffset + value.length } : null;
+      return { externalPath: material.externalPath, commitSha: material.commitSha, path: input.file, startLine, endLine: startLine + Math.max(0, lines - (value.endsWith("\n") ? 1 : 0)), text: value, truncated, next };
+    }
     const file = material.files.find(item => item.name === input.file);
     if (!file || /[/\\\0]/.test(file.name) || file.name === "." || file.name === "..") throw new Error("Material file not found");
     if (!options.reader?.renderFile) throw new Error("Reader unavailable");
     const rendered = await options.reader.renderFile(file, await storage.readBinary(`materials/${material.id}/files/${file.name}`));
     const blocks = rendered.blocks ?? [];
-    const offset = number(input, "startLine") ?? 0, limit = Math.min(number(input, "maxLines") ?? 40, 200);
-    let remaining = 12000, truncated = offset + limit < blocks.length;
-    const selected = [];
-    for (const block of blocks.slice(offset, offset + limit)) {
-      if (!remaining) { truncated = true; break; }
-      const text = block.text.slice(0, remaining); remaining -= text.length;
-      if (text.length < block.text.length) truncated = true;
-      selected.push({ ...block, text });
+    const offset = number(input, "startLine") ?? 0, characterOffset = number(input, "startOffset") ?? 0, limit = Math.min(number(input, "maxLines") ?? 40, 200);
+    if (limit < 1 || offset > blocks.length || (offset === blocks.length && characterOffset !== 0) || (offset < blocks.length && characterOffset > blocks[offset]!.text.length)) throw new Error("Invalid material cursor");
+    if (offset < blocks.length && splitsCharacter(blocks[offset]!.text, characterOffset)) throw new Error("Invalid material cursor");
+    let remaining = 12000, line = offset, position = characterOffset;
+    const selected: { index: number; locator: string; isProse: boolean; text: string }[] = [];
+    while (line < blocks.length && selected.length < limit && remaining > 0) {
+      const block = blocks[line]!;
+      if (block.locator.length > 512) throw new Error("Material locator exceeds limit");
+      const end = boundedEnd(block.text, position, remaining);
+      const value = block.text.slice(position, end);
+      selected.push({ index: block.index, locator: block.locator, isProse: block.isProse, text: value });
+      remaining -= value.length; position += value.length;
+      if (position < block.text.length) break;
+      line++; position = 0;
     }
-    return { blocks: selected, truncated };
+    return { blocks: selected, truncated: line < blocks.length, next: line < blocks.length ? { startLine: line, startOffset: position } : null };
   } });
   tools.push({ name: "pith_read_lesson", description: "Read a lesson in the current topic.", inputSchema: { type: "object", properties: { fileName: { type: "string" } }, required: ["fileName"], additionalProperties: false }, write: false, async execute(input) {
     checkKeys(input, ["fileName"]); if (typeof input.fileName !== "string" || !input.fileName || /[/\\\0]/.test(input.fileName) || input.fileName === "." || input.fileName === "..") throw new Error("Invalid file name");

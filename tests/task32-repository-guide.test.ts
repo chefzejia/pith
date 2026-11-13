@@ -49,8 +49,8 @@ test("repository port reads only bounded ordinary UTF-8 files in the pinned comm
     const excerpt = await port.readFile(binding.externalPath, binding.commitSha, "src/main.ts", 2, 1);
     assert.deepEqual({ text: excerpt.text, start: excerpt.startLine, end: excerpt.endLine, truncated: excerpt.truncated }, { text: "second committed line", start: 2, end: 2, truncated: true });
     assert.equal(excerpt.commitSha, binding.commitSha);
-    assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).text.length, 12000);
-    assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).truncated, true);
+    assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).text.length, 13000);
+    assert.equal((await port.readFile(binding.externalPath, binding.commitSha, "long.txt")).truncated, false);
     for (const path of ["link", "nested", "untracked.txt", "../src/main.ts", "/etc/passwd", "src\\main.ts", "binary.bin", "invalid.txt", "large.txt"]) await assert.rejects(port.readFile(binding.externalPath, binding.commitSha, path), path);
     for (const [offset, limit] of [[-1, 1], [0, 0], [0, 1001], [1.5, 1]]) await assert.rejects(port.listFiles(binding.externalPath, binding.commitSha, offset, limit));
     await assert.rejects(port.readFile(binding.externalPath, binding.commitSha, "src/main.ts", 0));

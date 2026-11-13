@@ -6,6 +6,11 @@ export interface TurnTool extends GuideMcpToolSpec {
   effects?(result: unknown, input: Readonly<Record<string, unknown>>): Promise<readonly TurnEffect[]> | readonly TurnEffect[];
 }
 
+export class ToolExecutionFailure extends Error {
+  readonly effects: readonly TurnEffect[];
+  constructor(message: string, effects: readonly TurnEffect[]) { super(message); this.effects = effects; }
+}
+
 export async function openTurnTools(port: ToolServerPort, tools: readonly TurnTool[], signal: AbortSignal, onStep: (step: TurnStep, index: number) => void, nextIndex: () => number) {
   const calls = new Map<string | number, AbortController>();
   const active = new Set<Promise<unknown>>();
@@ -41,7 +46,7 @@ export async function openTurnTools(port: ToolServerPort, tools: readonly TurnTo
         return response(id, { content: [{ type: "text", text: JSON.stringify(result ?? null) }] });
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
-        onStep({ ...running, status: "failed", summary: message, effects: [] }, index);
+        onStep({ ...running, status: "failed", summary: message, effects: cause instanceof ToolExecutionFailure ? cause.effects : [] }, index);
         return response(id, { isError: true, content: [{ type: "text", text: message }] });
       } finally { if (typeof id === "number" || typeof id === "string") calls.delete(id); }
     };
