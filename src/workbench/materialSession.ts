@@ -48,7 +48,10 @@ export class MaterialSession {
   }
   async openFile(name: string, source = this.source): Promise<void> {
     if (!source) throw new Error("文件来源不存在");
-    const request = ++this.generation, document = await this.adapter.readFile(source, name), navigation = await this.navigation();
+    const request = ++this.generation, state = await this.adapter.loadState();
+    if (!this.active() || request !== this.generation) return;
+    this.state = state;
+    const document = await this.adapter.readFile(source, name), navigation = await this.navigation();
     if (!this.active() || request !== this.generation) return;
     this.file = name; this.source = source;
     this.adapter.render({ title: this.adapter.title, html: document.html, sections: document.sections, files: navigation.files, mediaFiles: this.material?.files ?? [], currentFile: name, source, materialGroups: navigation.groups, materialAids: this.material?.aids ?? [], locator: source.kind === "material" && this.material?.kind === "repo" && this.state.readings?.[source.materialId]?.file === name ? this.state.readings[source.materialId]?.locator : source.kind === "lesson" ? this.state.topic?.lessons.find(file => file.name === name)?.locator : this.material?.files.find(file => file.name === name)?.locator, ...(document.format ? { format: document.format } : {}), ...(document.mediaFile !== undefined ? { mediaFile: document.mediaFile } : {}), ...(navigation.curriculum ? { curriculum: navigation.curriculum } : {}) });

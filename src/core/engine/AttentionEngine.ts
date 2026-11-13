@@ -1,6 +1,7 @@
 import type { WorkspaceStoragePort } from "../host.ts";
 import type { WorkspaceStore } from "../store/contract.ts";
 import { MutationQueue } from "../store/MutationQueue.ts";
+import { retryReceipts } from "./retryRecovery.ts";
 import type { AttentionCompassSnapshot, AttentionEngine, EffectHandler, EffectKind, EffectRecord, GuideProvider, GuideTurn, TurnOptions, TurnStep } from "./contract.ts";
 
 const recovered = new WeakSet<object>();
@@ -116,10 +117,12 @@ export class DefaultAttentionEngine implements AttentionEngine {
       if (!await this.store.getTopic(id)) throw new Error("Topic not found");
       let turn: GuideTurn = { id: replaceId ?? crypto.randomUUID(), status: "running", startedAt: new Date().toISOString(), user, steps: [], choices: [] };
       let history: GuideTurn[] = [];
+      let receipts: TurnStep[] = [];
       await this.queue.run(async () => {
         const turns = await this.readArray<GuideTurn>(path);
         const index = replaceId === undefined ? -1 : turns.findIndex(item => item.id === replaceId);
         if (replaceId !== undefined && (index < 0 || !["stopped", "failed", "running"].includes(turns[index]!.status))) throw new Error("Turn cannot be retried");
+        if (index >= 0) { receipts = retryReceipts(turns[index]!); turn = { ...turn, steps: receipts }; }
         history = index < 0 ? [...turns] : turns.slice(0, index);
         if (index < 0) turns.push(turn); else turns[index] = turn;
         await this.storage.writeText(path, `${JSON.stringify(turns, null, 2)}\n`);
@@ -142,7 +145,7 @@ export class DefaultAttentionEngine implements AttentionEngine {
         if (!provider) throw new Error("向导不可用");
         result = await provider.run({ scope: { kind: "topic", topicId: id }, ...user, history }, {
           signal: controller.signal,
-          onStep: (step: TurnStep, index: number) => { const steps = [...turn.steps]; if (index < 0 || index > steps.length) throw new Error("Invalid step index"); steps[index] = step; publish({ ...turn, steps }); },
+          onStep: (step: TurnStep, index: number) => { const steps = turn.steps.slice(receipts.length); if (index < 0 || index > steps.length) throw new Error("Invalid step index"); steps[index] = step; publish({ ...turn, steps: [...receipts, ...steps] }); },
           onChoices: choices => publish({ ...turn, choices: [...choices] }),
         });
       } catch (error) { result = controller.signal.aborted ? { status: "stopped" } : { status: "failed", error: error instanceof Error ? error.message : String(error) }; }

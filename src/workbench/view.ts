@@ -1,5 +1,5 @@
 import type { AnchorSource, ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, Note } from "../core/index.ts";
-import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, readingLocator, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, restoreReadingLocator, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
 import { createWorkbenchChrome } from "./view/toolbar.ts";
@@ -317,6 +317,7 @@ export class PithWorkbenchView {
     this.clearAudioAsset(); this.assetSource = null;
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
     this.article.innerHTML = document.html;
+    this.reader.scrollTo({ left: 0, top: 0, behavior: "instant" });
     if (document.source?.kind === "lesson") this.renderRepositoryCitations(document.materialGroups ?? []);
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
@@ -324,8 +325,9 @@ export class PithWorkbenchView {
     this.renderNavigation(document);
     this.closeNavigation();
     this.markExisting(); this.applyPageMode();
-    this.updateReadingAids(); this.scheduleLocator();
-    if (document.locator) { const target = resolveReaderLocator(this.article, document.locator); if (target) { navigateReaderTarget(this.reader, target, this.paged); this.readerPosition = this.paged ? captureReaderPosition(this.reader, this.article) : null; this.updatePageCount(); } }
+    this.updateReadingAids();
+    if (document.locator) { restoreReadingLocator(this.reader, this.article, document.locator, this.paged); this.readerPosition = this.paged ? captureReaderPosition(this.reader, this.article) : null; this.updatePageCount(); }
+    this.scheduleLocator();
     const active = this.doc.activeElement;
     if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const typeOf = (file: ObsidianReaderDocument["files"][number]) => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name: file.name, mimeType: file.mimeType ?? "" });
@@ -395,10 +397,14 @@ export class PithWorkbenchView {
     const file = this.currentFile, source = this.currentSource;
     this.locatorTimer = this.win.setTimeout(() => {
       if (file !== this.currentFile || !sameSource(source, this.currentSource)) return;
-      const viewport = this.reader.getBoundingClientRect();
-      const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => Array.from(node.getClientRects()).some(rect => rect.bottom > viewport.top && rect.top < viewport.bottom && rect.right > viewport.left && rect.left < viewport.right));
-      if (target?.dataset.locator) void this.actions.saveLocator!(target.dataset.locator).catch(error => this.tip(String(error)));
+      void this.persistLocator().catch(error => this.tip(String(error)));
     }, 200);
+  }
+  private async persistLocator(): Promise<void> {
+    if (this.locatorTimer !== undefined) { this.win.clearTimeout(this.locatorTimer); this.locatorTimer = undefined; }
+    if (!this.actions.saveLocator || !this.currentFile) return;
+    const position = captureReaderPosition(this.reader, this.article);
+    if (position) await this.actions.saveLocator(readingLocator(position));
   }
   setToolkitActive(active: boolean): void { this.toolkitActive = active; this.dock.classList.toggle("active", active || this.speaking); }
   setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = this.actions.scene === "material" ? [] : toolkits.filter(id => id !== "interline"); const previous = this.toolkitId; const slot = toolkitSlot(this.configuredToolkits, previous, Object.fromEntries(this.toolkits.map(item => [item.id, item.label]))); this.mountedToolkits = slot.ids; this.toolkitId = slot.active; if (previous && !slot.ids.includes(previous)) this.closeInlineToolkit(); const button = this.dock.querySelector<HTMLButtonElement>("#open-toolkit"); if (!button) return; button.hidden = this.actions.scene === "material"; button.innerHTML = `${pithIcon("sliders")}<span class="pith-toolkit-label"></span>`; button.querySelector("span")!.textContent = slot.text; button.classList.toggle("pith-toolkit-add", !slot.ids.length); button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具"; button.setAttribute("aria-label", button.title); }
@@ -631,6 +637,9 @@ export class PithWorkbenchView {
     if (!button && prose && prose !== this.toolkitBlock && this.article.contains(prose) && this.mountedToolkits.some(id => id === "shadowing" || id === "feynman")) { const selection = this.win.getSelection(); if (selection && !selection.isCollapsed) return; this.requestedToolkitBlock = prose; const range = this.doc.createRange(); range.selectNodeContents(this.article); range.setEndBefore(prose); this.actions.openToolkit(proseTextNodes(prose).map(node => node.data).join("").trim(), prose.dataset.locator || `text:offset:${range.toString().length}`); return; }
     if (!button || button.disabled) return;
     if (!this.root.contains(button) && !this.guide.contains(button)) return;
+    if (button.dataset.file || button.dataset.guideLesson || button.dataset.guideMaterial || button.dataset.noteId || button.dataset.citationPath || button.dataset.command === "home") {
+      try { await this.persistLocator(); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); return; }
+    }
     if (button.dataset.cueStart !== undefined) { this.seekMedia(Number(button.dataset.cueStart)); return; }
     if (button.dataset.voice) { if (button.dataset.voice === "toolkit") { this.stopCuePlayback(); this.stopRecordedPlayback(); } void this.voice.toggle(button.dataset.voice); return; }
     if (button.hasAttribute("data-toolkit-play-cue")) { if (this.cuePlaying && !this.cueLoop) this.stopCuePlayback(); else void this.playCue(false); return; }

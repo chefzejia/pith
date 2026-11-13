@@ -1,5 +1,6 @@
 import type { GuideTurn, GuideQuickAction, SelectionAnchor, Note } from "../../core/index.ts";
 import { renderMarkdown } from "../../plugins/stage-reader/index.ts";
+import { isPreviousAttempt } from "../../core/engine/retryRecovery.ts";
 
 const noteLabels: Record<Note["kind"], string> = { highlight: "高亮", note: "笔记", practice: "实训" };
 const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -21,6 +22,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
     let process: typeof entry.steps[number][] = [], group = 0;
     const flush = () => {
       if (!process.length) return;
+      const previousAttempt = process.every(isPreviousAttempt);
       const key = `${entry.id}:${group++}`, previousState = open.get(key), expanded = previousState?.status === entry.status ? previousState.open : entry.status !== "completed";
       const rows = process.map(step => step.kind === "thought" ? `<details class="pith-guide-thought"><summary>思考</summary><div>${escape(step.text)}</div></details>` : step.kind === "tool" ? `<div class="pith-guide-step" data-step-status="${step.status}">${escape(toolLabel(step.name, step.inputPreview))}${step.summary && step.status === "failed" ? ` · ${escape(step.summary)}` : ""}${step.status === "running" ? " · 进行中" : step.status === "failed" ? " · 失败" : " · 完成"}</div>${step.effects.filter(effect => effect.kind !== "observation").map(effect => effect.kind === "lesson" ? `<button data-guide-lesson="${escape(effect.fileName)}">讲义《${escape(effect.fileName)}》</button>` : effect.kind === "note" ? `<button data-note-id="${escape(effect.noteId)}">笔记</button>` : effect.kind === "material" ? `<button data-guide-material="${escape(effect.materialId)}">材料</button>` : "").join("")}` : "").join("");
       const count = process.filter(step => step.kind === "tool").length;
@@ -30,11 +32,12 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
       const lessons = process.filter(step => step.kind === "tool" && step.status === "completed" && step.effects.some(effect => effect.kind === "lesson")).length;
       const summary = [reads ? `读取 ${reads} 次` : "", lessons ? `写入 ${lessons} 份讲义` : ""].filter(Boolean).join("，") || (count ? `${count} 个工具步骤` : "思考");
       const status = running ? (entry.status === "running" ? "进行中" : "未完成") : failed ? "含失败" : count ? "已完成" : entry.status === "running" ? "进行中" : "过程";
-      parts.push(`<details class="pith-guide-process" data-process="${escape(key)}" ${expanded ? "open" : ""}><summary aria-expanded="${expanded}">${status} · ${summary}${failed ? ` · 失败 ${failed} 次` : ""}</summary>${rows}</details>`);
+      parts.push(`<details class="pith-guide-process" data-process="${escape(key)}" ${expanded ? "open" : ""}><summary aria-expanded="${expanded}">${previousAttempt ? "此前尝试 · 已生效结果（未重新执行）" : status} · ${summary}${failed ? ` · 失败 ${failed} 次` : ""}</summary>${rows}</details>`);
       for (const step of process) if (step.kind === "tool") for (const effect of step.effects) if (effect.kind === "observation") parts.push(`<div class="pith-guide-observation">记入画像：${escape(effect.text)} ${data.observations?.includes(effect.observationId) ? `<button data-guide-undo="${escape(effect.observationId)}">撤销</button>` : "已撤销"}</div>`);
       process = [];
     };
     entry.steps.forEach((step, index) => {
+      if (process.length && isPreviousAttempt(process[0]!) !== isPreviousAttempt(step)) flush();
       if (step.kind !== "reply") { process.push(step); return; }
       flush(); if (step.markdown.trim()) parts.push(`<div class="pith-guide-reply">${renderMarkdown(step.markdown)}<button data-guide-copy="${escape(entry.id)}" data-guide-copy-index="${index}">复制</button></div>`);
     });

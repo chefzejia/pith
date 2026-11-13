@@ -118,7 +118,7 @@ export function captureReaderPosition(reader: HTMLElement, article: HTMLElement)
   return null;
 }
 
-export function restoreReaderPosition(reader: HTMLElement, article: HTMLElement, position: ReaderPosition | null): void {
+export function restoreReaderPosition(reader: HTMLElement, article: HTMLElement, position: ReaderPosition | null, paged = true): void {
   if (!position) return;
   const block = article.contains(position.block) ? position.block : Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === position.locator);
   if (!block) return;
@@ -140,6 +140,7 @@ export function restoreReaderPosition(reader: HTMLElement, article: HTMLElement,
     }
   } else rect = (article.contains(position.node) ? position.node : block).getBoundingClientRect();
   const viewport = reader.getBoundingClientRect();
+  if (!paged) { reader.scrollTo({ top: reader.scrollTop + rect.top - viewport.top, behavior: "instant" }); return; }
   const x = reader.scrollLeft + rect.left - viewport.left;
   reader.scrollTo({ left: Math.floor(Math.max(0, x) / Math.max(1, reader.clientWidth)) * reader.clientWidth, behavior: "instant" });
 }
@@ -168,7 +169,24 @@ export function resolveEpubTarget(article: HTMLElement, value: string): HTMLElem
 
 export function resolveReaderLocator(article: HTMLElement, locator: string): HTMLElement | null {
   if (locator.startsWith("epub:")) return resolveEpubTarget(article, locator.slice(5));
-  return Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === locator) ?? null;
+  return Array.from(article.querySelectorAll<HTMLElement>("[data-locator]")).findLast(node => node.dataset.locator === locator) ?? null;
+}
+
+/** Character offsets disambiguate text blocks that span several pages. */
+export function readingLocator(position: ReaderPosition): string {
+  return "textOffset" in position && position.locator.startsWith("text:")
+    ? `${position.locator};offset:${position.textOffset}` : position.locator;
+}
+
+export function restoreReadingLocator(reader: HTMLElement, article: HTMLElement, locator: string, paged: boolean): void {
+  const offset = /^(text:.*);offset:(\d+)$/.exec(locator), base = offset ? offset[1]! : locator;
+  const block = resolveReaderLocator(article, base);
+  if (!block) return;
+  if (offset) {
+    const node = article.ownerDocument.createTreeWalker(block, 4).nextNode() as Text | null;
+    if (node) { restoreReaderPosition(reader, article, { node, offset: 0, locator: base, block, textOffset: Number(offset[2]) }, paged); return; }
+  }
+  navigateReaderTarget(reader, block, paged);
 }
 
 export interface CurriculumItem { readonly fileName: string; readonly title: string; readonly status: "ready" | "planned" }
