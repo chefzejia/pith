@@ -57,9 +57,12 @@
 ---
 
 ## [Task #52] 工作台：材料库、材料阅读、立项与工具归属
-- **Status**: pending
+- **Status**: blocked
 - **Depends-On**: #55, #56
+- **Verified-Commit**: none
+- **Implementation-Commit**: 11713d05cdbdef7e9fb033ee4ea88de324c7c184
 - **Updated**: 2026-11-14
+- **阻塞**: 仓库阅读位置只写 `_cache/reading`，删缓存后不能重建最后文件、坐标和打开时间，违反材料永久保存阅读进度与缓存可删除重建的契约。现有冻结 `Material` 只在文件条目上提供 locator；合法空文件清单的仓库没有对应表示，`updateReadingLocator` 仅更新已有普通文件条目且不接收仓库嵌套路径。需要先明确最窄仓库阅读状态的数据表示及读写语义，再令 Worker 修复并重验；不以缓存、假文件或笔记绕过。Worker 工程门禁与 9 项破壁虽通过，但专项用例只覆盖缓存存在时的恢复，不能核销；独立终验已转为部分观察归档与清理，未交付真实 Vault。证据：`.tmp/evidence/task-52/router-reading-contract.md`、`.tmp/evidence/task-52/worker-report.md`；漏检模式已累加至 LESSONS。#53/#54 保持 queued。
 - **Scope**: `src/workbench/**`、`src/shells/**`、`src/plugins/toolkit-*/**`、`src/core/seams.ts`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 首页立项分流与材料库、材料阅读场景（高亮/笔记）、课题内目录/抽屉、工具归属（按角色/role）与行间驱动。
 - **交付**: 不交付。整体在 #54 终验后交付。
