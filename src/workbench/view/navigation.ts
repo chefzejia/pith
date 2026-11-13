@@ -10,7 +10,7 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
     if (document.files.length || document.curriculum?.length) group("讲义");
     const planned = document.curriculum ?? [];
     for (const item of planned) {
-      const button = doc.createElement("button"); button.className = "pith-lesson"; button.textContent = item.title;
+      const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.className = "pith-lesson-title"; title.textContent = item.title; button.append(title);
       if (item.status === "ready") { button.dataset.file = item.fileName; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && item.fileName === document.currentFile)); }
       else { button.dataset.plannedLesson = item.fileName; button.dataset.plannedTitle = item.title; const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "待生成"; button.append(badge); }
       navigation.append(button);
@@ -29,7 +29,7 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
   if (document.curriculum?.length) {
     group("课程目录");
     for (const item of document.curriculum) {
-      const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.textContent = item.title; button.append(title);
+      const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.className = "pith-lesson-title"; title.textContent = item.title; button.append(title);
       if (item.status === "ready") { button.dataset.file = item.fileName; button.setAttribute("aria-current", String(item.fileName === document.currentFile)); }
       else { button.dataset.plannedLesson = item.fileName; button.dataset.plannedTitle = item.title; const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "待生成"; button.append(badge); }
       navigation.append(button);
