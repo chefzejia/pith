@@ -92,10 +92,11 @@
 
 ## [Task #50] 向导栏：对话的显示
 
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #49 verified
-- **Verified-Commit**: none
-- **Updated**: 2026-11-12
+- **Verified-Commit**: 0d3aab3508f61bacad24d7579be10d1e8282a7f1
+- **Updated**: 2026-11-13
+- **验收记录**: `.tmp/evidence/task-50/tester-0d3aab3-retry/tester-report.md`；本轮清理通过。此前一次测试浏览器的退出状态未确认，按用户明确指示继续推进，原记录予以保留。
 - **Scope**: `src/workbench/**`、`src/plugins/stage-reader/**`（Markdown 渲染）、`src/shells/**`（只为接线）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：行为与观感以 dsh 的对话界面为基准。逐项对照与参考截图在 `.tmp/evidence/task-45/dsh-conversation-alignment.md` 与同目录 `screenshots/`；Pith 的取值已定在 [5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md) 第 6 节，两者不一致时以第 6 节为准。只对齐行为与观感，不引入 dsh 的代码。
 - **契约**：
@@ -113,7 +114,7 @@
 
 ## [Task #51] 内核：材料与课题分离
 
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #50 verified
 - **Verified-Commit**: none
 - **Updated**: 2026-11-12
