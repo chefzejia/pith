@@ -24,7 +24,7 @@ export class NodeToolServerPort implements ToolServerPort {
     return {
       url: `http://127.0.0.1:${address.port}/`,
       headers: [{ name: "x-pith-token", value: token }],
-      close: () => new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeIdleConnections(); }),
+      close: () => new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections(); }),
     };
   }
 }

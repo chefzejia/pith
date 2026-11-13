@@ -40,7 +40,7 @@ test("stopping preserves a started write and prevents a queued write", async () 
   const signal = new AbortController();
   const tools: TurnTool[] = [{
     name: "pith_write", description: "Write", inputSchema: { type: "object" }, write: true,
-    async execute(input) { writes.push(String(input.value)); started.resolve(); await release.promise; return { value: input.value }; },
+    async execute(input, _signal, beginWrite) { beginWrite!(); writes.push(String(input.value)); started.resolve(); await release.promise; return { value: input.value }; },
   }];
   let index = 0;
   const server = await openTurnTools(new NodeToolServerPort(), tools, signal.signal, (step, i) => { steps.set(i, step); if (i === 1) secondSeen.resolve(); }, () => index++);

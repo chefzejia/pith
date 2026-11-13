@@ -25,7 +25,7 @@ import { selectConversationHistory, type GuideHistoryTurn } from "./conversation
 
 export { normalizeToolkits } from "./tools.ts";
 
-/** Deadline of one agent prompt (one round of a guide turn, one translation request) when the caller configures none. */
+/** Deadline of a background prompt when the caller configures none; foreground turns have no prompt deadline. */
 export const AGENT_REQUEST_TIMEOUT_MS = 300_000;
 /** Upper bound of each handshake request (initialize, session/new, configuration), so an executable that does not speak ACP fails early. */
 export const AGENT_HANDSHAKE_TIMEOUT_MS = 60_000;
@@ -165,7 +165,7 @@ export async function runOneShotAcpPrompt(
   signal?.throwIfAborted();
 
   const timeoutMs = Math.min(600_000, Math.max(1_000, options.timeoutMs ?? AGENT_REQUEST_TIMEOUT_MS));
-  const handshakeTimeoutMs = options.mcp ? AGENT_HANDSHAKE_TIMEOUT_MS : Math.min(timeoutMs, AGENT_HANDSHAKE_TIMEOUT_MS);
+  const handshakeTimeoutMs = AGENT_HANDSHAKE_TIMEOUT_MS;
   const spawnSpec: AgentProcessSpawnSpec = {
     command: options.descriptor.command,
     args: options.descriptor.args,
@@ -189,20 +189,32 @@ export async function runOneShotAcpPrompt(
     }
   >();
 
+  let failure: Error | undefined;
   const rejectAll = (error: Error) => {
+    failure ??= error;
     for (const [id, entry] of pending) {
       clearTimeout(entry.timer);
       pending.delete(id);
-      entry.reject(error);
+      entry.reject(failure);
     }
   };
 
+  const send = (message: object) => {
+    try { void Promise.resolve(handle.writeLine(JSON.stringify(message))).catch(error => rejectAll(error instanceof Error ? error : new Error(String(error)))); }
+    catch (error) { rejectAll(error instanceof Error ? error : new Error(String(error))); }
+  };
   const offLine = handle.onLine((line) => {
+    if (failure) return;
     const trimmed = line.trim();
     if (!trimmed) return;
     let parsed: JsonRpcResponseMessage;
     try {
-      parsed = JSON.parse(trimmed) as JsonRpcResponseMessage;
+      const value: unknown = JSON.parse(trimmed);
+      if (!value || typeof value !== "object" || Array.isArray(value) || (value as { jsonrpc?: unknown }).jsonrpc !== "2.0") throw new Error("Invalid frame");
+      parsed = value as JsonRpcResponseMessage;
+      if (parsed.params !== undefined && (!parsed.params || typeof parsed.params !== "object" || Array.isArray(parsed.params))) throw new Error("Invalid params");
+      if (parsed.method === undefined && ((typeof parsed.id !== "number" && typeof parsed.id !== "string") || ("result" in parsed) === ("error" in parsed))) throw new Error("Invalid response");
+      if ("error" in parsed && (!parsed.error || typeof parsed.error.message !== "string" || typeof parsed.error.code !== "number")) throw new Error("Invalid error");
     } catch {
       // Ignore known DSH model-catalog diagnostic line; fail on other corrupt frames
       if (/^\[llm-deepseek-(?:account|api-key)\] model listing/.test(trimmed)) {
@@ -212,6 +224,7 @@ export async function runOneShotAcpPrompt(
       return;
     }
 
+    if (parsed.params?.sessionId !== undefined && parsed.params.sessionId !== sessionId) return;
     if (typeof parsed.method === "string" && parsed.id !== undefined && parsed.id !== null) {
       if (parsed.method === "session/request_permission") {
         const toolCall = parsed.params?.toolCall;
@@ -219,22 +232,18 @@ export async function runOneShotAcpPrompt(
         const decision = permissions.decide({ toolCallId: typeof id === "string" ? id : "" });
         const choices = parsed.params?.options;
         const option = Array.isArray(choices) ? choices.find(item => item && typeof item === "object" && item.kind === decision && typeof item.optionId === "string") as { optionId: string } | undefined : undefined;
-        void handle.writeLine(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: parsed.id,
-            result: { outcome: option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } },
-          }),
-        );
-        return;
-      }
-      void handle.writeLine(
-        JSON.stringify({
+        send({
           jsonrpc: "2.0",
           id: parsed.id,
-          error: { code: -32601, message: `Unsupported client method: ${parsed.method}` },
-        }),
-      );
+          result: { outcome: option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } },
+        });
+        return;
+      }
+      send({
+        jsonrpc: "2.0",
+        id: parsed.id,
+        error: { code: -32601, message: `Unsupported client method: ${parsed.method}` },
+      });
       return;
     }
 
@@ -247,13 +256,15 @@ export async function runOneShotAcpPrompt(
           const id = typeof update.toolCallId === "string" ? update.toolCallId : "";
           if (update.sessionUpdate === "tool_call") permissions.observe({ type: "tool-call", toolCallId: id, title: typeof update.title === "string" ? update.title : undefined });
           if (update.sessionUpdate === "tool_call_update") permissions.observe({ type: "tool-call-update", toolCallId: id, status: typeof update.status === "string" ? update.status : undefined });
-          options.mcp?.onUpdate(update);
+          try { options.mcp?.onUpdate(update); }
+          catch (error) { rejectAll(error instanceof Error ? error : new Error(String(error))); }
         }
       }
       const delta = extractNotificationTextDelta(parsed.method, parsed.params);
       if (delta) {
         streamedText += delta;
-        options.onTextDelta?.(delta);
+        try { options.onTextDelta?.(delta); }
+        catch (error) { rejectAll(error instanceof Error ? error : new Error(String(error))); }
       }
       return;
     }
@@ -278,6 +289,7 @@ export async function runOneShotAcpPrompt(
     ) ?? (() => {});
 
   const callRpc = (method: string, params: Record<string, unknown>, deadlineMs: number | null = handshakeTimeoutMs): Promise<unknown> => {
+    if (failure) return Promise.reject(failure);
     if (signal?.aborted) return Promise.reject(new Error("ACP request cancelled"));
     const id = ++nextId;
     return new Promise((resolveCall, rejectCall) => {
@@ -286,7 +298,7 @@ export async function runOneShotAcpPrompt(
         rejectCall(new Error(`ACP request ${method} timed out after ${deadlineMs}ms`));
       }, deadlineMs);
       pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
-      Promise.resolve(
+      Promise.resolve().then(() =>
         handle.writeLine(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -306,13 +318,7 @@ export async function runOneShotAcpPrompt(
   let stopTimer: ReturnType<typeof setTimeout> | undefined;
   const onAbort = () => {
     if (sessionId) {
-      void handle.writeLine(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          method: "session/cancel",
-          params: { sessionId },
-        }),
-      );
+      send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
     }
     if (options.mcp && sessionId) stopTimer = setTimeout(() => rejectAll(new Error("ACP request cancelled")), 5_000);
     else rejectAll(new Error("ACP request cancelled"));
@@ -341,10 +347,8 @@ export async function runOneShotAcpPrompt(
       ...(!options.probeOnly && options.effort ? { reasoningEffort: options.effort } : {}),
     })) as Record<string, unknown> | undefined;
 
-    sessionId =
-      typeof newSessionResult?.sessionId === "string" && newSessionResult.sessionId
-        ? newSessionResult.sessionId
-        : "session-1";
+    if (typeof newSessionResult?.sessionId !== "string" || !newSessionResult.sessionId) throw new Error("ACP session/new returned no sessionId");
+    sessionId = newSessionResult.sessionId;
 
     let configOptions = parseAcpConfigOptions(newSessionResult?.configOptions);
     if (options.probeOnly) return { sessionId, text: "", stopReason: "end_turn", configOptions };
@@ -374,19 +378,7 @@ export async function runOneShotAcpPrompt(
     offLine();
     offError();
     offExit();
-    if (sessionId) {
-      try {
-        await handle.writeLine(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            method: "session/close",
-            params: { sessionId },
-          }),
-        );
-      } catch {
-        // best-effort session close before process shutdown
-      }
-    }
+    if (sessionId) send({ jsonrpc: "2.0", method: "session/close", params: { sessionId } });
     await handle.close(1_500);
   }
 }
@@ -444,6 +436,8 @@ export class LocalAcpGuideProvider implements GuideProvider {
 
   async run(input: Parameters<GuideProvider["run"]>[0], options: Parameters<GuideProvider["run"]>[1]): ReturnType<GuideProvider["run"]> {
     let endpoint: Awaited<ReturnType<typeof openTurnTools>> | undefined;
+    const steps: TurnStep[] = [];
+    let outcome: Awaited<ReturnType<GuideProvider["run"]>> = { status: "failed", error: "ACP 回合中断" };
     try {
       if (!this.options.toolServer || !this.options.storage) throw new Error("Host tool server unavailable");
       const { config, descriptor } = await this.resolveAgent();
@@ -458,13 +452,12 @@ export class LocalAcpGuideProvider implements GuideProvider {
         anchor: input.anchor, instruction: input.instruction,
       });
       let count = 0;
-      const steps: TurnStep[] = [];
       const nextIndex = () => count++;
       const publish = (step: TurnStep, index: number) => { steps[index] = step; options.onStep(step, index); };
       const tools = createScopedTools({ ...(topic ? { topicId: topic.id } : { materialIds: input.scope.kind === "intake" ? input.scope.materialIds : [] }), store: this.options.store, storage: this.options.storage,
         engine: this.options.engine, http: this.options.http, repository: this.options.repository,
         mediaCorpus: this.options.mediaCorpus, reader: this.options.getReader?.(), onChoices: options.onChoices });
-      endpoint = await openTurnTools(this.options.toolServer, tools, options.signal, publish, nextIndex);
+      endpoint = await openTurnTools(this.options.toolServer, tools, options.signal, publish, nextIndex, config.timeoutMs);
       const ids = new Map<string, number>();
       const messages = new Map<string, number>();
       const pithTitles = new Set(tools.map(tool => `${descriptor.pithToolTitlePrefix ?? ""}${tool.name}`));
@@ -487,15 +480,18 @@ export class LocalAcpGuideProvider implements GuideProvider {
         if (kind !== "tool_call" && kind !== "tool_call_update") return;
         const id = typeof event.toolCallId === "string" ? event.toolCallId : "";
         if (!id) return;
-        if (kind === "tool_call" && typeof event.title === "string" && pithTitles.has(event.title)) { ids.set(id, -1); return; }
+        if (typeof event.title === "string" && pithTitles.has(event.title)) {
+          const index = ids.get(id);
+          if (index !== undefined && index >= 0) publish({ kind: "thought", text: "" }, index);
+          ids.set(id, -1); return;
+        }
         const old = ids.get(id);
         if (old === -1) return;
-        if (old === undefined && kind !== "tool_call") return;
         const index = old ?? nextIndex();
         ids.set(id, index);
         const previous = steps[index];
         const name = typeof event.title === "string" ? event.title : previous?.kind === "tool" ? previous.name : "tool";
-        const status = event.status === "completed" || event.status === "failed" ? event.status : "running";
+        const status = previous?.kind === "tool" && previous.status !== "running" ? previous.status : event.status === "completed" || event.status === "failed" ? event.status : "running";
         publish({ kind: "tool", callId: id, name, inputPreview: "", status, effects: [] }, index);
       };
       const result = await runOneShotAcpPrompt(prompt, {
@@ -505,11 +501,15 @@ export class LocalAcpGuideProvider implements GuideProvider {
         mcp: { url: endpoint.endpoint.url, headers: endpoint.endpoint.headers, toolNames: tools.map(tool => tool.name), onUpdate: update },
       }, options.signal);
       if (!steps.some(step => step.kind === "reply") && result.text) publish({ kind: "reply", markdown: result.text }, nextIndex());
-      return options.signal.aborted ? { status: "stopped" } : { status: "completed" };
+      outcome = options.signal.aborted ? { status: "stopped" } : { status: "completed" };
     } catch (error) {
-      return options.signal.aborted ? { status: "stopped" } : { status: "failed", error: error instanceof Error ? error.message : String(error) };
+      outcome = options.signal.aborted ? { status: "stopped" } : { status: "failed", error: error instanceof Error ? error.message : String(error) };
     } finally {
-      if (endpoint) { await endpoint.drain(); await endpoint.endpoint.close(); }
+      if (endpoint) { try { await endpoint.drain(); } finally { await endpoint.endpoint.close(); } }
+      steps.forEach((step, index) => {
+        if (step.kind === "tool" && step.status === "running") options.onStep({ ...step, status: "failed", summary: outcome.status === "failed" ? outcome.error : outcome.status === "stopped" ? "已停止" : "Agent 未报告工具结果" }, index);
+      });
     }
+    return outcome;
   }
 }

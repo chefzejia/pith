@@ -84,7 +84,7 @@ test("an agent prompt waits for its deadline while each handshake request fails 
   await expires("session/prompt", 7_000, 7_000);
   await expires("initialize", AGENT_REQUEST_TIMEOUT_MS, AGENT_HANDSHAKE_TIMEOUT_MS);
   await expires("session/new", AGENT_REQUEST_TIMEOUT_MS, AGENT_HANDSHAKE_TIMEOUT_MS);
-  await expires("initialize", 7_000, 7_000);
+  await expires("initialize", 7_000, AGENT_HANDSHAKE_TIMEOUT_MS);
 });
 
 test("interline translation requests use the deadline supplied with the agent", async t => {

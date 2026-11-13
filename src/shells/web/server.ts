@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type ToolkitStage, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
 import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
+import { recoverInterruptedToolSteps } from "../../plugins/guide-acp/turnRecovery.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
 import { NodeAgentProcessPort } from "./nodeProcess.ts";
 import { NodeToolServerPort } from "./nodeToolServer.ts";
@@ -414,7 +415,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (url.pathname === "/api/chat" && method === "GET") {
         const id = url.searchParams.get("topicId"); if (!id || !await store.getTopic(id)) return send(res, 404, { error: "Topic not found" });
-        return send(res, 200, await engine.getConversation(id));
+        return send(res, 200, (await engine.getConversation(id)).map(recoverInterruptedToolSteps));
       }
       if (url.pathname === "/api/observations" && method === "GET") {
         const id = url.searchParams.get("topicId"); if (!id || !await store.getTopic(id)) return send(res, 404, { error: "Topic not found" });

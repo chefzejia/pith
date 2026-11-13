@@ -125,12 +125,28 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
   ];
 }
 
+function guardToolWrites(storage: WorkspaceStoragePort, signal?: AbortSignal, beginWrite?: () => void): WorkspaceStoragePort {
+  let started = false;
+  const startWrite = () => { if (!started) { signal?.throwIfAborted(); beginWrite?.(); started = true; } };
+  return {
+    mutationIdentity: storage.mutationIdentity ?? storage,
+    exists: path => storage.exists(path), readText: path => storage.readText(path), readBinary: path => storage.readBinary(path), list: path => storage.list(path),
+    writeText: (path, data) => { startWrite(); return storage.writeText(path, data); },
+    createText: (path, data) => { startWrite(); return storage.createText(path, data); },
+    writeBinary: (path, data) => { startWrite(); return storage.writeBinary(path, data); },
+    createBinary: (path, data) => { startWrite(); return storage.createBinary(path, data); },
+    copy: (from, to) => { startWrite(); return storage.copy(from, to); },
+    processText: (path, update) => { startWrite(); return storage.processText(path, update); },
+    mkdir: async path => { if (await storage.exists(path)) return; startWrite(); await storage.mkdir(path); },
+  };
+}
+
 export function createScopedTools(options: { topicId?: string; materialIds?: readonly string[]; store: WorkspaceStore; storage: WorkspaceStoragePort; engine?: AttentionEngine; http?: HttpPort; repository?: RepositoryPort; mediaCorpus?: MediaCorpusPort; reader?: StageReaderService; onChoices: (choices: readonly string[]) => void }): TurnTool[] {
   const { store, storage, engine, http, repository, mediaCorpus } = options;
   let topicId = options.topicId, creating = false;
   const original = workspaceToolImplementations(store, engine, storage, http, repository, mediaCorpus);
   const tools: TurnTool[] = [];
-  if (!topicId) tools.push({ name: "pith_create_topic", description: "Create one topic for this intake.", inputSchema: schema({ title: field, target: field, materialIds: { type: "array", items: field }, toolkits: { type: "array", items: field } }, ["title", "target", "materialIds", "toolkits"]), write: true, async execute(input, signal) {
+  if (!topicId) tools.push({ name: "pith_create_topic", description: "Create one topic for this intake.", inputSchema: schema({ title: field, target: field, materialIds: { type: "array", items: field }, toolkits: { type: "array", items: field } }, ["title", "target", "materialIds", "toolkits"]), write: true, async execute(input, signal, beginWrite) {
     keys(input, ["title", "target", "materialIds", "toolkits"]);
     if (topicId || creating) throw new Error("Topic already created or being created");
     if (!Array.isArray(input.materialIds) || !input.materialIds.every(id => typeof id === "string") || !Array.isArray(input.toolkits)) throw new Error("Invalid topic arguments");
@@ -138,7 +154,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     try {
       for (const id of input.materialIds) if (!await store.getMaterial(id as string)) throw new Error("Material not found");
       signal?.throwIfAborted();
-      const topic = await store.createTopic({ title: text(input, "title"), target: text(input, "target"), materialIds: input.materialIds as string[], toolkits: normalizeToolkits(input.toolkits) });
+      const topic = await new DefaultWorkspaceStore(guardToolWrites(storage, signal, beginWrite)).createTopic({ title: text(input, "title"), target: text(input, "target"), materialIds: input.materialIds as string[], toolkits: normalizeToolkits(input.toolkits) });
       topicId = topic.id;
       return topic;
     } finally { creating = false; }
@@ -149,21 +165,10 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     const properties = { ...source.properties }; delete properties.topicId;
     const inputSchema = { ...tool.inputSchema, properties, required: (source.required ?? []).filter(name => name !== "topicId") };
     const write = tool.name !== "pith_search_media";
-    tools.push({ name: tool.name, description: tool.description, inputSchema, write, async execute(input, signal) {
+    tools.push({ name: tool.name, description: tool.description, inputSchema, write, async execute(input, signal, beginWrite) {
       if ("topicId" in input) throw new Error("Invalid tool arguments");
       if (!topicId && !["pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) throw new Error("先创建课题");
-      let started = false;
-      const guarded: WorkspaceStoragePort = {
-        mutationIdentity: storage.mutationIdentity ?? storage,
-        exists: path => storage.exists(path), readText: path => storage.readText(path), readBinary: path => storage.readBinary(path), list: path => storage.list(path),
-        writeText: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.writeText(path, data); },
-        createText: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.createText(path, data); },
-        writeBinary: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.writeBinary(path, data); },
-        createBinary: (path, data) => { if (!started) signal?.throwIfAborted(); started = true; return storage.createBinary(path, data); },
-        copy: (from, to) => { if (!started) signal?.throwIfAborted(); started = true; return storage.copy(from, to); },
-        processText: (path, update) => { if (!started) signal?.throwIfAborted(); started = true; return storage.processText(path, update); },
-        mkdir: async path => { if (await storage.exists(path)) return; if (!started) signal?.throwIfAborted(); started = true; await storage.mkdir(path); },
-      };
+      const guarded = guardToolWrites(storage, signal, beginWrite);
       const currentStore = write ? new DefaultWorkspaceStore(guarded) : store;
       const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal).find(item => item.name === tool.name)!;
       const before = tool.name === "pith_settle_topic" ? (await store.readProfile()).observations : [];
