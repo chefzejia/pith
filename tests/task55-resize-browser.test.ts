@@ -46,7 +46,7 @@ test("PDF page and annotation survive consecutive resizes in both workbench host
       await verify('before');
       for (const [width, height] of [[1100, 850], [650, 800], [700, 800], [1100, 850], [650, 800]] as const) {
         await page.setViewportSize({ width, height });
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.waitForFunction(() => { const reader = document.querySelector<HTMLElement>('.pith-reader'), article = document.querySelector<HTMLElement>('.pith-article'); return Boolean(reader && article && reader.clientWidth > 0 && reader.clientHeight > 0 && parseFloat(article.style.width) === reader.clientWidth && parseFloat(article.style.height) === reader.clientHeight); });
         await verify(`${width}x${height}`);
       }
       if (process.env.PITH_RESIZE_EVIDENCE) await page.screenshot({ path: join(process.env.PITH_RESIZE_EVIDENCE, `${host}-resize.png`) });
