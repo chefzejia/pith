@@ -230,6 +230,7 @@ export interface SpeechAsrService {
 export type ToolkitUiOverlayProtocol = "interline-subtitle" | "inline-stage-lens" | "score-overlay";
 
 export interface ToolkitDescriptor {
+  readonly role: "aid" | "training";
   readonly id: string;
   readonly label: string;
   readonly category: "language" | "comprehension" | "executable" | "music";
@@ -344,7 +345,7 @@ export interface GuideAgentService {
     /** Turns before `userMessage`, oldest first. */
     readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];
     readonly anchor?: SelectionAnchor;
-    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
+    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "role" | "label" | "category" | "whenToUse">[];
     readonly instruction?: string;
   }): string;
 }
@@ -424,4 +425,10 @@ export interface InterlineService extends ToolkitDescriptor {
     translations: ReadonlyMap<IntrinsicLocator, string>,
     mode: InterlineDisplayMode,
   ): string;
+}
+
+/** Unicode letter share in a bounded text sample, independent of any plugin policy. */
+export function nonHanLetterRatio(text: string): number {
+  const characters = Array.from(text).filter(char => !/\s/u.test(char));
+  return characters.length ? characters.filter(char => /\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char)).length / characters.length : 0;
 }

@@ -6,7 +6,7 @@ import { createWorkbenchChrome } from "./view/toolbar.ts";
 import { workbenchStyles } from "./view/styles.ts";
 export { workbenchStyles } from "./view/styles.ts";
 import { audioContentType, videoContentType, resolveMediaPair } from "./mediaAssets.ts";
-import { effectiveToolkits, toolkitSlot } from "./toolkitSlot.ts";
+import { toolkitSlot } from "./toolkitSlot.ts";
 import { InterlineView, preserveInterlinePosition, type InterlineViewPrepare } from "../plugins/toolkit-interline/index.ts";
 import { VoiceInput } from "./voiceInput.ts";
 import { renderNavigation } from "./view/navigation.ts";
@@ -25,6 +25,8 @@ export interface ObsidianAgentConfig {
 
 export interface ObsidianReaderDocument {
   readonly title: string;
+  readonly materialAids?: readonly string[];
+  readonly locator?: string;
   readonly html: string;
   readonly files: readonly { name: string; mimeType?: string }[];
   readonly mediaFiles?: readonly { name: string; mimeType?: string }[];
@@ -38,7 +40,11 @@ export interface ObsidianReaderDocument {
 }
 
 export interface ObsidianViewActions {
-  autoInterline?: boolean;
+  scene?: "material" | "topic";
+  guideAvailable?: boolean;
+  startIntake?(): void;
+  setMaterialAids?(aids: readonly string[]): Promise<void>;
+  saveLocator?(locator: string): Promise<void>;
   openFile(name: string, source?: AnchorSource): void | Promise<void>;
   generateLesson?(fileName: string, title: string): Promise<void>;
   home?(): void | Promise<void>;
@@ -190,6 +196,9 @@ export class PithWorkbenchView {
   private requestedToolkitBlock: HTMLElement | null = null;
   private toolkitReveal = false;
   private interline: InterlineView | null = null;
+  private materialAids: readonly string[] = [];
+  private guideAvailable = true;
+  private locatorTimer: number | undefined;
   private interlineMode: InterlineDisplayMode = "original";
   private currentFile = "";
   private currentSource: AnchorSource | undefined;
@@ -232,7 +241,7 @@ export class PithWorkbenchView {
   private readonly voice: VoiceInput;
 
   constructor(root: HTMLElement, actions: ObsidianViewActions) {
-    this.root = root; this.actions = actions;
+    this.root = root; this.actions = actions; this.guideAvailable = actions.guideAvailable ?? true; this.guideTab = actions.scene === "material" ? "notes" : "chat"; root.dataset.scene = actions.scene ?? "topic";
     this.doc = root.ownerDocument;
     const win = this.doc.defaultView;
     if (!win) throw new Error("View requires a window");
@@ -286,7 +295,7 @@ export class PithWorkbenchView {
     const toolkitToggle = required<HTMLButtonElement>("#open-toolkit");
     this.doc.addEventListener("pointerdown", event => { const target = event.target as Node | null; if (this.toolkitMenuOpen() && target && !this.toolkit.contains(target) && !toolkitToggle.contains(target)) this.toolkit.hidden = true; }, options);
     this.reader.addEventListener("wheel", event => { if (!this.paged || event.ctrlKey || Math.abs(event.deltaY) < 2) return; event.preventDefault(); const direction = this.wheelGate.accept(event.deltaY, this.win.performance.now()); if (direction) this.turnPage(direction); }, { ...options, passive: false });
-    this.reader.addEventListener("scroll", () => { this.updatePageCount(); const restored = this.restoredScrollLeft === this.reader.scrollLeft; this.restoredScrollLeft = null; const layoutCurrent = parseFloat(this.article.style.width) === this.reader.clientWidth && parseFloat(this.article.style.height) === this.reader.clientHeight; if (this.paged && !restored && layoutCurrent) this.readerPosition = captureReaderPosition(this.reader, this.article); if (this.interline) this.interline.activate(); }, options);
+    this.reader.addEventListener("scroll", () => { this.updatePageCount(); const restored = this.restoredScrollLeft === this.reader.scrollLeft; this.restoredScrollLeft = null; const layoutCurrent = parseFloat(this.article.style.width) === this.reader.clientWidth && parseFloat(this.article.style.height) === this.reader.clientHeight; if (this.paged && !restored && layoutCurrent) this.readerPosition = captureReaderPosition(this.reader, this.article); if (this.interline) this.interline.activate(); this.scheduleLocator(); }, options);
     root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); } }, options);
     this.doc.addEventListener("keydown", event => { const target = event.target as Element | null; if (!this.root.isConnected || !this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return; if (!this.root.contains(target) && (target !== this.doc.body || activeReader.get(this.doc) !== this)) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
     this.article.addEventListener("mouseup", event => { const target = event.target; if (target instanceof (this.win as Window & typeof globalThis).Element && target.closest(".pith-inline-toolkit")) return; this.showSelection(); }, options);
@@ -301,6 +310,7 @@ export class PithWorkbenchView {
     this.readerPosition = null;
     this.currentFile = document.currentFile;
     this.currentSource = document.source;
+    this.materialAids = document.materialAids ?? [];
     this.setToolkits(this.configuredToolkits);
     this.paged = document.format ? ["epub", "pdf", "cbz"].includes(document.format) : /\.(epub|pdf|cbz)$/i.test(document.currentFile);
     this.stopSpeech(); this.selectionRange = null; this.popover.hidden = true;
@@ -314,7 +324,8 @@ export class PithWorkbenchView {
     this.renderNavigation(document);
     this.closeNavigation();
     this.markExisting(); this.applyPageMode();
-    if (this.actions.autoInterline && this.interline && this.mountedToolkits.includes("interline")) { this.interlineMode = "bilingual"; this.interline.setMode("bilingual"); }
+    this.updateReadingAids(); this.scheduleLocator();
+    if (document.locator) { const target = resolveReaderLocator(this.article, document.locator); if (target) { navigateReaderTarget(this.reader, target, this.paged); this.readerPosition = this.paged ? captureReaderPosition(this.reader, this.article) : null; this.updatePageCount(); } }
     const active = this.doc.activeElement;
     if (this.root.isConnected && active && (active === this.doc.body || this.root.contains(active)) && !active.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer")) this.reader.focus({ preventScroll: true });
     const typeOf = (file: ObsidianReaderDocument["files"][number]) => videoContentType({ name: file.name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name: file.name, mimeType: file.mimeType ?? "" });
@@ -368,10 +379,30 @@ export class PithWorkbenchView {
   showLessonLoading(title: string): void { this.closeInlineToolkit(); this.voice.cancel(); this.stopSpeech(); this.clearAudioAsset(); this.closeNavigation(); const section = this.doc.createElement("section"), heading = this.doc.createElement("h1"), status = this.doc.createElement("p"); section.className = "pith-lesson-loading"; heading.textContent = title; status.textContent = "向导正在结合课程大纲与源码为你撰写本讲讲义…"; status.setAttribute("role", "status"); section.append(heading, status); this.article.replaceChildren(section); }
   focusQuotedGuide(): void { if (this.pendingAnchor) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) input.focus(); } }
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
-  setGuideAvailable(available: boolean): void { this.guideButton.hidden = !available; if (!available) this.setGuideVisible(false); }
+  setGuideAvailable(available: boolean): void { this.guideAvailable = available; this.guideButton.hidden = false; this.updateReadingAids(); }
+  private updateReadingAids(): void {
+    const controls = this.root.querySelector<HTMLElement>("[data-reading-aids]"); if (!controls) return;
+    controls.hidden = this.currentSource?.kind !== "material";
+    if (!this.guideAvailable) this.interlineMode = "original";
+    else if (this.interlineMode !== "subtitle-primary") this.interlineMode = this.materialAids.includes("interline") ? "bilingual" : "original";
+    this.interline?.setMode(this.interlineMode);
+    controls.querySelectorAll<HTMLButtonElement>("[data-interline-mode]").forEach(button => { button.setAttribute("aria-pressed", String(button.dataset.interlineMode === this.interlineMode)); button.disabled = button.dataset.interlineMode !== "original" && (!this.guideAvailable || !this.actions.prepareInterline); });
+    controls.querySelector<HTMLElement>("[data-interline-reason]")!.textContent = !this.guideAvailable ? "向导未连接，暂时只显示原文" : !this.actions.prepareInterline ? "行间服务不可用" : "";
+  }
+  private scheduleLocator(): void {
+    if (!this.actions.saveLocator || !this.currentFile) return;
+    if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer);
+    const file = this.currentFile, source = this.currentSource;
+    this.locatorTimer = this.win.setTimeout(() => {
+      if (file !== this.currentFile || !sameSource(source, this.currentSource)) return;
+      const viewport = this.reader.getBoundingClientRect();
+      const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => Array.from(node.getClientRects()).some(rect => rect.bottom > viewport.top && rect.top < viewport.bottom && rect.right > viewport.left && rect.left < viewport.right));
+      if (target?.dataset.locator) void this.actions.saveLocator!(target.dataset.locator).catch(error => this.tip(String(error)));
+    }, 200);
+  }
   setToolkitActive(active: boolean): void { this.toolkitActive = active; this.dock.classList.toggle("active", active || this.speaking); }
-  setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = toolkits; const previous = this.toolkitId; const slot = toolkitSlot(effectiveToolkits(toolkits, this.currentFile), previous, Object.fromEntries(this.toolkits.map(item => [item.id, item.label]))); if (!slot.ids.includes("interline") && this.interline && this.interlineMode !== "original") { this.interlineMode = "original"; this.interline.setMode("original"); } this.mountedToolkits = slot.ids; this.toolkitId = slot.active; if (previous && !slot.ids.includes(previous)) { this.closeInlineToolkit(); } const button = this.dock.querySelector<HTMLButtonElement>("#open-toolkit"); if (!button) return; button.hidden = false; button.innerHTML = `${pithIcon("sliders")}<span class="pith-toolkit-label"></span>`; button.querySelector("span")!.textContent = slot.text; button.classList.toggle("pith-toolkit-add", !slot.ids.length); button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具"; button.setAttribute("aria-label", button.title); }
-  turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); }
+  setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = this.actions.scene === "material" ? [] : toolkits.filter(id => id !== "interline"); const previous = this.toolkitId; const slot = toolkitSlot(this.configuredToolkits, previous, Object.fromEntries(this.toolkits.map(item => [item.id, item.label]))); this.mountedToolkits = slot.ids; this.toolkitId = slot.active; if (previous && !slot.ids.includes(previous)) this.closeInlineToolkit(); const button = this.dock.querySelector<HTMLButtonElement>("#open-toolkit"); if (!button) return; button.hidden = this.actions.scene === "material"; button.innerHTML = `${pithIcon("sliders")}<span class="pith-toolkit-label"></span>`; button.querySelector("span")!.textContent = slot.text; button.classList.toggle("pith-toolkit-add", !slot.ids.length); button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具"; button.setAttribute("aria-label", button.title); }
+  turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); this.scheduleLocator(); }
   private updatePageCount(): void { const counter = this.root.querySelector<HTMLElement>("[data-page-count]"); if (!counter) return; const width = Math.max(1, this.reader.clientWidth); const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)); counter.textContent = `${readerPageIndex(this.reader) + 1} / ${total}`; }
   private adaptEpubColors(): void {
     const chapters = this.article.querySelectorAll<HTMLElement>(".pith-epub-chapter[data-epub-chapter]");
@@ -403,7 +434,7 @@ export class PithWorkbenchView {
       }
     }
   }
-  dispose(): void { this.disposed = true; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
+  dispose(): void { this.disposed = true; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
   private clearAudioAsset(): void { this.assetGeneration++; const media = this.assetAudio; this.assetAudio = null; if (media) { media.pause(); media.removeAttribute("src"); media.load(); } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; this.playback.renderCueMarkers(); }
   private async loadAsset(): Promise<void> {
@@ -441,12 +472,14 @@ export class PithWorkbenchView {
   quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
   private renderGuide(): void {
     this.voice.cancel("guide");
-    renderGuide(this.guide, this.guideData, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError);
+    renderGuide(this.guide, this.guideData, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError, this.actions.scene === "material");
     if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock);
     const update = () => { for (const node of this.guide.querySelectorAll<HTMLElement>("[data-started]")) { const elapsed = node.querySelector<HTMLElement>("[data-guide-elapsed]"); if (elapsed) elapsed.textContent = `已用 ${Math.max(0, Math.floor((Date.now() - Date.parse(node.dataset.started!)) / 1000))} 秒`; } };
     update(); this.guideClock = this.guide.querySelector("[data-started]") ? this.win.setInterval(update, 1000) : undefined;
   }
   openToolkit(toolkits: readonly ToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
+    if (this.actions.scene === "material") return;
+    toolkits = toolkits.filter(item => item.role === "training");
     this.toolkits = toolkits;
     const mounted = toolkits.filter(item => this.mountedToolkits.includes(item.id));
     if (text === undefined && this.actions.toggleToolkit) {
@@ -575,7 +608,7 @@ export class PithWorkbenchView {
   private renderToolkit(): void {
     this.voice.cancel("toolkit"); const toolkit = this.toolkits.find(item => item.id === this.toolkitId); if (!toolkit) return;
     this.setToolkits(this.configuredToolkits);
-    if (toolkit.id === "interline") { this.toolkit.hidden = false; this.toolkit.innerHTML = `<strong>行间</strong><div class="pith-interline-modes" role="group" aria-label="行间模式">${([["original", "原文"], ["bilingual", "行间"], ["subtitle-primary", "译文主显"]] as const).map(([mode, label]) => `<button data-interline-mode="${mode}" aria-pressed="${this.interlineMode === mode}">${label}</button>`).join("")}</div>`; return; }
+
     this.toolkit.hidden = true;
     if (!this.inlineToolkit && !this.mountInlineToolkit()) return;
     if (!toolkit.stages.includes(this.toolkitStage)) this.toolkitStage = toolkit.stages[0]!;
@@ -603,7 +636,14 @@ export class PithWorkbenchView {
     if (button.hasAttribute("data-toolkit-play-cue")) { if (this.cuePlaying && !this.cueLoop) this.stopCuePlayback(); else void this.playCue(false); return; }
     if (button.hasAttribute("data-toolkit-loop-cue")) { if (this.cuePlaying && this.cueLoop) this.stopCuePlayback(); else void this.playCue(true); return; }
     if (button.hasAttribute("data-toolkit-play-recorded")) { void this.playRecording(); return; }
-    if ((button.dataset.interlineMode === "original" || button.dataset.interlineMode === "bilingual" || button.dataset.interlineMode === "subtitle-primary") && this.toolkit.contains(button)) { this.interlineMode = button.dataset.interlineMode; if (this.interline) this.interline.setMode(this.interlineMode); else this.tip("行间不可用"); this.renderToolkit(); return; }
+    if (button.dataset.interlineMode === "original" || button.dataset.interlineMode === "bilingual" || button.dataset.interlineMode === "subtitle-primary") {
+      if (!this.currentSource || this.currentSource.kind !== "material" || !this.actions.setMaterialAids) return;
+      const mode = button.dataset.interlineMode;
+      button.disabled = true;
+      try { const aids = mode === "original" ? this.materialAids.filter(id => id !== "interline") : [...new Set([...this.materialAids, "interline"])]; await this.actions.setMaterialAids(aids); this.materialAids = aids; this.interlineMode = mode; this.updateReadingAids(); }
+      catch (error) { this.tip(error instanceof Error ? error.message : String(error)); this.updateReadingAids(); }
+      return;
+    }
     if (this.paged && (button.dataset.media === "close" || button.dataset.command === "read" || button.dataset.command === "speech-close")) this.readerPosition = captureReaderPosition(this.reader, this.article);
     if (button.dataset.media) { const speech = this.speaking, cuePlayer = this.cuePlayer, recordedPlayer = this.recordedPlayer, generation = this.generation, audio = speech ? this.speechAudio : cuePlayer ?? recordedPlayer ?? this.assetAudio; if (button.dataset.media === "close") { if (speech || this.speechResult) this.stopSpeech(); else { this.stopCuePlayback(); this.stopRecordedPlayback(); this.clearAudioAsset(); this.mediaDeck.hidden = true; } return; } if (!audio) return; if (!cuePlayer) this.stopCuePlayback(); if (!recordedPlayer) this.stopRecordedPlayback(); if (button.dataset.media === "play") { try { if (audio.paused) { button.disabled = true; await audio.play(); button.disabled = false; } else audio.pause(); } catch (error) { button.disabled = false; if (speech && generation === this.generation) this.finishSpeech(error); else if (!(error instanceof DOMException && error.name === "AbortError")) this.tip(error instanceof Error ? error.message : String(error)); } } else if (button.dataset.media === "back" || button.dataset.media === "forward") { const next = audio.currentTime + (button.dataset.media === "back" ? -15 : 15); if (speech || cuePlayer || recordedPlayer) audio.currentTime = Math.max(0, Math.min(Number.isFinite(audio.duration) ? audio.duration : next, next)); else this.seekMedia(next); } else if (button.dataset.media === "rate") { const rates = [.75, 1, 1.25, 1.5, 2]; this.speechRate = rates[(rates.indexOf(this.speechRate) + 1) % rates.length]!; audio.playbackRate = this.speechRate; button.textContent = `${this.speechRate.toFixed(2).replace(/0$/, "")}x`; } this.updateAssetControls(); return; }
     if (button.dataset.command === "typography") { const menu = this.root.querySelector<HTMLElement>(".pith-typography-popover")!; menu.hidden = !menu.hidden; button.setAttribute("aria-expanded", String(!menu.hidden)); return; }
@@ -685,6 +725,7 @@ export class PithWorkbenchView {
     if (button.dataset.command === "speech-close") this.stopSpeech();
     else if (button.dataset.command === "speech-follow") { const active = this.article.querySelector<HTMLElement>(".pith-speech-active"); if (active) active.scrollIntoView({ block: "center", inline: "center" }); }
     else if (button.dataset.command === "home") { this.voice.cancel(); if (this.actions.home) { try { await this.actions.home(); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } } }
+    else if (button.dataset.command === "intake") { this.setGuideVisible(true); this.actions.startIntake?.(); }
     else if (button.dataset.command === "settings" && this.actions.openSettings) this.actions.openSettings();
     else if (button.dataset.command === "import" && this.actions.importMaterial) this.actions.importMaterial();
     else if (button === this.navigationButton) { this.navigation.hidden = !this.navigation.hidden; button.setAttribute("aria-expanded", String(!this.navigation.hidden)); if (!this.navigation.hidden) updateTocLocation(this.navigation, this.article, this.reader, this.paged); }
@@ -698,7 +739,7 @@ export class PithWorkbenchView {
   }
   private showSelection(): void {
     const selection = this.win.getSelection(); if (!selection || selection.isCollapsed || !selection.toString().trim() || !selection.anchorNode || !selection.focusNode || !this.article.contains(selection.anchorNode) || !this.article.contains(selection.focusNode)) { this.selectionRange = null; this.popover.hidden = true; return; }
-    this.selectionRange = selection.getRangeAt(0).cloneRange(); const rect = this.selectionRange.getBoundingClientRect(); this.popover.hidden = false; for (const item of this.popover.querySelectorAll<HTMLButtonElement>("button")) item.hidden = false; this.popover.style.left = `${Math.max(8, Math.min(this.win.innerWidth - this.popover.offsetWidth - 8, rect.left))}px`; this.popover.style.top = `${Math.max(8, rect.top - this.popover.offsetHeight - 8)}px`;
+    this.selectionRange = selection.getRangeAt(0).cloneRange(); const rect = this.selectionRange.getBoundingClientRect(); this.popover.hidden = false; for (const item of this.popover.querySelectorAll<HTMLButtonElement>("button")) item.hidden = this.actions.scene === "material" && item.dataset.selection === "ask"; this.popover.style.left = `${Math.max(8, Math.min(this.win.innerWidth - this.popover.offsetWidth - 8, rect.left))}px`; this.popover.style.top = `${Math.max(8, rect.top - this.popover.offsetHeight - 8)}px`;
   }
   private clearSpeechMark(): void { for (const mark of this.article.querySelectorAll('[data-speech-active="true"]')) { const parent = mark.parentNode; mark.replaceWith(...mark.childNodes); if (parent) parent.normalize(); } }
   private stopSpeech(): void { this.generation++; if (this.speechAbort) this.speechAbort.abort(); this.speechAbort = null; if (this.speechAudio) { this.speechAudio.pause(); this.speechAudio.removeAttribute("src"); this.speechAudio.load(); this.speechAudio = null; } if (this.speechUrl) URL.revokeObjectURL(this.speechUrl); this.speechUrl = null; this.speaking = false; this.speechResult = false; this.clearSpeechMark(); this.dock.classList.toggle("active", this.toolkitActive); for (const item of this.mediaDeck.querySelectorAll("[data-speech-control]")) item.remove(); this.assetControls.hidden = !this.assetAudio; this.mediaDeck.hidden = !this.assetAudio; const play = this.assetControls.querySelector<HTMLButtonElement>('[data-media="play"]'); if (play) play.disabled = false; this.playback.renderCueMarkers(); this.updateAssetControls(); const button = this.dock.querySelector("[data-command=read]"); if (button) button.innerHTML = pithIcon("headphones"); }

@@ -1,4 +1,4 @@
-import { registerPlugin, type AgentPromptService, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type IntrinsicLocator, type Topic } from "../../core/index.ts";
+import { registerPlugin, type AgentPromptService, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type IntrinsicLocator, type Material } from "../../core/index.ts";
 
 export function agentInterlineTranslator(promptService: AgentPromptService): InterlineTranslator {
   return async input => {
@@ -90,12 +90,12 @@ export function renderInterlineHtml(chapterHtml: string, translations: ReadonlyM
   return output + chapterHtml.slice(position);
 }
 
-export function interlineInUse(topics: readonly Topic[]): number {
-  return topics.filter(topic => topic.toolkits.includes("interline")).length;
+export function interlineInUse(materials: readonly Material[]): number {
+  return materials.filter(material => material.aids.includes("interline")).length;
 }
 
 export const interlineToolkit: InterlineService = {
-  id: "interline", label: "行间", category: "language", stages: [],
+  id: "interline", role: "aid", label: "行间", category: "language", stages: [],
   whenToUse: "外文书籍、文章或讲义阅读需要段落级母语对齐字幕降噪时挂载", compatibleStages: ["reader"], uiProtocol: "interline-subtitle",
   transformCue: text => text,
   diagnose: () => { throw new Error("Interline does not provide recall diagnosis"); },
@@ -105,7 +105,7 @@ export const interlineToolkit: InterlineService = {
 registerPlugin({
   id: "toolkit-interline", api: "^1", requires: ["stage.reader"], provides: ["toolkit.interline"], essential: false,
   name: "Interline bilingual reading", description: "Aligned translations for original-language reading",
-  oneInUse: "1 topic using interline", manyInUse: "{n} topics using interline",
+  oneInUse: "1 material using interline", manyInUse: "{n} materials using interline",
   apply(ctx) { ctx.provide("toolkit.interline", interlineToolkit); },
 });
 

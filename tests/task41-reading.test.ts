@@ -7,7 +7,7 @@ import { sampleEpubLanguage } from "../src/plugins/stage-reader/epub.ts";
 import { extractProseBlocks, renderMarkdown } from "../src/plugins/stage-reader/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
-import { defaultToolkitsForMaterial } from "../src/workbench/toolkitSlot.ts";
+import { initialMaterialAids } from "../src/workbench/toolkitSlot.ts";
 import { storedZip } from "./task29-fixture.ts";
 import { testSandbox } from "./sandbox.ts";
 import { createTestTopic } from "./topic-fixture.ts";
@@ -39,9 +39,9 @@ test("clipping keeps text after nested article, main and body elements", async (
 
 test("EPUB classification reads bounded spine text rather than its title", async () => {
   const book = (text: string) => storedZip({ "META-INF/container.xml": '<container><rootfile full-path="O/book.opf"/></container>', "O/book.opf": '<package><metadata><dc:title>中文书名</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml"/></manifest><spine><itemref idref="chapter"/></spine></package>', "O/chapter.xhtml": `<html><body><p>${text}</p></body></html>` });
-  const classify = async (text: string) => defaultToolkitsForMaterial({ kind: "book", files: [{ name: "中文.epub" }], sampleText: await sampleEpubLanguage(book(text)) });
+  const classify = async (text: string) => initialMaterialAids(await sampleEpubLanguage(book(text)));
   assert.deepEqual(await classify("This is an English paragraph about reading and understanding."), ["interline"]);
-  assert.deepEqual(await classify("这是中文正文，应当保留中文的默认工具。"), ["feynman"]);
+  assert.deepEqual(await classify("这是中文正文，应当保留中文的默认工具。"), []);
 });
 
 test("URL import preserves a structured article and translation in a topic", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
@@ -49,7 +49,7 @@ test("URL import preserves a structured article and translation in a topic", { t
   let requests = 0, rejectTranslation = false, releaseNeighbor!: () => void, neighborStarted!: () => void, neighborFinished!: () => void;
   const neighborBlocked = new Promise<void>(resolve => { releaseNeighbor = resolve; }), neighborReady = new Promise<void>(resolve => { neighborStarted = resolve; }), neighborDone = new Promise<void>(resolve => { neighborFinished = resolve; });
   const sizes: number[] = [];
-  const server = await createPithWebServer({ workspaceDir: workspace, http, interlineTranslator: async input => { requests++; sizes.push(input.segments.length); if (rejectTranslation) throw new Error("受控翻译不可用"); if (input.unitIndex === 1) { neighborStarted(); await neighborBlocked; neighborFinished(); } return new Map(input.segments.map(segment => [segment.locator, "受控翻译"])); } });
+  const server = await createPithWebServer({ workspaceDir: workspace, http, guideProvider: { async run() { return { status: "completed" }; } }, interlineTranslator: async input => { requests++; sizes.push(input.segments.length); if (rejectTranslation) throw new Error("受控翻译不可用"); if (input.unitIndex === 1) { neighborStarted(); await neighborBlocked; neighborFinished(); } return new Map(input.segments.map(segment => [segment.locator, "受控翻译"])); } });
   let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
@@ -58,14 +58,15 @@ test("URL import preserves a structured article and translation in a topic", { t
     const postUrl = (url: string) => fetch(`${base}/api/materials/url`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
     const rejected = await postUrl("http://127.0.0.1/private"); assert.equal(rejected.ok, false); assert.match(await rejected.text(), /not public/);
     let state = await (await fetch(base + "/api/state")).json() as any; assert.equal(state.compass.exploring.length, 0);
-    const material = await (await postUrl("https://public.com/post")).json() as { id: string }; const created = await createTestTopic(workspace, { title: "Learning together", materialIds: [material.id], toolkits: ["interline"] });
+    const material = await (await postUrl("https://public.com/post")).json() as { id: string }; const created = await createTestTopic(workspace, { title: "Learning together", materialIds: [material.id], toolkits: [] });
+    await fetch(`${base}/api/materials/aids`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ materialId: material.id, aids: [] }) });
     await page.reload(); await page.locator(`[data-topic="${created.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor();
-    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click();
+    await page.locator('[data-command="typography"]').click();
     const secondRequest = page.waitForRequest((request: any) => request.url().endsWith('/api/interline') && request.postDataJSON().index === 1);
     await page.locator('button[data-interline-mode="bilingual"]').click();
     await page.locator('.pith-interline-subtitle').first().waitFor(); assert.ok(requests > 0); assert.equal(sizes[0], 1); await neighborReady; await secondRequest; assert.equal(await page.locator('.pith-interline-subtitle').count(), 1);
     assert.equal(await page.locator('.pith-article pre code').textContent(), 'if (a < b) {\n\n\n  print(`hello`);\n}'); assert.equal(await page.locator('.pith-article blockquote blockquote').count(), 1); assert.equal(await page.locator('.pith-article pre').getAttribute('data-prose'), 'false');
-    state = await (await fetch(base + "/api/state")).json() as any; const topic = state.compass.exploring[0]; assert.deepEqual(topic.toolkits, ["interline"]);
+    state = await (await fetch(base + "/api/state")).json() as any; const topic = state.compass.exploring[0]; assert.deepEqual(topic.toolkits, []); assert.deepEqual(state.materials[0].aids, ["interline"]);
     assert.match(await new NodeWorkspaceStorage(workspace).readText(`materials/${material.id}/files/article.md`), /# Learning together/);
     assert.equal(await page.locator('button[data-interline-mode="bilingual"]').getAttribute("aria-pressed"), "true");
     await mkdir(resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41`), { recursive: true }); await page.screenshot({ path: resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-41/web-bilingual.png`) });
@@ -75,7 +76,7 @@ test("URL import preserves a structured article and translation in a topic", { t
     assert.equal(await page.locator('.pith-interline-subtitle').count(), 0); assert.equal(await page.locator('.pith-article h1').getAttribute('data-locator'), anchor); assert.equal(await page.locator('.pith-reader').evaluate((node: HTMLElement) => node.scrollTop), position);
     await page.locator('button[data-interline-mode="bilingual"]').click(); await page.locator('.pith-interline-subtitle').first().waitFor(); assert.equal(await page.locator('.pith-article [data-prose="true"]').evaluateAll((nodes: Element[]) => nodes.every(node => node.querySelectorAll('.pith-interline-subtitle').length <= 1)), true); assert.equal(await page.locator('.pith-article [data-prose="true"]').filter({ hasText: 'First list item.' }).count(), 1);
     const update = await fetch(`${base}/api/topics/${encodeURIComponent(topic.id)}/toolkits`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ toolkits: ["feynman"] }) }); assert.equal(update.status, 200);
-    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); assert.match(await page.locator('#open-toolkit').textContent(), /费曼/); assert.equal(await page.locator('.pith-interline-subtitle').count(), 0);
-    rejectTranslation = true; const secondMaterial = await (await postUrl("https://public.com/failure")).json() as { id: string }; const secondTopic = await createTestTopic(workspace, { title: "Translation failure", materialIds: [secondMaterial.id], toolkits: ["interline"] }); await page.locator('[data-command="home"]').click(); await page.reload(); await page.locator(`[data-topic="${secondTopic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('button[data-interline-mode="bilingual"]').click(); await page.locator('.pith-toast-tip').getByText(/受控翻译不可用/).waitFor();
+    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); assert.match(await page.locator('#open-toolkit').textContent(), /费曼/); await page.locator('.pith-interline-subtitle').first().waitFor(); assert.deepEqual((await (await fetch(base + "/api/state")).json()).materials[0].aids, ["interline"]);
+    rejectTranslation = true; const secondMaterial = await (await postUrl("https://public.com/failure")).json() as { id: string }; const secondTopic = await createTestTopic(workspace, { title: "Translation failure", materialIds: [secondMaterial.id], toolkits: [] }); await page.locator('[data-command="home"]').click(); await page.reload(); await page.locator(`[data-topic="${secondTopic.id}"]`).first().click(); await page.locator('.pith-article h1').getByText("Learning together").waitFor(); await page.locator('[data-command="typography"]').click(); await page.locator('button[data-interline-mode="bilingual"]').click(); await page.locator('.pith-toast-tip').getByText(/受控翻译不可用/).waitFor();
   } finally { releaseNeighbor(); if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });

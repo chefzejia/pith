@@ -49,13 +49,13 @@ test("guide visibility is retained independently per topic and across chapters",
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
   const states: boolean[] = [];
   const callbacks: { guideVisibilityChanged: (visible: boolean) => void; openFile: (name: string) => Promise<void> }[] = [];
-  const controller = {
+  const controller = { hasGuideProvider: () => false,
     openTopic: async (id: string) => ({ id, title: id, materialIds: ["m"], lessons: [], toolkits: [] }),
     topicSession: async (id: string) => ({ topic: { id, title: id, materialIds: ["m"], lessons: [], toolkits: [] }, materials: [{ id: "m", title: "m", kind: "article", files: [{ name: "a.md" }, { name: "b.md" }] }], repositoryFiles: {} }),
     store: { getTopic: async () => ({ lessons: [] }), getMaterial: async () => ({ id: "m", files: [{ name: "a.md" }, { name: "b.md" }] }) },
     runtime: { getService: () => undefined },
     createView: (_root: unknown, actions: typeof callbacks[number]) => { callbacks.push(actions); return { setGuideVisible: (visible: boolean) => states.push(visible), setToolkits() {}, render() {}, refreshGuide: async () => {} }; },
-    renderTopicFile: async () => ({ html: "", sections: [] }), releaseView() {},
+    renderTopicFile: async () => ({ html: "", sections: [] }), rememberReading: async () => {}, releaseView() {},
   };
   Object.assign(workspace, { controller, generation: 0, view: null, contentEl: {}, guideByTopic: new Map() });
   const open = workspace.openTopic as (id: string) => Promise<void>;

@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { rm } from "node:fs/promises";
@@ -186,7 +187,7 @@ test("real scoped tools cannot write after a preparation timeout and retain a wr
     async writeText(path: string, text: string) { await disk.writeText(path, text); if (holdWrite && path.endsWith("topic.md")) { writing.resolve(); await releaseWrite.promise; } },
   };
   const port = memoryEndpoint(), stop = new AbortController(); let index = 0;
-  const tools = createScopedTools({ topicId: topic.id, store, storage, onChoices() {} });
+  const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, onChoices() {} });
   const server = await openTurnTools(port.port, tools, stop.signal, () => {}, () => index++, 5_000);
   try {
     const late = port.call(1, "pith_save_note", { body: "must not appear" }); await reading.promise;

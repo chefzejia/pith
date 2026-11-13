@@ -42,12 +42,12 @@ export function quickActionsForTopic(topic: Topic, activeToolkits: readonly Tool
   ];
   if (topic.notes.some(note => note.author === "user" && (note.kind === "note" || note.kind === "practice"))) actions.push({ id: "settle", label: "总结沉淀", prompt: "请根据我的笔记和目标进行毕业深水区一问。" });
   for (const toolkit of activeToolkits) {
-    if (topic.toolkits.includes(toolkit.id)) actions.push(...toolkit.quickActions);
+    if (toolkit.role === "training" && topic.toolkits.includes(toolkit.id)) actions.push(...toolkit.quickActions);
   }
   return actions;
 }
 
-export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic | null; materials: readonly Material[]; userMessage: string; conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[]; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[]; instruction?: string }): string {
+export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic | null; materials: readonly Material[]; userMessage: string; conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[]; anchor?: SelectionAnchor; availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "role" | "label" | "category" | "whenToUse">[]; instruction?: string }): string {
   const { topic } = input;
   return [
     "# 角色与规则\n你是学习向导。先读材料再指导；未读取的内容不得写成事实。立项时先看材料、确认一个能结题的问题；目标不清先问，不创建。创建课题后同一回合先写《00-课程大纲.md》，列出 3 至 6 讲，每行使用 - [01-xxx.md] 标题：一句话目标 的格式。首轮仅写第一讲正文，禁止一次写完全部章节，其他讲义按需生成。源码事实标注绑定提交和 path:line，区分事实、推断和类比。讲义应包含学习目标、真实问题、带出处的走读、pith-teaching 检验卡和 15 分钟微实验。书籍、长文与音视频应读目录和当前章节，设计原作导读路线，每节提出检验问题。根据实训记录诊断，并安排 15 分钟内可完成的练习。",
@@ -59,7 +59,7 @@ export function buildScenePrompt(input: { profileMarkdown: string; topic: Topic 
     `# 讲义\n${JSON.stringify(topic?.lessons ?? [])}`,
     `# 记录\n${JSON.stringify({ topic: topic?.notes ?? [], materials: input.materials.map(material => ({ materialId: material.id, notes: material.notes })) })}`,
     `# 当前选区\n${JSON.stringify(input.anchor ?? null)}`,
-    `# 可用训练工具\n${JSON.stringify(input.availableToolkits ?? [])}`,
+    `# 可用训练工具\n${JSON.stringify((input.availableToolkits ?? []).filter(toolkit => toolkit.role === "training"))}`,
     `# 近期对话\n${JSON.stringify(input.conversation ?? [])}`,
     `# 用户消息\n${input.userMessage}`,
     ...(input.instruction ? [`# 本回合指令\n${input.instruction}`] : []),
@@ -135,7 +135,7 @@ registerPlugin({
       ingestExternalUrl: input => ingestExternalUrl(input, host?.http),
       configureTopicToolkits: async (topicId, toolkits) => {
         if (!store || typeof store.updateTopic !== "function") throw new Error("Workspace store unavailable");
-        return store.updateTopic(topicId, { toolkits: normalizeToolkits(toolkits) });
+        return store.updateTopic(topicId, { toolkits: normalizeToolkits(toolkits, ctx.service<readonly ToolkitDescriptor[]>("toolkit.catalog") ?? []) });
       },
     };
     ctx.provide("guide.agent", service);
@@ -160,7 +160,7 @@ registerPlugin({
         repository: host.repository,
         mediaCorpus: host.mediaCorpus,
         getReader: () => ctx.service<StageReaderService>("stage.reader"),
-        getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = ctx.service<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }),
+        getToolkits: () => (ctx.service<readonly ToolkitDescriptor[]>("toolkit.catalog") ?? []).filter(toolkit => toolkit.role === "training"),
         getAgentConfig: () => ({
           agentId,
           ...(model ? { model } : {}),

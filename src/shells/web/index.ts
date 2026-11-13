@@ -1,3 +1,4 @@
+import { toolkitCatalog } from "./toolkits.ts";
 /**
  * Standalone Web / Desktop Shell entrypoint (`pith web` / Tauri shell).
  * Boots Pith Core + Built-in Plugins over a HostPort without Obsidian or any third-party host.
@@ -7,7 +8,6 @@ import { PluginRuntime, type AttentionEngine, type GuideProvider, type HostPort,
 import { builtinRegistry } from "../../plugins/all.ts";
 import { readerInUse } from "../../plugins/stage-reader/index.ts";
 import { timelineInUse } from "../../plugins/stage-timeline/index.ts";
-import { topicUsesToolkit } from "../../workbench/toolkitSlot.ts";
 
 export interface WorkspaceSnapshot { topics: readonly Topic[]; materials: readonly Material[]; known: boolean }
 
@@ -17,9 +17,9 @@ export function bootStandaloneShell(host: HostPort, config: PluginsConfigFile = 
     const snapshot = options.snapshot;
     const count = manifest.id === "stage-reader" ? () => readerInUse(snapshot.materials)
       : manifest.id === "stage-timeline" ? () => timelineInUse(snapshot.materials)
-      : manifest.id === "toolkit-shadowing" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "shadowing")).length
-      : manifest.id === "toolkit-feynman" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "feynman")).length : undefined;
-    const interline = manifest.id === "toolkit-interline" ? () => snapshot.topics.filter(topic => topicUsesToolkit(topic, snapshot.materials, "interline")).length : count;
+      : manifest.id === "toolkit-shadowing" ? () => snapshot.topics.filter(topic => topic.toolkits.includes("shadowing")).length
+      : manifest.id === "toolkit-feynman" ? () => snapshot.topics.filter(topic => topic.toolkits.includes("feynman")).length : undefined;
+    const interline = manifest.id === "toolkit-interline" ? () => snapshot.materials.filter(material => material.aids.includes("interline")).length : count;
     return interline ? { ...manifest, inUse: () => { if (!snapshot.known) throw new Error("Workspace snapshot unavailable"); return interline(); } } : manifest;
   });
   const runtime = new PluginRuntime(manifests, {
@@ -27,6 +27,7 @@ export function bootStandaloneShell(host: HostPort, config: PluginsConfigFile = 
     store: options ? options.store : host.storage,
     engine: options ? options.engine : {},
     window: {},
+    "toolkit.catalog": toolkitCatalog,
     ...(options && options.provider ? { "guide.provider": options.provider } : {}),
   });
   runtime.reconcile(config);

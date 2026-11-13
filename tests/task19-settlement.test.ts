@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ async function fixture() {
   await store.ensureScaffold();
   const topic = await store.createTopic({ title: "Topic", target: "Understand the topic", materialIds: [], toolkits: [] });
   const note = await store.appendTopicNote(topic.id, { kind: "practice", author: "user", body: "Evidence" });
-  const tools = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} });
+  const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, onChoices: () => {} });
   const tool = (name: string) => { const found = tools.find(item => item.name === name); assert.ok(found); return found; };
   return { dir, storage, store, topic, note, tool };
 }

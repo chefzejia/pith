@@ -1,10 +1,15 @@
 import { WebWorkbench } from "./workbench.ts";
-import { intakeGuidePrompt, renderAcpSelect, renderCompass } from "../../workbench/index.ts";
+import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 import { pithIcon } from "../../workbench/icons.ts";
 import { speechMode } from "../speech/speechSettings.ts";
 import { prepareMaterialImport } from "../../workbench/importMaterial.ts";
+import { createCoverThumbnail } from "../../workbench/boardMaterials.ts";
+import { MaterialWorkbench } from "../../workbench/materialWorkbench.ts";
+import { openMaterialPicker } from "../../workbench/materialPicker.ts";
+import type { IntakeActions, IntakePorts } from "../../workbench/intake.ts";
+import { readWebMaterial, webReadingSpeech } from "./materials.ts";
 import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
 import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, GuideTurn, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
 import type { SessionState } from "../../workbench/materialSession.ts";
@@ -18,37 +23,58 @@ const requiredInput = (selector: string): HTMLInputElement | HTMLTextAreaElement
 const requiredButton = (selector: string): HTMLButtonElement => { const node = requiredElement(selector); if (!(node instanceof HTMLButtonElement)) throw new Error(`Expected button ${selector}`); return node; };
 const main = requiredElement("#main"), drawer = requiredElement("#drawer");
 async function api<T = unknown>(path: string, data?: unknown): Promise<T> { const response = await fetch(path, data === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); const result: unknown = await response.json(); if (!response.ok) throw new Error(result && typeof result === "object" && "error" in result ? String(result.error) : `HTTP ${response.status}`); return result as T; }
-let state: WebState, topic: Topic | null = null, workbench: WebWorkbench | null = null, navigation = 0;
-let intakePrevious: GuideTurn[] = [], intakeMaterialIds: string[] = [];
+let state: WebState, topic: Topic | null = null, workbench: WebWorkbench | MaterialWorkbench | null = null, navigation = 0;
+let compassView: ReturnType<typeof renderCompass> | undefined, materialPicker: ReturnType<typeof openMaterialPicker> | undefined;
+const coverAttempts = new Set<string>();
+const guideAvailable = () => state.guideConfigured && state.plugins.some(item => item.id === "guide-acp" && item.state === "active");
+async function cacheCover(material: Material): Promise<void> {
+  if (state.boardMaterials.some(item => item.id === material.id && item.coverCached) || coverAttempts.has(material.id)) return;
+  coverAttempts.add(material.id);
+  try { const { source } = await api<{ source?: string }>(`/api/materials/${encodeURIComponent(material.id)}/cover`); const url = source ? await createCoverThumbnail(document, source) : null; await api(`/api/materials/${encodeURIComponent(material.id)}/cover`, { url }); }
+  catch { coverAttempts.delete(material.id); }
+}
+const ports: IntakePorts = {
+  importFiles,
+  importUrl: async url => { const material = await api<Material>("/api/materials/url", { url }); await cacheCover(material); return material; },
+  importRepository: async repoPath => { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath }); return { material: result, description: result.intakeDescription }; },
+  intake: async (input, options) => {
+    const stop = () => { void api("/api/intake/stop", {}).catch(notify); };
+    options.signal?.addEventListener("abort", stop, { once: true });
+    try {
+      if (options.signal?.aborted) throw new Error("已停止");
+      const response = await fetch("/api/intake", { method: "POST", headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify(input) });
+      if (!response.ok || !response.body) { const result = await response.json(); throw new Error(result.error || "立项请求失败"); }
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = "", result: { topic: Topic | null; turn: GuideTurn } | undefined;
+      for (;;) { const chunk = await reader.read(); buffer += decoder.decode(chunk.value, { stream: !chunk.done }); let end: number;
+        while ((end = buffer.indexOf("\n\n")) >= 0) { const event = buffer.slice(0, end); buffer = buffer.slice(end + 2); const line = event.split("\n").find(line => line.startsWith("data: ")); if (!line) continue; const value = JSON.parse(line.slice(6)); if (event.startsWith("event: error")) throw new Error(String(value)); if (event.startsWith("event: result")) result = value; else options.onUpdate?.(value); }
+        if (chunk.done) break;
+      }
+      if (!result) throw new Error("立项响应中断；已导入的材料保留在材料库"); return result;
+    } finally { options.signal?.removeEventListener("abort", stop); }
+  },
+};
+function intakeActions(): IntakeActions { return { ports, guideAvailable: guideAvailable(), settings: openSimpleSettings, topic: topic => openTopic(topic.id, true), fed: async materials => { if (materials.length === 1) await openMaterial(materials[0]!.id); else { await refresh(); home(materials.map(material => material.id)); } }, changed: async () => { await refresh(); compassView?.library(state.compass, state.boardMaterials); } }; }
+
 const guideVisibility = new Map<string, boolean>();
 async function refresh(): Promise<void> { state = await api<WebState>("/api/state"); }
 async function goHome(): Promise<void> { const request = ++navigation; await refresh(); if (request === navigation) home(); }
 function notify(error: unknown): void { const toast = requiredElement("#toast"); toast.textContent = error instanceof Error ? error.message : String(error); toast.hidden = false; window.setTimeout(() => { toast.hidden = true; }, 4000); }
-function home(): void {
-  navigation++; if (workbench) workbench.dispose(); workbench = null; topic = null;
+function home(focus: readonly string[] = []): void {
+  navigation++; compassView?.dispose(); compassView = undefined; materialPicker?.dispose(); materialPicker = undefined; if (workbench) workbench.dispose(); workbench = null; topic = null;
   main.style.height = "100vh";
-  renderCompass(main, state.compass, {
-    materials: state.boardMaterials,
-    open: id => { void openTopic(id).catch(notify); },
-    setStatus: async (id, status) => { await api(`/api/topics/${encodeURIComponent(id)}/status`, { status }); await goHome(); },
-    create: async data => {
-      const materials: Material[] = []; const target = data.title;
-      if (!target.trim()) throw new Error("请写下想搞懂的问题");
-      for (const repoPath of [...(data.repoPath ? [data.repoPath] : []), ...data.repoPaths]) materials.push(await api<Material>("/api/materials/repo", { repoPath }));
-      if (data.url) materials.push(await api<Material>("/api/materials/url", { url: data.url }));
-      if (data.files.length) materials.push(await importFiles(data.files));
-      const materialIds = [...new Set([...intakeMaterialIds, ...materials.map(material => material.id)])];
-      const result = await api<{ topic: Topic | null; turn: GuideTurn }>("/api/intake", { text: target, materialIds, previous: intakePrevious });
-      if (result.topic) { intakePrevious = []; intakeMaterialIds = []; await openTopic(result.topic.id, true); return; }
-      if (result.turn.status !== "completed") throw new Error(result.turn.error || "立项失败");
-      intakePrevious.push(result.turn); intakeMaterialIds = materialIds;
-      throw new Error(result.turn.steps.filter(step => step.kind === "reply").map(step => step.kind === "reply" ? step.markdown : "").join("\n") || "请补充目标");
-    },
-    settings: openSimpleSettings,
+  compassView = renderCompass(main, state.compass, {
+    materials: state.boardMaterials, intake: intakeActions(),
+    open: id => { void openTopic(id).catch(notify); }, openMaterial: id => { void openMaterial(id).catch(notify); },
+    setStatus: async (id, status) => { await api(`/api/topics/${encodeURIComponent(id)}/status`, { status }); await goHome(); }, settings: openSimpleSettings,
   });
+  if (focus.length) compassView.library(state.compass, state.boardMaterials, focus);
+  const current = compassView;
+  void (async () => { for (const material of state.materials) { if (compassView !== current) return; await cacheCover(material); } if (compassView === current) { await refresh(); current.library(state.compass, state.boardMaterials); } })().catch(notify);
+
 }
 async function openTopic(id: string, guide = false, prompt = ""): Promise<void> {
   const request = ++navigation;
+  compassView?.dispose(); compassView = undefined; materialPicker?.dispose();
   await refresh(); if (request !== navigation) return;
   const next = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === id);
   if (!next) throw new Error("课题不存在");
@@ -59,8 +85,8 @@ async function openTopic(id: string, guide = false, prompt = ""): Promise<void> 
   const sessionState = await api<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(id)}`);
   if (request !== navigation) return;
   const instance = new WebWorkbench({ root, topic: next, sessionState, request: api,
-    guideAvailable: state.plugins.some(item => item.id === "guide-acp" && item.state === "active"), guideVisible: guideVisibility.get(id) ?? false,
-    home: () => goHome().catch(notify), settings: openSimpleSettings, importMaterial: () => requiredElement("#material-files").click(), visibility: visible => guideVisibility.set(id, visible), report: notify });
+    guideAvailable: guideAvailable(), guideVisible: guideVisibility.get(id) ?? false,
+    home: () => goHome().catch(notify), settings: openSimpleSettings, importMaterial: () => addMaterials(id, instance), visibility: visible => guideVisibility.set(id, visible), report: notify });
   workbench = instance;
   await instance.open();
   if (guide && request === navigation) instance.setGuideVisible();
@@ -70,20 +96,30 @@ document.addEventListener("click", event => {
   if (!button || button.closest(".pith-view")) return;
   if (button.id === "close-drawer") drawer.hidden = true;
 });
-document.body.insertAdjacentHTML("beforeend", '<input id="material-files" type="file" multiple hidden>');
-async function importFiles(files: File[], topicId?: string): Promise<Material> {
+async function importFiles(files: File[]): Promise<Material> {
   const prepared = await prepareMaterialImport(files);
   const entries = prepared.files.map(({ bytes, ...entry }) => { let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); return { ...entry, data: btoa(binary) }; });
-  return api<Material>("/api/materials", { title: prepared.title, kind: prepared.kind, files: entries, topicId });
+  const material = await api<Material>("/api/materials", { title: prepared.title, kind: prepared.kind, files: entries }); await cacheCover(material); return material;
 }
-document.addEventListener("change", event => {
-  if (!(event.target instanceof HTMLInputElement) || event.target.id !== "material-files" || !event.target.files?.length) return;
-  const input = event.target, fileList = input.files; if (!fileList) return;
-  const files = Array.from(fileList), topicId = topic?.id;
-  void importFiles(files, topicId).then(async material => {
-    if (topicId && topic?.id === topicId) await openTopic(topicId);
-  }).catch(notify).finally(() => { input.value = ""; });
-});
+function addMaterials(topicId: string, instance: WebWorkbench): void {
+  materialPicker?.dispose();
+  materialPicker = openMaterialPicker(main, { ports, library: async () => { await refresh(); return state.materials; }, referenced: async () => (await api<SessionState>(`/api/topic-session?topicId=${encodeURIComponent(topicId)}`)).topic!.materialIds, attach: async materialId => { await api("/api/materials/attach", { topicId, materialId }); }, added: id => instance.openMaterial(id) });
+}
+async function openMaterial(id: string): Promise<void> {
+  const request = ++navigation; compassView?.dispose(); compassView = undefined; materialPicker?.dispose();
+  await refresh(); const sessionState = await api<SessionState>(`/api/material-session?materialId=${encodeURIComponent(id)}`); if (request !== navigation) return;
+  workbench?.dispose(); topic = null; main.replaceChildren(); main.classList.remove("pith-view");
+  const root = document.createElement("div"); root.style.height = "100vh"; main.append(root);
+  const material = sessionState.materials[0]!;
+  const instance: MaterialWorkbench = new MaterialWorkbench({ root, state: sessionState,
+    loadState: () => api(`/api/material-session?materialId=${encodeURIComponent(id)}`), readFile: name => readWebMaterial(api, material, name),
+    capture: (kind, body, anchor) => api("/api/notes", { materialId: id, kind, body, anchor }), setAids: aids => api("/api/materials/aids", { materialId: id, aids }),
+    opened: async file => { if (file) await api("/api/material-open", { materialId: id, file }); },
+    saveLocator: async (file, locator) => { await api("/api/reading-locator", { materialId: id, file, locator }); },
+    home: goHome, settings: openSimpleSettings, report: notify, intake: intakeActions(), speech: webReadingSpeech(api, id, () => instance.session.file),
+  });
+  workbench = instance; await instance.open();
+}
 let settingsPending = Promise.resolve(), agentIntent: string | undefined;
 function openSimpleSettings() {
   drawer.hidden = false;
@@ -219,4 +255,4 @@ function openSimpleSettings() {
   probe();
 }
 
-refresh().then(home).catch(notify);
+refresh().then(() => home()).catch(notify);

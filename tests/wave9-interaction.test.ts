@@ -98,22 +98,6 @@ test("hiding a guide only detaches Pith leaves and never collapses other sidebar
   assert.equal(collapsed, 0); assert.equal(detached, 1);
 });
 
-test("Obsidian import accepts CBZ and sends it as a book", async () => {
-  let finish!: (input: { kind: string; files: { name: string }[] }) => void;
-  const imported = new Promise<{ kind: string; files: { name: string }[] }>(resolve => { finish = resolve; });
-  const input = { files: [{ name: "comic.CBZ", type: "application/zip", arrayBuffer: async () => new Uint8Array([1, 2]).buffer }], onchange: () => {}, click() {} };
-  const status = { textContent: "" }, selected = { replaceChildren() {}, append() {} }, buttons = [{ disabled: false }, { disabled: false }], fileButton = {};
-  const form = { elements: { namedItem: () => ({ value: "Understand this comic" }) }, onsubmit: (_event: unknown) => {}, querySelector: (s: string) => s === 'input[type="file"]' ? input : s === ".pith-home-status" ? status : s === "[data-intake-selected]" ? selected : fileButton, querySelectorAll: () => buttons };
-  const root = { classList: { add() {} }, innerHTML: "", querySelector: (s: string) => s === ".pith-intake-box" ? form : null, querySelectorAll: () => [] };
-  const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
-  Object.assign(workspace, { generation: 0, homeRequest: 0, view: null, contentEl: root, host: {}, intakeMaterialIds: [], intakePrevious: [], controller: { openCompass: async () => ({ exploring: [], settled: [], shelved: [], unreadable: [] }), openBoardMaterials: async () => [], importMaterial: async (value: { kind: string; files: { name: string }[] }) => { finish(value); return { id: "m" }; }, engine: { intake: async () => ({ topic: { id: "t" } }) } }, openTopic: async () => {} });
-  await (workspace.onOpen as () => Promise<void>)();
-  const originalDocument = globalThis.document;
-  Object.assign(globalThis, { document: { createElement: () => ({ append() {}, setAttribute() {} }), createTextNode: (text: string) => text } });
-  try { input.onchange(); form.onsubmit({ preventDefault() {} }); const value = await imported;
-  assert.equal(value.kind, "book"); assert.equal(value.files[0]!.name, "comic.CBZ");
-  } finally { Object.assign(globalThis, { document: originalDocument }); }
-});
 
 test("empty prose never requests speech and reports the empty page", () => {
   const messages: string[] = []; let calls = 0;
@@ -130,13 +114,14 @@ test("empty prose never requests speech and reports the empty page", () => {
 test("Obsidian maps a TTS connection failure to the configuration guidance", async () => {
   let synthesize: ((text: string, signal: AbortSignal) => Promise<unknown>) | undefined;
   const workspace = Object.create(PithWorkspaceView.prototype) as Record<string, unknown>;
-  const controller = {
+  const controller = { hasGuideProvider: () => false,
     openTopic: async () => ({ id: "topic", title: "Book", materialIds: ["material"], lessons: [], toolkits: [] }),
     topicSession: async () => ({ topic: { id: "topic", title: "Book", materialIds: ["material"], lessons: [], toolkits: [] }, materials: [{ id: "material", title: "Book", kind: "book", files: [{ name: "book.epub" }] }], repositoryFiles: {} }),
     store: { getTopic: async () => ({ lessons: [] }), getMaterial: async () => ({ id: "material", files: [{ name: "book.epub" }] }) },
     runtime: { getService: (id: string) => id === "speech.tts" ? { synthesizeSpeech: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:8880"); } } : undefined },
     createView: (_root: unknown, actions: { synthesizeSpeech: typeof synthesize }) => { synthesize = actions.synthesizeSpeech; return { setGuideVisible() {}, setToolkits() {}, render() {}, refreshGuide: async () => {} }; },
     renderTopicFile: async () => ({ html: "", sections: [], format: "epub" }),
+    rememberReading: async () => {},
     releaseView() {},
   };
   Object.assign(workspace, { controller, generation: 0, view: null, contentEl: {}, guideByTopic: new Map() });

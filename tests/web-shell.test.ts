@@ -1,3 +1,4 @@
+import { pdfFixture } from "./task55-pdf-fixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
@@ -28,7 +29,7 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     const lesson = await get(`/api/materials/${material.id}/file?name=source.md`);
     assert.match(lesson.text, /Magpie/);
     assert.equal(lesson.format, "markdown");
-    const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< /Length 15 >>\nstream\nBT (page) Tj ET\nendstream\nendobj\n%%EOF");
+    const pdf = Buffer.from(pdfFixture("page"));
     const book = await post("/api/materials", { title: "book", kind: "book", files: [{ name: "book.pdf", mimeType: "application/pdf", data: pdf.toString("base64") }] });
     const rawPdf = await fetch(`${base}/api/materials/${book.id}/raw?name=book.pdf`);
     assert.equal(rawPdf.headers.get("content-type"), "application/pdf");

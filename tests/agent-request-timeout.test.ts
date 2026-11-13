@@ -131,8 +131,8 @@ test("Web translation uses persisted timeout and preserves it across settings ch
   for (const [settings, expected] of settingsCases) {
     const dir = await mkdtemp(join(tmpdir(), "pith-agent-timeout-web-")), storage = new NodeWorkspaceStorage(dir), store = new DefaultWorkspaceStore(storage), agent = silentAgent("session/prompt");
     await store.ensureScaffold();
-    const material = await store.importMaterial({ title: "Article", kind: "article", files: [{ name: "a.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("Hello") }] });
-    const topic = await store.createTopic({ title: "Timeout", target: "Understand timeout", materialIds: [material.id], toolkits: ["interline"] });
+    const material = await store.importMaterial({ title: "Article", kind: "article", aids: ["interline"], files: [{ name: "a.md", mimeType: "text/markdown", bytes: new TextEncoder().encode("Hello") }] });
+    const topic = await store.createTopic({ title: "Timeout", target: "Understand timeout", materialIds: [material.id], toolkits: [] });
     const path = join(dir, "_cache/web-settings.json"); await writeFile(path, savedSettings(settings));
     const server: Server = await createPithWebServer({ workspaceDir: dir, processPort: agent.port }), address = server.address(); assert.ok(address && typeof address !== "string");
     try {

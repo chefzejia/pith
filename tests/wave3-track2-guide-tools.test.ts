@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import test from "node:test";
@@ -14,7 +15,7 @@ test("scoped tools and dsh share names and enforce topic scope", async () => {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const material = await store.importMaterial({ title: "Source", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode("original") }] });
     const topic = await store.createTopic({ title: "Topic", target: "Understand the source", materialIds: [material.id], toolkits: [] });
-    const scoped = createScopedTools({ topicId: topic.id, store, storage, http: { request: async () => { throw new Error("offline"); } }, onChoices: () => {} });
+    const scoped = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, http: { request: async () => { throw new Error("offline"); } }, onChoices: () => {} });
     const dsh = createDshPluginBundle({ storage }).tools;
     assert.deepEqual(dsh.map(tool => tool.name).sort(), scoped.map(tool => tool.name).sort());
     const lessonSchema = dsh.find(tool => tool.name === "pith_write_lesson")!.inputSchema as { properties: Record<string, unknown>; required: string[] };

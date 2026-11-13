@@ -1,3 +1,4 @@
+import type { MaterialReading } from "./readingState.ts";
 import type { AnchorSource, Material, RenderedDocumentView, Topic } from "../core/index.ts";
 import { parseCurriculumOutline, type CurriculumItem } from "../plugins/stage-reader/pagination.ts";
 import { emptyMaterialHtml } from "./repositoryIntake.ts";
@@ -5,7 +6,8 @@ import type { ObsidianReaderDocument } from "./view.ts";
 
 export type SessionDocument = Pick<RenderedDocumentView, "html" | "sections"> & { text?: string; format?: RenderedDocumentView["format"]; mediaFile?: string | null };
 export interface SessionState {
-  readonly topic: Topic;
+  readonly readings?: Readonly<Record<string, MaterialReading>>;
+  readonly topic: Topic | null;
   readonly materials: readonly Material[];
   readonly repositoryFiles: Readonly<Record<string, readonly string[]>>;
 }
@@ -33,9 +35,15 @@ export class MaterialSession {
   constructor(state: SessionState, adapter: MaterialSessionAdapter) { this.state = state; this.adapter = adapter; }
   get material(): Material | undefined { const source = this.source; return source?.kind === "material" ? this.state.materials.find(material => material.id === source.materialId) : undefined; }
   private active(): boolean { return !this.disposed && this.adapter.active(); }
+  private firstFile(material: Material): string | undefined {
+    const names = material.kind === "repo" ? this.state.repositoryFiles[material.id] ?? [] : material.files.map(file => file.name);
+    const reading = this.state.readings?.[material.id];
+    if (reading && names.includes(reading.file)) return reading.file;
+    return material.kind === "repo" ? names[0] : [...material.files].sort((a, b) => (b.lastActiveAt ?? "").localeCompare(a.lastActiveAt ?? ""))[0]?.name;
+  }
   private groups(): NonNullable<ObsidianReaderDocument["materialGroups"]> { return this.state.materials.map(material => ({ id: material.id, title: material.title, kind: material.kind, files: material.kind === "repo" ? (this.state.repositoryFiles[material.id] ?? []).map(name => ({ name })) : material.files })); }
   private async navigation(): Promise<{ files: readonly { name: string }[]; curriculum: readonly CurriculumItem[] | undefined; groups: NonNullable<ObsidianReaderDocument["materialGroups"]> }> {
-    const files = this.state.topic.lessons.map(lesson => ({ name: lesson.name })), outline = await this.adapter.readOutline();
+    const files = (this.state.topic?.lessons ?? []).map(lesson => ({ name: lesson.name })), outline = await this.adapter.readOutline();
     return { files, curriculum: outline === undefined ? undefined : parseCurriculumOutline(outline, files.map(file => file.name)), groups: this.groups() };
   }
   async openFile(name: string, source = this.source): Promise<void> {
@@ -43,14 +51,14 @@ export class MaterialSession {
     const request = ++this.generation, document = await this.adapter.readFile(source, name), navigation = await this.navigation();
     if (!this.active() || request !== this.generation) return;
     this.file = name; this.source = source;
-    this.adapter.render({ title: this.adapter.title, html: document.html, sections: document.sections, files: navigation.files, mediaFiles: this.material?.files ?? [], currentFile: name, source, materialGroups: navigation.groups, ...(document.format ? { format: document.format } : {}), ...(document.mediaFile !== undefined ? { mediaFile: document.mediaFile } : {}), ...(navigation.curriculum ? { curriculum: navigation.curriculum } : {}) });
+    this.adapter.render({ title: this.adapter.title, html: document.html, sections: document.sections, files: navigation.files, mediaFiles: this.material?.files ?? [], currentFile: name, source, materialGroups: navigation.groups, materialAids: this.material?.aids ?? [], locator: source.kind === "material" && this.material?.kind === "repo" && this.state.readings?.[source.materialId]?.file === name ? this.state.readings[source.materialId]?.locator : source.kind === "lesson" ? this.state.topic?.lessons.find(file => file.name === name)?.locator : this.material?.files.find(file => file.name === name)?.locator, ...(document.format ? { format: document.format } : {}), ...(document.mediaFile !== undefined ? { mediaFile: document.mediaFile } : {}), ...(navigation.curriculum ? { curriculum: navigation.curriculum } : {}) });
     if (this.adapter.afterOpen) await this.adapter.afterOpen();
   }
   async open(): Promise<void> {
     if (!this.active()) return;
-    const lesson = this.state.topic.lessons[0];
+    const lesson = [...(this.state.topic?.lessons ?? [])].sort((a, b) => (b.lastActiveAt ?? "").localeCompare(a.lastActiveAt ?? ""))[0];
     if (lesson) return this.openFile(lesson.name, { kind: "lesson" });
-    const material = this.state.materials[0], first = material && (material.kind === "repo" ? this.state.repositoryFiles[material.id]?.[0] : material.files[0]?.name);
+    const material = this.state.materials[0], first = material && this.firstFile(material);
     if (material && first) return this.openFile(first, { kind: "material", materialId: material.id });
     const navigation = await this.navigation();
     this.adapter.render({ title: this.adapter.title, html: emptyMaterialHtml(material), sections: [], files: navigation.files, currentFile: "", materialGroups: navigation.groups, ...(navigation.curriculum ? { curriculum: navigation.curriculum } : {}) });
@@ -59,7 +67,7 @@ export class MaterialSession {
   async openMaterial(id: string): Promise<void> {
     const material = this.state.materials.find(item => item.id === id);
     if (!material) throw new Error("材料不存在");
-    const first = material.kind === "repo" ? this.state.repositoryFiles[id]?.[0] : material.files[0]?.name;
+    const first = this.firstFile(material);
     if (!first) throw new Error("材料没有可打开的文件");
     await this.openFile(first, { kind: "material", materialId: id });
   }
@@ -70,8 +78,8 @@ export class MaterialSession {
     const navigation = await this.navigation();
     if (!this.active() || request !== this.generation) return;
     this.adapter.updateNavigation(navigation.files, navigation.curriculum, navigation.groups);
-    if (!this.file && (next.topic.lessons.length || next.materials.some(material => material.files.length || next.repositoryFiles[material.id]?.length))) await this.open();
-    else if (this.source?.kind === "lesson" && !previous.topic.lessons.some(lesson => lesson.name === this.file) && next.topic.lessons.some(lesson => lesson.name === this.file)) await this.openFile(this.file, this.source);
+    if (!this.file && ((next.topic?.lessons ?? []).length || next.materials.some(material => material.files.length || next.repositoryFiles[material.id]?.length))) await this.open();
+    else if (this.source?.kind === "lesson" && !(previous.topic?.lessons ?? []).some(lesson => lesson.name === this.file) && (next.topic?.lessons ?? []).some(lesson => lesson.name === this.file)) await this.openFile(this.file, this.source);
   }
   async generateLesson(name: string, title: string): Promise<void> {
     const request = ++this.generation, previous = this.file, source = this.source;
@@ -83,7 +91,7 @@ export class MaterialSession {
       if (!this.active()) return;
       this.adapter.updateNavigation(navigation.files, navigation.curriculum, navigation.groups);
       if (request !== this.generation) return;
-      if (!next.topic.lessons.some(lesson => lesson.name === name)) throw new Error(`讲义未保存：${name}`);
+      if (!(next.topic?.lessons ?? []).some(lesson => lesson.name === name)) throw new Error(`讲义未保存：${name}`);
       await this.openFile(name, { kind: "lesson" }); if (this.adapter.afterLesson) await this.adapter.afterLesson();
     } catch (error) {
       if (!this.active() || request !== this.generation) return;

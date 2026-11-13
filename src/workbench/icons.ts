@@ -1,4 +1,8 @@
 const paths = {
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  book: '<path d="M12 5v15M3 4l9 1 9-1v15l-9 1-9-1z"/>',
+  code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/>',
+  notes: '<path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   'chevron-left': '<path d="m15 18-6-6 6-6"/>',
   'chevron-right': '<path d="m9 18 6-6-6-6"/>',

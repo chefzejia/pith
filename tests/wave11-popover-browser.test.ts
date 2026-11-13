@@ -20,7 +20,7 @@ test("Obsidian reader popovers stay below the actual header and leave its contro
       await page.evaluate((format: "markdown" | "epub") => {
         const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(document: object): void; setToolkits(ids: string[]): void; openToolkit(toolkits: object[]): void } } }).PithView;
         let view: InstanceType<typeof pith.PithObsidianView>;
-        const toolkits = [{ id: "feynman", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
+        const toolkits = [{ id: "feynman", role: "training", label: "费曼复述", stages: ["listen-decompose"], transformCue: (text: string) => text }];
         view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openToolkit() { view.openToolkit(toolkits); }, toggleToolkit: async () => {} });
         view.render({ title: "测试文章", html: "<p>正文</p>", currentFile: format === "epub" ? "book.epub" : "article.md", format, files: [], sections: [] });
         view.setToolkits(["feynman"]);

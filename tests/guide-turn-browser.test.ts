@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { mkdir, rm } from "node:fs/promises";
@@ -65,7 +66,7 @@ test("Web shows one waiting guide turn with its message once and keeps a failure
     if (text === "请结题") {
       assert.equal(input.scope.kind, "topic");
       if (input.scope.kind !== "topic") throw new Error("Expected topic scope");
-      const topicId = input.scope.topicId, settle = createScopedTools({ topicId, store, storage, onChoices() {} }).find(tool => tool.name === "pith_settle_topic")!;
+      const topicId = input.scope.topicId, settle = createScopedTools({ toolkits: testToolkits, topicId, store, storage, onChoices() {} }).find(tool => tool.name === "pith_settle_topic")!;
       const args = { verificationSummary: "理解边界", observations: [{ text: "理解状态边界" }] }, result = await settle.execute(args);
       options.onStep({ kind: "tool", name: settle.name, callId: "settle", inputPreview: "{}", status: "completed", effects: await settle.effects!(result, args) }, 0);
       return { status: "completed" };
@@ -168,7 +169,7 @@ test("Obsidian runs chat and lessons as one visible guide turn at a time and cap
   try {
     const address = origin.address(); assert.ok(address && typeof address !== "string");
     const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
-    const tools = await build({ entryPoints: ["src/plugins/guide-acp/tools.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithGuideTools" });
+    const tools = await build({ entryPoints: ["tests/guide-tools-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithGuideTools" });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1200, height: 800 } });
     const page = await browser.newPage(); page.setDefaultTimeout(8000);
@@ -201,7 +202,7 @@ test("Obsidian runs chat and lessons as one visible guide turn at a time and cap
       const provider = { async run({ scope, text }: any, options: any) {
         const topicId = scope.topicId; state.received.push(text);
         if (text === "请结题") {
-          const settle = (window as any).PithGuideTools.createScopedTools({ topicId, store: controller.store, storage, onChoices() {} }).find((tool: any) => tool.name === "pith_settle_topic");
+          const settle = (window as any).PithGuideTools.createScopedTools({ toolkits: (window as any).PithGuideTools.testToolkits, topicId, store: controller.store, storage, onChoices() {} }).find((tool: any) => tool.name === "pith_settle_topic");
           const args = { verificationSummary: "理解边界", observations: [{ text: "理解状态边界" }] }, result = await settle.execute(args);
           options.onStep({ kind: "tool", name: settle.name, callId: "settle", inputPreview: "{}", status: "completed", effects: await settle.effects(result, args) }, 0);
           return { status: "completed" };

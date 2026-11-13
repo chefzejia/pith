@@ -1,3 +1,5 @@
+import { shadowingToolkit } from "../../plugins/toolkit-shadowing/index.ts";
+import { feynmanToolkit } from "../../plugins/toolkit-feynman/index.ts";
 import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -63,7 +65,7 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
   const tools: DshTool[] = [];
   const reader = { formats: ["markdown", "epub", "pdf", "cbz", "image"] as const, sections: markdownSections, render: renderMarkdown, renderFile };
   const repository = new NodeRepositoryPort();
-  const scoped = (topicId: string) => createScopedTools({ topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), repository, reader, onChoices: () => {} });
+  const scoped = (topicId: string) => createScopedTools({ toolkits: [shadowingToolkit, feynmanToolkit], topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), repository, reader, onChoices: () => {} });
   tools.push(...scoped("scope").map(tool => {
     const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
     return { name: tool.name, description: tool.description, inputSchema: { ...tool.inputSchema, properties: { ...source.properties, topicId: field }, required: [...(source.required ?? []), "topicId"] }, async execute(input: Readonly<Record<string, unknown>>) {

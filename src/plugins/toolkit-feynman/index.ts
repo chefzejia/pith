@@ -30,7 +30,7 @@ export function diagnoseFeynman(targetText: string, producedText: string): Toolk
 }
 
 export const feynmanToolkit: ToolkitDescriptor = {
-  id: "feynman", label: "费曼复述", category: "comprehension", evalMode: "guide-rubric",
+  id: "feynman", role: "training", label: "费曼复述", category: "comprehension", evalMode: "guide-rubric",
   whenToUse: "架构设计、源码机制、核心概念或理论需要合书复述与苏格拉底反例追问时挂载", compatibleStages: ["reader", "timeline"], uiProtocol: "inline-stage-lens",
   evaluationRubric: "以三明治式苏格拉底追问回应：先肯定复述中抓准的核心因果链或自创类比，再指出对照原文遗漏的一个关键前提或边界条件，最后提出一个具体反例或跨场景问题。不要替学习者作答或背书。",
   stages: ["blind-produce"],

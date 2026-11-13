@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { build } from "esbuild";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, type AttentionCompassSnapshot, type UnreadableEntry } from "../src/core/index.ts";
 import { PithObsidianController } from "../src/shells/obsidian/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -116,15 +115,9 @@ test("Web and Obsidian board mounts show read-only errors, wrap paths and hide t
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 950 } });
     const web = await browser.newPage(); web.setDefaultTimeout(10000); await web.goto(base);
-    const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
     const native = await browser.newPage(); native.setDefaultTimeout(10000);
-    await native.setContent('<style>html,body,#root{height:100%;margin:0}body{--background-primary:#fff;--background-secondary:#f6f6f7;--background-modifier-border:#ddd;--text-normal:#252525;--text-muted:#626262;--font-interface:Arial;color:var(--text-normal);background:var(--background-primary)}</style><div id="root"></div>');
-    await native.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl = document.getElementById("root"); }, Plugin: class {}, Notice: class {} } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
-    // Obsidian's window boundary forwards to the real disk-backed controller; no native app is launched.
-    await native.exposeFunction("nativeCompass", () => controller.openCompass());
-    await native.exposeFunction("nativeMaterials", () => controller.openBoardMaterials());
-    await native.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await native.evaluate(async () => { const w = window as any; w.nativeBoard = new w.NativePith.PithWorkspaceView({}, { guideVisibility: new Map(), openCompass: w.nativeCompass, openBoardMaterials: w.nativeMaterials }, {}); await w.nativeBoard.onOpen(); });
+    await (await import("./native-workbench-fixture.ts")).nativeWorkbenchFixture(native, workspace);
+    await native.evaluate(() => { const w = window as any; w.nativeBoard = w.nativeTask52.view; w.nativeCompass = () => w.nativeTask52.controller.openCompass(); });
     const evidence = resolve(`${process.env.PITH_TEST_SCREENSHOT_DIR}/task-44`); await mkdir(evidence, { recursive: true });
     for (const [name, page] of [["web", web], ["obsidian-boundary", native]] as const) {
       await page.getByRole("heading", { name: "无法读取（4）", exact: true }).waitFor();
@@ -150,7 +143,7 @@ test("Web and Obsidian board mounts show read-only errors, wrap paths and hide t
       await page.screenshot({ path: join(evidence, `${name}-restored.png`) });
     }
     // Error text is rendered as text even when a storage error contains markup.
-    await native.evaluate(async () => { const w = window as any; const snapshot = await w.nativeCompass(); snapshot.unreadable = [{ kind: "topic", id: "unsafe", path: 'topics/<img>/topic.md', error: '<img src=x onerror="window.injected=true">' }]; const view = new w.NativePith.PithWorkspaceView({}, { guideVisibility: new Map(), openCompass: async () => snapshot, openBoardMaterials: w.nativeMaterials }, {}); await view.onOpen(); });
+    await native.evaluate(async () => { const w = window as any; const snapshot = await w.nativeCompass(); snapshot.unreadable = [{ kind: "topic", id: "unsafe", path: 'topics/<img>/topic.md', error: '<img src=x onerror="window.injected=true">' }]; w.nativeTask52.controller.openCompass = async () => snapshot; await w.nativeBoard.onOpen(); });
     assert.equal(await native.locator('.pith-unreadable img').count(), 0);
     assert.ok((await native.locator('.pith-unreadable').textContent()).includes('<img src=x'));
   } finally { if (browser) await browser.close(); controller.dispose(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }

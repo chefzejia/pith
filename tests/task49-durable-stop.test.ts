@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -27,7 +28,7 @@ for (const phase of ["before", "after"] as const) test(`stopping ${phase} a note
     createText: (path, value) => disk.createText(path, value), writeBinary: (path, value) => disk.writeBinary(path, value), createBinary: (path, value) => disk.createBinary(path, value), copy: (from, to) => disk.copy(from, to), processText: (path, update) => disk.processText(path, update), mkdir: path => disk.mkdir(path),
   };
   const store = new DefaultWorkspaceStore(storage), controller = new AbortController(), steps = new Map<number, TurnStep>();
-  const tools = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} });
+  const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, onChoices: () => {} });
   const server = await openTurnTools(new NodeToolServerPort(), tools, controller.signal, (step, index) => steps.set(index, step), () => 0);
   try {
     const response = fetch(server.endpoint.url, { method: "POST", headers: Object.fromEntries(server.endpoint.headers.map(header => [header.name, header.value])), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "pith_save_note", arguments: { body: "persisted marker" } } }) });

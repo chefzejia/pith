@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import test from "node:test";
@@ -12,7 +13,7 @@ test("intake creates one topic and settlement accepts only user evidence", async
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
     await store.ensureScaffold();
     const material = await store.importMaterial({ title: "source", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode("source") }] });
-    const tools = createScopedTools({ store, storage, materialIds: [material.id], onChoices: () => {} });
+    const tools = createScopedTools({ toolkits: testToolkits, store, storage, materialIds: [material.id], onChoices: () => {} });
     const call = (name: string, input: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(input);
     await assert.rejects(call("pith_write_lesson", { fileName: "01.md", markdown: "lesson" }), /先创建课题/);
     const topic = await call("pith_create_topic", { title: "topic", target: "understand", materialIds: [material.id], toolkits: [] }) as { id: string };

@@ -15,7 +15,7 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
   if (!process.env.PITH_DSH_BROWSER_SANDBOX) {
     const executable = await new NodeAgentProcessPort().findExecutable("dsh");
     if (!executable) { t.skip("dsh is not installed"); return; }
-    const root = resolve(".tmp"); await mkdir(root, { recursive: true });
+    const root = resolve(".tmp/runtime/task-52"); await mkdir(root, { recursive: true });
     const dir = await mkdtemp(join(root, "task15-dsh-browser-"));
     try {
       const policy = '(version 1) (allow default) (deny network*) (allow network* (local unix-socket)) (allow network-inbound (local ip "localhost:*")) (allow network-outbound (remote ip "localhost:*"))';
@@ -54,6 +54,7 @@ test("Web guide sends the chosen model through a real isolated dsh session", { t
     const topic = await createTestTopic(join(dir, "workspace"), { title: "English reading" });
     const book = storedEpub({ "META-INF/container.xml": '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>', "book.opf": '<package><metadata><title>Speech test</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>', "one.xhtml": "<html><body><h1>Chapter One: Attention</h1><p>Reading carefully begins with the decision to notice what is in front of us.</p></body></html>" });
     await post("/api/materials", { topicId: topic.id, title: "English", kind: "book", files: [{ name: "english.epub", data: Buffer.from(book).toString("base64") }] });
+    const material = (await (await fetch(base + "/api/state")).json()).materials[0]; await post("/api/materials/aids", { materialId: material.id, aids: [] });
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "browser"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1280, height: 720 } });
     const page = await browser.newPage(); const errors: string[] = []; page.on("pageerror", (error: Error) => errors.push(error.message));

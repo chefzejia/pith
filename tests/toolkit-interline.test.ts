@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PluginRuntime, type InterlineSourceSegment, type PluginContext, type Topic, type WorkspaceStoragePort } from "../src/core/index.ts";
+import { PluginRuntime, type InterlineSourceSegment, type PluginContext, type Material, type WorkspaceStoragePort } from "../src/core/index.ts";
 import { builtinRegistry } from "../src/plugins/all.ts";
 import { computeSourceHash, interlineInUse, interlineToolkit, planNeighborhoodOrder, renderInterlineHtml } from "../src/plugins/toolkit-interline/index.ts";
 import { InterlinePreparationCoordinator, type InterlineCoordinatorOptions } from "../src/plugins/toolkit-interline/coordinator.ts";
@@ -118,8 +118,8 @@ test("corrupt cache is recomputed and missing translations remain independently 
   assert.equal(coordinator.getUnit(1)!.status, "ready");
 });
 
-test("runtime retains interline and reader with injected topic usage", () => {
-  const topic = (id: string, toolkit: string): Topic => ({ id, title: id, target: "read", status: "exploring", materialIds: [], lessons: [], toolkits: [toolkit], notes: [], createdAt: "today", updatedAt: "today" });
+test("runtime retains interline and reader with injected material usage", () => {
+  const topic = (id: string, toolkit: string): Material => ({ id, title: id, kind: "book", files: [], aids: [toolkit], notes: [], createdAt: "today" });
   let topics = [topic("one", "interline"), topic("two", "interline")];
   const manifest = builtinRegistry.list().find(item => item.id === "toolkit-interline"); assert.ok(manifest);
   const reader = { id: "reader", name: "Reader", description: "Reader", provides: ["stage.reader"], apply: (ctx: PluginContext) => ctx.provide("stage.reader", {}) };

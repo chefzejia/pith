@@ -1,8 +1,8 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { build } from "esbuild";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { cleanMaterialTitle, inspectEpubPackage, inspectMaterialCover } from "../src/plugins/stage-reader/epub.ts";
 import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
@@ -42,7 +42,7 @@ test("Web import and Obsidian board render a real cover in light and dark", { ti
   const done = await store.createTopic({ title: "已完成的探索" , target: "已完成的探索", materialIds: [], toolkits: [] }); await store.updateTopic(done.id, { status: "settled" });
   const server = await createPithWebServer({ workspaceDir: workspace, guideProvider: { async run(input, options) {
     if (input.scope.kind !== "intake") throw new Error("intake required");
-    const create = createScopedTools({ store, storage, materialIds: input.scope.materialIds, onChoices() {} }).find(tool => tool.name === "pith_create_topic")!;
+    const create = createScopedTools({ toolkits: testToolkits, store, storage, materialIds: input.scope.materialIds, onChoices() {} }).find(tool => tool.name === "pith_create_topic")!;
     const args = { title: "真实书名", target: input.text, materialIds: input.scope.materialIds, toolkits: [] }, topic = await create.execute(args);
     options.onStep({ kind: "tool", name: create.name, callId: "create", inputPreview: "{}", status: "completed", effects: await create.effects!(topic, args) }, 0);
     return { status: "completed" };
@@ -69,14 +69,9 @@ test("Web import and Obsidian board render a real cover in light and dark", { ti
     await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(evidence, "web-narrow.png") });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await page.locator(".pith-view-header").count(), 1);
-    const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
     const native = await browser.newPage(); await native.setViewportSize({ width: 1100, height: 850 });
-    await native.setContent('<style>html,body,#root{height:100%;margin:0}body{--background-primary:#202421;--background-secondary:#2c322d;--background-modifier-border:#535d54;--background-modifier-hover:#3c463e;--text-normal:#eef1e9;--text-muted:#bac2b8;--font-interface:Arial;color:var(--text-normal);background:var(--background-primary)}</style><div id="root"></div>');
-    await native.evaluate(() => document.body.classList.add("theme-dark"));
-    await native.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl = document.getElementById("root"); }, Plugin: class {}, Notice: class {} } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
-    await native.exposeFunction("boardSnapshot", async () => (await (await fetch(base + "/api/state")).json()));
-    await native.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await native.evaluate(async () => { const snapshot = await (window as any).boardSnapshot(); const controller = { guideVisibility: new Map(), openCompass: async () => snapshot.compass, openBoardMaterials: async () => snapshot.boardMaterials }; const view = new (window as any).NativePith.PithWorkspaceView({}, controller, {}); await view.onOpen(); });
+    await (await import("./native-workbench-fixture.ts")).nativeWorkbenchFixture(native, join(root, "workspace"), true);
+    await native.evaluate(() => { document.body.classList.add("theme-dark"); document.body.style.cssText = "--background-primary:#202421;--background-secondary:#2c322d;--background-modifier-border:#535d54;--text-normal:#eef1e9;--text-muted:#bac2b8;color:var(--text-normal);background:var(--background-primary)"; });
     await native.waitForFunction(() => { const image = document.querySelector('.pith-card-cover') as HTMLImageElement | null; return !!image && image.naturalWidth > 0; });
     assert.equal(await native.locator(".pith-settled-row").count(), 1); await native.screenshot({ path: join(evidence, "obsidian-dark.png") });
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }

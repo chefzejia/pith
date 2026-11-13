@@ -4,17 +4,8 @@ import { EventEmitter } from "node:events";
 import https from "node:https";
 import test from "node:test";
 import { NodeHttpPort } from "../src/shells/web/nodeHttp.ts";
-import { effectiveToolkits, topicUsesToolkit } from "../src/workbench/toolkitSlot.ts";
 import { createNeuralSpeech, type NeuralSpeechConfig } from "../src/plugins/speech-service/neuralSpeech.ts";
 import type { HostPort, HttpRequestSpec } from "../src/core/index.ts";
-
-test("empty toolkits never mount or authorize tools", () => {
-  for (const format of ["chapter.epub", "book.pdf", "comic.cbz", "article.md", "caption.vtt", "caption.srt", "movie.mp4", "media"]) assert.deepEqual(effectiveToolkits([], format), []);
-  assert.deepEqual(effectiveToolkits(["shadowing"], "chapter.epub"), ["shadowing"]);
-  const materials = [{ id: "book", kind: "book", files: [{ name: "chapter.epub" }] }, { id: "audio", kind: "media", files: [{ name: "caption.vtt" }] }];
-  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "book" }, materials, "feynman"), false);
-  assert.equal(topicUsesToolkit({ toolkits: [], materialId: "audio" }, materials, "shadowing"), false);
-});
 
 test("cloud speech pins public DNS, refuses mixed addresses and never follows redirects", async () => {
   const lookup = dns.promises.lookup, request = https.request;

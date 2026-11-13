@@ -1,11 +1,18 @@
-import { DefaultWorkspaceStore, builtinRegistry, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
+import { DefaultWorkspaceStore, nonHanLetterRatio, type ToolkitDescriptor, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
 import { ingestExternalUrl } from "./externalIngest.ts";
 import { ToolExecutionFailure, type TurnTool } from "./mcpTools.ts";
 
-export function normalizeToolkits(value: readonly unknown[]): string[] {
-  const registered = new Set(builtinRegistry.list().filter(manifest => manifest.id.startsWith("toolkit-")).map(manifest => manifest.id.slice("toolkit-".length)));
+export function normalizeToolkits(value: readonly unknown[], toolkits: readonly Pick<ToolkitDescriptor, "id" | "role">[] = []): string[] {
+  const registered = new Set(toolkits.filter(toolkit => toolkit.role === "training").map(toolkit => toolkit.id));
   if (!Array.isArray(value) || !value.every(item => typeof item === "string" && registered.has(item))) throw new Error("Invalid toolkit IDs");
   return [...new Set(value as readonly string[])];
+}
+
+async function importedAids(files: readonly { name: string; mimeType?: string; bytes: Uint8Array }[], reader?: StageReaderService): Promise<string[]> {
+  let sample = files.filter(file => /\.(?:md|markdown|txt|srt|vtt|ts|js|py)$/i.test(file.name)).map(file => new TextDecoder().decode(file.bytes.subarray(0, 16384))).join("\n").slice(0, 16384);
+  const book = files.find(file => /\.(?:epub|pdf)$/i.test(file.name));
+  if (book && reader?.renderFile) { const rendered = await reader.renderFile({ name: book.name, mimeType: book.mimeType ?? (/\.pdf$/i.test(book.name) ? "application/pdf" : "application/epub+zip"), bytes: book.bytes.length, sha256: "" }, book.bytes); sample = (rendered.blocks ?? []).filter(block => block.isProse).map(block => block.text).join(" ").slice(0, 16384); }
+  return nonHanLetterRatio(sample) >= 0.5 ? ["interline"] : [];
 }
 
 const field = { type: "string", minLength: 1 };
@@ -42,7 +49,7 @@ function anchorValue(value: unknown): SelectionAnchor {
   return { source: source.kind === "lesson" ? { kind: "lesson" } : { kind: "material", materialId: text(source, "materialId", 200) }, file: text(anchor, "file", 500), locator: text(anchor, "locator", 300), ...(anchor.quote === undefined ? {} : { quote: text(anchor, "quote") }) };
 }
 
-function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort, mediaCorpus?: MediaCorpusPort, activeTopicId?: string, signal?: AbortSignal): readonly GuideMcpToolSpec[] {
+function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEngine | undefined, storage?: WorkspaceStoragePort, http?: HttpPort, repository?: RepositoryPort, mediaCorpus?: MediaCorpusPort, activeTopicId?: string, signal?: AbortSignal, descriptors: readonly ToolkitDescriptor[] = [], reader?: StageReaderService): readonly GuideMcpToolSpec[] {
   const integer = (input: Readonly<Record<string, unknown>>, name: string): number | undefined => {
     const value = input[name];
     if (value === undefined) return undefined;
@@ -55,12 +62,10 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
     } }, { name: "pith_fetch_media_corpus", description: "Import public audio and subtitles.", inputSchema: schema({ topicId: field, url: field, lang: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
       keys(input, ["topicId", "url", "lang"]); const topicId = input.topicId === undefined ? undefined : text(input, "topicId", 200); if (activeTopicId && topicId !== activeTopicId) throw new Error("Topic does not match current session");
       const bundle = await mediaCorpus.fetchMediaCorpus(text(input, "url", 4096), input.lang === undefined ? {} : { lang: text(input, "lang", 40) }, signal); signal?.throwIfAborted();
-      const material = await store.importMaterial({ title: bundle.title, kind: "media", files: bundle.files });
+      const material = await store.importMaterial({ title: bundle.title, kind: "media", files: bundle.files, aids: await importedAids(bundle.files, reader) });
       if (topicId) {
         await store.attachMaterial(topicId, material.id);
         if (bundle.slices?.length) { const sections = bundle.slices.map(slice => `## ${slice.title}\n\n${slice.text.replace(/\s+/g, " ").slice(0, 300)}\n\n跟读建议：先听原声，再逐句跟读。`); await store.writeLesson(topicId, "00-跟读切片导读.md", `# 跟读切片导读\n\n${sections.join("\n\n")}\n`); }
-        const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found");
-        await store.updateTopic(topicId, { toolkits: [...new Set([...topic.toolkits, "shadowing"])] });
       }
       return { material, slices: bundle.slices ?? [], warnings: bundle.warnings ?? [] };
     } }] : []),
@@ -72,7 +77,7 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
       if (topicId && !await store.getTopic(topicId)) throw new Error("Topic not found");
       const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http, signal);
       signal?.throwIfAborted();
-      const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
+      const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files, aids: await importedAids(bundle.files, reader) });
       if (topicId) await store.attachMaterial(topicId, material.id);
       return { material, warnings: bundle.warnings };
     } }] : []),
@@ -91,7 +96,7 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
     { name: "pith_configure_toolkits", description: "Configure topic toolkits.", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), async execute(input) {
       keys(input, ["topicId", "toolkits"]);
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
-      const topicId = text(input, "topicId", 200), toolkits = normalizeToolkits(input.toolkits); return store.updateTopic(topicId, { toolkits });
+      const topicId = text(input, "topicId", 200), toolkits = normalizeToolkits(input.toolkits, descriptors); return store.updateTopic(topicId, { toolkits });
     } },
     { name: "pith_settle_topic", description: "Settle an exploring topic after a verified explanation, optionally adding or removing observations.", inputSchema: schema({ topicId: field, verificationSummary: field, observations: { type: "array", items: schema({ text: field, noteId: field }, ["text"]) }, removeObservationIds: { type: "array", items: field } }, ["topicId", "verificationSummary"]), async execute(input) {
       keys(input, ["topicId", "verificationSummary", "observations", "removeObservationIds"]);
@@ -141,10 +146,11 @@ function guardToolWrites(storage: WorkspaceStoragePort, signal?: AbortSignal, be
   };
 }
 
-export function createScopedTools(options: { topicId?: string; materialIds?: readonly string[]; store: WorkspaceStore; storage: WorkspaceStoragePort; engine?: AttentionEngine; http?: HttpPort; repository?: RepositoryPort; mediaCorpus?: MediaCorpusPort; reader?: StageReaderService; onChoices: (choices: readonly string[]) => void }): TurnTool[] {
+export function createScopedTools(options: { topicId?: string; materialIds?: readonly string[]; store: WorkspaceStore; storage: WorkspaceStoragePort; engine?: AttentionEngine; http?: HttpPort; repository?: RepositoryPort; mediaCorpus?: MediaCorpusPort; reader?: StageReaderService; toolkits?: readonly ToolkitDescriptor[]; onChoices: (choices: readonly string[]) => void }): TurnTool[] {
   const { store, storage, engine, http, repository, mediaCorpus } = options;
+  const training = options.toolkits ?? [];
   let topicId = options.topicId, creating = false;
-  const original = workspaceToolImplementations(store, engine, storage, http, repository, mediaCorpus);
+  const original = workspaceToolImplementations(store, engine, storage, http, repository, mediaCorpus, undefined, undefined, training, options.reader);
   const tools: TurnTool[] = [];
   if (!topicId) tools.push({ name: "pith_create_topic", description: "Create one topic for this intake.", inputSchema: schema({ title: field, target: field, materialIds: { type: "array", items: field }, toolkits: { type: "array", items: field } }, ["title", "target", "materialIds", "toolkits"]), write: true, async execute(input, signal, beginWrite) {
     keys(input, ["title", "target", "materialIds", "toolkits"]);
@@ -154,7 +160,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     try {
       for (const id of input.materialIds) if (!await store.getMaterial(id as string)) throw new Error("Material not found");
       signal?.throwIfAborted();
-      const topic = await new DefaultWorkspaceStore(guardToolWrites(storage, signal, beginWrite)).createTopic({ title: text(input, "title"), target: text(input, "target"), materialIds: input.materialIds as string[], toolkits: normalizeToolkits(input.toolkits) });
+      const topic = await new DefaultWorkspaceStore(guardToolWrites(storage, signal, beginWrite)).createTopic({ title: text(input, "title"), target: text(input, "target"), materialIds: input.materialIds as string[], toolkits: normalizeToolkits(input.toolkits, training) });
       topicId = topic.id;
       return topic;
     } finally { creating = false; }
@@ -170,7 +176,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
       if (!topicId && !["pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) throw new Error("先创建课题");
       const guarded = guardToolWrites(storage, signal, beginWrite);
       const currentStore = write ? new DefaultWorkspaceStore(guarded) : store;
-      const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal).find(item => item.name === tool.name)!;
+      const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal, training, options.reader).find(item => item.name === tool.name)!;
       const before = tool.name === "pith_settle_topic" ? (await store.readProfile()).observations : [];
       const topicBefore = tool.name === "pith_settle_topic" && topicId ? await store.getTopic(topicId) : null;
       const historyBefore = tool.name === "pith_settle_topic" && await storage.exists("history") ? new Set((await storage.list("history")).map(item => item.path)) : new Set<string>();

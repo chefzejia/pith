@@ -7,7 +7,7 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
   const group = (label: string): void => { const heading = doc.createElement("h2"); heading.textContent = label; navigation.append(heading); };
   const fileButton = (name: string): void => { const button = doc.createElement("button"); button.textContent = name; button.dataset.file = name; button.setAttribute("aria-current", String(name === document.currentFile)); navigation.append(button); };
   if (document.materialGroups) {
-    group("讲义");
+    if (document.files.length || document.curriculum?.length) group("讲义");
     const planned = document.curriculum ?? [];
     for (const item of planned) {
       const button = doc.createElement("button"); button.className = "pith-lesson"; button.textContent = item.title;
@@ -18,11 +18,12 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
     for (const file of document.files.filter(file => !planned.some(item => item.fileName === file.name))) {
       const button = doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && file.name === document.currentFile)); navigation.append(button);
     }
+    group("材料");
     for (const material of document.materialGroups) {
-      group(material.title);
-      for (const file of material.files) { const button = doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.dataset.materialId = material.id; button.setAttribute("aria-current", String(document.source?.kind === "material" && document.source.materialId === material.id && file.name === document.currentFile)); navigation.append(button); }
+      const heading = doc.createElement("h3"); heading.textContent = material.title; navigation.append(heading);
+      for (const file of material.files) { const button = doc.createElement("button"); button.textContent = file.name; button.dataset.file = file.name; button.dataset.materialId = material.id; button.setAttribute("aria-current", String(document.source?.kind === "material" && document.source.materialId === material.id && file.name === document.currentFile)); navigation.append(button); if (document.source?.kind === "material" && document.source.materialId === material.id && file.name === document.currentFile) renderTocTree(navigation, document.sections, navigate, pithIcon("chevron-right")); }
     }
-    group("目录"); renderTocTree(navigation, document.sections, navigate, pithIcon("chevron-right"));
+    if (document.source?.kind === "lesson") renderTocTree(navigation, document.sections, navigate, pithIcon("chevron-right"));
     return;
   }
   if (document.curriculum?.length) {

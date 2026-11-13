@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import test from "node:test";
@@ -15,7 +16,7 @@ test("scoped material tool reads PDF pages in bounded resumable chunks without a
     const longText = Array(1300).fill("longcontent").join(" "), bytes = pdfFixture("longcontent".repeat(1300), "Second page evidence");
     const material = await store.importMaterial({ title: "PDF evidence", kind: "book", files: [{ name: "book.pdf", mimeType: "application/pdf", bytes }] });
     const topic = await store.createTopic({ title: "PDF topic", target: "Read", materialIds: [material.id], toolkits: [] });
-    const tools = createScopedTools({ topicId: topic.id, store, storage, reader: { formats: ["pdf"], sections: markdownSections, render: renderMarkdown, renderFile }, onChoices() {} });
+    const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, reader: { formats: ["pdf"], sections: markdownSections, render: renderMarkdown, renderFile }, onChoices() {} });
     const tool = tools.find(item => item.name === "pith_read_material")!;
     type Result = { blocks: { locator: string; text: string }[]; truncated: boolean; next: { startLine: number; startOffset: number } | null };
     const first = await tool.execute({ materialId: material.id, file: "book.pdf", maxLines: 1 }) as Result;

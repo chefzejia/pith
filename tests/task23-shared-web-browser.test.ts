@@ -19,7 +19,7 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
   try {
     const topic = await createTestTopic(join(dir, "workspace"), { title: "共享工作台" });
     await post("/api/materials", { topicId: topic.id, title: "book", kind: "book", files: [{ name: "book.epub", data: Buffer.from(linkedEpub()).toString("base64") }] });
-    await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
+
     const page = await browser.newPage(); page.setDefaultTimeout(5000); const errors: string[] = []; let sends = 0;
     page.on("pageerror", (error: Error) => errors.push(error.message));
     page.on("request", (request: { method(): string; url(): string }) => { if (request.method() === "POST" && request.url().endsWith("/api/chat")) sends++; });
@@ -32,14 +32,13 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     await page.route("**/api/agents?force=true", (route: { fulfill(options: object): Promise<void> }) => route.fulfill({ json: [] }));
     await page.route("**/api/speech/transcribe", (route: { request(): { postDataJSON(): { audio: string; mimeType: string } }; fulfill(options: object): Promise<void> }) => { const body = route.request().postDataJSON(); assert.equal(body.mimeType, "audio/webm"); assert.ok(Buffer.from(body.audio, "base64").length > 0); return route.fulfill({ json: { text: "受控转写" } }); });
     await page.goto(base);
-    assert.equal(await page.locator(".pith-home h1").textContent(), "课题看板");
+    assert.equal(await page.locator(".pith-home h1").textContent(), "从一个问题开始");
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator(".pith-view .pith-article .pith-epub-chapter").first().waitFor();
-    await page.locator(".pith-view #open-toolkit").click();
-    await page.locator('[data-toolkit-choose="interline"]').click();
-    await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
+    await page.locator('[data-command="typography"]').click();
+    await page.locator('.pith-typography-popover [data-interline-mode="bilingual"]').click();
     await page.locator(".pith-article .pith-interline-subtitle").first().waitFor();
-    await page.locator('[data-command="typography"]').click(); await page.locator('[data-mode="double"]').click();
+    await page.locator('[data-mode="double"]').click();
     assert.equal(await page.locator('[data-mode="double"]').getAttribute("aria-pressed"), "true");
     await page.locator(".pith-guide-toggle").click();
     await page.setViewportSize({ width: 390, height: 844 });
@@ -79,7 +78,8 @@ test("Web mounts the shared workbench and connects reading and interline", { tim
     const nextTopic = await createTestTopic(join(dir, "workspace"), { title: "新课题" });
     await page.reload(); await page.locator(`[data-topic="${nextTopic.id}"]`).first().click();
     await page.getByText("这个课题还没有关联材料。").waitFor();
-    await page.locator("#material-files").setInputFiles({ name: "material.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported\n\nA real imported paragraph.") });
+    await page.locator('[data-command="import"]').click();
+    await page.locator('.pith-material-picker input[type="file"]').setInputFiles({ name: "material.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported\n\nA real imported paragraph.") });
     await page.getByText("A real imported paragraph.").waitFor();
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }

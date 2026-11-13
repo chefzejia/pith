@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -29,7 +30,7 @@ test("Web intake binds two repositories to one topic and shows both directories"
     if (input.scope.kind !== "intake") throw new Error("Expected intake");
     intakeCalls++; await new Promise<void>(resolve => { releaseIntake = resolve; intakeArrived!(); });
     assert.equal(input.text, "比较两个仓库的结构"); assert.equal(input.scope.materialIds.length, 2);
-    const tools = createScopedTools({ store, storage, materialIds: input.scope.materialIds, onChoices() {} });
+    const tools = createScopedTools({ toolkits: testToolkits, store, storage, materialIds: input.scope.materialIds, onChoices() {} });
     const create = tools.find(tool => tool.name === "pith_create_topic")!, args = { title: input.text, target: input.text, materialIds: input.scope.materialIds, toolkits: [] };
     const topic = await create.execute(args);
     options.onStep({ kind: "tool", name: create.name, callId: "create", inputPreview: "{}", status: "completed", effects: await create.effects!(topic, args) }, 0);
@@ -44,9 +45,9 @@ test("Web intake binds two repositories to one topic and shows both directories"
     browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 800 } });
     const page = await browser.newPage(); page.setDefaultTimeout(8000); await page.goto(`http://127.0.0.1:${address.port}`);
     await page.locator('[name="title"]').fill(paths[0]!); await page.locator('[data-intake-open]').click();
-    await page.getByText("请写下想搞懂的问题").waitFor(); assert.equal((await store.listMaterials()).length, 0);
+    await page.locator('[data-command="intake"]').waitFor(); assert.equal((await store.listMaterials()).length, 1); assert.equal(intakeCalls, 0); await page.locator('[data-command="home"]').click();
     await page.locator('[name="title"]').fill(`比较两个仓库的结构 ${paths.map(path => JSON.stringify(path)).join(" ")}`); await page.locator('[data-intake-open]').click();
-    await Promise.race([intakeWaiting, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Web intake did not arrive")), 8000))]); assert.equal(await page.locator('[data-intake-open]').isDisabled(), true); assert.equal(intakeCalls, 1);
+    await Promise.race([intakeWaiting, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Web intake did not arrive")), 8000))]); assert.equal(await page.locator('[data-intake-open]').isDisabled(), false); assert.equal(intakeCalls, 1);
     assert.equal((await store.listTopics()).length, 0); releaseIntake!();
     await page.locator('.pith-article').getByText("比较结构").waitFor();
     const topic = (await store.listTopics())[0]!; assert.equal(topic.materialIds.length, 2);
@@ -72,7 +73,7 @@ test("Web intake binds two repositories to one topic and shows both directories"
     await page.locator('.pith-note-source').getByText("note 2").click(); await page.locator('.pith-article').getByText("repository 2").waitFor();
 
     const nativeBundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
-    const toolsBundle = await build({ entryPoints: ["src/plugins/guide-acp/tools.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativeTools" });
+    const toolsBundle = await build({ entryPoints: ["tests/guide-tools-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativeTools" });
     const repository = new NodeRepositoryPort();
     await page.exposeFunction("inspectFixtureRepo", (path: string) => repository.inspectRepository(path));
     await page.exposeFunction("listFixtureRepo", (path: string, sha: string, offset: number, limit: number) => repository.listFiles(path, sha, offset, limit));
@@ -103,7 +104,7 @@ test("Web intake binds two repositories to one topic and shows both directories"
         if (input.scope.kind !== "intake") throw new Error("Expected intake");
         intakeState.calls++; await new Promise<void>(resolve => { intakeState.release = resolve; intakeState.arrived(); });
         if (input.text !== "比较两个仓库的结构" || input.scope.materialIds.length !== 2) throw new Error("Unexpected intake input");
-        const tools = (window as any).NativeTools.createScopedTools({ store: controller.store, storage, materialIds: input.scope.materialIds, onChoices() {} });
+        const tools = (window as any).NativeTools.createScopedTools({ toolkits: (window as any).NativeTools.testToolkits, store: controller.store, storage, materialIds: input.scope.materialIds, onChoices() {} });
         const create = tools.find((tool: any) => tool.name === "pith_create_topic"), args = { title: input.text, target: input.text, materialIds: input.scope.materialIds, toolkits: [] }, topic = await create.execute(args);
         options.onStep({ kind: "tool", name: create.name, callId: "create", inputPreview: "{}", status: "completed", effects: await create.effects(topic, args) }, 0);
         options.onStep({ kind: "reply", markdown: "已建立原生比较课题" }, 1);
@@ -116,11 +117,11 @@ test("Web intake binds two repositories to one topic and shows both directories"
       const view = new (window as any).NativePith.PithWorkspaceView({}, controller, host, workspace); (window as any).nativeTask51 = { controller, view, intakeState }; await view.onOpen();
     });
     await page.locator('[name="title"]').fill(paths[0]!); await page.locator('[data-intake-open]').click();
-    await page.getByText("请写下想搞懂的问题").waitFor();
-    assert.equal(await page.evaluate(async () => (await (window as any).nativeTask51.controller.store.listMaterials()).length), 0);
+    await page.locator('[data-command="intake"]').waitFor();
+    assert.equal(await page.evaluate(async () => (await (window as any).nativeTask51.controller.store.listMaterials()).length), 1); await page.locator('[data-command="home"]').click();
     await page.locator('[name="title"]').fill(`比较两个仓库的结构 ${paths.map(path => JSON.stringify(path)).join(" ")}`); await page.locator('[data-intake-open]').click();
     await page.evaluate(() => Promise.race([(window as any).nativeTask51.intakeState.waiting, new Promise((_, reject) => setTimeout(() => reject(new Error("Native intake did not arrive")), 8000))]));
-    assert.equal(await page.locator('[data-intake-open]').isDisabled(), true);
+    assert.equal(await page.locator('[data-intake-open]').isDisabled(), false);
     assert.equal(await page.evaluate(() => (window as any).nativeTask51.intakeState.calls), 1);
     assert.equal(await page.evaluate(async () => (await (window as any).nativeTask51.controller.store.listTopics()).length), 0);
     await page.evaluate(() => (window as any).nativeTask51.intakeState.release());

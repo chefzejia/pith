@@ -1,3 +1,5 @@
+import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
+import { trainingToolkits } from "./toolkits.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -13,14 +15,14 @@ import { NodeHttpPort } from "./nodeHttp.ts";
 import { NodeMediaCorpusPort } from "./nodeMediaCorpus.ts";
 import * as readerFont from "../../plugins/stage-reader/lxgwWenKaiData.ts";
 import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, resolveMediaPair } from "../../workbench/mediaAssets.ts";
-import { defaultToolkitsForMaterial, effectiveToolkits } from "../../workbench/toolkitSlot.ts";
-import { boardMaterials } from "../../workbench/boardMaterials.ts";
+import { initialMaterialAids } from "../../workbench/toolkitSlot.ts";
+import { boardMaterials, materialCoverSource, coverCachePath } from "../../workbench/boardMaterials.ts";
 import { topicObservations, undoTopicObservation } from "../../workbench/observations.ts";
 import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
-import { sampleEpubLanguage } from "../../plugins/stage-reader/epub.ts";
+import { sampleMaterialText } from "../../workbench/importMaterial.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
@@ -96,7 +98,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const toolServer = new NodeToolServerPort();
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, toolServer, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
   const agentTimeoutMs = (): number => { const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; };
-  localProvider = new LocalAcpGuideProvider({ processPort, toolServer, store, engine, storage, http, repository, mediaCorpus, getReader: () => runtime.getService<StageReaderService>("stage.reader"), getToolkits: () => ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; }), getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
+  localProvider = new LocalAcpGuideProvider({ processPort, toolServer, store, engine, storage, http, repository, mediaCorpus, getReader: () => runtime.getService<StageReaderService>("stage.reader"), getToolkits: () => trainingToolkits, getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
     if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable");
     return (await guide.detectAgents()).find(item => item.id === id) ?? null;
@@ -140,7 +142,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         res.end(Buffer.from(readerFont[("LXGW_WENKAI_" + "WOFF2") as keyof typeof readerFont], "base64")); return;
       }
       if (method === "GET" && url.pathname === "/api/state") {
-        await refresh(); const toolkits = ["shadowing", "feynman", "interline"].flatMap(id => { const service = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return service ? [{ id, evalMode: service.evalMode }] : []; }); return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), toolkits: toolkits.map(item => item.id), toolkitModes: Object.fromEntries(toolkits.map(item => [item.id, item.evalMode])) });
+        await refresh(); const toolkits = trainingToolkits; return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), toolkits: toolkits.map(item => item.id), toolkitModes: Object.fromEntries(toolkits.map(item => [item.id, item.evalMode])) });
       }
       if (method === "GET" && url.pathname === "/api/agents") {
         const guide = runtime.getService<GuideAgentService>("guide.agent");
@@ -170,10 +172,16 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (data.previous !== undefined && !Array.isArray(data.previous)) throw new Error("Invalid previous turns");
         if (guideTurns.has("intake")) return send(res, 409, { error: "Intake already running" });
         const controller = new AbortController(); guideTurns.set("intake", controller);
+        const streaming = req.headers.accept === "text/event-stream";
+        if (streaming) res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+        res.once("close", () => { if (!res.writableEnded) controller.abort(); });
         try {
-          const result = await engine.intake({ text: str(data, "text"), materialIds: data.materialIds as string[], ...(data.previous ? { previous: data.previous as import("../../core/index.ts").GuideTurn[] } : {}) }, { signal: controller.signal });
-          await refresh(); return send(res, 201, result);
-        } finally { guideTurns.delete("intake"); }
+          const result = await engine.intake({ text: str(data, "text"), materialIds: data.materialIds as string[], ...(data.previous ? { previous: data.previous as import("../../core/index.ts").GuideTurn[] } : {}) }, { signal: controller.signal, onUpdate: turn => { if (streaming && !res.destroyed) res.write(`event: turn\ndata: ${JSON.stringify(turn)}\n\n`); } });
+          await refresh();
+          if (streaming) { res.end(`event: result\ndata: ${JSON.stringify(result)}\n\n`); return; }
+          return send(res, 201, result);
+        } catch (error) { if (streaming) { res.end(`event: error\ndata: ${JSON.stringify(error instanceof Error ? error.message : String(error))}\n\n`); return; } throw error; }
+        finally { guideTurns.delete("intake"); }
       }
       if (method === "POST" && url.pathname === "/api/intake/stop") { guideTurns.get("intake")?.abort(); return send(res, 200, { stopped: true }); }
       const statusPath = /^\/api\/topics\/([^/]+)\/status$/.exec(url.pathname);
@@ -188,7 +196,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && toolkitPath) {
         const data = await body(req);
         if (!Array.isArray(data.toolkits) || !data.toolkits.every(item => typeof item === "string" && /^[a-z][a-z0-9-]*$/.test(item)) || new Set(data.toolkits).size !== data.toolkits.length) throw new Error("Invalid toolkits");
-        const topicId = decodeURIComponent(toolkitPath[1]!); const topic = await store.updateTopic(topicId, { toolkits: normalizeToolkits(data.toolkits) });
+        const topicId = decodeURIComponent(toolkitPath[1]!); const topic = await store.updateTopic(topicId, { toolkits: normalizeToolkits(data.toolkits, trainingToolkits) });
         await refresh(); return send(res, 200, topic);
       }
       const actionsPath = /^\/api\/topics\/([^/]+)\/actions$/.exec(url.pathname);
@@ -198,22 +206,41 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!topic) return send(res, 404, { error: "Topic not found" });
         const guide = runtime.getService<GuideAgentService>("guide.agent");
         if (!guide || !guide.quickActionsForTopic) return send(res, 503, { error: "Guide service unavailable" });
-        const toolkits = ["shadowing", "feynman", "interline"].flatMap(id => { const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); return toolkit ? [toolkit] : []; });
+        const toolkits = trainingToolkits;
         return send(res, 200, guide.quickActionsForTopic(topic, toolkits));
       }
+      const coverPath = /^\/api\/materials\/([^/]+)\/cover$/.exec(url.pathname);
+      if (coverPath) {
+        const material = await store.getMaterial(decodeURIComponent(coverPath[1]!)); if (!material) throw new Error("材料不存在");
+        if (method === "GET") return send(res, 200, { source: await materialCoverSource(storage, material) });
+        if (method === "POST") { const data = await body(req), value = data.url; if (value !== null && (typeof value !== "string" || value.length > 500000 || !/^data:image\/png;base64,[a-zA-Z0-9+/=]+$/.test(value))) throw new Error("Invalid thumbnail"); await storage.mkdir("_cache/covers"); await storage.writeText(coverCachePath(material.id), JSON.stringify({ url: value })); return send(res, 200, {}); }
+      }
+      if (method === "POST" && url.pathname === "/api/materials/attach") { const data = await body(req); const topic = await store.attachMaterial(str(data, "topicId"), str(data, "materialId")); await refresh(); return send(res, 200, topic); }
+      if (method === "POST" && url.pathname === "/api/materials/aids") { const data = await body(req); if (!Array.isArray(data.aids) || !data.aids.every(id => id === "interline") || new Set(data.aids).size !== data.aids.length) throw new Error("Invalid reading aids"); const material = await store.setMaterialAids(str(data, "materialId"), data.aids); await refresh(); return send(res, 200, material); }
+      if (method === "POST" && ["/api/reading-locator", "/api/material-open"].includes(url.pathname)) {
+        const data = await body(req), file = str(data, "file"), locator = url.pathname === "/api/reading-locator" ? str(data, "locator") : undefined;
+        if (data.topicId) { if (!locator) throw new Error("Missing locator"); await store.updateLessonLocator(str(data, "topicId"), file, locator); }
+        else {
+          const material = await store.getMaterial(str(data, "materialId")); if (!material) throw new Error("材料不存在");
+          if (material.kind !== "repo" && !material.files.some(entry => entry.name === file)) throw new Error("材料文件不存在");
+          if (locator && material.kind !== "repo") await store.updateReadingLocator(material.id, file, locator);
+          await rememberMaterialReading(storage, material.id, file, locator);
+        }
+        return send(res, 200, {});
+      }
       if (method === "POST" && url.pathname === "/api/interline") {
-        const data = await body(req), topicId = str(data, "topicId"), file = str(data, "file"), mode = str(data, "mode");
-        const topic = await store.getTopic(topicId);
+        const data = await body(req), topicId = typeof data.topicId === "string" ? data.topicId : "", file = str(data, "file"), mode = str(data, "mode");
+        const topic = topicId ? await store.getTopic(topicId) : null;
         const materialId = str(data, "materialId");
-        if (!topic || !topic.materialIds.includes(materialId) || !effectiveToolkits(topic.toolkits, file).includes("interline")) return send(res, 403, { error: "行间未挂载" });
+        if (topicId && (!topic || !topic.materialIds.includes(materialId))) return send(res, 403, { error: "行间未挂载" });
         const material = await store.getMaterial(materialId);
-        if (!material || !material.files.some(item => item.name === file)) return send(res, 404, { error: "材料不存在" });
+        if (!material || !material.aids.includes("interline") || !material.files.some(item => item.name === file)) return send(res, 404, { error: "材料不存在" });
         const service = runtime.getService<InterlineService>("toolkit.interline");
         if (!service) return send(res, 503, { error: "行间不可用" });
         if (!Array.isArray(data.units) || !data.units.length || data.units.length > 10000 || JSON.stringify(data.units).length > 10_000_000 || !data.units.every((unit: any) => unit && typeof unit.html === "string" && Array.isArray(unit.segments) && unit.segments.every((segment: any) => segment && typeof segment.locator === "string" && typeof segment.sourceText === "string" && Number.isInteger(segment.blockIndex)))) throw new Error("Invalid interline units");
         const units = data.units as InterlineUnitInput[], index = data.index;
         if (typeof index !== "number") throw new Error("Invalid interline unit");
-        const signature = JSON.stringify(units), key = JSON.stringify([topicId, materialId, file]);
+        const signature = JSON.stringify(units), key = JSON.stringify([materialId, file]);
         let entry = interlineSessions.get(key);
         if (!entry || entry.signature !== signature) { entry = { signature, session: new InterlineSession(service, storage, interlineTranslator, materialId, file, units) }; interlineSessions.set(key, entry); }
         return send(res, 200, await entry.session.render(index, mode as InterlineDisplayMode));
@@ -263,7 +290,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (method === "POST" && url.pathname === "/api/materials/url") {
         const data = await body(req), bundle = await ingestExternalUrl({ url: str(data, "url") }, http);
-        const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files });
+        const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files, aids: initialMaterialAids(await sampleMaterialText(bundle.files)) });
         await refresh(); return send(res, 201, material);
       }
       if (method === "POST" && url.pathname === "/api/materials") {
@@ -278,15 +305,15 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error("Invalid file data");
           return { name: str(entry, "name"), mimeType: typeof entry.mimeType === "string" ? entry.mimeType : "application/octet-stream", bytes: new Uint8Array(Buffer.from(encoded, "base64")) };
         });
-        const material = await store.importMaterial({ title: str(data, "title"), kind: kind as "book" | "article" | "media" | "discussion" | "repo", files });
+        const material = await store.importMaterial({ title: str(data, "title"), kind: kind as "book" | "article" | "media" | "discussion" | "repo", files, aids: initialMaterialAids(await sampleMaterialText(files)) });
         if (topicId) await store.attachMaterial(topicId, material.id);
         await refresh(); return send(res, 201, material);
       }
-      if (method === "GET" && url.pathname === "/api/topic-session") {
+      if (method === "GET" && (url.pathname === "/api/topic-session" || url.pathname === "/api/material-session")) {
         const topicId = url.searchParams.get("topicId");
-        if (!topicId) throw new Error("Missing topic");
-        const topic = await store.getTopic(topicId); if (!topic) throw new Error("Topic not found");
-        const materials = await Promise.all(topic.materialIds.map(async id => { const material = await store.getMaterial(id); if (!material) throw new Error(`Material not found: ${id}`); return material; }));
+        const standalone = url.pathname === "/api/material-session";
+        const topic = topicId ? await store.getTopic(topicId) : null; if (!standalone && !topic) throw new Error("Topic not found");
+        const materials = await Promise.all((standalone ? [url.searchParams.get("materialId") ?? ""] : topic!.materialIds).map(async id => { const material = await store.getMaterial(id); if (!material) throw new Error(`Material not found: ${id}`); return material; }));
         const repositoryFiles: Record<string, string[]> = {};
         for (const material of materials) if (material.kind === "repo") {
           if (!material.externalPath || !material.commitSha) throw new Error("Repository binding missing");
@@ -294,7 +321,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); paths.push(...page.files); offset = page.nextOffset; }
           repositoryFiles[material.id] = paths;
         }
-        return send(res, 200, { topic, materials, repositoryFiles });
+        return send(res, 200, { topic, materials, repositoryFiles, readings: await materialReadings(storage, materials) });
       }
       if (method === "GET" && url.pathname === "/api/topic-lesson") {
         const topicId = url.searchParams.get("topicId"), fileName = url.searchParams.get("name");
@@ -305,9 +332,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (method === "GET" && url.pathname === "/api/topic-repository") {
         const topicId = url.searchParams.get("topicId"), materialId = url.searchParams.get("materialId"), fileName = url.searchParams.get("name");
-        if (!topicId || !materialId || !fileName) throw new Error("Missing repository file");
-        const topic = await store.getTopic(topicId), material = await store.getMaterial(materialId);
-        if (!topic?.materialIds.includes(materialId) || material?.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository is not in topic");
+        if (!materialId || !fileName) throw new Error("Missing repository file");
+        const topic = topicId ? await store.getTopic(topicId) : null, material = await store.getMaterial(materialId);
+        if ((topicId && !topic?.materialIds.includes(materialId)) || material?.kind !== "repo" || !material.externalPath || !material.commitSha) throw new Error("Repository is not in topic");
         const parts: string[] = []; let startLine = 1;
         for (;;) { const page = await repository.readFile(material.externalPath, material.commitSha, fileName, startLine, 1000); parts.push(page.text); if (!page.truncated) break; startLine = page.endLine + 1; }
         return send(res, 200, { text: parts.join("\n"), commitSha: material.commitSha });
@@ -324,8 +351,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (materialId && !topic.materialIds.includes(materialId)) throw new Error("Material does not belong to topic");
         const material = materialId ? await store.getMaterial(materialId) : null;
         const requestedFile = typeof data.file === "string" ? material?.files.find(item => item.name === data.file) : undefined;
-        const format = requestedFile?.name ?? material?.files[0]?.name ?? material?.kind ?? "";
-        if (!effectiveToolkits(topic.toolkits, format).includes(toolkitId)) return send(res, 403, { error: `${toolkitId} is not enabled for this topic` });
+        if (!topic.toolkits.includes(toolkitId)) return send(res, 403, { error: `${toolkitId} is not enabled for this topic` });
         const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${toolkitId}`);
         if (!toolkit) return send(res, 503, { error: `${toolkitId} service unavailable` });
         const targetText = str(data, "targetText");
@@ -410,7 +436,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && url.pathname === "/api/notes") {
         const data = await body(req); const kind = str(data, "kind");
         if (kind !== "highlight" && kind !== "note" && kind !== "practice") throw new Error("Invalid kind");
-        const note = await engine.capture({ owner: { topicId: str(data, "topicId") }, kind, body: str(data, "body"), anchor: anchor(data.anchor) });
+        const note = await engine.capture({ owner: typeof data.materialId === "string" ? { materialId: data.materialId } : { topicId: str(data, "topicId") }, kind, body: str(data, "body"), anchor: anchor(data.anchor) });
         processEffects(); return send(res, 201, note);
       }
       if (url.pathname === "/api/chat" && method === "GET") {

@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -75,7 +76,7 @@ test("scoped repository tools read the pinned commit and reject other materials"
     const material = await store.importMaterial({ title: "代码", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
     const other = await store.importMaterial({ title: "其他", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
     const topic = await store.createTopic({ title: "读源码", target: "理解入口", materialIds: [material.id], toolkits: [] });
-    const tools = createScopedTools({ topicId: topic.id, store, storage, repository, onChoices: () => {} });
+    const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, repository, onChoices: () => {} });
     const call = (name: string, args: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(args);
     const listed = await call("pith_list_material", { materialId: material.id }) as { files: string[] };
     assert.ok(listed.files.includes("src/main.ts")); assert.ok(!listed.files.includes("untracked.txt"));
@@ -95,7 +96,7 @@ test("lesson tool writes to a topic without creating a material", async () => {
   try {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const topic = await store.createTopic({ title: "课题", target: "学习" , materialIds: [], toolkits: [] });
-    const lesson = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
+    const lesson = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
     await lesson.execute({ fileName: "00-课程大纲.md", markdown: "# 大纲" });
     const updated = await store.getTopic(topic.id); assert.deepEqual(updated?.materialIds, []);
     assert.equal(await store.readLesson(topic.id, "00-课程大纲.md"), "# 大纲");
@@ -105,7 +106,7 @@ test("lesson tool writes to a topic without creating a material", async () => {
 
 test("existing Web topic shows the curriculum quick action", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const root = await testSandbox("pith-task32-browser-");
-  const server = await createPithWebServer({ workspaceDir: root });
+  const server = await createPithWebServer({ workspaceDir: root, guideProvider: { async run() { return { status: "completed" }; } } });
   const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); let browser: any;
   try {

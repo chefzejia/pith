@@ -1,6 +1,7 @@
 import type { GuideTurn, GuideQuickAction, SelectionAnchor, Note } from "../../core/index.ts";
 import { renderMarkdown } from "../../plugins/stage-reader/index.ts";
 
+const noteLabels: Record<Note["kind"], string> = { highlight: "高亮", note: "笔记", practice: "实训" };
 const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 function toolLabel(name: string, preview: string): string {
   const labels: Record<string, string> = { pith_read_material: "读取", pith_read_lesson: "读取讲义", pith_list_material: "查看材料", pith_write_lesson: "写入讲义", pith_save_note: "记录笔记", pith_settle_topic: "结题", pith_offer_choices: "准备选项", pith_ingest_external: "导入材料", pith_fetch_media_corpus: "导入材料", pith_search_media: "搜索媒体", pith_configure_toolkits: "配置工具" };
@@ -9,7 +10,7 @@ function toolLabel(name: string, preview: string): string {
   return `${labels[name] ?? name}${object ? ` ${object}` : ""}`;
 }
 
-export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean }, tab: "chat" | "notes", anchor: SelectionAnchor | undefined, sending: boolean, pending?: { readonly text: string; readonly from: number }, error = ""): void {
+export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean }, tab: "chat" | "notes", anchor: SelectionAnchor | undefined, sending: boolean, pending?: { readonly text: string; readonly from: number }, error = "", notesOnly = false): void {
   const previous = guide.querySelector<HTMLTextAreaElement>("textarea"), draft = previous?.value ?? "";
   const shown = guide.querySelector<HTMLElement>(".pith-guide-content"), sameTab = shown?.dataset.guideContent === tab;
   const scrollTop = sameTab ? shown!.scrollTop : 0, follow = !sameTab || shown!.scrollHeight - shown!.clientHeight - scrollTop < 32;
@@ -47,7 +48,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
   const fresh = pending ? data.conversation.slice(pending.from) : [];
   const waiting = pending && sending && !fresh.length && !data.conversation.some(turn => turn.status === "running") ? `${pending.text ? `<div class="pith-guide-user">${escape(pending.text)}</div>` : ""}<div class="pith-guide-pending" role="status">向导正在回应</div>` : "";
   const quick = sending || data.readOnly || choices.length ? "" : `<div class="pith-quick-actions">${data.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}">${escape(action.label)}</button>`).join("")}</div>`;
-  const markup = `<div class="pith-guide-tabs"><button data-guide-tab="chat" aria-pressed="${tab === "chat"}">对话</button><button data-guide-tab="notes" aria-pressed="${tab === "notes"}">笔记 ${data.notes.length}</button></div><div class="pith-guide-content" data-guide-content="${tab}">${tab === "chat" ? conversation + waiting + quick : data.notes.map(note => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" title="跳回原文"><strong>${escape(note.kind)}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</button>` : `<p><strong>${escape(note.kind)}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</p>`).join("")}</div><button data-guide-bottom ${follow ? "hidden" : ""}>回到底部</button><div class="pith-guide-compose"><blockquote>${anchor?.quote ? escape(anchor.quote) : ""}</blockquote><textarea aria-label="消息" placeholder="${data.readOnly ? "课题已沉淀" : "给向导发消息"}" ${data.readOnly ? "disabled" : ""}></textarea><div data-guide-error role="alert">${escape(error)}</div>${sending ? '<button data-guide-stop>停止</button>' : `<button data-guide-send ${data.readOnly ? "disabled" : ""}>发送</button>`}</div>`;
+  const markup = `<div class="pith-guide-tabs">${notesOnly ? "" : `<button data-guide-tab="chat" aria-pressed="${tab === "chat"}">对话</button>`}<button data-guide-tab="notes" aria-pressed="${tab === "notes"}">笔记 ${data.notes.length}</button></div><div class="pith-guide-content" data-guide-content="${tab}">${tab === "chat" ? conversation + waiting + quick : data.notes.map(note => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" title="跳回原文"><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</button>` : `<p><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</p>`).join("")}</div><button data-guide-bottom ${follow ? "hidden" : ""}>回到底部</button><div class="pith-guide-compose"><blockquote>${anchor?.quote ? escape(anchor.quote) : ""}</blockquote><textarea aria-label="消息" placeholder="${data.readOnly ? "课题已沉淀" : notesOnly || tab === "notes" ? "写下笔记，只保存记录" : "给向导发消息"}" ${data.readOnly ? "disabled" : ""}></textarea><div data-guide-error role="alert">${escape(error)}</div>${sending ? '<button data-guide-stop>停止</button>' : `<button data-guide-send ${data.readOnly ? "disabled" : ""}>${notesOnly || tab === "notes" ? "保存笔记" : "发送"}</button>`}</div>`;
   const compose = guide.querySelector<HTMLElement>(".pith-guide-compose");
   if (compose && previous) {
     const next = guide.ownerDocument.createElement("div"); next.innerHTML = markup;
@@ -55,7 +56,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
     compose.querySelector("blockquote")!.textContent = anchor?.quote ?? "";
     compose.querySelector("[data-guide-error]")!.textContent = error;
     previous.disabled = Boolean(data.readOnly);
-    previous.placeholder = data.readOnly ? "课题已沉淀" : "给向导发消息";
+    previous.placeholder = data.readOnly ? "课题已沉淀" : notesOnly || tab === "notes" ? "写下笔记，只保存记录" : "给向导发消息";
     const oldButton = compose.querySelector<HTMLButtonElement>("[data-guide-send],[data-guide-stop]")!, newButton = next.querySelector<HTMLButtonElement>("[data-guide-send],[data-guide-stop]")!;
     if (oldButton.hasAttribute("data-guide-send") !== newButton.hasAttribute("data-guide-send")) oldButton.replaceWith(newButton);
     else oldButton.disabled = newButton.disabled;

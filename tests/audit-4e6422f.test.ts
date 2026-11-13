@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -41,7 +42,7 @@ test("settlement failure reports persisted effects, permits undo and identifies 
       };
       f.storage.copy = (from, to) => inject(operation === "copy", () => copy(from, to));
       f.storage.writeText = (path, data) => inject(operation === "profile" ? path === "ME.md" : operation === "topic" && path === `topics/${f.topic.id}/topic.md`, () => write(path, data));
-      const tools = createScopedTools({ topicId: f.topic.id, store: f.store, storage: f.storage, onChoices() {} });
+      const tools = createScopedTools({ toolkits: testToolkits, topicId: f.topic.id, store: f.store, storage: f.storage, onChoices() {} });
       const engine = new DefaultAttentionEngine(f.store, f.storage, () => ({ async run(_input, options) {
         let index = 0;
         const server = await openTurnTools(new NodeToolServerPort(), tools, options.signal, options.onStep, () => index++);
@@ -85,7 +86,7 @@ test("stalled external import stops, drains and can be retried without partial i
   const controller = new AbortController();
   const engine = new DefaultAttentionEngine(f.store, f.storage, () => ({ async run(_input, options) {
     const steps: TurnStep[] = [];
-    const server = await openTurnTools(new NodeToolServerPort(), createScopedTools({ topicId: f.topic.id, store: f.store, storage: f.storage, http, onChoices() {} }), options.signal, (step, index) => { steps[index] = step; options.onStep(step, index); }, () => steps.length);
+    const server = await openTurnTools(new NodeToolServerPort(), createScopedTools({ toolkits: testToolkits, topicId: f.topic.id, store: f.store, storage: f.storage, http, onChoices() {} }), options.signal, (step, index) => { steps[index] = step; options.onStep(step, index); }, () => steps.length);
     try {
       const response = await fetch(server.endpoint.url, { method: "POST", headers: Object.fromEntries(server.endpoint.headers.map(h => [h.name, h.value])), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "pith_ingest_external", arguments: { url: "https://example.com/entry" } } }) });
       const result = await response.json();
@@ -154,7 +155,7 @@ test("rendered material pages bound every field and resume within long blocks", 
     const content = "A".repeat(11999) + "😀HIDDENSUFFIX";
     const material = await f.store.importMaterial({ title: "Long", kind: "article", files: [{ name: "long.md", bytes: new TextEncoder().encode(content) }] });
     await f.store.attachMaterial(f.topic.id, material.id);
-    const read = createScopedTools({ topicId: f.topic.id, store: f.store, storage: f.storage, reader: { formats: ["markdown"], sections: () => [], render: () => "", renderFile }, onChoices() {} }).find(tool => tool.name === "pith_read_material")!;
+    const read = createScopedTools({ toolkits: testToolkits, topicId: f.topic.id, store: f.store, storage: f.storage, reader: { formats: ["markdown"], sections: () => [], render: () => "", renderFile }, onChoices() {} }).find(tool => tool.name === "pith_read_material")!;
     const first = await read.execute({ materialId: material.id, file: "long.md" }) as { blocks: { text: string; [key: string]: unknown }[]; truncated: boolean; next: { startLine: number; startOffset: number } };
     assert.equal(first.truncated, true); assert.equal(first.blocks[0]!.text.length, 11999); assert.doesNotMatch(JSON.stringify(first), /HIDDENSUFFIX/);
     assert.deepEqual(Object.keys(first.blocks[0]!).sort(), ["index", "isProse", "locator", "text"]);

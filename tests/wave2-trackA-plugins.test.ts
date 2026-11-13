@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -31,7 +32,7 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
     await store.ensureScaffold();
     const topic = await store.createTopic({ title: "Language", target: "Speak clearly", materialIds: [], toolkits: [] });
     const engine = new DefaultAttentionEngine(store, storage);
-    const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage }, store, engine, window: {} });
+    const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage }, store, engine, window: {}, "toolkit.catalog": testToolkits });
     runtime.reconcile({});
     try {
       const guide = runtime.getService<GuideAgentService>("guide.agent")!;
@@ -43,7 +44,7 @@ test("guide and DSH configure toolkits through the same workspace", async () => 
       assert.deepEqual((await guide.configureTopicToolkits!(topic.id, ["shadowing", "shadowing"])).toolkits, ["shadowing"]);
       const mounted = await store.getTopic(topic.id);
       assert.ok(mounted);
-      const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, materials: [], userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", category: "music" }] });
+      const prompt = buildScenePrompt({ profileMarkdown: "Profile", topic: mounted, materials: [], userMessage: "Help", availableToolkits: [{ id: "custom", label: "Custom", role: "training", category: "music" }] });
       for (const text of ["可用训练工具", "custom", "Custom", "shadowing"]) assert.ok(prompt.includes(text));
       assert.match(buildScenePrompt({ profileMarkdown: "", topic: mounted, materials: [], userMessage: "Help" }), /shadowing/);
       await assert.rejects(guide.configureTopicToolkits!(topic.id, ["shadowing", "../unsafe"]), /Invalid toolkit/);

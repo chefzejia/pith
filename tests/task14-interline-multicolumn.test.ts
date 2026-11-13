@@ -34,25 +34,26 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1500, height: 900 } });
     const page = await browser.newPage();
     if (host === "web") {
-      server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), interlineTranslator: translator });
+      server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: { async run() { return { status: "completed" }; } }, interlineTranslator: translator });
       const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
       const post = async (path: string, data: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
       const topic = await createTestTopic(join(dir, "workspace"), { title: "Three chapters" });
       await post("/api/materials", { topicId: topic.id, title: "Three chapters", kind: "book", files: [{ name: "book.epub", data: Buffer.from(bytes).toString("base64") }] });
-      await post(`/api/topics/${topic.id}/toolkits`, { toolkits: ["interline"] });
+
+      await post("/api/materials/aids", { materialId: (await (await fetch(base + "/api/state")).json()).materials[0].id, aids: [] });
       await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click();
       if (startMode !== "single") { await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
       if (startMode === "resize") { await page.setViewportSize({ width: 600, height: 900 }); await page.waitForFunction(() => (document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
-      await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="interline"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
+      if (await page.locator(".pith-typography-popover").isHidden()) await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-interline-mode="bilingual"]').click();
     } else {
       const bundle = await build({ entryPoints: ["src/shells/obsidian/plugin.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "PithView" });
       const rendered = await renderEpub(bytes), storage = new NodeWorkspaceStorage(join(dir, "workspace")); let session: InterlineSession | undefined;
       await page.exposeFunction("prepareSpread", async (units: InterlineUnitInput[], index: number, mode: "bilingual") => { session ??= new InterlineSession(interlineToolkit, storage, translator, "material", "book.epub", units); return session.render(index, mode); });
       await page.setContent('<style>html,body,#root{height:100%;margin:0}</style><div id="root"></div>'); await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-      await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间双语", category: "language", stages: [], quickActions: [] }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() { view.openToolkit([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareSpread(...args) }); view.setToolkits(["interline"]); view.render({ ...(documentData as object), currentFile: "book.epub", files: [], title: "Three chapters" }); }, rendered);
+      await page.evaluate((documentData: unknown) => { const toolkit = { id: "interline", label: "行间双语", category: "language", stages: [], quickActions: [] }; let view: any; view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { setMaterialAids: async () => {}, openFile() {}, selection() {}, openToolkit() { view.openToolkit([toolkit]); }, prepareInterline: (...args: unknown[]) => (window as any).prepareSpread(...args) });  view.render({ ...(documentData as object), source: { kind: "material", materialId: "material" }, materialAids: [], currentFile: "book.epub", files: [], title: "Three chapters" }); }, rendered);
       if (startMode !== "single") { await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
       if (startMode === "resize") { await page.setViewportSize({ width: 600, height: 900 }); await page.waitForFunction(() => (document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
-      await page.locator('[data-command="toolkit"]').click(); await page.locator('.pith-toolkit-panel [data-interline-mode="bilingual"]').click();
+      if (await page.locator(".pith-typography-popover").isHidden()) await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-interline-mode="bilingual"]').click();
     }
     const article = ".pith-article", reader = ".pith-reader";
     const first = page.locator(`${article} > .pith-epub-chapter`).nth(0), second = page.locator(`${article} > .pith-epub-chapter`).nth(1);
@@ -61,7 +62,7 @@ for (const host of ["web", "obsidian"] as const) for (const startMode of ["tripl
     if (startMode !== "triple") {
       const initiallyVisible = await second.evaluate((chapter: HTMLElement, selector: string) => { const viewport = document.querySelector(selector)!.getBoundingClientRect(); return Array.from(chapter.getClientRects()).some(rect => rect.left < viewport.right && rect.right > viewport.left && rect.top < viewport.bottom && rect.bottom > viewport.top); }, reader);
       assert.equal(initiallyVisible, false, "second chapter starts outside the single-column viewport");
-      if (startMode === "single") { await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
+      if (startMode === "single") { if (await page.locator(".pith-typography-popover").isHidden()) await page.locator('[data-command="typography"]').click(); await page.locator('.pith-typography-popover [data-mode="triple"]').click(); }
       else { await page.setViewportSize({ width: 1500, height: 900 }); await page.waitForFunction(() => !(document.querySelector('.pith-typography-popover [data-mode="triple"]') as HTMLButtonElement).disabled); }
     }
     const visible = await second.evaluate((chapter: HTMLElement, selector: string) => { const viewport = document.querySelector(selector)!.getBoundingClientRect(); return Array.from(chapter.getClientRects()).some(rect => rect.left < viewport.right && rect.right > viewport.left && rect.top < viewport.bottom && rect.bottom > viewport.top); }, reader);

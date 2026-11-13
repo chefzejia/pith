@@ -91,7 +91,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
         await page.evaluate((doc: unknown) => {
           const pith = (window as unknown as { PithView: { PithObsidianView: new (root: HTMLElement, actions: object) => { render(doc: object): void; setToolkits(ids: string[]): void; openToolkit(toolkits: object[]): void } } }).PithView;
           let view: InstanceType<typeof pith.PithObsidianView>;
-          const toolkits = ["feynman", "shadowing"].map(id => ({ id, label: id, stages: ["listen-decompose"], transformCue: (text: string) => text }));
+          const toolkits = ["feynman", "shadowing"].map(id => ({ id, role: "training", label: id, stages: ["listen-decompose"], transformCue: (text: string) => text }));
           view = new pith.PithObsidianView(document.getElementById("root")!, { openFile() {}, selection() {}, openToolkit() { view.openToolkit(toolkits); } });
           view.render({ ...(doc as object), currentFile: "links.epub", files: [], title: "链接书" });
           (window as unknown as { testView: typeof view }).testView = view;
@@ -141,7 +141,7 @@ test("real browser navigates chapter-scoped EPUB links and injected tool entry i
       } else await page.evaluate(() => (window as unknown as { testView: { setToolkits(ids: string[]): void } }).testView.setToolkits(["feynman", "shadowing"]));
       await page.locator("#open-toolkit").click();
       const chooser = "[data-toolkit-choose]";
-      assert.equal(await page.locator(chooser).count(), shell === "web" ? 3 : 2);
+      assert.equal(await page.locator(chooser).count(), 2);
       await page.locator(chooser).first().click();
       assert.equal(await page.locator("#toolkit-toolkit, [data-toolkit-tool]").count(), 0);
     }

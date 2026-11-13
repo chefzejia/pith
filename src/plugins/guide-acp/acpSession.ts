@@ -407,7 +407,7 @@ export interface LocalAcpGuideProviderOptions {
     readonly profileMarkdown: string;
     readonly topic: Topic | null;
     readonly materials: readonly Material[];
-    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "label" | "category" | "whenToUse">[];
+    readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "role" | "label" | "category" | "whenToUse">[];
     readonly userMessage: string;
     readonly conversation?: readonly GuideHistoryTurn[];
     readonly anchor?: SelectionAnchor;
@@ -447,7 +447,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       const materials = topic ? (await Promise.all(topic.materialIds.map(id => this.options.store.getMaterial(id)))).filter((material): material is Material => material !== null) : await this.options.store.listMaterials();
       const prompt = this.options.buildScenePrompt({
         profileMarkdown: profile.markdown, topic, materials,
-        availableToolkits: this.options.getToolkits ? this.options.getToolkits() : undefined,
+        availableToolkits: this.options.getToolkits?.().filter(toolkit => toolkit.role === "training"),
         userMessage: input.text, conversation: selectConversationHistory(input.history),
         anchor: input.anchor, instruction: input.instruction,
       });
@@ -456,7 +456,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       const publish = (step: TurnStep, index: number) => { steps[index] = step; options.onStep(step, index); };
       const tools = createScopedTools({ ...(topic ? { topicId: topic.id } : { materialIds: input.scope.kind === "intake" ? input.scope.materialIds : [] }), store: this.options.store, storage: this.options.storage,
         engine: this.options.engine, http: this.options.http, repository: this.options.repository,
-        mediaCorpus: this.options.mediaCorpus, reader: this.options.getReader?.(), onChoices: options.onChoices });
+        toolkits: this.options.getToolkits?.(), mediaCorpus: this.options.mediaCorpus, reader: this.options.getReader?.(), onChoices: options.onChoices });
       endpoint = await openTurnTools(this.options.toolServer, tools, options.signal, publish, nextIndex, config.timeoutMs);
       const ids = new Map<string, number>();
       const messages = new Map<string, number>();

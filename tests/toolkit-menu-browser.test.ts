@@ -21,7 +21,7 @@ test("toolkit menu opens, enables and removes tools without stale actions", { ti
     await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.getByText("第二段用于练习的内容。").waitFor();
     await page.locator("#open-toolkit").click();
     const panel = page.locator(".pith-toolkit-panel"); assert.equal(await panel.locator('input[type="checkbox"]').count(), 0); assert.equal(await panel.getByRole("button", { name: "打开", exact: true }).count(), 0);
-    assert.equal(await panel.getByRole("button", { name: "移除费曼复述" }).count(), 1); assert.equal(await panel.getByRole("button", { name: "移除行间" }).count(), 0);
+    assert.equal(await panel.getByRole("button", { name: "移除费曼复述" }).count(), 1); assert.equal(await panel.getByRole("button", { name: "移除影子跟读" }).count(), 0);
     assert.equal(await panel.evaluate((element: HTMLElement) => element.scrollWidth <= element.clientWidth && Array.from(element.querySelectorAll('button')).every(button => { const rect = button.getBoundingClientRect(), outer = element.getBoundingClientRect(); return rect.left >= outer.left && rect.right <= outer.right; })), true);
     await page.keyboard.press("Escape"); assert.equal(await panel.isHidden(), true, "Escape closes the tool menu");
     await page.locator("#open-toolkit").click(); assert.equal(await panel.isVisible(), true);
@@ -33,11 +33,11 @@ test("toolkit menu opens, enables and removes tools without stale actions", { ti
     const before = await (await fetch(base + "/api/state")).json() as any;
     await panel.getByRole("button", { name: "费曼复述", exact: true }).click(); await page.locator("[data-toolkit-close]").waitFor(); assert.equal(updates, 0);
     const after = await (await fetch(base + "/api/state")).json() as any; assert.deepEqual(after.compass.exploring.find((item: any) => item.id === topic.id), before.compass.exploring.find((item: any) => item.id === topic.id));
-    await page.locator("#open-toolkit").click(); fail = true; await panel.getByRole("button", { name: "行间", exact: true }).click(); await page.getByText("受控保存失败").waitFor(); assert.equal(await panel.getByRole("button", { name: "行间", exact: true }).isEnabled(), true);
-    await panel.getByRole("button", { name: "行间", exact: true }).click(); await panel.locator('[data-interline-mode="bilingual"]').waitFor(); assert.equal(updates, 2);
-    await page.locator("#open-toolkit").click(); await panel.getByRole("button", { name: "移除行间" }).click(); await panel.getByRole("button", { name: "移除行间" }).waitFor({ state: "detached" });
+    await page.locator("#open-toolkit").click(); fail = true; await panel.getByRole("button", { name: "影子跟读", exact: true }).click(); await page.getByText("受控保存失败").waitFor(); assert.equal(await panel.getByRole("button", { name: "影子跟读", exact: true }).isEnabled(), true);
+    await panel.getByRole("button", { name: "影子跟读", exact: true }).click(); await page.locator('[data-toolkit-close]').waitFor(); assert.equal(updates, 2);
+    await page.locator("#open-toolkit").click(); await panel.getByRole("button", { name: "移除影子跟读" }).click(); await panel.getByRole("button", { name: "移除影子跟读" }).waitFor({ state: "detached" });
     const current = await (await fetch(base + "/api/state")).json() as any; assert.deepEqual(current.compass.exploring.find((item: any) => item.id === topic.id).toolkits, ["feynman"]);
-    hold = true; const pending = new Promise<void>(resolve => { seen = resolve; }); await panel.getByRole("button", { name: "行间", exact: true }).click(); await pending; assert.equal(await panel.getByRole("button", { name: "费曼复述", exact: true }).isEnabled(), false);
+    hold = true; const pending = new Promise<void>(resolve => { seen = resolve; }); await panel.getByRole("button", { name: "影子跟读", exact: true }).click(); await pending; assert.equal(await panel.getByRole("button", { name: "费曼复述", exact: true }).isEnabled(), false);
     await page.locator('[data-command="home"]').click(); await page.locator(".pith-home").waitFor(); const response = page.waitForResponse((item: any) => item.url().endsWith(`/api/topics/${topic.id}/toolkits`) && item.request().method() === "POST"); release!(); await response; assert.equal(await page.locator(".pith-home").isVisible(), true); assert.equal(await page.locator(".pith-inline-toolkit").count(), 0);
   } finally { if (browser) await browser.close(); await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok())); await rm(root, { recursive: true, force: true }); }
 });

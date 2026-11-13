@@ -1,3 +1,4 @@
+import { testToolkits } from "./guide-tools-fixture.ts";
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -35,7 +36,7 @@ test("web generates the requested lesson after persistence and ignores stale res
   const topic = await store.createTopic({ title: "课程", target: "学习课程", materialIds: [material.id], toolkits: [] });
   await store.writeLesson(topic.id, "00-课程大纲.md", "# 大纲\n- [01-intro.md] 第一讲\n- [数据流](./02-flow.md)\n- [运行时](03-runtime.md#section)\n- [04-error.md] 失败讲\n- [05-extra.md] 第五讲\n- [06-extra.md] 第六讲：深入理解异步数据流中的状态更新与并发边界");
   await store.writeLesson(topic.id, "01-intro.md", "# 第一讲\n## 概览\n阅读内容");
-  const write = createScopedTools({ topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
+  const write = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, onChoices: () => {} }).find(tool => tool.name === "pith_write_lesson")!;
   const received: string[] = []; let release: (() => void) | undefined; let started: (() => void) | undefined; let releaseMessage: (() => void) | undefined; let messageStarted: (() => void) | undefined; let releaseSix: (() => void) | undefined; let sixStarted: (() => void) | undefined;
   const waiting = new Promise<void>(resolve => { started = resolve; });
   const messageWaiting = new Promise<void>(resolve => { messageStarted = resolve; });

@@ -120,7 +120,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
   Object.assign(view, { mountedToolkits: [], toolkitId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {}, clearRecording() {} }, toolkit: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountToolkit: async (id: string) => { mounted.push(id); }, openToolkit: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setToolkitActive() {}, renderToolkit() {}, tip() {}, refreshGuide: async () => {} });
-  const descriptors = [{ id: "shadowing", label: "影子跟读" }, { id: "feynman", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openToolkit"]>[0];
+  const descriptors = [{ id: "shadowing", role: "training", label: "影子跟读" }, { id: "feynman", role: "training", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openToolkit"]>[0];
   view.openToolkit(descriptors);
   assert.equal(mounted.length, 0);
   assert.equal(added.length, 0);
@@ -152,6 +152,7 @@ test("Obsidian home failure retains reader and stale toolkit mount cannot update
   const topics = { a: { id: "a", title: "A", materialIds: [], lessons: [], toolkits: [] }, b: { id: "b", title: "B", materialIds: [], lessons: [], toolkits: [] } };
   let deferredLookup = false;
   const controller = {
+    hasGuideProvider: () => false,
     openTopic: async (id: "a" | "b") => topics[id],
     topicSession: async (id: "a" | "b") => ({ topic: topics[id], materials: [], repositoryFiles: {} }),
     store: { getTopic: (id: "a" | "b") => id === "a" && deferredLookup ? lookup : Promise.resolve(topics[id]), updateTopic: async () => { updates++; return topics.a; } },
@@ -195,6 +196,7 @@ test("Obsidian guide snapshot and already-mounted action update the originating 
   const writes: string[][] = [];
   let updates = 0;
   const controller = {
+    hasGuideProvider: () => false,
     openTopic: async () => ({ ...current, toolkits: [] }),
     topicSession: async () => ({ topic: { ...current, toolkits: [] }, materials: [], repositoryFiles: {} }),
     openCompass: async () => ({}),

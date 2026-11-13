@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { build } from "esbuild";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { testSandbox } from "./sandbox.ts";
 
@@ -74,21 +73,13 @@ test("topic board controls and timeline practice retain timestamps without readi
 test("Obsidian workspace board connects settings and maintains readable hover", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const dir = await testSandbox("pith-task25-native-board-"); let browser: any;
   try {
-    const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
+    await mkdir(join(dir, "workspace"));
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1100, height: 700 } });
     const page = await browser.newPage();
-    await page.setContent('<style>html,body,#root{height:100%;margin:0}body{--background-primary:#fff;--background-secondary:#f4f4f4;--background-modifier-border:#ddd;--background-modifier-hover:#e1e9e2;--text-normal:#222;--text-muted:#666;--font-interface:Arial}</style><div id="root"></div>');
-    await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl = document.getElementById("root"); }, Plugin: class {}, Notice: class {} } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
-    await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-    await page.evaluate(async () => {
-      const state: any = (window as any).nativeBoard = { opened: 0 };
-      const compass = { exploring: [], shelved: [], settled: [], unreadable: [], focusRecommendation: { topicId: "t", title: "测试课题", nextAction: "继续探索" } };
-      const controller = { guideVisibility: new Map(), openCompass: async () => compass, openBoardMaterials: async () => [] };
-      state.view = new (window as any).NativePith.PithWorkspaceView({}, controller, {}, undefined, () => { state.opened++; });
-      await state.view.onOpen();
-    });
-    const settings = page.locator("[data-home-settings]"); assert.equal(await settings.count(), 1); await settings.click(); assert.equal(await page.evaluate(() => (window as any).nativeBoard.opened), 1);
+    await (await import("./native-workbench-fixture.ts")).nativeWorkbenchFixture(page, join(dir, "workspace"));
+    await page.evaluate(async () => { const { controller, view } = (window as any).nativeTask52; await controller.store.createTopic({ title: "测试课题", target: "理解内容", nextAction: "继续探索", materialIds: [], toolkits: [] }); await view.onOpen(); });
+    const settings = page.locator("[data-home-settings]"); assert.equal(await settings.count(), 1); await settings.click(); assert.equal(await page.evaluate(() => (window as any).settingsOpened), true);
     await assertPrimaryHover(page);
     if (process.env.PITH_TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.PITH_TEST_SCREENSHOT_DIR, "worker-native-hover.png") });
   } finally { if (browser) await browser.close(); await rm(dir, { recursive: true, force: true }); }
