@@ -114,10 +114,11 @@
 
 ## [Task #51] 内核：材料与课题分离
 
-- **Status**: pending
+- **Status**: blocked
 - **Depends-On**: #50 verified
 - **Verified-Commit**: none
-- **Updated**: 2026-11-12
+- **Updated**: 2026-11-13
+- **阻塞证据**: 冻结契约 [1-core 第 3.6 节](subsystems/1-core-store-engine.md) 同时规定文件名禁止包含 `.` 和讲义文件名必须以 `.md` 结尾；同节禁止文件名包含 `/`，但第 3.2 节记录锚点示例使用 `packages/core/README.md`，本任务亦要求仓库相对路径及 `path:line` 可用。需明确 ID、普通文件名与仓库相对路径各自的安全规则，尤其扩展名和 `.`、`..` 路径段的处理；不得降低路径穿越防护。
 - **Scope**: `src/core/**`、`src/plugins/**`、`src/shells/**`、`src/workbench/**`（只做下面第 7 条的最小适配）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：课题现在最多绑一份材料，讲义写进材料，锚点只有文件名。目标模型见 [PRODUCT.md](PRODUCT.md)「运转模型」。
 - **契约**：
