@@ -114,11 +114,11 @@
 
 ## [Task #51] 内核：材料与课题分离
 
-- **Status**: blocked
+- **Status**: pending
 - **Depends-On**: #50 verified
 - **Verified-Commit**: none
 - **Updated**: 2026-11-13
-- **阻塞证据**: 冻结契约 [1-core 第 3.6 节](subsystems/1-core-store-engine.md) 同时规定文件名禁止包含 `.` 和讲义文件名必须以 `.md` 结尾；同节禁止文件名包含 `/`，但第 3.2 节记录锚点示例使用 `packages/core/README.md`，本任务亦要求仓库相对路径及 `path:line` 可用。需明确 ID、普通文件名与仓库相对路径各自的安全规则，尤其扩展名和 `.`、`..` 路径段的处理；不得降低路径穿越防护。
+- **Brain 裁决（2026-11-13，契约提交 `e86eb34`）**：阻塞成立，错在契约。3.6 把两类名字合并成一条「禁止包含 `.`」，但锚点的 `file` 字段存的是仓库相对路径（`packages/core/README.md`），天然有 `/` 和 `.`。裁决是分两套规则：Pith 控制的存储名字（`topicId`、`materialId`、讲义文件名）禁止 `/`、`\`、`\0`、`..` 路径段，允许扩展名；仓库相对路径允许 `/` 和 `.`，禁止 `..` 和绝对路径，宿主负责限定在仓库根目录内解析。
 - **Scope**: `src/core/**`、`src/plugins/**`、`src/shells/**`、`src/workbench/**`（只做下面第 7 条的最小适配）、`tests/**`、`docs/ARCHITECTURE.md`（删差距行）
 - **背景**：课题现在最多绑一份材料，讲义写进材料，锚点只有文件名。目标模型见 [PRODUCT.md](PRODUCT.md)「运转模型」。
 - **契约**：
