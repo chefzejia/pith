@@ -1,12 +1,17 @@
 export const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** Invalid package resource data; callers may skip optional resources only. */
+export class EpubResourceError extends Error {}
+
 export function resolveEpubPath(base: string, href: string): string {
-  const raw = decodeURIComponent(href.split("#")[0]!.split("?")[0]!);
-  if (!raw || raw.startsWith("/") || raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw) || /^[a-z][a-z\d+.-]*:/i.test(raw)) throw new Error("Invalid EPUB path");
+  let raw: string;
+  try { raw = decodeURIComponent(href.split("#")[0]!.split("?")[0]!); }
+  catch (error) { if (error instanceof URIError) throw new EpubResourceError("Invalid EPUB path", { cause: error }); throw error; }
+  if (!raw || raw.startsWith("/") || raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw) || /^[a-z][a-z\d+.-]*:/i.test(raw)) throw new EpubResourceError("Invalid EPUB path");
   const parts = base ? base.split("/") : [];
   for (const part of raw.split("/")) {
     if (!part || part === ".") continue;
-    if (part === "..") { if (!parts.length) throw new Error("EPUB path traversal"); parts.pop(); }
+    if (part === "..") { if (!parts.length) throw new EpubResourceError("EPUB path traversal"); parts.pop(); }
     else parts.push(part);
   }
   return parts.join("/");

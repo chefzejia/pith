@@ -1,5 +1,5 @@
 import type { ProseBlock, ReaderSectionHeading, RenderedDocumentView } from "../../core/index.ts";
-import { directoryOf as dir, escapeHtml as escape, imageDataUrl, resolveEpubPath as resolve, sanitizeDeclarations, sanitizeStylesheet } from "./epubResources.ts";
+import { EpubResourceError, directoryOf as dir, escapeHtml as escape, imageDataUrl, resolveEpubPath as resolve, sanitizeDeclarations, sanitizeStylesheet } from "./epubResources.ts";
 
 const LIMIT = 16 * 1024 * 1024;
 const BOOK_LIMIT = 64 * 1024 * 1024;
@@ -66,35 +66,39 @@ class Zip {
   }
   private data: Uint8Array;
   async text(name: string): Promise<string> {
-    return decoder.decode(await this.read(name));
+    const bytes = await this.read(name);
+    try { return decoder.decode(bytes); }
+    catch (error) { if (error instanceof TypeError) throw new EpubResourceError("Invalid EPUB text", { cause: error }); throw error; }
   }
   names(): string[] { return [...this.entries.keys()]; }
   has(name: string): boolean { return this.entries.has(name); }
   size(name: string): number { return this.entries.get(name)!.size; }
   async read(name: string): Promise<Uint8Array> {
     const entry = this.entries.get(name);
-    if (!entry) throw new Error(`Missing EPUB entry: ${name}`);
+    if (!entry) throw new EpubResourceError(`Missing EPUB entry: ${name}`);
     const { offset, compressed, size, method } = entry, v = this.view;
-    if (offset + 30 > this.data.length || v.getUint32(offset, true) !== 0x04034b50) throw new Error("Invalid ZIP local header");
+    if (offset + 30 > this.data.length || v.getUint32(offset, true) !== 0x04034b50) throw new EpubResourceError("Invalid ZIP local header");
     const start = offset + 30 + v.getUint16(offset + 26, true) + v.getUint16(offset + 28, true);
-    if (start + compressed > this.data.length) throw new Error("Truncated ZIP entry");
+    if (start + compressed > this.data.length) throw new EpubResourceError("Truncated ZIP entry");
     let bytes = this.data.slice(start, start + compressed);
     if (method === 8) {
       const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
       const chunks: Uint8Array[] = []; let length = 0;
       try {
         while (true) {
-          const result = await reader.read();
+          let result: ReadableStreamReadResult<Uint8Array>;
+          try { result = await reader.read(); }
+          catch (error) { if (error instanceof TypeError || error instanceof DOMException) throw new EpubResourceError("Invalid EPUB compressed entry", { cause: error }); throw error; }
           if (result.done) break;
           length += result.value.length;
-          if (length > size || length > LIMIT) { await reader.cancel(); throw new Error("EPUB entry exceeds size limit"); }
+          if (length > size || length > LIMIT) { await reader.cancel(); throw new EpubResourceError("EPUB entry exceeds size limit"); }
           chunks.push(result.value);
         }
       } finally { reader.releaseLock(); }
       bytes = new Uint8Array(length); let at = 0;
       for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
     }
-    if (bytes.length !== size) throw new Error("Invalid ZIP entry size");
+    if (bytes.length !== size) throw new EpubResourceError("Invalid ZIP entry size");
     return bytes;
   }
 }
@@ -113,26 +117,26 @@ function decode(value: string): string {
     const predefined: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
     if (entity[0] !== "#") return predefined[entity.toLowerCase()]!;
     const value = entity[1]?.toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
-    if (!Number.isInteger(value) || value <= 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) throw new Error("Invalid XML entity");
+    if (!Number.isInteger(value) || value <= 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) throw new EpubResourceError("Invalid XML entity");
     return String.fromCodePoint(value);
   });
 }
 function xml(source: string): XmlNode {
-  if (/<!ENTITY/i.test(source)) throw new Error("XML entities are unsupported");
+  if (/<!ENTITY/i.test(source)) throw new EpubResourceError("XML entities are unsupported");
   const root: XmlNode = { name: "#document", attrs: {}, children: [] }, stack = [root];
   const tokens = source.match(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<[^>]*>|[^<]+/gi) ?? [];
-  if (tokens.join("") !== source) throw new Error("Invalid XML");
+  if (tokens.join("") !== source) throw new EpubResourceError("Invalid XML");
   for (const token of tokens) {
     const parent = stack[stack.length - 1]!;
     if (token.startsWith("<!--") || token.startsWith("<?") || /^<!DOCTYPE/i.test(token)) continue;
     if (token.startsWith("<![CDATA[")) { parent.children.push(token.slice(9, -3)); continue; }
     if (token.startsWith("</")) {
-      if (stack.length === 1 || token.slice(2, -1).trim() !== parent.name) throw new Error("Mismatched XML tag");
+      if (stack.length === 1 || token.slice(2, -1).trim() !== parent.name) throw new EpubResourceError("Mismatched XML tag");
       stack.pop(); continue;
     }
     if (token.startsWith("<")) {
       const match = /^<([\w:.-]+)((?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>$/.exec(token);
-      if (!match) throw new Error("Invalid XML tag");
+      if (!match) throw new EpubResourceError("Invalid XML tag");
       const attrs: Record<string, string> = Object.create(null) as Record<string, string>;
       for (const attr of match[2]!.matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attrs[attr[1]!] = decode(attr[2] ?? attr[3] ?? "");
       const node: XmlNode = { name: match[1]!, attrs, children: [] };
@@ -140,7 +144,7 @@ function xml(source: string): XmlNode {
     }
     parent.children.push(decode(token));
   }
-  if (stack.length !== 1) throw new Error("Unclosed XML tag");
+  if (stack.length !== 1) throw new EpubResourceError("Unclosed XML tag");
   return root;
 }
 function descendants(node: XmlNode, name: string): XmlNode[] {
@@ -178,6 +182,32 @@ function coverUrl(bytes: Uint8Array): string | undefined {
   return `data:${type};base64,${btoa(binary)}`;
 }
 
+function optionalCoverPath(base: string, href: string): string | undefined {
+  try { return resolve(base, href); }
+  catch (error) { if (error instanceof EpubResourceError) return undefined; throw error; }
+}
+
+async function optionalCover(zip: Zip, path: string): Promise<string | undefined> {
+  if (!zip.has(path)) return undefined;
+  let paths = [path];
+  if (!rasterType(path) && /\.(?:xhtml|html|htm)$/i.test(path)) {
+    let page: XmlNode;
+    try { page = xml(await zip.text(path)); }
+    catch (error) { if (error instanceof EpubResourceError) return undefined; throw error; }
+    paths = [...descendants(page, "img"), ...descendants(page, "image")].flatMap(image => {
+      const href = image.attrs["src"] ?? image.attrs["href"] ?? image.attrs["xlink:href"];
+      const target = href ? optionalCoverPath(dir(path), href) : undefined;
+      return target ? [target] : [];
+    });
+  }
+  for (const image of paths) {
+    if (!rasterType(image) || !zip.has(image) || zip.size(image) > 4 * 1024 * 1024) continue;
+    try { const url = coverUrl(await zip.read(image)); if (url) return url; }
+    catch (error) { if (!(error instanceof EpubResourceError)) throw error; }
+  }
+  return undefined;
+}
+
 export async function inspectEpubPackage(bytes: Uint8Array): Promise<{ title?: string; author?: string; coverDataUrl?: string }> {
   const zip = new Zip(bytes), container = xml(await zip.text("META-INF/container.xml"));
   const opfPath = descendants(container, "rootfile")[0]?.attrs["full-path"];
@@ -189,23 +219,14 @@ export async function inspectEpubPackage(bytes: Uint8Array): Promise<{ title?: s
   const coverId = descendants(opf, "meta").find(item => item.attrs["name"]?.toLowerCase() === "cover")?.attrs["content"];
   const candidates = [manifest.find(item => item.id === coverId)?.path, manifest.find(item => item.properties.split(/\s+/).includes("cover-image"))?.path];
   const guide = descendants(opf, "reference").find(item => item.attrs["type"]?.toLowerCase() === "cover")?.attrs["href"];
-  if (guide) candidates.push(resolve(dir(opfPath), guide));
+  if (guide) candidates.push(optionalCoverPath(dir(opfPath), guide));
   const firstSpine = descendants(opf, "itemref")[0]?.attrs["idref"];
   candidates.push(manifest.find(item => item.id === firstSpine)?.path);
   candidates.push(...manifest.filter(item => rasterType(item.path)).map(item => item.path));
-  for (let path of candidates) {
-    if (!path || !zip.has(path)) continue;
-    if (!rasterType(path) && /\.(?:xhtml|html|htm)$/i.test(path)) {
-      const page = xml(await zip.text(path));
-      const image = descendants(page, "img")[0]?.attrs["src"] ?? descendants(page, "image")[0]?.attrs["href"] ?? descendants(page, "image")[0]?.attrs["xlink:href"];
-      if (!image) continue;
-      path = resolve(dir(path), image);
-    }
-    const type = rasterType(path);
-    if (type && zip.has(path) && zip.size(path) <= 4 * 1024 * 1024) {
-      const coverDataUrl = coverUrl(await zip.read(path));
-      if (coverDataUrl) return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}), coverDataUrl };
-    }
+  for (const path of candidates) {
+    if (!path) continue;
+    const coverDataUrl = await optionalCover(zip, path);
+    if (coverDataUrl) return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}), coverDataUrl };
   }
   return { ...(title ? { title: cleanMaterialTitle(title) } : {}), ...(author ? { author } : {}) };
 }
