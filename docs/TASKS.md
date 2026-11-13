@@ -43,9 +43,11 @@
 ---
 
 ## [Task #56] ACP 通信稳健性与错误处理
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #51
-- **Updated**: 2026-11-13
+- **Verified-Commit**: d8f5d4e30bf22fa1cdd3e8776729719d551284d5
+- **Updated**: 2026-11-14
+- **验收结果**: Worker 全仓类型、单测、浏览器回归、构建与 13 次手动破壁通过；组合版本在独立 Chrome 和专属 `.dev-vault` Obsidian 中通过真实 Agent 多工具读写、停止及同回合重试，用户消息未重复。原版受控进程故障另行覆盖异常重开、部分回复及写入后失败不自动重放，不冒充真实模型故障；真实停止未覆盖工具写入进行中。构建加载哈希一致；本轮 17 次 Agent 启动均有退出回执，43 个登记 PID 不存在，端口和运行沙盒已回收，Cleanup: PASS。报告及终验截图：`.tmp/evidence/task-56/tester/combined/tester-report.md`、`.tmp/evidence/task-56/tester/combined/`；原版故障证据：`.tmp/evidence/task-56/tester/tester-report.md`；组合工程证据：`.tmp/evidence/task-56/integration-report.md`。未交付真实 Vault。
 - **Scope**: `src/plugins/guide-acp/**`, `src/shells/**`
 - **契约**: 强化 ACP 通信协议，增加对工具调用超时、状态丢包、异常中断后的状态恢复逻辑。
 - **交付**: 不交付。
