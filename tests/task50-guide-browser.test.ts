@@ -60,6 +60,36 @@ test("shared guide renders turn states, protects scroll and sends only deliberat
     assert.deepEqual(await page.locator("[data-guide-copy]").evaluateAll((nodes: Element[]) => nodes.map(node => node.getAttribute("data-guide-copy-index"))), ["0", "6"]);
     await page.locator('[data-guide-copy-index="6"]').click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "  讲义已完成。\n");
+    await page.evaluate(() => {
+      const state = (window as any).task50;
+      const tool = (callId: string, status: string, effects: unknown[] = []) => ({ kind: "tool", name: "pith_settle_topic", callId, inputPreview: "{}", status, summary: status === "failed" ? "结题部分写入失败" : "", effects });
+      state.conversation = [{ id: "turn", status: "completed", startedAt: new Date().toISOString(), user: { text: "请结题" }, choices: [], steps: [
+        tool("failed", "failed", [{ kind: "observation", observationId: "obs-1", text: "熟悉依赖注入" }]),
+        tool("retry", "completed"), { kind: "reply", markdown: "已重试。" },
+        tool("separate-failure", "failed"), { kind: "reply", markdown: "再试一次。" }, tool("separate-success", "completed"),
+      ] }];
+      state.view.updateGuideTurn(state.conversation[0]);
+    });
+    const summaries = page.locator(".pith-guide-process > summary");
+    assert.deepEqual(await summaries.allTextContents(), ["含失败 · 2 个工具步骤 · 失败 1 次", "含失败 · 1 个工具步骤 · 失败 1 次", "已完成 · 1 个工具步骤"]);
+    assert.equal(await page.locator(".pith-guide-process[open]").count(), 0);
+    assert.equal(await page.locator('[data-guide-undo="obs-1"]').isVisible(), true);
+    if (process.env.PITH_SUMMARY_SCREENSHOT) await page.screenshot({ path: process.env.PITH_SUMMARY_SCREENSHOT });
+    await summaries.first().click();
+    assert.match(await page.locator('.pith-guide-step[data-step-status="failed"]').first().textContent(), /结题部分写入失败.*失败/);
+    await page.evaluate(() => {
+      const state = (window as any).task50;
+      state.conversation = [{ id: "turn", status: "running", startedAt: new Date().toISOString(), user: { text: "继续" }, choices: [], steps: [
+        { kind: "tool", name: "pith_settle_topic", callId: "f", inputPreview: "{}", status: "failed", effects: [] },
+        { kind: "tool", name: "pith_settle_topic", callId: "r", inputPreview: "{}", status: "running", effects: [] },
+      ] }];
+      state.view.updateGuideTurn(state.conversation[0]);
+    });
+    assert.equal(await summaries.first().textContent(), "进行中 · 2 个工具步骤 · 失败 1 次");
+    await page.evaluate(() => { const state = (window as any).task50; state.conversation[0].status = "stopped"; state.view.updateGuideTurn(state.conversation[0]); });
+    assert.equal(await summaries.first().textContent(), "未完成 · 2 个工具步骤 · 失败 1 次");
+    await page.evaluate(() => { const state = (window as any).task50; state.conversation[0].steps = [{ kind: "thought", text: "思考" }]; state.view.updateGuideTurn(state.conversation[0]); });
+    assert.equal(await summaries.first().textContent(), "过程 · 思考");
     const publish = (status: string, extra = "") => page.evaluate(({ status, extra }: { status: string; extra: string }) => {
       const state = (window as any).task50;
       state.conversation = [{ id: "turn", status, startedAt: new Date(Date.now() - 5000).toISOString(), user: { text: "我的问题" }, choices: [], ...(status === "failed" ? { error: "实际故障" } : {}), steps: [
