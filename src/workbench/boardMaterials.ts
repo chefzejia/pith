@@ -10,7 +10,7 @@ export async function boardMaterials(storage: WorkspaceStoragePort, materials: r
   return Promise.all(materials.map(async material => {
     let coverUrl: string | undefined, coverCached = false;
     try { const cached: unknown = JSON.parse(await storage.readText(coverCachePath(material.id))); if (cached && typeof cached === "object" && "url" in cached && cached.url === null) coverCached = true; if (cached && typeof cached === "object" && "url" in cached && typeof cached.url === "string" && /^data:image\/png;base64,/.test(cached.url)) { coverUrl = cached.url; coverCached = true; } } catch { /* Rebuildable cache may be absent. */ }
-    return { reading: await readMaterialReading(storage, material.id), coverCached, id: material.id, title: material.title, ...(material.files[0] ? { fileName: material.files[0].name } : {}), ...(coverUrl ? { coverUrl } : {}) };
+    return { reading: readMaterialReading(material), coverCached, id: material.id, title: material.title, ...(material.files[0] ? { fileName: material.files[0].name } : {}), ...(coverUrl ? { coverUrl } : {}) };
   }));
 }
 export async function materialCoverSource(storage: WorkspaceStoragePort, material: Material): Promise<string | undefined> {

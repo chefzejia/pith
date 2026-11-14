@@ -305,7 +305,7 @@ export class PithObsidianController {
   async rememberReading(materialId: string, file: string, locator?: string): Promise<void> {
     const material = await this.store.getMaterial(materialId); if (!material) throw new Error("材料不存在");
     if (locator && material.kind !== "repo") await this.store.updateReadingLocator(materialId, file, locator);
-    await rememberMaterialReading(this.host.storage, materialId, file, locator);
+    await rememberMaterialReading(this.store, materialId, file, locator);
   }
   async topicSession(topicId?: string, materialId?: string): Promise<SessionState> {
     const topic = topicId ? await this.store.getTopic(topicId) : null; if (topicId && !topic) throw new Error("Topic not found");
@@ -317,7 +317,7 @@ export class PithObsidianController {
       while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); files.push(...page.files); offset = page.nextOffset; }
       repositoryFiles[material.id] = files;
     }
-    return { topic, materials, repositoryFiles, readings: await materialReadings(this.host.storage, materials) };
+    return { topic, materials, repositoryFiles, readings: materialReadings(materials) };
   }
   async renderTopicFile(topicId: string | undefined, source: AnchorSource, name: string) {
     if (source.kind === "lesson") { if (!topicId) throw new Error("课题不存在"); const text = await this.store.readLesson(topicId, name), reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader) throw new Error("阅读器不可用"); return { text, html: reader.render(text), sections: reader.sections(text), format: "markdown" as const }; }

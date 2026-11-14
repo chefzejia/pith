@@ -72,7 +72,7 @@ for (const host of ["Web", "Obsidian"]) test(`audit ${host} EPUB resumes visible
     const save = async (file: string, locator: string, offset: number) => {
       const expected = `${locator};offset:${offset}`, deadline = Date.now() + 8000;
       let actual: string | undefined;
-      do { actual = (await store.getMaterial(material.id))!.files.find(entry => entry.name === file)!.locator; const reading = await readMaterialReading(storage, material.id); if (actual === expected && reading?.file === file && reading.locator === expected) return; await delay(25); } while (Date.now() < deadline);
+      do { const materialNow = (await store.getMaterial(material.id))!; actual = materialNow.files.find(entry => entry.name === file)!.locator; const reading = readMaterialReading(materialNow); if (actual === expected && reading?.file === file && reading.locator === expected) return; await delay(25); } while (Date.now() < deadline);
       assert.fail(`durable ${host} position for ${file}: ${actual}, expected ${expected}`);
     };
     const next = () => page.locator('[data-page="next"]').click();

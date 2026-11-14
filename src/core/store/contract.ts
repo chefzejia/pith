@@ -89,4 +89,6 @@ export interface WorkspaceStore {
   setMaterialAids(materialId: string, aids: readonly string[]): Promise<Material>;
   appendMaterialNote(materialId: string, note: AppendNoteInput): Promise<Note>;
   updateReadingLocator(materialId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
+  /** Records the last opened file/position and stamps openedAt; does not change files, aids or notes. */
+  recordReading(materialId: string, input: { file: string; locator?: IntrinsicLocator }): Promise<void>;
 }

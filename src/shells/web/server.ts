@@ -224,7 +224,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           const material = await store.getMaterial(str(data, "materialId")); if (!material) throw new Error("材料不存在");
           if (material.kind !== "repo" && !material.files.some(entry => entry.name === file)) throw new Error("材料文件不存在");
           if (locator && material.kind !== "repo") await store.updateReadingLocator(material.id, file, locator);
-          await rememberMaterialReading(storage, material.id, file, locator);
+          await rememberMaterialReading(store, material.id, file, locator);
         }
         return send(res, 200, {});
       }
@@ -321,7 +321,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); paths.push(...page.files); offset = page.nextOffset; }
           repositoryFiles[material.id] = paths;
         }
-        return send(res, 200, { topic, materials, repositoryFiles, readings: await materialReadings(storage, materials) });
+        return send(res, 200, { topic, materials, repositoryFiles, readings: materialReadings(materials) });
       }
       if (method === "GET" && url.pathname === "/api/topic-lesson") {
         const topicId = url.searchParams.get("topicId"), fileName = url.searchParams.get("name");

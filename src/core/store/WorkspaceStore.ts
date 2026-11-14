@@ -1,5 +1,5 @@
 import type { WorkspaceStoragePort } from "../host.ts";
-import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, Note, ProfileObservation, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
+import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, MaterialReading, Note, ProfileObservation, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
@@ -170,6 +170,19 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
   } };
 }
 
+function readingFile(file: string, kind: string, files: readonly MaterialFileEntry[]): string {
+  if (!file.trim() || file.includes("\0")) throw new Error("Invalid readingFile");
+  if (kind === "repo") {
+    if (file.startsWith("/") || /\\/.test(file) || /^[a-z]:\//i.test(file) || file.split("/").includes("..")) throw new Error("Invalid repository readingFile path");
+  } else if (!files.some(entry => entry.name === name(file))) throw new Error("Reading file not found in material files");
+  return file;
+}
+
+function readingLocator(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || /[\u0000-\u001f\u007f]/.test(value)) throw new Error("Invalid readingLocator");
+  return value;
+}
+
 function parseMaterial(markdown: string): { material: Material; attributes: Frontmatter; body: string } {
   const { attributes: a, body } = parseFrontmatter(markdown);
   if (a.type !== "pith-material") throw new Error("Invalid material type");
@@ -187,10 +200,18 @@ function parseMaterial(markdown: string): { material: Material; attributes: Fron
       locator: optional(item, "locator"), lastActiveAt: optional(item, "lastActiveAt") };
   });
   if (new Set(files.map(file => file.name)).size !== files.length) throw new Error("Duplicate material file");
+  let reading: MaterialReading | undefined;
+  const hasFile = Object.hasOwn(a, "readingFile"), hasOpenedAt = Object.hasOwn(a, "readingOpenedAt");
+  if (hasFile !== hasOpenedAt || (Object.hasOwn(a, "readingLocator") && !hasFile)) throw new Error("Invalid reading: readingFile and readingOpenedAt must appear together");
+  if (hasFile) {
+    const file = readingFile(required(a, "readingFile"), kind, files), openedAt = required(a, "readingOpenedAt");
+    if (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(openedAt) || !Number.isFinite(Date.parse(openedAt)) || new Date(`${openedAt.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) !== openedAt.slice(0, 10)) throw new Error("Invalid readingOpenedAt ISO timestamp");
+    reading = { file, openedAt, ...(Object.hasOwn(a, "readingLocator") ? { locator: readingLocator(a.readingLocator) } : {}) };
+  }
   const id = name(required(a, "id")), notes = parseNotes(body);
   if (notes.some(note => note.author !== "user" || note.kind === "practice" || (note.anchor && (note.anchor.source.kind !== "material" || note.anchor.source.materialId !== id)))) throw new Error("Invalid material note");
   return { attributes: a, body, material: { id, title: required(a, "title"), kind: kind as MaterialKind,
-    createdAt: required(a, "createdAt"), files, aids: a.aids as string[], notes, externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha") } };
+    createdAt: required(a, "createdAt"), files, aids: a.aids as string[], notes, ...(reading ? { reading } : {}), externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha") } };
 }
 
 function noteMarkdown(note: Note): string {
@@ -500,6 +521,25 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const entries = parsed.attributes.files as Record<string, string | number | boolean | null>[];
       entries[index] = { ...entries[index]!, locator, lastActiveAt: new Date().toISOString() };
       await this.storage.writeText(path, stringifyFrontmatter(parsed.attributes, parsed.body));
+    });
+  }
+  recordReading(materialId: string, input: { file: string; locator?: string }): Promise<void> {
+    return this.queue.run(async () => {
+      const path = `materials/${name(materialId)}/material.md`, parsed = parseMaterial(await this.storage.readText(path));
+      const material = parsed.material;
+      if (material.id !== materialId) throw new Error("Material id does not match path");
+      const file = readingFile(input.file, material.kind, material.files);
+      // Open notifications carry no new coordinate. Keep this file's position,
+      // never the previous file's; ordinary files retain per-file locators too.
+      const previous = material.reading?.file === file ? material.reading.locator : undefined;
+      const locator = input.locator === undefined ? previous ?? material.files.find(entry => entry.name === file)?.locator : readingLocator(input.locator);
+      parsed.attributes.readingFile = file;
+      parsed.attributes.readingOpenedAt = new Date().toISOString();
+      if (locator === undefined) delete parsed.attributes.readingLocator;
+      else parsed.attributes.readingLocator = locator;
+      const markdown = stringifyFrontmatter(parsed.attributes, parsed.body);
+      parseMaterial(markdown);
+      await this.storage.writeText(path, markdown);
     });
   }
 }

@@ -132,22 +132,24 @@ test("Agent imports initialize material aids from the same readable sample witho
 });
 
 
-test("repository reading resumes from a rebuildable cache without changing its frozen file collection", async () => {
+test("repository reading resumes from its material ledger without changing its file collection", async () => {
   const root = await testSandbox("task52-repo-resume-");
   try {
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const material = await store.importMaterial({ title: "Pinned code", kind: "repo", externalPath: "/fixture/repo", commitSha: "a".repeat(40), files: [] });
-    const bytes = await storage.readText(`materials/${material.id}/material.md`), locator = `repo:${material.commitSha}:src/index.ts#L2-L2`;
-    await rememberMaterialReading(storage, material.id, "src/index.ts", locator);
-    await rememberMaterialReading(storage, material.id, "src/index.ts");
-    const readings = await materialReadings(storage, [material]); assert.equal(readings[material.id]!.locator, locator); assert.equal(readingPositionLabel(locator), "第 2 行");
+    const locator = `repo:${material.commitSha}:src/index.ts#L2-L2`;
+    await rememberMaterialReading(store, material.id, "src/index.ts", locator);
+    await rememberMaterialReading(store, material.id, "src/index.ts");
+    const updated = (await store.getMaterial(material.id))!;
+    const readings = materialReadings([updated]); assert.equal(readings[material.id]!.locator, locator); assert.equal(readingPositionLabel(locator), "第 2 行");
     const state = { topic: null, materials: [material], repositoryFiles: { [material.id]: ["README.md", "src/index.ts"] }, readings };
     let document: any;
     const session = new MaterialSession(state, { title: material.title, active: () => true, loadState: async () => state, readFile: async (_source, name) => ({ html: name, sections: [] }), readOutline: async () => undefined, render: value => { document = value; }, updateNavigation() {}, beforeLesson: async () => {}, sendLesson: async () => {} });
     await session.open(); assert.equal(session.file, "src/index.ts"); assert.equal(document.locator, locator);
-    assert.equal((await boardMaterials(storage, [material]))[0]!.reading!.file, "src/index.ts");
-    assert.equal(await storage.readText(`materials/${material.id}/material.md`), bytes);
-    await storage.writeText(`_cache/reading/${material.id}.json`, "broken"); assert.deepEqual(await materialReadings(storage, [material]), {});
+    assert.equal((await boardMaterials(storage, [updated]))[0]!.reading!.file, "src/index.ts");
+    assert.deepEqual(updated.files, []);
+    await storage.mkdir("_cache/reading");
+    await storage.writeText(`_cache/reading/${material.id}.json`, "broken"); assert.deepEqual(materialReadings([updated]), readings);
     session.dispose();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

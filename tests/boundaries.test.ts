@@ -11,6 +11,12 @@ import { LXGW_WENKAI_LICENSE, LXGW_WENKAI_WOFF2 } from "../src/plugins/stage-rea
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
 
+test("permanent material reading state never uses the retired cache path", () => {
+  const forbidden = /_cache\/reading(?:\/|["'`])/;
+  assert.match('"_cache/reading/file.json"', forbidden);
+  for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(ROOT, file));
+});
+
 test("embedded reader font retains its original bytes", () => {
   assert.equal(createHash("sha256").update(Buffer.from(LXGW_WENKAI_WOFF2, "base64")).digest("hex"), "ca84517aa692251360ec0124a5e9ebd1ff9720b90e785e0e1ab035ce08a97ac8");
   assert.equal(createHash("sha256").update(LXGW_WENKAI_LICENSE).digest("hex"), "5c0f0d98a8b71a401063c9a9e814e608fef6824fefab0c2ab73fe0955a5551b1");

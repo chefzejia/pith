@@ -96,7 +96,6 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 
 | 差距 | 契约出处 | 源码现状 | 任务 |
 | :--- | :--- | :--- | :--- |
-| 仓库材料的阅读位置永久保存在材料里 | [1-core](subsystems/1-core-store-engine.md) 3.3 与第 4 节 | 最后打开的文件、坐标与时间只写 `_cache/reading/`（[`readingState.ts`](../src/workbench/readingState.ts)），删缓存后不能恢复 | #52 |
 | 费曼复述的要点对照规程 | [3-toolkits](subsystems/3-toolkits.md) 3.3 | 一段「先肯定、再指出、再追问」的自由文本规程 | #53 |
 
 **实测过的前提**（任务 #48，记录在 `.tmp/evidence/task-48/`）：

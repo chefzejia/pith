@@ -75,6 +75,13 @@ export interface MaterialFileEntry {
   readonly lastActiveAt?: string;
 }
 
+/** Permanent last-open state, stored in material.md. */
+export interface MaterialReading {
+  readonly file: string;
+  readonly locator?: IntrinsicLocator;
+  readonly openedAt: string;
+}
+
 export interface Material {
   readonly id: string;
   readonly title: string;
@@ -84,6 +91,7 @@ export interface Material {
   readonly externalPath?: string;
   readonly commitSha?: string;
   readonly aids: readonly string[];
+  readonly reading?: MaterialReading;
   readonly notes: readonly Note[];
 }
 
