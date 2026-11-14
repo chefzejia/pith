@@ -9,6 +9,7 @@ import { renderEpub } from "../src/plugins/stage-reader/epub.ts";
 import { renderCbz } from "../src/plugins/stage-reader/fixedPage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { linkedEpub } from "./wave12-epub-fixture.ts";
+import type { Note } from "../src/core/index.ts";
 
 test("wide pagination centers each screen without visible scrollbars in both shells", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
@@ -345,11 +346,11 @@ test("Obsidian restores text position after annotation refresh merges its node",
     await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
     await page.evaluate(async () => {
       const quote = "targetword ".repeat(1500);
-      const note = { id: "note", anchor: { file: "book.epub", locator: "text:offset:7", quote } };
+      const note: Note = { id: "note", kind: "highlight", author: "user", createdAt: "2026-11-14T00:00:00Z", body: quote, anchor: { source: { kind: "lesson" }, file: "book.epub", locator: "text:offset:7", quote } };
       let notes = [note];
       const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit() {}, guideData: async () => ({ notes, toolkits: [], conversation: [], actions: [] }) });
       (window as any).view = view; (window as any).clearNotes = () => { notes = []; };
-      view.render({ title: "Notes", currentFile: "book.epub", files: [], format: "epub", sections: [], html: `<p data-locator="block:1">before ${quote} after</p>` });
+      view.render({ title: "Notes", currentFile: "book.epub", source: { kind: "lesson" }, files: [], format: "epub", sections: [], html: `<p data-locator="block:1">before ${quote} after</p>` });
       await view.refreshGuide();
       const reader = document.querySelector<HTMLElement>(".pith-reader")!;
       reader.scrollLeft = reader.clientWidth * 3; reader.dispatchEvent(new Event("scroll"));

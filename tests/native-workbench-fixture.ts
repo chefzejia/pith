@@ -47,7 +47,9 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     let guideLeaf: any;
     const workspace = { rightSplit: { expand() {} }, getLeavesOfType: () => guideLeaf ? [guideLeaf] : [], getRightLeaf: () => {
       const panel = document.createElement("div"); panel.style.cssText = "position:fixed;right:0;top:0;width:330px;height:100%;background:var(--background-primary)";
-      const leaf: any = { contentEl: panel, async detach() { await leaf.view?.onClose(); panel.remove(); guideLeaf = undefined; }, async setViewState() { leaf.view = new w.NativePith.PithGuideView(leaf); document.body.append(panel); guideLeaf = leaf; } }; return leaf;
+      const root = document.getElementById("root")!;
+      // Native leaves occupy adjacent workspace space rather than overlaying the reader.
+      const leaf: any = { contentEl: panel, async detach() { await leaf.view?.onClose(); panel.remove(); if (guideLeaf === leaf) { guideLeaf = undefined; root.style.width = ""; } }, async setViewState() { leaf.view = new w.NativePith.PithGuideView(leaf); document.body.append(panel); root.style.width = "calc(100% - 330px)"; guideLeaf = leaf; } }; return leaf;
     }, async revealLeaf() {} };
     const view = new w.NativePith.PithWorkspaceView({}, controller, host, workspace, () => { w.settingsOpened = true; });
     w.nativeTask52 = { controller, view }; await view.onOpen();
