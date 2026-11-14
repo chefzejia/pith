@@ -41,9 +41,16 @@ interface ObsidianLeaf {
   detach(): void;
   setViewState(state: { type: string; active: boolean }): Promise<void>;
 }
+interface ObsidianLayoutNode {
+  type: string;
+  children?: ObsidianLayoutNode[];
+  currentTab?: number;
+  state?: { type?: string };
+}
 interface ObsidianWorkspace {
   leftSplit?: { collapse(): void };
-  rightSplit?: { collapse(): void; expand(): void };
+  rightSplit?: { collapsed?: boolean; collapse(): void; expand(): void };
+  getLayout?(): { right?: ObsidianLayoutNode };
   getRightLeaf?(split: boolean): ObsidianLeaf | null;
   getLeavesOfType(type: string): ObsidianLeaf[];
   getLeaf(type?: "tab" | boolean): ObsidianLeaf;
@@ -396,6 +403,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
   private guideDesiredVisible = false;
   private guideOpening: Promise<ObsidianLeaf> | null = null;
   private guideOpeningLeaf: ObsidianLeaf | null = null;
+  private guideExpandedSplit: ObsidianWorkspace["rightSplit"];
   private compassView: ReturnType<typeof renderCompass> | undefined;
   private materialView: MaterialWorkbench | undefined;
   private picker: ReturnType<typeof openMaterialPicker> | undefined;
@@ -416,7 +424,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const materials = await this.controller.openBoardMaterials();
     if (previousGeneration !== this.generation || request !== this.homeRequest) return;
     const generation = ++this.generation;
-    if (this.view) { this.controller.releaseView(this.view); this.view = null; }
+    await this.releaseReaderView();
+    if (generation !== this.generation) return;
     const root = this.contentEl;
     this.disposeScenes();
     this.compassView = renderCompass(root, compass, {
@@ -430,6 +439,13 @@ export class PithWorkspaceView extends obsidian.ItemView {
     void this.prepareCovers().then(async () => { if (this.compassView === current && generation === this.generation) current.library(await this.controller.openCompass(), await this.controller.openBoardMaterials()); }).catch(error => this.report(error));
   }
   private disposeScenes(): void { this.compassView?.dispose(); this.compassView = undefined; this.materialView?.dispose(); this.materialView = undefined; this.picker?.dispose(); this.picker = undefined; }
+  private async releaseReaderView(): Promise<void> {
+    const view = this.view;
+    if (!view) return;
+    this.view = null;
+    try { if (this.workspace) await this.showNativeGuide(false, view); }
+    finally { this.controller.releaseView(view); }
+  }
   private async prepareCovers(): Promise<void> { for (const material of await this.controller.store.listMaterials()) await cacheMaterialCover(this.host.storage, material, this.contentEl.ownerDocument).catch(() => {}); }
   private intakePorts(): IntakePorts {
     const cache = async (material: Material) => { await cacheMaterialCover(this.host.storage, material, this.contentEl.ownerDocument).catch(() => {}); return material; };
@@ -448,7 +464,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
   }
   private async openMaterial(id: string): Promise<void> {
     const generation = ++this.generation, state = await this.controller.topicSession(undefined, id); if (generation !== this.generation) return;
-    if (this.view) { if (this.workspace) await this.showNativeGuide(false, this.view); this.controller.releaseView(this.view); this.view = null; }
+    await this.releaseReaderView();
+    if (generation !== this.generation) return;
     this.disposeScenes();
     let interline: { signature: string; session: InterlineSession } | undefined;
     const source = { kind: "material" as const, materialId: id };
@@ -466,23 +483,39 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.materialView = instance; await instance.open();
   }
 
-  async onClose(): Promise<void> { this.generation++; this.disposeScenes(); if (this.view) { this.controller.releaseView(this.view); this.view = null; } }
+  async onClose(): Promise<void> { this.generation++; this.disposeScenes(); await this.releaseReaderView(); }
 
   private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
+  private restoreGuideSplit(): void {
+    const split = this.guideExpandedSplit;
+    this.guideExpandedSplit = undefined;
+    if (!split || split !== this.workspace?.rightSplit) return;
+    // Inspect selection before detach: afterwards Obsidian selects a default tab.
+    // A user-selected host tab, or a sidebar that was already open, stays open.
+    const guideSelected = (node: ObsidianLayoutNode): boolean => {
+      if (node.type === "leaf") return node.state?.type === PITH_GUIDE_VIEW_TYPE;
+      const children = node.children ?? [];
+      if (node.type === "tabs") { const active = children[node.currentTab ?? 0]; return !!active && guideSelected(active); }
+      return children.length > 0 && children.every(guideSelected);
+    };
+    const right = this.workspace?.getLayout?.().right;
+    if (right && guideSelected(right)) split.collapse();
+  }
   private async showNativeGuide(visible: boolean, view: PithObsidianView, topicId?: string): Promise<void> {
     const workspace = this.workspace;
     if (!workspace || !workspace.rightSplit || !workspace.getRightLeaf) throw new Error("宿主右侧边栏不可用");
     const request = ++this.guideRequest;
     this.guideDesiredVisible = visible;
-    if (!visible) { for (const leaf of workspace.getLeavesOfType(PITH_GUIDE_VIEW_TYPE)) if (leaf !== this.guideOpeningLeaf) leaf.detach(); return; }
+    if (!visible) { if (!this.guideOpening) this.restoreGuideSplit(); for (const leaf of workspace.getLeavesOfType(PITH_GUIDE_VIEW_TYPE)) if (leaf !== this.guideOpeningLeaf) leaf.detach(); return; }
+    if (workspace.rightSplit.collapsed === true) this.guideExpandedSplit = workspace.rightSplit;
     let leaf = this.guideOpening ? undefined : workspace.getLeavesOfType(PITH_GUIDE_VIEW_TYPE)[0];
     let created = false;
     if (!leaf) {
       if (!this.guideOpening) { const right = workspace.getRightLeaf(false); if (!right) throw new Error("无法打开右侧边栏"); created = true; this.guideOpeningLeaf = right; this.guideOpening = right.setViewState({ type: PITH_GUIDE_VIEW_TYPE, active: true }).then(() => right); }
       const opening = this.guideOpening;
-      try { leaf = await opening; } catch (error) { if (created && !this.guideDesiredVisible && this.guideOpeningLeaf && this.guideOpeningLeaf.view instanceof PithGuideView) this.guideOpeningLeaf.detach(); throw error; } finally { if (this.guideOpening === opening) { this.guideOpening = null; this.guideOpeningLeaf = null; } }
+      try { leaf = await opening; } catch (error) { if (created && !this.guideDesiredVisible && this.guideOpeningLeaf && this.guideOpeningLeaf.view instanceof PithGuideView) { this.restoreGuideSplit(); this.guideOpeningLeaf.detach(); } throw error; } finally { if (this.guideOpening === opening) { this.guideOpening = null; this.guideOpeningLeaf = null; } }
     }
-    if (this.view !== view || request !== this.guideRequest) { if (created && (request === this.guideRequest || !this.guideDesiredVisible) && leaf.view instanceof PithGuideView) leaf.detach(); return; }
+    if (this.view !== view || request !== this.guideRequest) { if (created && (request === this.guideRequest || !this.guideDesiredVisible) && leaf.view instanceof PithGuideView) { this.restoreGuideSplit(); leaf.detach(); } return; }
     if (!(leaf.view instanceof PithGuideView)) throw new Error("向导视图未就绪");
     leaf.view.mount(view.guideElement(), () => { if (this.view === view) { view.setGuideVisible(false); if (topicId) this.guideByTopic.set(topicId, false); } });
     workspace.rightSplit.expand();
@@ -499,7 +532,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
     let interlineSession: { file: string; signature: string; session: InterlineSession } | undefined;
     let session: MaterialSession;
     const toolkits = () => trainingToolkits;
-    if (this.view) this.controller.releaseView(this.view);
+    await this.releaseReaderView();
+    if (generation !== this.generation) return;
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
       guideAvailable: this.controller.hasGuideProvider(),

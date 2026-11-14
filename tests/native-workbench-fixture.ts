@@ -3,7 +3,7 @@ import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { NodeRepositoryPort } from "../src/shells/web/nodeRepository.ts";
 
 /** Obsidian API, storage/repository ports and guide provider are explicit host boundaries. All product controllers/stores/engine are real. */
-export async function nativeWorkbenchFixture(page: any, directory: string, guide = false): Promise<void> {
+export async function nativeWorkbenchFixture(page: any, directory: string, guide = false, options: { otherRightLeaf?: boolean } = {}): Promise<void> {
   const storage = new NodeWorkspaceStorage(directory), repository = new NodeRepositoryPort();
   await page.exposeFunction("nativeStorage", async (method: string, args: any[]) => {
     if (method === "readBinary") return Array.from(await storage.readBinary(args[0]));
@@ -27,7 +27,7 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
   await page.goto("http://localhost:31552/");
   await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl: HTMLElement; constructor(leaf: any) { this.contentEl = leaf.contentEl ?? document.getElementById("root"); } }, Plugin: class {}, Notice: class { constructor(message: string) { (window as any).notice = message; } } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
   await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.addScriptTag({ content: tools.outputFiles[0]!.text });
-  await page.evaluate(async (guide: boolean) => {
+  await page.evaluate(async ({ guide, otherRightLeaf }: { guide: boolean; otherRightLeaf?: boolean }) => {
     const w = window as any, call = (method: string) => (...args: unknown[]) => w.nativeStorage(method, args), storage: any = {};
     for (const method of ["exists", "readText", "writeText", "createText", "list", "mkdir", "copy"]) storage[method] = call(method);
     storage.readBinary = async (path: string) => new Uint8Array(await call("readBinary")(path));
@@ -45,13 +45,21 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     controller = new w.NativePith.PithObsidianController(host, async (input: any) => new Map(input.segments.map((segment: any) => [segment.locator, "原生夹具译文"])), guide ? provider : undefined);
     await controller.initialize();
     let guideLeaf: any;
-    const workspace = { rightSplit: { expand() {} }, getLeavesOfType: () => guideLeaf ? [guideLeaf] : [], getRightLeaf: () => {
-      const panel = document.createElement("div"); panel.style.cssText = "position:fixed;right:0;top:0;width:330px;height:100%;background:var(--background-primary)";
-      const root = document.getElementById("root")!;
-      // Native leaves occupy adjacent workspace space rather than overlaying the reader.
-      const leaf: any = { contentEl: panel, async detach() { await leaf.view?.onClose(); panel.remove(); if (guideLeaf === leaf) { guideLeaf = undefined; root.style.width = ""; } }, async setViewState() { leaf.view = new w.NativePith.PithGuideView(leaf); document.body.append(panel); root.style.width = "calc(100% - 330px)"; guideLeaf = leaf; } }; return leaf;
+    const root = document.getElementById("root")!;
+    // Observed Obsidian boundary: five default tabs survive guide detach. Only
+    // collapsing the split reclaims its width; selecting another tab retains it.
+    const hostTypes = ["backlink", "outgoing-link", "tag", "all-properties", "outline"];
+    let currentTab = 4;
+    const otherPanel = document.createElement("div"); otherPanel.dataset.otherHostLeaf = "outline"; otherPanel.style.cssText = "position:fixed;right:0;top:0;width:330px;height:100%";
+    const outlineTab = document.createElement("button"); outlineTab.dataset.hostTab = "outline"; outlineTab.textContent = "Host outline"; otherPanel.append(outlineTab); document.body.append(otherPanel);
+    const renderSplit = () => { const closed = workspace.rightSplit.collapsed; root.style.width = closed ? "" : "calc(100% - 330px)"; otherPanel.hidden = closed; if (guideLeaf) guideLeaf.contentEl.hidden = closed || currentTab !== 5; };
+    outlineTab.onclick = () => { currentTab = 4; renderSplit(); };
+    const workspace = { rightSplit: { collapsed: !otherRightLeaf, expand() { this.collapsed = false; renderSplit(); }, collapse() { this.collapsed = true; renderSplit(); } }, getLayout: () => ({ right: { type: "split", children: [{ type: "tabs", currentTab, children: [...hostTypes, ...(guideLeaf ? ["pith-guide"] : [])].map(type => ({ type: "leaf", state: { type } })) }] } }), getLeavesOfType: (type: string) => type === "pith-guide" ? guideLeaf ? [guideLeaf] : [] : type === "outline" ? [{ contentEl: otherPanel }] : [], getRightLeaf: () => {
+      const panel = document.createElement("div"); panel.style.cssText = "position:fixed;right:0;top:48px;width:330px;height:calc(100% - 48px);background:var(--background-primary)";
+      const leaf: any = { contentEl: panel, async detach() { await leaf.view?.onClose(); panel.remove(); if (guideLeaf === leaf) { guideLeaf = undefined; currentTab = 4; renderSplit(); } }, async setViewState() { leaf.view = new w.NativePith.PithGuideView(leaf); document.body.append(panel); currentTab = 5; guideLeaf = leaf; renderSplit(); } }; return leaf;
     }, async revealLeaf() {} };
+    renderSplit();
     const view = new w.NativePith.PithWorkspaceView({}, controller, host, workspace, () => { w.settingsOpened = true; });
-    w.nativeTask52 = { controller, view }; await view.onOpen();
-  }, guide);
+    w.nativeTask52 = { controller, view, workspace }; await view.onOpen();
+  }, { guide, otherRightLeaf: options.otherRightLeaf });
 }
