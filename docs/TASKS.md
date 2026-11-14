@@ -57,16 +57,16 @@
 ---
 
 ## [Task #52] 工作台：材料库、材料阅读、立项与工具归属
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #55, #56
-- **Verified-Commit**: none
+- **Verified-Commit**: d9aa70543bb99cec47a22833e7fabf305f2a307e
 - **Implementation-Commit**: 11713d05cdbdef7e9fb033ee4ea88de324c7c184
-- **Supplemental-Commits**: e9420ac4d88ad9f13a09940c83ee373022a853cc、f902c20ecc13dd797f6aa41f2fb3e2f9c3122f2f、9e2a3e431b2f4b0c3e8bd2cd9b10adfceda00d41
+- **Supplemental-Commits**: e9420ac4d88ad9f13a09940c83ee373022a853cc、f902c20ecc13dd797f6aa41f2fb3e2f9c3122f2f、9e2a3e431b2f4b0c3e8bd2cd9b10adfceda00d41、d9aa70543bb99cec47a22833e7fabf305f2a307e
 - **Updated**: 2026-11-14
 - **Brain 裁决（2026-11-14，契约与本区块在同一提交）**：阻塞成立，错在契约。冻结的 `Material` 没有给仓库材料的阅读位置留表示：`files: []` 对仓库合法，`updateReadingLocator` 只能更新已有的文件条目。裁决是给 `Material` 加可选的 `reading`（最后打开的文件、坐标、时间），平铺存进 `material.md`，唯一写入口是新增的 `recordReading`。不存进缓存，不造假文件条目，不借笔记，也不按课题存（材料不依赖课题，[1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 2 节不变量 1）。契约改动见该文档 3.3 与第 4 节。
-- **上一轮阻塞记录（已裁决）**: 仓库阅读位置只写 `_cache/reading`，删缓存后不能重建最后文件、坐标和打开时间，违反材料永久保存阅读进度与缓存可删除重建的契约。现有冻结 `Material` 只在文件条目上提供 locator；合法空文件清单的仓库没有对应表示，`updateReadingLocator` 仅更新已有普通文件条目且不接收仓库嵌套路径。需按本板冻结规则先明确最窄仓库阅读状态的数据表示及读写语义，再令 Worker 修复并重验；不以缓存、假文件或笔记绕过。此前专项用例只覆盖缓存存在时的恢复，尚不能证明删缓存后恢复。证据：`.tmp/evidence/task-52/router-reading-contract.md`；最窄方案草案：`.tmp/evidence/task-52/proposed-resolution.md`（已按上面的裁决重写）。本轮 UI 修复未解除该阻塞，#53/#54 保持 queued。
+- **上一轮阻塞记录（已解决）**: 旧实现把仓库最近文件、坐标与打开时间只写可删除缓存；Brain 在 `3d3d24b` 冻结永久 `Material.reading` 与 `recordReading`，业务 `d9aa705` 落地，双宿主整缓存删除、同库重启独立终验通过。原始证据保留于 `.tmp/evidence/task-52/router-reading-contract.md`，当前通过证据见 `permanent-reading/tester/tester-report.md`。
 - **补验进展**: 已按新依赖顺序续验，目录长标题与状态标签、引用材料原有高亮/笔记的只读分区与独立计数、跨课题记录隔离、来源切换、锚点回跳及按钮文案通过实际双宿主交互。原生“课题向导 → 首页 → 独立材料笔记”的空侧栏与正文遮挡已修复，独立 Tester 在 1024×800 复验正文与笔记并排，并确认原已展开/主动选中的大纲保留、向导可见状态记忆及关闭阅读 tab 后清理。首页真实 dsh 读材料后、创建课题前停止，两端各一次成功，目标、1 份材料保留且课题为 0。报告索引：`.tmp/evidence/task-52/router-resume-progress.md`；目录终验：`drawer-fix/tester/tester-report.md`；记录补验：`material-notes-fix/retry-tester/tester-report.md`；原生返修终验及 10 张截图：`native-layout-fix/tester/`（后三者均相对 `.tmp/evidence/task-52/`）。
-- **验证与边界**: 最新补丁全仓 typecheck、单测（343 pass / 95 skip / 0 fail）、浏览器（50 文件，137 pass / 4 条真实语音条件 skip / 0 fail）、Obsidian 构建及 6 项红灯/恢复验证通过；main 已同步 `.dev-vault` 且三文件哈希一致。原生尺寸为 renderer 视口模拟，未声称 OS 窗口拖拽；窄净宽的可关闭抽屉按现有响应式契约验收。无正式 GUI 入口的另一目录分支仅有工程覆盖，真实服务失败与自然追问未自然覆盖，受控工程故障另列。Worker/Tester 本轮自有实例、配置与运行目录均已清理，临时 Worktree/分支已删除，Cleanup PASS；经验已记入 LESSONS。未交付真实 Vault，不核销整单。
+- **验证与边界**: 当前业务全仓 typecheck、单测（359 pass / 97 skip / 0 fail）、浏览器（51 文件，139 pass / 4 条真实语音条件 skip / 0 fail）、Obsidian 构建及 6 项破壁红后恢复通过；dist / `.dev-vault` / 原生实载三文件哈希一致。永久 reading 独立终验在带界面 Chrome 与真实专属 Obsidian 串行通过：GUI 打开仓库嵌套文件和普通第二文件并实际滚动，删整个 `_cache`、同库重启后恢复文件与语义坐标；首页再次打开材料前 file/locator/openedAt 完全一致，合法 file-only 与三种坏账本原因通过。普通材料课题入口显式选第二文件后验证坐标复用，默认最后文件由独立材料入口覆盖；未宣称像素位置完全一致。此前 UI/真实 Agent/翻译沿用分项报告，不把受控故障冒充真实模型行为；无正式 GUI 入口的目录分支仍只有工程覆盖，自然服务失败/自然追问未自然覆盖。Worker/Tester 自有进程、配置、运行目录已回收，唯一 main worktree，Cleanup PASS。新报告及 20 张终验 PNG：`.tmp/evidence/task-52/permanent-reading/tester/tester-report.md`、`.tmp/evidence/task-52/permanent-reading/tester/`；工程报告：`permanent-reading/worker-report.md`。未交付真实 Vault，整体交付归 #54。
 - **Scope**: `src/core/types.ts`、`src/core/store/**`、`src/workbench/**`、`src/shells/**`、`src/plugins/toolkit-*/**`、`src/core/seams.ts`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 首页立项分流与材料库、材料阅读场景（高亮/笔记）、课题内目录/抽屉、工具归属（按角色/role）与行间驱动。
 - **补充契约（仓库阅读位置）**:
@@ -79,10 +79,11 @@
 
 ---
 
+
 ## [Task #53] 费曼复述：要点对照
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #52
-- **Updated**: 2026-11-13
+- **Updated**: 2026-11-14
 - **Scope**: `src/plugins/toolkit-feynman/**`、`src/core/seams.ts`（`followUp`）、`src/workbench/**`、`src/shells/**`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 费曼新规程（对照原文、要点/复述的自动化核对、追问机制、evalMode 修正）。
 - **交付**: 不交付。整体在 #54 终验后交付。
