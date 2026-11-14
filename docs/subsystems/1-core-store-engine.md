@@ -150,11 +150,16 @@ commitSha: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 aids: []
 createdAt: "2026-11-12T09:00:00.000Z"
 files: []
+readingFile: "packages/core/README.md"
+readingLocator: "repo:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2:packages/core/README.md#L12-L12"
+readingOpenedAt: "2026-11-14T03:00:00.000Z"
 ---
 ```
 
 - `kind` 为 `book | article | media | discussion | repo`。`aids` 与 `files` 两个列表必须出现，可以为空。`files` 每项含 `name`、`mimeType`、`bytes`、64 位十六进制 `sha256`、可选的 `locator` 与 `lastActiveAt`。
 - `aids` 是在这份材料上开启的阅读辅助 ID 列表（目前只有 `interline`）。导入时按材料语言预置，见 [3-toolkits.md](3-toolkits.md)。
+- `readingFile`、`readingLocator`、`readingOpenedAt` 三个可选字段记录这份材料最后一次打开的位置：`readingFile` 是最后打开的文件，`readingOpenedAt` 是打开时间（ISO 时间戳），`readingLocator` 是该文件内的内在坐标，可缺省。`readingFile` 与 `readingOpenedAt` 必须同时出现或同时缺省；`readingLocator` 不能单独出现，否则解析失败并进入「无法读取」。仓库材料的 `files` 为空，它的 `readingFile` 是绑定提交里的仓库相对路径，适用 3.6 的第二套规则；其余材料的 `readingFile` 必须是 `files` 里的文件名。字段是平铺标量，因为 frontmatter 解析器只支持标量与标量列表。
+- 阅读位置属于材料，不属于缓存：`_cache/` 删除后，首页材料库与课题内都从 `material.md` 恢复最后打开的文件、坐标与时间。`files` 每项的 `locator` 与 `lastActiveAt` 仍是非仓库材料各个文件自己的位置，`reading` 只多记「最后打开的是哪一个」。
 - 正文是材料级记录，格式与 `topic.md` 的记录相同，只允许 `highlight` 与 `note`，来源行固定指向材料自身，`author` 固定为 `user`。
 
 ### 3.4 `ME.md`
@@ -253,6 +258,15 @@ export interface Topic {
   readonly updatedAt: string;
 }
 
+/** Where the learner last opened this material. Permanent: it lives in `material.md`, never in `_cache/`. */
+export interface MaterialReading {
+  /** A name listed in `files`, or the repository-relative path of a `repo` material. */
+  readonly file: string;
+  readonly locator?: IntrinsicLocator;
+  /** ISO timestamp of the last open. */
+  readonly openedAt: string;
+}
+
 export interface Material {
   readonly id: string;
   readonly title: string;
@@ -263,6 +277,8 @@ export interface Material {
   readonly commitSha?: string;
   /** Reading-aid toolkit IDs enabled on this material. */
   readonly aids: readonly string[];
+  /** Absent until the material has been opened once. */
+  readonly reading?: MaterialReading;
   /** Highlights and notes taken outside any topic. */
   readonly notes: readonly Note[];
 }
@@ -306,6 +322,8 @@ export interface WorkspaceStore {
   setMaterialAids(materialId: string, aids: readonly string[]): Promise<Material>;
   appendMaterialNote(materialId: string, note: AppendNoteInput): Promise<Note>;
   updateReadingLocator(materialId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
+  /** Records the last opened file and position and stamps openedAt itself. A repo material takes a repository-relative path (3.6); any other material takes a name listed in `files`. */
+  recordReading(materialId: string, input: { file: string; locator?: IntrinsicLocator }): Promise<void>;
 
   listUnreadable(): Promise<readonly UnreadableEntry[]>;
 }
@@ -331,6 +349,8 @@ export interface ImportMaterialInput {
 ```
 
 `updateTopic` 只接受 `exploring ⇄ shelved` 与 `exploring → settled` 两种状态变化，其余抛错。`appendMaterialNote` 拒绝 `practice` 与 `author` 为 `guide` 的记录。原有的 `writeProfile`、`writeGeneratedFile`、`appendMaterialFiles`、`updateTopicIfUnchanged` 与 `toolkitsOrigin` 不再存在。
+
+`recordReading` 只写 `reading` 三个字段，不改动 `files`、`aids` 与材料级记录。它拒绝：空文件名与含 NUL 字符的名字；仓库材料里含 `..` 路径段或以 `/` 开头的路径；非仓库材料里不在 `files` 中的文件名。`updateReadingLocator` 继续只服务非仓库材料逐文件的位置。
 
 ```ts
 // src/core/engine/contract.ts

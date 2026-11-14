@@ -57,17 +57,24 @@
 ---
 
 ## [Task #52] 工作台：材料库、材料阅读、立项与工具归属
-- **Status**: blocked
+- **Status**: pending
 - **Depends-On**: #55, #56
 - **Verified-Commit**: none
 - **Implementation-Commit**: 11713d05cdbdef7e9fb033ee4ea88de324c7c184
 - **Supplemental-Commits**: e9420ac4d88ad9f13a09940c83ee373022a853cc、f902c20ecc13dd797f6aa41f2fb3e2f9c3122f2f、9e2a3e431b2f4b0c3e8bd2cd9b10adfceda00d41
 - **Updated**: 2026-11-14
-- **阻塞**: 仓库阅读位置只写 `_cache/reading`，删缓存后不能重建最后文件、坐标和打开时间，违反材料永久保存阅读进度与缓存可删除重建的契约。现有冻结 `Material` 只在文件条目上提供 locator；合法空文件清单的仓库没有对应表示，`updateReadingLocator` 仅更新已有普通文件条目且不接收仓库嵌套路径。需按本板冻结规则先明确最窄仓库阅读状态的数据表示及读写语义，再令 Worker 修复并重验；不以缓存、假文件或笔记绕过。此前专项用例只覆盖缓存存在时的恢复，尚不能证明删缓存后恢复。证据：`.tmp/evidence/task-52/router-reading-contract.md`；最窄方案草案：`.tmp/evidence/task-52/proposed-resolution.md`（尚未批准）。本轮 UI 修复未解除该阻塞，#53/#54 保持 queued。
+- **Brain 裁决（2026-11-14，契约与本区块在同一提交）**：阻塞成立，错在契约。冻结的 `Material` 没有给仓库材料的阅读位置留表示：`files: []` 对仓库合法，`updateReadingLocator` 只能更新已有的文件条目。裁决是给 `Material` 加可选的 `reading`（最后打开的文件、坐标、时间），平铺存进 `material.md`，唯一写入口是新增的 `recordReading`。不存进缓存，不造假文件条目，不借笔记，也不按课题存（材料不依赖课题，[1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 2 节不变量 1）。契约改动见该文档 3.3 与第 4 节。
+- **上一轮阻塞记录（已裁决）**: 仓库阅读位置只写 `_cache/reading`，删缓存后不能重建最后文件、坐标和打开时间，违反材料永久保存阅读进度与缓存可删除重建的契约。现有冻结 `Material` 只在文件条目上提供 locator；合法空文件清单的仓库没有对应表示，`updateReadingLocator` 仅更新已有普通文件条目且不接收仓库嵌套路径。需按本板冻结规则先明确最窄仓库阅读状态的数据表示及读写语义，再令 Worker 修复并重验；不以缓存、假文件或笔记绕过。此前专项用例只覆盖缓存存在时的恢复，尚不能证明删缓存后恢复。证据：`.tmp/evidence/task-52/router-reading-contract.md`；最窄方案草案：`.tmp/evidence/task-52/proposed-resolution.md`（已按上面的裁决重写）。本轮 UI 修复未解除该阻塞，#53/#54 保持 queued。
 - **补验进展**: 已按新依赖顺序续验，目录长标题与状态标签、引用材料原有高亮/笔记的只读分区与独立计数、跨课题记录隔离、来源切换、锚点回跳及按钮文案通过实际双宿主交互。原生“课题向导 → 首页 → 独立材料笔记”的空侧栏与正文遮挡已修复，独立 Tester 在 1024×800 复验正文与笔记并排，并确认原已展开/主动选中的大纲保留、向导可见状态记忆及关闭阅读 tab 后清理。首页真实 dsh 读材料后、创建课题前停止，两端各一次成功，目标、1 份材料保留且课题为 0。报告索引：`.tmp/evidence/task-52/router-resume-progress.md`；目录终验：`drawer-fix/tester/tester-report.md`；记录补验：`material-notes-fix/retry-tester/tester-report.md`；原生返修终验及 10 张截图：`native-layout-fix/tester/`（后三者均相对 `.tmp/evidence/task-52/`）。
 - **验证与边界**: 最新补丁全仓 typecheck、单测（343 pass / 95 skip / 0 fail）、浏览器（50 文件，137 pass / 4 条真实语音条件 skip / 0 fail）、Obsidian 构建及 6 项红灯/恢复验证通过；main 已同步 `.dev-vault` 且三文件哈希一致。原生尺寸为 renderer 视口模拟，未声称 OS 窗口拖拽；窄净宽的可关闭抽屉按现有响应式契约验收。无正式 GUI 入口的另一目录分支仅有工程覆盖，真实服务失败与自然追问未自然覆盖，受控工程故障另列。Worker/Tester 本轮自有实例、配置与运行目录均已清理，临时 Worktree/分支已删除，Cleanup PASS；经验已记入 LESSONS。未交付真实 Vault，不核销整单。
-- **Scope**: `src/workbench/**`、`src/shells/**`、`src/plugins/toolkit-*/**`、`src/core/seams.ts`、`tests/**`、`docs/ARCHITECTURE.md`
+- **Scope**: `src/core/types.ts`、`src/core/store/**`、`src/workbench/**`、`src/shells/**`、`src/plugins/toolkit-*/**`、`src/core/seams.ts`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 首页立项分流与材料库、材料阅读场景（高亮/笔记）、课题内目录/抽屉、工具归属（按角色/role）与行间驱动。
+- **补充契约（仓库阅读位置）**:
+  1. 数据表示与读写语义按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 3.3 与第 4 节：`Material.reading`（`file`、`locator?`、`openedAt`）存在 `material.md` 的三个平铺字段里，`WorkspaceStore.recordReading` 是唯一写入口。所有材料种类统一走它；非仓库材料逐文件的 `files[].locator` 继续由 `updateReadingLocator` 写。
+  2. `src/workbench/readingState.ts` 不再读写 `_cache/reading/`：`readMaterialReading`、`materialReadings`、`rememberMaterialReading` 改为读写 `Material.reading`，`_cache/reading` 这个路径不再出现在 `src/`（加守卫单测）。调用点：`src/workbench/boardMaterials.ts`、`src/shells/obsidian/index.ts`（打开文件与课题会话）、`src/shells/web/server.ts`（打开文件与 `/api/topic-session`）。
+  3. 解析 `material.md` 时，`readingFile` 与 `readingOpenedAt` 成对出现，`readingLocator` 不单独出现；仓库路径按 3.6 第二套规则校验，非仓库材料的文件名必须在 `files` 里。不合格的材料进入「无法读取」，原因由解析器给出。
+  4. 不迁移旧缓存：已有的 `_cache/reading/` 文件不读取、不转换（[AGENTS.md](../AGENTS.md) 核心约束 3）。
+- **补充门禁**: 回归从磁盘字节构造：仓库材料（`files: []`）打开一个嵌套路径的文件并记下坐标后，删除整个 `_cache/` 并重启，首页材料库的「读到哪里」与课题内重开的文件、坐标都不变；非仓库材料同样，并覆盖「只有文件、没有坐标」的情形。`readingFile` 带 `..` 段、缺 `readingOpenedAt`、只有 `readingLocator` 的 `material.md` 各自进入「无法读取」。手动破壁各一次：把 `recordReading` 改回写 `_cache/reading/`、让解析器放过 `..` 路径段，对应回归变红。Tester 终验在原有路径上补一步：打开仓库文件、删 `_cache/`、重启，两个宿主壳都回到同一文件与坐标。
 - **交付**: 不交付。整体在 #54 终验后交付。
 
 ---
