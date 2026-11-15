@@ -53,7 +53,7 @@ test("Feynman comparison has only passage, standards and production, and followU
   const missing = { ...points[0]!, status: "missing", quote: "" }, contradicted = { ...points[1]!, status: "contradicted", quote: "相反" };
   const instruction = recallFollowUp({ toolkit: "feynman", points: [missing, contradicted] });
   assert.ok(instruction.includes(contradicted.sourceQuote)); assert.ok(!instruction.includes(missing.sourceQuote));
-  assert.match(instruction, /只就.*一个问题.*不代答.*不评价/);
+  assert.match(instruction, /只就.*一个独立作答任务.*不代答.*不评价/);
   assert.match(recallFollowUp({ toolkit: "feynman", points: [missing] }), /版本相同/);
   assert.match(recallFollowUp({ toolkit: "feynman", points: [{ ...missing, status: "covered" }] }), /反例或迁移/);
   assert.equal(recallFollowUp({}), "");
@@ -85,6 +85,21 @@ test("Feynman starts standards before production, saves each real attempt once, 
     assert.deepEqual(follow, { text: "换句话说", instruction: feynmanToolkit.followUp!(practice.result!), anchor });
     assert.deepEqual((await store.getMaterial(material.id))!.notes, []);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Feynman followUp separates omitted content from an opposite claim and resets the previous question", () => {
+  const missing = { ...points[0]!, status: "missing", quote: "" };
+  const contradicted = { ...points[0]!, status: "contradicted", quote: "不同版本也能用" };
+  for (const point of [missing, contradicted]) {
+    const instruction = recallFollowUp({ toolkit: "feynman", points: [point, { ...points[1]!, status: "covered", quote: "少读一次" }] });
+    assert.match(instruction, /上一轮.*结束/);
+    assert.match(instruction, /必要条件.*充分条件/);
+    assert.match(instruction, point.status === "missing" ? /补出.*遗漏/ : /审视.*相反/);
+    const payload = JSON.parse(instruction.slice(instruction.lastIndexOf("\n") + 1));
+    assert.equal(payload.task, point.status === "missing" ? "complete-omission" : "reconsider-contradiction");
+    assert.deepEqual(payload.point, point);
+    assert.ok(!instruction.includes(points[1]!.sourceQuote), "the covered point must not become the question target");
+  }
 });
 
 test("Feynman extraction failure or empty verified standards still saves the production without result", async () => {

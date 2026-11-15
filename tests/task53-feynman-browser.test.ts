@@ -90,3 +90,54 @@ test("leaving the real workbench during delayed comparison saves to its topic wi
     const note = (await store.getTopic(topic.id))!.notes[0]!; assert.equal(note.body, "离开前提交"); assert.equal(note.anchor!.file, "source.md"); assert.ok(note.result);
   } finally { release(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
 });
+
+test("reselecting a transformed paragraph sends original prose and a matching anchor, also after switching toolkits", { skip: !enabled, timeout: 40000 }, async () => {
+  const root = await testSandbox("task53-reselect-"); let browser: any;
+  const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
+  const material = await store.importMaterial({ title: "原文目标", kind: "article", files: [{ name: "source.md", bytes: new TextEncoder().encode(`# 标题\n\n${source}\n\n相邻段必须保持独立。`) }] });
+  const topic = await store.createTopic({ title: "重新选段", target: "解释条件", materialIds: [material.id], toolkits: ["feynman", "shadowing"] });
+  const requested: string[] = [];
+  const server = await createPithWebServer({ workspaceDir: root, promptService: { async prompt(prompt) {
+    if (prompt.includes("原文：")) { const target = JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 4)); return JSON.stringify({ points: [{ id: "p1", claim: "原文要点", sourceQuote: target }] }); }
+    const data = JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1)); return JSON.stringify({ items: data.points.map((point: any) => ({ id: point.id, status: "covered", quote: data.produced })) });
+  } }, guideProvider: { async run() { return { status: "completed" }; } } });
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string");
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
+    browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true, viewport: { width: 1240, height: 960 } });
+    const page = await browser.newPage();
+    page.on("request", (request: any) => { if (request.url().endsWith("/api/feynman/prepare")) requested.push(request.postDataJSON().source); });
+    await page.goto(`http://127.0.0.1:${address.port}`); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    const paragraph = page.locator('[data-locator="text:line:2"]');
+    await paragraph.click(); await page.locator('[data-toolkit-choose="feynman"]').click();
+    await page.getByText("要点已准备，请用自己的话复述。").waitFor();
+    await paragraph.locator("[data-toolkit-display]").click({ clickCount: 3 });
+    const response = page.waitForResponse((response: any) => response.url().endsWith("/api/feynman/prepare"));
+    await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click(); await response;
+    assert.equal(requested.at(-1), source, "a real triple-click on the mask must resolve to its original paragraph");
+    await page.getByText("要点已准备，请用自己的话复述。").waitFor();
+    await paragraph.locator('[data-toolkit-display]').evaluate((display: HTMLElement) => {
+      const range = document.createRange(); range.selectNodeContents(display);
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+      display.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    const bounded = page.waitForResponse((response: any) => response.url().endsWith('/api/feynman/prepare'));
+    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="feynman"]').click(); await bounded;
+    assert.equal(requested.at(-1), source, 'a DOM range confined to transformed text also maps to the original');
+    await page.getByText("要点已准备，请用自己的话复述。").waitFor();
+    await page.locator("[data-toolkit-produced]").fill("本次真实输入"); await page.locator("[data-toolkit-submit]").click();
+    await page.getByText("本次复述已保存，已发起向导追问。").waitFor();
+    const saved = (await store.getTopic(topic.id))!.notes[0]!;
+    assert.equal(saved.anchor!.quote, source); assert.equal(saved.anchor!.locator, "text:line:2"); assert.ok(saved.result);
+    if (process.env.PITH_TASK53_FIX_SCREENSHOTS) await page.screenshot({ path: join(process.env.PITH_TASK53_FIX_SCREENSHOTS, "selection-reopened-web.png") });
+    await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="shadowing"]').click();
+    await paragraph.locator("[data-toolkit-display]").click({ clickCount: 3 });
+    const switched = page.waitForResponse((response: any) => response.url().endsWith("/api/feynman/prepare"));
+    await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click(); await switched;
+    assert.equal(requested.at(-1), source, "shadowing's transformed display must also resolve to the original");
+    await page.locator("[data-toolkit-reveal]").click();
+    const original = paragraph.locator(".pith-toolkit-source"); await original.click({ clickCount: 3 });
+    await page.locator('#open-toolkit').click(); await page.locator('[data-toolkit-choose="feynman"]').click();
+    await page.getByText("要点已准备，请用自己的话复述。").waitFor(); assert.equal(requested.at(-1), source);
+  } finally { if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+});
