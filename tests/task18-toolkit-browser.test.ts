@@ -12,13 +12,13 @@ import { installSyntheticVoice, recordSyntheticVoice } from "./task37-voice-fixt
 import { DefaultWorkspaceStore } from "../src/core/store/WorkspaceStore.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 
-test("rubrics and alignment represent the two evaluation modes", () => {
+test("alignment and result-driven followUp use distinct contracts", () => {
   const result = shadowingToolkit.diagnose("one two one", "one one");
   assert.match(result.summaryMarkdown, /one <mark>two<\/mark> one/);
-  assert.doesNotMatch(result.summaryMarkdown, /准确率/);
-  assert.equal(feynmanToolkit.evalMode, "guide-rubric");
+  assert.equal(feynmanToolkit.diagnose, undefined);
+  const instruction = feynmanToolkit.followUp!({ toolkit: "feynman", points: [{ id: "p1", claim: "条件", sourceQuote: "原文", status: "covered", quote: "复述" }] });
   const topic = { id: "t", title: "t", target: "", status: "exploring" as const, materialIds: [], lessons: [], toolkits: [], notes: [], createdAt: "", updatedAt: "" };
-  const prompt = buildScenePrompt({ topic, materials: [], profileMarkdown: "", userMessage: "复述", instruction: feynmanToolkit.evaluationRubric! });
+  const prompt = buildScenePrompt({ topic, materials: [], profileMarkdown: "", userMessage: "复述", instruction });
   assert.match(prompt, /本回合指令/); assert.match(prompt, /反例/);
 });
 
@@ -31,9 +31,11 @@ test("unconfigured guide saves practice and reports offline fallback", async () 
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
-    const result = await post("/api/toolkit/submit", { topicId: topic.id, materialId: material.id, toolkit: "feynman", file: "source.md", targetText: "Source text.", producedText: "My reasoning", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:0", quote: "Source text." } });
-    assert.equal(result.guided, false); assert.equal(result.note.kind, "practice"); assert.equal(result.note.body, "My reasoning");
-    const state = await (await fetch(`${base}/api/state`)).json(); assert.ok(state.compass.exploring.find((item: any) => item.id === topic.id).notes.some((note: any) => note.id === result.note.id));
+    const unavailable = await fetch(base + "/api/feynman/prepare", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topicId: topic.id, source: "Source text." }) });
+    assert.equal(unavailable.ok, false);
+    const note = await post("/api/notes", { topicId: topic.id, kind: "practice", body: "My reasoning", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:0", quote: "Source text." } });
+    assert.equal(note.kind, "practice"); assert.equal(note.body, "My reasoning"); assert.equal(note.result, undefined);
+    const state = await (await fetch(`${base}/api/state`)).json(); assert.ok(state.compass.exploring.find((item: any) => item.id === topic.id).notes.some((entry: any) => entry.id === note.id));
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -64,7 +66,7 @@ test("Obsidian toolkit renders one input, anchored source and mode-specific acti
     await page.addScriptTag({ content: shadow.outputFiles[0]!.text }); await page.addScriptTag({ content: feynman.outputFiles[0]!.text });
     await page.evaluate(() => {
       const state: any = (window as any).toolkitTest = { calls: [] };
-      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit(text?: string, locator?: string) { state.view.openToolkit([state.shadow, state.feynman], text, text === undefined ? undefined : { file: "toolkit.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), transcribeAudio: async () => ({ text: "One three four" }), submitPractice: async (body: string, anchor: any, toolkit: any) => { state.calls.push({ body, anchor, rubric: toolkit.evaluationRubric }); return { guided: true }; } });
+      const view = new (window as any).PithView.PithObsidianView(document.getElementById("root"), { openFile() {}, selection() {}, openToolkit(text?: string, locator?: string) { state.view.openToolkit([state.shadow, state.feynman], text, text === undefined ? undefined : { source: { kind: "material", materialId: "material" }, file: "toolkit.md", locator, quote: text }); }, guideData: async () => ({ notes: [], conversation: [], actions: [], toolkits: ["shadowing", "feynman"] }), transcribeAudio: async () => ({ text: "One three four" }), prepareRecall: async (source: string) => [{ id: "p1", claim: "要点", sourceQuote: source }], compareRecall: async (_source: string, points: any[], produced: string) => ({ toolkit: "feynman", points: points.map(point => ({ ...point, status: "covered", quote: produced })) }), savePractice: async () => {}, followUpPractice: async (body: string, anchor: any, instruction: string) => { state.calls.push({ body, anchor, instruction }); } });
       state.view = view; document.body.append(view.guideElement()); view.render({ title: "Toolkit", currentFile: "toolkit.md", source: { kind: "material", materialId: "material" }, files: [], sections: [], format: "markdown", html: '<p data-prose="true">One two three four.</p>' }); view.setToolkits(["shadowing", "feynman"]);
       state.shadow = (window as any).Shadow.shadowingToolkit; state.feynman = (window as any).Feynman.feynmanToolkit; view.openToolkit([state.shadow, state.feynman]);
     });
@@ -78,7 +80,7 @@ test("Obsidian toolkit renders one input, anchored source and mode-specific acti
     assert.equal(await page.locator('.pith-inline-toolkit [data-voice]').count(), 0);
     assert.equal(await page.locator('.pith-article .pith-inline-toolkit[data-toolkit="feynman"]').count(), 1);
     assert.equal(await page.locator('.pith-inline-toolkit [data-toolkit-stage]').count(), 0);
-    await page.waitForFunction(() => (window as any).toolkitTest.calls.length === 1); const call = await page.evaluate(() => (window as any).toolkitTest.calls[0]); assert.equal(call.anchor.quote, "One two three four."); assert.equal(call.body, "Explain"); assert.match(call.rubric, /反例/); await page.locator(".pith-guide").waitFor({ state: "visible", timeout: 3000 });
+    await page.waitForFunction(() => (window as any).toolkitTest.calls.length === 1); const call = await page.evaluate(() => (window as any).toolkitTest.calls[0]); assert.equal(call.anchor.quote, "One two three four."); assert.equal(call.body, "Explain"); assert.match(call.instruction, /反例/); await page.locator(".pith-guide").waitFor({ state: "visible", timeout: 3000 });
     await page.locator('[data-toolkit-close]').click();
     await page.evaluate(() => { const block = document.querySelector('.pith-article [data-prose="true"]')!, text = block.firstChild!; const selection = window.getSelection()!; selection.setBaseAndExtent(text, 13, text, 4); block.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
     assert.equal(await page.locator('.pith-selection').isVisible(), true);
@@ -97,7 +99,8 @@ test("Obsidian toolkit renders one input, anchored source and mode-specific acti
 test("Web toolkit anchors source, aligns omissions, and persists guided practice", { timeout: 60000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const dir = await testSandbox("pith-toolkit18-"); const requests: any[] = [];
   let releaseLate!: () => void, lateSeen!: () => void; const late = new Promise<void>(resolve => { releaseLate = resolve; }); const lateArrived = new Promise<void>(resolve => { lateSeen = resolve; });
-  const server = await createPithWebServer({ workspaceDir: dir, guideProvider: { async run(input, options) { requests.push(input); if (input.text.includes("late explanation")) { lateSeen(); await late; } options.onStep({ kind: "reply", markdown: "受控追问" }, 0); return { status: "completed" }; } } }); let browser: any;
+  // Boundary fixture for the one-shot Agent; the View, Engine, Store and followUp turn remain real.
+  const server = await createPithWebServer({ workspaceDir: dir, promptService: { async prompt(text) { const last = text.slice(text.lastIndexOf("\n") + 1); if (last.startsWith("原文：")) { const source = JSON.parse(last.slice(3)); return JSON.stringify({ points: [{ id: "p1", claim: "要点", sourceQuote: source }] }); } const data = JSON.parse(last); return JSON.stringify({ items: data.points.map((point: any) => ({ id: point.id, status: "covered", quote: data.produced })) }); } }, guideProvider: { async run(input, options) { requests.push(input); if (input.text.includes("late explanation")) { lateSeen(); await late; } options.onStep({ kind: "reply", markdown: "受控追问" }, 0); return { status: "completed" }; } } }); let browser: any;
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, body: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); assert.ok(response.ok); return response.json(); };
@@ -122,12 +125,12 @@ test("Web toolkit anchors source, aligns omissions, and persists guided practice
     await page.locator("[data-toolkit-produced]").fill("My explanation"); await page.locator("[data-toolkit-submit]").click();
     await page.waitForFunction(() => document.querySelector(".pith-guide-content")?.textContent?.includes("My explanation") && document.querySelector(".pith-guide-content")?.textContent?.includes("受控追问"));
     await page.locator('[data-guide-stop]').waitFor({ state: "detached" });
-    await page.locator('.pith-inline-toolkit [role="status"]').getByText("已提交并记入实训账本").waitFor();
+    await page.locator('.pith-inline-toolkit [role="status"]').getByText("本次复述已保存，已发起向导追问。").waitFor();
     const entry = requests.find(item => item.text === "My explanation"); assert.ok(entry); assert.equal(entry.anchor.quote, "One two three four."); assert.equal(entry.anchor.file, "toolkit.md"); assert.equal(entry.anchor.locator, "text:line:0"); assert.match(entry.instruction, /反例/);
     const state = await (await fetch(`${base}/api/state`)).json(); const updated = state.compass.exploring.find((item: any) => item.id === topic.id); assert.ok(updated.notes.some((note: any) => note.kind === "practice" && note.body === "My explanation"));
-    assert.equal(await page.locator(".pith-guide-content").textContent().then((text: string) => text.includes("PITH_PRACTICE:")), false);
+    assert.equal(entry.text, "My explanation");
     await page.locator("[data-toolkit-produced]").fill("late explanation"); await page.locator("[data-toolkit-submit]").click(); await lateArrived;
-    assert.match(await page.locator('.pith-inline-toolkit [role="status"]').textContent(), /正在等待结果/);
+    assert.match(await page.locator('.pith-inline-toolkit [role="status"]').textContent(), /正在处理/);
     await page.locator('[data-command="home"]').click(); await page.locator(".pith-home").waitFor();
     releaseLate(); await page.waitForFunction(async (id: string) => { const response = await fetch(`/api/chat?topicId=${encodeURIComponent(id)}`); const turns = await response.json(); return turns.at(-1)?.status === "completed"; }, topic.id);
     assert.equal(await page.locator(".pith-home").count(), 1); assert.equal(await page.locator(".pith-guide-content").count(), 0);
@@ -145,7 +148,7 @@ test("Web toolkit anchors source, aligns omissions, and persists guided practice
     assert.match(await page.locator(".pith-toolkit-source").textContent(), /two three/);
     await page.locator("[data-toolkit-produced]").fill("Selected passage"); await page.locator("[data-toolkit-submit]").click();
     await page.waitForFunction(() => document.querySelector(".pith-guide-content")?.textContent?.includes("Selected passage"));
-    await page.locator('.pith-inline-toolkit [role="status"]').getByText("已提交并记入实训账本").waitFor();
+    await page.locator('.pith-inline-toolkit [role="status"]').getByText("本次复述已保存，已发起向导追问。").waitFor();
     const selectedEntry = requests.find(item => item.text.includes("Selected passage")); assert.equal(selectedEntry.anchor.quote, "two three");
   } finally { releaseLate(); if (browser) await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }
 });

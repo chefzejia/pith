@@ -13,6 +13,8 @@ import { renderNavigation } from "./view/navigation.ts";
 import { noteEntries, renderGuide, type MaterialNotes } from "./view/guide.ts";
 import { renderInlineToolkit, renderToolkitMenu } from "./view/toolkit.ts";
 import { PlaybackDeck } from "./view/playback.ts";
+import { RecallPractice } from "./recallPractice.ts";
+import type { FeynmanContrast, RecallResult } from "../plugins/toolkit-feynman/index.ts";
 
 export interface ObsidianAgentConfig {
   readonly agentId: "" | "dsh" | "claude" | "codex";
@@ -61,8 +63,10 @@ export interface ObsidianViewActions {
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
   stopGuide?(): Promise<void>;
   retryGuide?(turnId: string): Promise<void>;
-  savePractice?(body: string, anchor: SelectionAnchor | undefined): Promise<void>;
-  submitPractice?(body: string, anchor: SelectionAnchor, toolkit: ToolkitDescriptor): Promise<{ guided: boolean; guideError?: string }>;
+  savePractice?(body: string, anchor: SelectionAnchor | undefined, result?: RecallResult): Promise<void>;
+  prepareRecall?: FeynmanContrast["prepare"];
+  compareRecall?: FeynmanContrast["compare"];
+  followUpPractice?(body: string, anchor: SelectionAnchor, instruction: string): Promise<void>;
   mountToolkit?(id: string): Promise<void>;
   toggleToolkit?(id: string, enabled: boolean): Promise<void>;
   guideVisibilityChanged?(visible: boolean): void;
@@ -228,6 +232,7 @@ export class PithWorkbenchView {
   private readonly toolkitDrafts = new Map<string, string>();
   private toolkitAnchor: SelectionAnchor | undefined;
   private toolkitResult: ToolkitDiagnosis | null = null;
+  private recall: RecallPractice | undefined;
   private toolkitStatus = "";
   private toolkitVersion = 0;
   private cueGeneration = 0;
@@ -261,7 +266,7 @@ export class PithWorkbenchView {
     }, (target, text) => {
       const input = target === "guide" ? this.guide.querySelector<HTMLTextAreaElement>("textarea") : this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
       if (input) { input.value = input.value ? `${input.value} ${text}` : text; input.dispatchEvent(new (this.win as Window & typeof globalThis).Event("input", { bubbles: true })); input.focus(); if (target === "toolkit") this.toolkitProduced = input.value; }
-      if (target === "toolkit" && this.toolkitId === "shadowing" && text.trim()) { this.toolkitProduced = text.trim(); const toolkit = this.toolkits.find(item => item.id === "shadowing"); if (toolkit) { this.toolkitResult = toolkit.diagnose(this.toolkitTarget, this.toolkitProduced); this.renderToolkit(); } }
+      if (target === "toolkit" && this.toolkitId === "shadowing" && text.trim()) { this.toolkitProduced = text.trim(); const toolkit = this.toolkits.find(item => item.id === "shadowing"); if (toolkit?.diagnose) { this.toolkitResult = toolkit.diagnose(this.toolkitTarget, this.toolkitProduced); this.renderToolkit(); } }
     }, message => this.tip(message), url => { this.stopRecordedPlayback(); this.recordedUrl = url; const button = this.inlineToolkit?.querySelector<HTMLButtonElement>("[data-toolkit-play-recorded]"), save = this.inlineToolkit?.querySelector<HTMLButtonElement>("[data-toolkit-save]"); if (button) { button.disabled = !url; button.hidden = !url; } if (save) save.hidden = !url; if (url) this.toolkitDisplay?.querySelector(".pith-blind-mask")?.classList.add("pith-blind-revealed"); });
     const required = createWorkbenchChrome(root, actions);
     this.reader = required(".pith-reader"); this.article = required(".pith-article"); this.navigation = required(".pith-left-drawer"); this.guide = this.doc.createElement("aside"); this.guide.className = "pith-guide"; this.guide.hidden = true; this.layout = required(".pith-layout"); this.dock = required(".pith-bottom-dock"); this.toast = required(".pith-toast-tip"); this.popover = required(".pith-selection"); this.navigationButton = required(".pith-nav-toggle"); this.guideButton = required(".pith-guide-toggle");
@@ -576,6 +581,7 @@ export class PithWorkbenchView {
   private closeInlineToolkit(): void {
     this.popover.hidden = true;
     this.readToolkit();
+    this.recall?.dispose(); this.recall = undefined;
     this.toolkitVersion++; this.voice.cancel("toolkit"); this.stopCuePlayback(); this.voice.clearRecording(); this.stopRecordedPlayback();
     if (this.toolkitSource && this.toolkitBlock) { const source = this.toolkitSource; this.preserveMovedSelection(source, () => source.replaceWith(...Array.from(source.childNodes))); }
     this.toolkitBlock?.classList.remove("pith-shadowing-spotlight"); this.toolkitLenses?.remove(); this.toolkitDisplay?.remove(); this.inlineToolkit?.remove();
@@ -624,7 +630,21 @@ export class PithWorkbenchView {
     if (!this.inlineToolkit && !this.mountInlineToolkit()) return;
     if (!toolkit.stages.includes(this.toolkitStage)) this.toolkitStage = toolkit.stages[0]!;
     if (this.toolkitLenses) this.toolkitLenses.remove();
-    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus });
+    if (toolkit.id === "feynman" && !this.recall) {
+      const recall = new RecallPractice(this.toolkitTarget, this.toolkitAnchor!, {
+        prepare: (source, signal) => { if (!this.actions.prepareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.prepareRecall(source, signal); },
+        compare: (source, points, produced, signal) => { if (!this.actions.compareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.compareRecall(source, points, produced, signal); },
+        capture: (body, anchor, result) => { if (!this.actions.savePractice) return Promise.reject(new Error("实训保存不可用")); return this.actions.savePractice(body, anchor, result); },
+        followUp: async (body, instruction, anchor) => {
+          if (this.disposed || this.recall !== recall || !this.inlineToolkit) return;
+          if (!this.actions.followUpPractice) throw new Error("向导不可用");
+          this.guideTab = "chat"; this.setGuideVisible(true); this.actions.guideVisibilityChanged?.(true);
+          await this.guideTurn(body, () => this.actions.followUpPractice!(body, anchor, instruction));
+        },
+      }, () => { if (!this.disposed && this.recall === recall && this.inlineToolkit) { this.readToolkit(); this.renderToolkit(); } });
+      this.recall = recall;
+    }
+    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus, recall: this.recall });
     this.updateCueButtons();
   }
   private toolkitDraftKey(): string { return JSON.stringify([this.toolkitId, this.toolkitAnchor?.file, this.toolkitAnchor?.locator, this.toolkitAnchor?.quote]); }
@@ -709,27 +729,23 @@ export class PithWorkbenchView {
       } finally { if (!this.disposed) this.renderGuide(); }
       return;
     }
-    if (button.dataset.toolkitStage || button.hasAttribute("data-toolkit-diagnose") || button.hasAttribute("data-toolkit-save") || button.hasAttribute("data-toolkit-submit")) {
+    if (button.dataset.toolkitStage || button.hasAttribute("data-toolkit-save") || button.hasAttribute("data-toolkit-submit")) {
       try {
         this.readToolkit(); const toolkit = this.toolkits.find(item => item.id === this.toolkitId); if (!toolkit) throw new Error("工坊不可用");
         if (button.dataset.toolkitStage) { this.stopCuePlayback(); this.toolkitStage = button.dataset.toolkitStage as ToolkitStage; this.toolkitVersion++; this.toolkitResult = null; this.toolkitStatus = ""; this.renderToolkit(); return; }
         if (!this.toolkitTarget.trim() || !this.toolkitAnchor) throw new Error("当前页面没有可用原文");
         if (!this.toolkitProduced.trim()) throw new Error("请输入复述文本");
-        if (button.hasAttribute("data-toolkit-diagnose")) { this.toolkitResult = toolkit.diagnose(this.toolkitTarget, this.toolkitProduced); this.renderToolkit(); return; }
         const version = ++this.toolkitVersion; button.disabled = true;
         if (button.hasAttribute("data-toolkit-save") && this.toolkitResult && this.actions.savePractice) {
           await this.actions.savePractice(this.toolkitResult.summaryMarkdown, this.toolkitAnchor);
           if (this.disposed || version !== this.toolkitVersion) return;
           this.toolkitStatus = "已记入实训账本"; this.toolkitResult = null; await this.refreshGuide();
-        } else if (button.hasAttribute("data-toolkit-submit") && this.actions.submitPractice) {
-          const status = this.inlineToolkit ? this.inlineToolkit.querySelector<HTMLElement>('[role="status"]') : null;
-          if (status) status.textContent = "已提交，正在等待结果；向导回应可能需要几分钟…";
-          let result: Awaited<ReturnType<NonNullable<ObsidianViewActions["submitPractice"]>>>;
-          try { result = await this.guideTurn(this.toolkitProduced, () => this.actions.submitPractice!(this.toolkitProduced, this.toolkitAnchor!, toolkit)); }
-          finally { if (status && status.isConnected) status.textContent = this.toolkitStatus; }
-          if (this.disposed || version !== this.toolkitVersion) return;
-          this.toolkitStatus = result.guided ? "已提交并记入实训账本" : result.guideError ? `已记入实训账本，向导追问失败：${result.guideError}` : "已记入实训账本。向导未配置，请对照原文检查因果链、前提和边界，并尝试举一个反例。";
-          if (result.guided) { this.guideTab = "chat"; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); }
+        } else if (this.recall) {
+          const recall = this.recall;
+          this.toolkitStatus = "";
+          if (this.guideSending) throw new Error("向导正在回应上一条消息");
+          await recall.submit(this.toolkitProduced, toolkit);
+          if (this.disposed || this.recall !== recall) return;
           await this.refreshGuide();
         }
         if (!this.disposed && version === this.toolkitVersion) this.renderToolkit();

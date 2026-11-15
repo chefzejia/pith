@@ -1,5 +1,6 @@
 import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
 import { trainingToolkits } from "./toolkits.ts";
+import { createFeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -27,7 +28,7 @@ import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
 interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
-export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
+export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; promptService?: AgentPromptService; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let raw = "";
@@ -97,6 +98,11 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const secrets: Record<string, string> = {};
   const toolServer = new NodeToolServerPort();
   const runtime = bootStandaloneShell({ id: "web", storage, process: processPort, toolServer, repository, speechRuntime, http, mediaCorpus, secrets: { getSecret: key => secrets[key] || process.env[key] || null } }, config(), { store, engine, snapshot, provider: options.guideProvider });
+  const recall = createFeynmanContrast(storage, { prompt: (text, options_) => {
+    const service = options.promptService ?? runtime.getService<AgentPromptService>("guide.prompt");
+    if (!service) throw new Error("向导 Agent 不可用");
+    return service.prompt(text, options_);
+  } });
   const agentTimeoutMs = (): number => { const guide = runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; };
   localProvider = new LocalAcpGuideProvider({ processPort, toolServer, store, engine, storage, http, repository, mediaCorpus, getReader: () => runtime.getService<StageReaderService>("stage.reader"), getToolkits: () => trainingToolkits, getAgentConfig: () => ({ agentId: settings.agentId, model: settings.model, effort: settings.effort, timeoutMs: agentTimeoutMs() }), resolveDescriptor: async id => {
     const guide = runtime.getService<GuideAgentService>("guide.agent");
@@ -142,7 +148,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         res.end(Buffer.from(readerFont[("LXGW_WENKAI_" + "WOFF2") as keyof typeof readerFont], "base64")); return;
       }
       if (method === "GET" && url.pathname === "/api/state") {
-        await refresh(); const toolkits = trainingToolkits; return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), toolkits: toolkits.map(item => item.id), toolkitModes: Object.fromEntries(toolkits.map(item => [item.id, item.evalMode])) });
+        await refresh(); const toolkits = trainingToolkits; return send(res, 200, { compass: await engine.compass(), materials: snapshot.materials, boardMaterials: await boardMaterials(storage, snapshot.materials), settings, guideConfigured: Boolean(options.guideProvider || settings.agentId), plugins: runtime.statuses(), toolkits: toolkits.map(item => item.id) });
       }
       if (method === "GET" && url.pathname === "/api/agents") {
         const guide = runtime.getService<GuideAgentService>("guide.agent");
@@ -339,7 +345,13 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         for (;;) { const page = await repository.readFile(material.externalPath, material.commitSha, fileName, startLine, 1000); parts.push(page.text); if (!page.truncated) break; startLine = page.endLine + 1; }
         return send(res, 200, { text: parts.join("\n"), commitSha: material.commitSha });
       }
-      if (method === "POST" && (url.pathname === "/api/toolkit/diagnose" || url.pathname === "/api/toolkit/transform" || url.pathname === "/api/toolkit/submit")) {
+      if (method === "POST" && (url.pathname === "/api/feynman/prepare" || url.pathname === "/api/feynman/compare")) {
+        const data = await body(req), topic = await store.getTopic(str(data, "topicId"));
+        if (!topic || !topic.toolkits.includes("feynman")) throw new Error("费曼未挂载");
+        const source = str(data, "source"), points = await recall.prepare(source);
+        return send(res, 200, url.pathname.endsWith("/prepare") ? points : await recall.compare(source, points, str(data, "produced")));
+      }
+      if (method === "POST" && (url.pathname === "/api/toolkit/diagnose" || url.pathname === "/api/toolkit/transform")) {
         const data = await body(req);
         const topicId = str(data, "topicId");
         await refresh();
@@ -355,23 +367,13 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const toolkit = runtime.getService<ToolkitDescriptor>(`toolkit.${toolkitId}`);
         if (!toolkit) return send(res, 503, { error: `${toolkitId} service unavailable` });
         const targetText = str(data, "targetText");
-        if (url.pathname === "/api/toolkit/submit") {
-          if (toolkit.evalMode !== "guide-rubric" || !toolkit.evaluationRubric) throw new Error("此工具不支持向导评价");
-          const producedText = str(data, "producedText");
-          const practiceAnchor = anchor(data.anchor);
-          if (!practiceAnchor || !requestedFile || practiceAnchor.file !== requestedFile.name || practiceAnchor.quote !== targetText) throw new Error("原文锚点无效");
-          const note = await engine.capture({ owner: { topicId }, kind: "practice", body: producedText, anchor: practiceAnchor });
-          processEffects();
-          if (!options.guideProvider && !settings.agentId) return send(res, 201, { note, guided: false });
-          try { const turn = await engine.runTurn({ topicId, text: producedText, instruction: toolkit.evaluationRubric, anchor: practiceAnchor }); return send(res, 201, { note, guided: turn.status === "completed", ...(turn.error ? { guideError: turn.error } : {}) }); }
-          catch (error) { return send(res, 201, { note, guided: false, guideError: error instanceof Error ? error.message : String(error) }); }
-        }
         if (url.pathname === "/api/toolkit/transform") {
           const stage = str(data, "stage");
           if (!toolkit.stages.includes(stage as ToolkitStage)) throw new Error("Invalid stage");
           return send(res, 200, { text: toolkit.transformCue(targetText, stage as ToolkitStage) });
         }
         if (typeof data.producedText !== "string") throw new Error("Invalid producedText");
+        if (!toolkit.diagnose) throw new Error("此工具不提供确定性对齐");
         const result = toolkit.diagnose(targetText, data.producedText);
         if (data.saveNote !== undefined && typeof data.saveNote !== "boolean") throw new Error("Invalid saveNote");
         if (data.saveNote === true) {
@@ -436,7 +438,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "POST" && url.pathname === "/api/notes") {
         const data = await body(req); const kind = str(data, "kind");
         if (kind !== "highlight" && kind !== "note" && kind !== "practice") throw new Error("Invalid kind");
-        const note = await engine.capture({ owner: typeof data.materialId === "string" ? { materialId: data.materialId } : { topicId: str(data, "topicId") }, kind, body: str(data, "body"), anchor: anchor(data.anchor) });
+        const note = await engine.capture({ owner: typeof data.materialId === "string" ? { materialId: data.materialId } : { topicId: str(data, "topicId") }, kind, body: str(data, "body"), anchor: anchor(data.anchor), ...(kind === "practice" && data.result !== undefined ? { result: data.result as Readonly<Record<string, unknown>> } : {}) });
         processEffects(); return send(res, 201, note);
       }
       if (url.pathname === "/api/chat" && method === "GET") {

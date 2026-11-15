@@ -98,7 +98,6 @@ export const interlineToolkit: InterlineService = {
   id: "interline", role: "aid", label: "行间", category: "language", stages: [],
   whenToUse: "外文书籍、文章或讲义阅读需要段落级母语对齐字幕降噪时挂载", compatibleStages: ["reader"], uiProtocol: "interline-subtitle",
   transformCue: text => text,
-  diagnose: () => { throw new Error("Interline does not provide recall diagnosis"); },
   quickActions: [], defaultTargetLanguage: "zh-Hans", computeSourceHash, planNeighborhoodOrder, renderInterlineHtml,
 };
 

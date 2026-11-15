@@ -234,14 +234,13 @@ export interface ToolkitDescriptor {
   readonly id: string;
   readonly label: string;
   readonly category: "language" | "comprehension" | "executable" | "music";
-  readonly evalMode?: "deterministic" | "guide-rubric";
-  readonly evaluationRubric?: string;
   readonly whenToUse?: string;
   readonly compatibleStages?: readonly ("reader" | "timeline" | "score" | "code")[];
   readonly uiProtocol?: ToolkitUiOverlayProtocol;
   readonly stages: readonly ToolkitStage[];
   transformCue(text: string, stage: ToolkitStage): string;
-  diagnose(targetText: string, producedText: string): ToolkitDiagnosis;
+  diagnose?(targetText: string, producedText: string): ToolkitDiagnosis;
+  followUp?(result: Readonly<Record<string, unknown>>): string;
   quickActions: readonly { id: string; label: string; prompt: string }[];
 }
 

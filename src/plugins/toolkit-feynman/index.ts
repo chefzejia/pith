@@ -1,4 +1,6 @@
-import { registerPlugin, type ToolkitDiagnosis, type ToolkitStage, type ToolkitDescriptor, type Topic } from "../../core/index.ts";
+import { registerPlugin, type HostPort, type AgentPromptService, type ToolkitStage, type ToolkitDescriptor, type Topic } from "../../core/index.ts";
+import { createFeynmanContrast, recallFollowUp } from "./contrast.ts";
+export * from "./contrast.ts";
 
 export function feynmanInUse(topics: readonly Topic[]): number {
   return topics.filter(topic => topic.toolkits.includes("feynman")).length;
@@ -25,16 +27,11 @@ export function transformCue(text: string, stage: ToolkitStage): string {
   });
 }
 
-export function diagnoseFeynman(targetText: string, producedText: string): ToolkitDiagnosis {
-  return { targetText, producedText, accuracyScore: 0, missedTokens: [], matchedTokens: [], summaryMarkdown: "向导未配置。请对照原文检查自己的因果链、前提和边界，并尝试举一个反例。" };
-}
-
 export const feynmanToolkit: ToolkitDescriptor = {
-  id: "feynman", role: "training", label: "费曼复述", category: "comprehension", evalMode: "guide-rubric",
+  id: "feynman", role: "training", label: "费曼复述", category: "comprehension",
   whenToUse: "架构设计、源码机制、核心概念或理论需要合书复述与苏格拉底反例追问时挂载", compatibleStages: ["reader", "timeline"], uiProtocol: "inline-stage-lens",
-  evaluationRubric: "以三明治式苏格拉底追问回应：先肯定复述中抓准的核心因果链或自创类比，再指出对照原文遗漏的一个关键前提或边界条件，最后提出一个具体反例或跨场景问题。不要替学习者作答或背书。",
   stages: ["blind-produce"],
-  transformCue, diagnose: diagnoseFeynman,
+  transformCue, followUp: recallFollowUp,
   quickActions: [{ id: "feynman-coach", label: "费曼深水区追问", prompt: "请审视我的费曼复述，指出逻辑跳跃或概念遗漏，并用一个反例追问我。" }],
 };
 
@@ -43,5 +40,13 @@ registerPlugin({
   name: "Feynman Recall Toolkit",
   description: "Blind explanation and guided reflection",
   oneInUse: "1 topic using feynman", manyInUse: "{n} topics using feynman",
-  apply(ctx) { ctx.provide("toolkit.feynman", feynmanToolkit); },
+  apply(ctx) {
+    ctx.provide("toolkit.feynman", feynmanToolkit);
+    const host = ctx.service<HostPort>("host");
+    if (host) ctx.provide("feynman.contrast", createFeynmanContrast(host.storage, { prompt: (text, options) => {
+      const service = ctx.service<AgentPromptService>("guide.prompt");
+      if (!service) throw new Error("向导 Agent 不可用");
+      return service.prompt(text, options);
+    } }));
+  },
 });

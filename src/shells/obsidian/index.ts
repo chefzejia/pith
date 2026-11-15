@@ -17,6 +17,7 @@ import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, reso
 import { migrateLegacySpeech, speechMode, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { initialMaterialAids } from "../../workbench/toolkitSlot.ts";
 import { agentInterlineTranslator } from "../../plugins/toolkit-interline/index.ts";
+import type { FeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import type { AgentPromptService, GuideTurn, SelectionAnchor as GuideAnchor } from "../../core/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
@@ -561,14 +562,10 @@ export class PithWorkspaceView extends obsidian.ItemView {
       stopGuide: async () => { this.controller.stopGuide(topic.id); },
       retryGuide: async turnId => { await this.controller.runGuide(topic.id, { turnId }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const selected = current.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(selected, this.controller.trainingToolkits()) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
-      savePractice: async (body, anchor) => { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor }); },
-      submitPractice: async (body, anchor, toolkit) => {
-        if (!toolkit.evaluationRubric || toolkit.evalMode !== "guide-rubric") throw new Error("实训评价规程不可用");
-        await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor });
-        if (!this.controller.getAgentConfig().agentId) return { guided: false };
-        try { const turn = await this.controller.runGuide(topic.id, { text: body, instruction: toolkit.evaluationRubric, anchor }, turn => originatingView.updateGuideTurn(turn)); return { guided: turn.status === "completed", ...(turn.error ? { guideError: turn.error } : {}) }; }
-        catch (error) { return { guided: false, guideError: error instanceof Error ? error.message : String(error) }; }
-      },
+      savePractice: async (body, anchor, result) => { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }); },
+      prepareRecall: async (source, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!service) throw new Error("费曼对照不可用"); return service.prepare(source, signal); },
+      compareRecall: async (source, points, produced, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!service) throw new Error("费曼对照不可用"); return service.compare(source, points, produced, signal); },
+      followUpPractice: async (body, anchor, instruction) => { const turn = await this.controller.runGuide(topic.id, { text: body, instruction, anchor }, turn => originatingView.updateGuideTurn(turn)); if (turn.status !== "completed") throw new Error(turn.error || "向导追问未完成"); },
       mountToolkit: async id => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits([...current.toolkits, id], toolkits()) }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;

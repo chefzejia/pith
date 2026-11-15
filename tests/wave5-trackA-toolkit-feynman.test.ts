@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PluginRuntime, type Topic } from "../src/core/index.ts";
 import { builtinRegistry } from "../src/plugins/all.ts";
-import { diagnoseFeynman, feynmanInUse, feynmanToolkit, transformCue } from "../src/plugins/toolkit-feynman/index.ts";
+import { feynmanInUse, feynmanToolkit, transformCue } from "../src/plugins/toolkit-feynman/index.ts";
 import { shadowingToolkit } from "../src/plugins/toolkit-shadowing/index.ts";
 import { buildScenePrompt, quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 
@@ -23,16 +23,10 @@ test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind 
   assert.throws(() => transformCue(text, "invalid" as never), /Invalid scaffold stage/);
 });
 
-test("Feynman uses a guide rubric and a non-scoring offline prompt", () => {
-  assert.equal(feynmanToolkit.evalMode, "guide-rubric");
-  assert.match(feynmanToolkit.evaluationRubric!, /因果链/);
-  assert.match(feynmanToolkit.evaluationRubric!, /反例/);
-  const result = diagnoseFeynman("缓存降低延迟", "解释缓存");
-  assert.deepEqual(result.matchedTokens, []);
-  assert.deepEqual(result.missedTokens, []);
-  assert.match(result.summaryMarkdown, /向导未配置/);
-  assert.doesNotMatch(result.summaryMarkdown, /覆盖率|准确率/);
-  assert.equal(shadowingToolkit.evalMode, "deterministic");
+test("Only shadowing diagnoses; Feynman contributes result-driven followUp", () => {
+  assert.equal(feynmanToolkit.diagnose, undefined);
+  assert.equal(typeof shadowingToolkit.diagnose, "function");
+  assert.equal(feynmanToolkit.followUp!({}), "");
 });
 
 test("registered Feynman plugin is kept active by injected topic usage and promotes its reader", () => {

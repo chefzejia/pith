@@ -1,4 +1,5 @@
 import type { GuideTurn, GuideQuickAction, SelectionAnchor, Note } from "../../core/index.ts";
+import { renderRecallResult } from "./recall.ts";
 import { renderMarkdown } from "../../plugins/stage-reader/index.ts";
 import { isPreviousAttempt } from "../../core/engine/retryRecovery.ts";
 
@@ -61,7 +62,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
   const fresh = pending ? data.conversation.slice(pending.from) : [];
   const waiting = pending && sending && !fresh.length && !data.conversation.some(turn => turn.status === "running") ? `${pending.text ? `<div class="pith-guide-user">${escape(pending.text)}</div>` : ""}<div class="pith-guide-pending" role="status">向导正在回应</div>` : "";
   const quick = sending || data.readOnly || choices.length ? "" : `<div class="pith-quick-actions">${data.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}">${escape(action.label)}</button>`).join("")}</div>`;
-  const noteMarkup = ({ note, owner }: { note: Note; owner: string }): string => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" data-note-owner="${escape(owner)}" title="跳回原文"><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</button>` : `<p><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</p>`;
+  const noteMarkup = ({ note, owner }: { note: Note; owner: string }): string => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" data-note-owner="${escape(owner)}" title="跳回原文"><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</button>${renderRecallResult(note.result)}` : `<p><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</p>${renderRecallResult(note.result)}`;
   const materialCount = !notesOnly && data.materialNotes ? ` · 材料 ${data.materialNotes.notes.length}` : "";
   const primaryNotes = noteEntries(data.notes).map(noteMarkup).join("");
   const notes = notesOnly ? primaryNotes : `<section data-note-section="topic"><h3>课题笔记</h3>${primaryNotes}</section>${data.materialNotes ? `<section data-note-section="material"><h3>材料笔记 · ${escape(data.materialNotes.title)}</h3><small>只读</small>${noteEntries([], data.materialNotes).map(noteMarkup).join("")}</section>` : ""}`;

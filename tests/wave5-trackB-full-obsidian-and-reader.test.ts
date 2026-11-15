@@ -37,8 +37,8 @@ test("Obsidian controller persists quoted conversation and practice from both re
       const toolkit = controller.runtime.getService<ToolkitDescriptor>(`toolkit.${id}`); assert.ok(toolkit);
       assert.equal(toolkit.stages.length, toolkit.id === "feynman" ? 1 : 4);
       for (const stage of toolkit.stages) assert.ok(toolkit.transformCue("A useful concept", stage));
-      const diagnosis = toolkit.diagnose("A useful concept", "useful concept");
-      await controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body: diagnosis.summaryMarkdown, anchor });
+      const body = toolkit.diagnose ? toolkit.diagnose("A useful concept", "useful concept").summaryMarkdown : "useful concept";
+      await controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor });
     }
     const saved = await controller.store.getTopic(topic.id); assert.ok(saved);
     assert.equal(saved.notes.filter(note => note.kind === "practice").length, 2);

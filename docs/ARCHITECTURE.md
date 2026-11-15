@@ -87,25 +87,3 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | `~/Library/Application Support/pith/speech/` | Vault 外的本机语音运行时与模型（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speech/speechRuntime.ts) | 是，经设置面板重装 |
 
 磁盘格式没有版本迁移。格式变更后，旧工作区里读不出来的条目由看板的「无法读取」分区列出。
-
----
-
-## 六、契约先于实现的部分
-
-`docs/` 描述的是目标契约。下表列出源码尚未落地的部分；每项落地并通过验收后，由完成它的任务删掉对应的行。表为空时删除本节。审计以本表为准：表中列出的差距不算契约漂移。
-
-| 差距 | 契约出处 | 源码现状 | 任务 |
-| :--- | :--- | :--- | :--- |
-| 费曼复述的要点对照规程 | [3-toolkits](subsystems/3-toolkits.md) 3.3 | 一段「先肯定、再指出、再追问」的自由文本规程 | #53 |
-
-**实测过的前提**（任务 #48，记录在 `.tmp/evidence/task-48/`）：
-
-- dsh 能用回环地址上、不开事件流的 HTTP 方式 MCP 服务，读写工具的结果都回到模型。
-- dsh 在只读权限模式下对 MCP 工具直接放行，不发权限请求；对自带的写文件工具先拒绝，模型申请提权时才发权限请求。所以只读模式不是 Pith 工具的写屏障（[4-guide](subsystems/4-guide-speech-shells.md) 2.4）。
-- 停止一个进行中的工具调用，`session/prompt` 以 `cancelled` 返回。只测了一次，测的是还没落盘的写入。
-- #49 在生产宿主沙盒下用真实 Agent 在两个宿主完成仓库走读和讲义写入。请求直接写工作区时，首次写入由 dsh 只读层拒绝，申请提权后的重试由 Pith 拒绝；这次实测不证明系统沙盒本身是拒绝写入的拦截层（`.tmp/evidence/task-49/tester-ffcb166/tester-report.md`）。
-
-**还没有实测的前提**：
-
-1. claude 与 codex 的 ACP 适配器都声明支持 HTTP 方式的 MCP 服务，但没有实测过工具调用、工具标题的形状与权限请求。实测并登记标题形状之前，这两个 Agent 在启动检查里报不可用。
-2. 费曼的对照规程能否稳定地区分「说反」「漏掉」与「换了说法但正确」，由 #53 在动界面之前实测。验收方式写在 [3-toolkits](subsystems/3-toolkits.md) 3.3。
