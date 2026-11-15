@@ -81,9 +81,11 @@
 
 
 ## [Task #53] 费曼复述：要点对照
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #52
-- **Updated**: 2026-11-14
+- **Verified-Commit**: 908aa0f9ad9bfb68941f09fdd3e4e49901edfee5
+- **Updated**: 2026-11-15
+- **验收结果**: 要点预抽、引文核对、逐条对照、失败保存与显式重试、成功后自动追问通过。真实 Agent 分类 v5 重复与独立短文、双宿主 covered/missing/contradicted 首问沿用各分项实测；首次选区原文与追问漂移已修复并独立复验。最后取消归属修复通过有限双宿主终验：原生在抽取 held 后 267ms 连续三击重选、一次重开即 ready，提交前零记录，提交后恰好一条 user practice/result，原文与锚点一致；Web 相同路径成功，保留其 HTTP 不传视图 signal 的边界。最后时序验收使用明确标注的受控外部 ACP，不冒充模型质量；超过默认期限的首样本不计取消通过证据，原始失败保留。最终 typecheck、全仓单测（371 pass / 101 skip / 0 fail）、browser（143 pass / 4 语音条件 skip / 0 fail）、构建与四项精准破壁通过；加载三哈希一致，自有资源全部回收，Cleanup PASS。报告与终验截图：`.tmp/evidence/task-53/fix-prepare-cancellation/tester/tester-report.md`、`.tmp/evidence/task-53/fix-prepare-cancellation/tester/`；真实分类/首问及前轮故障边界：`.tmp/evidence/task-53/prompt-v5/`、`.tmp/evidence/task-53/holdout/`、`.tmp/evidence/task-53/fix-selection-followup/tester/tester-report.md`、`.tmp/evidence/task-53/tester/tester-report.md`。未交付真实 Vault，归 #54。
 - **Scope**: `src/plugins/toolkit-feynman/**`、`src/core/seams.ts`（`followUp`）、`src/workbench/**`、`src/shells/**`、`tests/**`、`docs/ARCHITECTURE.md`
 - **契约**: 费曼新规程（对照原文、要点/复述的自动化核对、追问机制、evalMode 修正）。
 - **交付**: 不交付。整体在 #54 终验后交付。
@@ -91,9 +93,9 @@
 ---
 
 ## [Task #54] 终验：整体验收与交付
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #53
-- **Updated**: 2026-11-13
+- **Updated**: 2026-11-15
 - **Scope**: 验收工作区 `.tmp/evidence/task-54/`。包含：契约对照、全量门禁、真实用户路径（投喂/立项/课题内/训练/结题/搁置/无Agent/沙盒/旧格式）、观感终审包。
 - **报告**: `.tmp/evidence/task-54/final-report.md`。
 - **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。
