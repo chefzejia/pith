@@ -55,26 +55,53 @@ export function paragraphHash(source: string): string {
   return hash.toString(16).padStart(16, "0");
 }
 export function createFeynmanContrast(storage: WorkspaceStoragePort, prompt: AgentPromptService): FeynmanContrast {
-  const preparing = new Map<string, Promise<readonly RecallPoint[]>>();
+  const preparing = new Map<string, { controller: AbortController; pending: Promise<readonly RecallPoint[]>; consumers: number }>();
   return {
     async prepare(source, signal) {
       if (!source.trim()) throw new Error("原文为空");
-      const key = paragraphHash(source), existing = preparing.get(key);
-      if (existing) return existing;
-      const pending = (async () => {
-        const path = `_cache/feynman/${key}.json`;
-        if (await storage.exists(path)) {
-          const cached = object(parse(await storage.readText(path)), ["source", "points"]);
-          if (cached.source !== source) throw new Error("要点缓存与原文不符");
-          return validatePoints(source, { points: cached.points });
-        }
-        const points = validatePoints(source, parse(await prompt.prompt(extractPrompt(source), { signal })));
-        await storage.mkdir("_cache/feynman");
-        await storage.writeText(path, JSON.stringify({ source, points }));
-        return points;
-      })();
-      preparing.set(key, pending);
-      try { return await pending; } finally { preparing.delete(key); }
+      signal?.throwIfAborted();
+      const key = paragraphHash(source);
+      let entry = preparing.get(key);
+      if (!entry) {
+        const controller = new AbortController();
+        const pending = (async () => {
+          const path = `_cache/feynman/${key}.json`;
+          if (await storage.exists(path)) {
+            const cached = object(parse(await storage.readText(path)), ["source", "points"]);
+            if (cached.source !== source) throw new Error("要点缓存与原文不符");
+            return validatePoints(source, { points: cached.points });
+          }
+          controller.signal.throwIfAborted();
+          const points = validatePoints(source, parse(await prompt.prompt(extractPrompt(source), { signal: controller.signal })));
+          controller.signal.throwIfAborted();
+          await storage.mkdir("_cache/feynman");
+          controller.signal.throwIfAborted();
+          await storage.writeText(path, JSON.stringify({ source, points }));
+          return points;
+        })().finally(() => { if (preparing.get(key)?.pending === pending) preparing.delete(key); });
+        entry = { controller, pending, consumers: 0 };
+        preparing.set(key, entry);
+      }
+      const shared = entry;
+      shared.consumers++;
+      return new Promise((resolve, reject) => {
+        let active = true;
+        const release = (): boolean => {
+          if (!active) return false;
+          active = false;
+          signal?.removeEventListener("abort", abort);
+          if (--shared.consumers === 0 && preparing.get(key) === shared) {
+            // Evict synchronously so a same-tick reopen cannot join cancelled work.
+            preparing.delete(key);
+            shared.controller.abort();
+          }
+          return true;
+        };
+        const abort = (): void => { if (release()) reject(signal!.reason); };
+        signal?.addEventListener("abort", abort, { once: true });
+        shared.pending.then(value => { if (release()) resolve(value); }, error => { if (release()) reject(error); });
+        if (signal?.aborted) abort();
+      });
     },
     async compare(source, points, produced, signal) {
       const checked = validatePoints(source, { points });
