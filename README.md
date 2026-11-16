@@ -6,7 +6,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Pith is a host-agnostic **Personal Attention & Human Training System** running inside [Obsidian](https://obsidian.md), standalone desktop Web, and Super Agent workbenches (DSH).
+Pith is a host-agnostic **Personal Attention & Human Training System** that runs inside [Obsidian](https://obsidian.md) and as a standalone desktop Web app.
 
 In the AI era, the marginal cost of generating content has dropped to near zero while information noise explodes, fracturing fixed human attention bandwidth. As agents evolve into Super Agents, the ultimate bottleneck returns to the human: if you stop evolving — outsourcing thinking to AI or mistaking summaries for mastery (*the fluency illusion*) — your own mental weights never update. Humanity poured its collective wisdom into discovering how to train frontier models; Pith reverse-engineers that training pipeline to train you.
 
@@ -58,5 +58,6 @@ npm run build:obsidian     # Build dist/obsidian/ and sync to .dev-vault/.obsidi
 ## Documentation
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md): Product positioning, core modules, spatial interaction laws, and domain glossary.
+- [`docs/FEATURES.md`](docs/FEATURES.md): Feature ledger: what works today, on which host, with what evidence, known gaps, milestones, and proposals.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) & [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md): 4-layer unidirectional DAG, subsystem contracts ([`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-toolkits`](docs/subsystems/3-toolkits.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)), and data ownership.
 - [`AGENTS.md`](AGENTS.md): Agent collaboration boundaries, verification commands, and routing.

@@ -36,6 +36,7 @@ npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1
 
 - [任务调度板](docs/TASKS.md)：查看滑动任务栈队列（`pending / queued / verified / blocked / superseded`）与写作用域（`Scope`）时读取。
 - [产品定义](docs/PRODUCT.md)：确认产品定位、核心模块、空间交互铁律或领域词表时读取。
-- [架构总纲](docs/ARCHITECTURE.md) 与 [子系统契约](docs/subsystems/1-core-store-engine.md)：修改四层单向依赖、子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) / [`2-stages`](docs/subsystems/2-stages.md) / [`3-toolkits`](docs/subsystems/3-toolkits.md) / [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) / [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、公共接口或数据所有权时读取。`docs/` 描述目标契约；源码尚未落地的部分列在架构总纲第六节，动手前先读。
+- [功能台账](docs/FEATURES.md)：查看各功能的实现与验收状态、已知缺口、里程碑与提议时读取；「提议」不是契约，不据此派任务或实现。
+- [架构总纲](docs/ARCHITECTURE.md) 与 [子系统契约](docs/subsystems/1-core-store-engine.md)：修改四层单向依赖、子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) / [`2-stages`](docs/subsystems/2-stages.md) / [`3-toolkits`](docs/subsystems/3-toolkits.md) / [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) / [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、公共接口或数据所有权时读取。`docs/` 描述目标契约；哪些已经落地并通过验收、已知缺口在哪，见功能台账。
 - [经验教训](docs/LESSONS.md)：排查已知失败模式、复盘打回原因或晋升守卫单测时读取。
 - [协作角色](docs/ROLES.md)：执行 Brain / Router / Worker / Tester 双环协作时读取。

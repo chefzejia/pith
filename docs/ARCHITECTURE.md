@@ -1,6 +1,6 @@
 # Architecture Overview
 
-本文是 Pith 四层单向架构、插件能力模型、五个子系统的边界与数据所有权的总纲。产品定位与领域概念见 [`PRODUCT.md`](PRODUCT.md)，任务队列见 [`TASKS.md`](TASKS.md)。
+本文是 Pith 四层单向架构、插件能力模型、五个子系统的边界与数据所有权的总纲。产品定位与领域概念见 [`PRODUCT.md`](PRODUCT.md)，各功能的实现与验收状态见 [`FEATURES.md`](FEATURES.md)，任务队列见 [`TASKS.md`](TASKS.md)。
 
 ---
 

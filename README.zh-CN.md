@@ -6,7 +6,7 @@
 
 [English](README.md) | **简体中文**
 
-Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Personal Attention & Human Training System）**，运行在 [Obsidian](https://obsidian.md)、独立 Web 桌面端与 Super Agent 工作台（DSH）中。
+Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Personal Attention & Human Training System）**，运行在 [Obsidian](https://obsidian.md) 与独立 Web 桌面端中。
 
 在 AI 时代，外部内容生成的边际成本趋近于零，信息噪音与焦虑叙事呈指数级爆炸，持续撕裂人类恒定且稀缺的注意力带宽。当 Agent 迈向 Super Agent，系统的最终瓶颈正回到人类自己身上：如果停止自身进化，把问题都丢给 AI「许愿」，或满足于看懂二手总结的流畅性错觉，人的底层心智权重就从未更新。人类倾尽智慧摸索出了训练顶尖大模型的完整范式；Pith 将这套训练管线逆向工程回来，用于训练人类自己。
 
@@ -58,5 +58,6 @@ npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault
 ## 文档入口
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)：产品定位、核心模块、空间交互铁律与领域词表。
+- [`docs/FEATURES.md`](docs/FEATURES.md)：功能台账，记录现在什么能用、在哪个宿主、凭什么、还缺什么，以及里程碑与提议。
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/subsystems/`](docs/subsystems/1-core-store-engine.md)：四层单向依赖、五大子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) · [`2-stages`](docs/subsystems/2-stages.md) · [`3-toolkits`](docs/subsystems/3-toolkits.md) · [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) · [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）与数据所有权。
 - [`AGENTS.md`](AGENTS.md)：Agent 协作边界、验证命令与按需路由。
