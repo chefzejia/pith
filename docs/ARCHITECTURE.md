@@ -86,4 +86,4 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | `<workspace>/_cache/` | 后台任务队列、行间译文、复述要点清单、封面缩略图 | 各自的所有者（引擎、`toolkit-interline`、`toolkit-feynman`、工作台） | 是，删除后自动重建 |
 | `~/Library/Application Support/pith/speech/` | Vault 外的本机语音运行时与模型（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speech/speechRuntime.ts) | 是，经设置面板重装 |
 
-磁盘格式没有版本迁移。格式变更后，旧工作区里读不出来的条目由看板的「无法读取」分区列出。
+代码只读当前格式。已发布的磁盘格式只做加法，确需破坏性变更时随发布附一次性迁移脚本，先备份再迁移（[AGENTS.md](../AGENTS.md) 核心约束 3）。读不出来的条目由看板的「无法读取」分区列出。
