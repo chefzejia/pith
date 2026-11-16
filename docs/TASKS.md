@@ -72,10 +72,71 @@
      - 「功能清单」各表的表头为 `| ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |`；ID 由 `F-` 接大写字母与连字符组成，全文唯一。
      - 「状态」只取 `已验收`、`待复验`、`契约`；「Web / Obsidian」形如 `x / y`，x、y 只取 `✓`、`○`、`–`。
      - `已验收` 的行至少有一个 `✓`，「最近独立验收」含 `#<任务号> @<7 位提交>`，且该提交在仓库历史里存在。
-     - 「回归测试」表的 ID 集合与功能清单完全一致，每个 ID 至少一个测试链接（链接能否打开由现有文档链接守卫负责）。
+     - 「回归测试」表的 ID 集合与功能清单完全一致；每个 ID 至少一个测试链接，状态为 `契约` 的可以写 `—`（链接能否打开由现有文档链接守卫负责）。
      - `docs/subsystems/` 下每个文件都被 [ARCHITECTURE.md](ARCHITECTURE.md) 链接。
      - 本文件中任务区块的 `Features` 字段（`—` 除外）只列台账里存在的 ID；`verified` 区块所列的每一行，「最近独立验收」引用的提交等于该区块的 `Verified-Commit`，或是它的后代。
   2. 按 #54 的终验报告（`.tmp/evidence/task-54/final-report.md`）与本文件中的 #54 区块，同步台账「发布与里程碑」中 v0.1.0 列出的各行：状态、宿主、最近独立验收、已知缺口；同时把里程碑表里 v0.1.0 一行的状态改成验收结果（当前发布版本由 Router 在 #54 核销时按 [ROLES.md](ROLES.md) 第 6 条更新）。只同步事实，不增删条目，不改「提议」与契约文档；报告与台账冲突或判断不了的行，列进 Worker 报告交 Router 判定。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：把一行状态改成非法词；删掉某个 ID 的回归测试行；在 `docs/subsystems/` 放一个没被链接的文件；让一个带 `Features` 的 `verified` 区块所列行引用更早的提交（可用合成的区块文本）。
 - **Tester 验收**: 本任务没有界面。Tester 逐行对照 #54 的终验报告与截图索引，检查第 2 项写进台账的结论、宿主与缺口没有夸大或遗漏，并重放 Worker 的破壁记录。
 - **交付**: 不交付。
+
+---
+
+## [Task #58] 向导在仓库里搜代码
+- **Status**: queued
+- **Depends-On**: #57
+- **Features**: F-REPO-SEARCH
+- **Updated**: 2026-11-16
+- **Scope**: `src/core/host.ts`、`src/shells/**`、`src/plugins/guide-acp/**`、`tests/**`
+- **契约**: 按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节的 `RepositoryPort.searchFiles` 与「仓库端口的约束」中的搜索一条，以及 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 的「代码」规则与 2.5 的 `pith_search_material` 落地。立项作用域下 `materialId` 可以是材料库里的任一仓库材料，课题作用域下必须是本课题引用的（2.4 工具端点一行）。
+- **不在范围内**: 比较、克隆与版本（#59、#60）。
+- **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：不跳过二进制文件；去掉 `limit` 上限；放行含 `..` 的 `pathPrefix`；课题作用域下放行未引用的材料。
+- **Tester 验收**: Web 与 Obsidian 各一次。导入一个真实本地仓库立项，要求向导找出一个函数的定义和全部调用点并写进讲义：对话过程里出现搜索步骤，讲义里的 `path:line` 跳到正确的行。另用一个含二进制文件、超大文件和中文内容的玩具仓库，核对搜索不报错、不返回二进制和超大文件、中文能搜到；正则写错时看到原因。
+
+---
+
+## [Task #59] 贴 GitHub 链接导入仓库
+- **Status**: queued
+- **Depends-On**: #58
+- **Features**: F-INTAKE-GITHUB、F-INTAKE-REPO
+- **Updated**: 2026-11-16
+- **Scope**: `src/core/**`、`src/shells/**`、`src/workbench/**`、`src/plugins/guide-acp/**`、`tests/**`
+- **契约**:
+  1. 地址识别与规范化按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 3.6「远端仓库地址」；`Material.remoteUrl`（3.3）、`ImportMaterialInput.remoteUrl` 与 `importMaterial` 的同提交复用按第 4 节，复用对本地仓库同样生效。
+  2. `RepositoryPort.cloneRemote` 按第 4 节「仓库端口的约束」的克隆、固定引用、凭据与失败三条；`tests/setup.ts` 把 `PITH_REPOSITORY_HOME` 指向一次性沙盒。
+  3. 立项框与「添加材料」按 [5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md) 2.1 与 4.1 分流，包括克隆进行中的进度、停止与失败。
+  4. `pith_ingest_external` 拒绝 GitHub 仓库地址（[4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.5 规则）。
+  5. 测试不访问外网：用本地 bare 仓库作远端，在沙盒 `HOME` 的 git 全局配置里用 git 自带的 `url.<base>.insteadOf` 把 GitHub 地址改写过去；不用替身代替 git。
+- **不在范围内**: 检查更新、版本分组与讲义版本（#60）。
+- **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：去掉同提交复用；去掉固定引用（模拟上游强推后旧提交仍可读的断言）；去掉中止时的目录清理；克隆时也忽略全局 git 配置（经 `insteadOf` 的克隆断言）。
+- **Tester 验收**: Web 与 Obsidian 各一次。贴一个真实的小型公开 GitHub 仓库链接导入并打开嵌套文件；再贴一次同一链接，材料库不出现第二份；导入中途停止，不留材料，也不留半成品目录；贴一个不存在的仓库地址，看到明确原因；带目标贴链接走立项；在课题内经「添加材料」贴链接。核对克隆位于 `PITH_REPOSITORY_HOME` 下且没有检出工作区文件。私有仓库的成功克隆依赖人类本机凭据，不在沙盒验收范围，写进已知缺口。
+
+---
+
+## [Task #60] 仓库版本与讲义绑定
+- **Status**: queued
+- **Depends-On**: #59
+- **Features**: F-REPO-VERSIONS、F-LESSON-VERSION
+- **Updated**: 2026-11-16
+- **Scope**: `src/core/**`、`src/shells/**`、`src/workbench/**`、`src/plugins/guide-acp/**`、`src/plugins/stage-reader/**`、`tests/**`
+- **契约**:
+  1. [1-core-store-engine.md](subsystems/1-core-store-engine.md) 不变量 10、11，3.2 的 `basedOn` 磁盘格式与缺省规则，第 4 节的 `writeLesson`、`rebaseLesson`、`fetchRemote`、`listChanges`、`readChange` 及其约束。
+  2. 检查更新、材料库合卡、课题内的版本分组、「改用」「基于旧版本」「按新版本调整」，按 [5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md) 2.3 与 4.2。
+  3. 出处只在依据的版本里解析，按 [2-stages.md](subsystems/2-stages.md) 第 2 节第 3 条。
+  4. `pith_compare_material`、`pith_rebase_lesson` 与提示词的「材料」「讲义」两段和「新版本」规则，按 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 与 2.5。
+  5. v0.1.0 已发布：已有讲义没有 `basedOn` 时按 3.2 的缺省规则读取，不改写已有账本（[AGENTS.md](../AGENTS.md) 核心约束 3）。
+- **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：`writeLesson` 不记 `basedOn`；出处在全部版本里解析（两个版本有同名文件且内容不同）；`rebaseLesson` 改动讲义字节；缺省 `basedOn` 被当成最新版本。
+- **Tester 验收**: Web 与 Obsidian 各一次。用一个真实本地仓库：导入并立项，写出至少两讲；在仓库里提交一处只影响其中一讲的改动；在材料库「检查更新」导入新版本，再点一次提示已是最新；在课题里「改用」新版本，两讲都标「基于旧版本」；点「按新版本调整」，向导查看差异后只重写受影响的那讲并写明变化，另一讲只改依据；出处跳到新版本，旧版本上的笔记仍跳回旧代码。向导未连接时「按新版本调整」不可用并说明原因，「改用」照常可用。Pith 克隆的仓库走一次检查更新，远端用 Tester 自己控制的本地 bare 仓库推送新提交。
+
+---
+
+## [Task #61] 发布 v0.2.0：学 GitHub 仓库
+- **Status**: queued
+- **Depends-On**: #60
+- **发布版本**: v0.2.0
+- **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
+- **Updated**: 2026-11-16
+- **Scope**: `manifest.json` 与 `package.json` 的版本号；验收工作区 `.tmp/evidence/task-61/`
+- **契约**: Web 与 Obsidian 各走一遍学 GitHub 仓库的主链：贴链接导入、带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md) 第 6 条发布。
+- **Worker 门禁**: 两处版本号改为 `0.2.0`，全量门禁通过。
+- **报告**: `.tmp/evidence/task-61/final-report.md`
