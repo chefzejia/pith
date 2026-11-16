@@ -44,6 +44,8 @@
 7. **记录标明作者。** 每条高亮、笔记与实训记录带 `author`：经工作台界面写入的是 `user`，经向导工具写入的是 `guide`，由写入的通道决定，调用方不能自行指定。要求「用户自己的记录」的地方（结题门禁、「总结沉淀」快捷动作）只数 `author` 为 `user` 的笔记与实训记录。
 8. **画像只在结题时由向导写入。** 观察条目的新增只发生在 `pith_settle_topic` 里；撤回发生在 `pith_settle_topic` 里，或由用户在对话里撤销。
 9. **Pith 不删除任何课题或材料。** 工作区是普通文件，可以在文件管理器里删除；删除后悬空的引用由看板的「无法读取」分区报告，不自动修复。
+10. **同一仓库的版本。** `kind: repo` 且 `externalPath` 相同的材料是同一仓库的不同版本，按 `createdAt` 排序，最近导入的是最新版本。导入新版本是新建一份材料，旧版本不变；课题改用新版本是追加引用，旧版本的引用保留（不变量 4），记在旧版本上的笔记照常指向旧代码。
+11. **讲义记下依据的版本。** 每一讲在课题账本里记下写入时本课题每个仓库引用的最新版本（`basedOn`）。讲义里的仓库出处只在这些版本里解析；课题里某个仓库有了比 `basedOn` 更新的版本，这一讲就是「基于旧版本」。
 
 内核代码、存储协议与工具接口固定使用中性领域词，界面文案由 [`SurfacePersona`](../../src/core/types.ts) 决定：
 
@@ -110,7 +112,9 @@ lessons:
   - name: 00-课程大纲.md
     locator: "text:line:0"
     lastActiveAt: "2026-11-12T10:15:00.000Z"
+    basedOn: "material-dsh,material-magpie"
   - name: 01-内核边界.md
+    basedOn: "material-dsh,material-magpie"
 createdAt: "2026-11-12T10:00:00.000Z"
 updatedAt: "2026-11-12T10:15:00.000Z"
 ---
@@ -133,6 +137,7 @@ updatedAt: "2026-11-12T10:15:00.000Z"
 ```
 
 - `target` 必填且非空。`materials`、`toolkits`、`lessons` 三个列表必须出现，可以为空；`toolkits` 只含训练工具。
+- 讲义条目的 `basedOn` 是逗号分隔的材料 ID：只列 `kind: repo` 的材料，每个仓库至多一个版本，且都在 `materials` 里；是平铺标量，因为 frontmatter 解析器不支持列表项里嵌套列表。没有仓库材料的课题不写这个字段。缺省 `basedOn` 的讲义视为基于本课题每个仓库最早引用的版本。
 - 记录以 `## [highlight|note|practice] <timestamp>` 开头，以 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界。每条记录有 `- id` 与 `- author: "user"` 或 `- author: "guide"` 两行。带锚点的记录另有三行：来源（`- material: "<id>"` 或 `- lesson: true`，二者必居其一）、`- file` 与 `- locator`；不带锚点的记录这三行都没有。
 - 实训记录可带 `<!-- pith-note:result -->` 块，内容是一行 JSON：训练工具的结构化结果（费曼复述的要点清单与逐条状态见 [3-toolkits.md](3-toolkits.md)）。
 - 向导批注放在 `<!-- pith-note:remark -->` 块。
@@ -160,6 +165,7 @@ readingOpenedAt: "2026-11-14T03:00:00.000Z"
 - `aids` 是在这份材料上开启的阅读辅助 ID 列表（目前只有 `interline`）。导入时按材料语言预置，见 [3-toolkits.md](3-toolkits.md)。
 - `readingFile`、`readingLocator`、`readingOpenedAt` 三个可选字段记录这份材料最后一次打开的位置：`readingFile` 是最后打开的文件，`readingOpenedAt` 是打开时间（ISO 时间戳），`readingLocator` 是该文件内的内在坐标，可缺省。`readingFile` 与 `readingOpenedAt` 必须同时出现或同时缺省；`readingLocator` 不能单独出现，否则解析失败并进入「无法读取」。仓库材料的 `files` 为空，它的 `readingFile` 是绑定提交里的仓库相对路径，适用 3.6 的第二套规则；其余材料的 `readingFile` 必须是 `files` 里的文件名。字段是平铺标量，因为 frontmatter 解析器只支持标量与标量列表。
 - 阅读位置属于材料，不属于缓存：`_cache/` 删除后，首页材料库与课题内都从 `material.md` 恢复最后打开的文件、坐标与时间。`files` 每项的 `locator` 与 `lastActiveAt` 仍是非仓库材料各个文件自己的位置，`reading` 只多记「最后打开的是哪一个」。
+- `remoteUrl` 是可选标量，只出现在 Pith 克隆的仓库材料上，值是规范化的远端地址 `https://github.com/<owner>/<repo>`；这时 `externalPath` 指向 Pith 管理的克隆目录（[ARCHITECTURE.md](../ARCHITECTURE.md) 第五节）。本地仓库材料没有这个字段。
 - 正文是材料级记录，格式与 `topic.md` 的记录相同，只允许 `highlight` 与 `note`，来源行固定指向材料自身，`author` 固定为 `user`。
 
 ### 3.4 `ME.md`
@@ -193,7 +199,9 @@ readingOpenedAt: "2026-11-14T03:00:00.000Z"
 
 **Pith 控制的存储名字**（`topicId`、`materialId`、讲义文件名）：禁止包含 `/`、`\`、`\0`；禁止是 `.` 或 `..`；允许扩展名（`00-课程大纲.md` 是合法讲义名，`.` 在扩展名里合法）。讲义文件名必须以 `.md` 结尾。这些名字直接用于目录路径拼接，不能有路径分隔符或父目录引用。
 
-**锚点的仓库相对路径**（`SelectionAnchor.file`，仅当来源是 `material` 且对应的是 `repo` 类型材料时）：允许 `/`（路径分隔符）与 `.`（文件扩展名与当前目录引用），禁止 `..` 路径段（防路径穿越），禁止以 `/` 开头（相对路径）。宿主负责把它限定在绑定仓库根目录内解析，解析结果须在根目录下；校验在宿主层，内核只存储字符串。材料 `files/` 下的非仓库文件的锚点 `file` 是材料内部的文件名，适用第一套规则。
+**锚点的仓库相对路径**（`SelectionAnchor.file`，仅当来源是 `material` 且对应的是 `repo` 类型材料时）：允许 `/`（路径分隔符）与 `.`（文件扩展名与当前目录引用），禁止 `..` 路径段（防路径穿越），禁止以 `/` 开头（相对路径）。宿主负责把它限定在绑定仓库根目录内解析，解析结果须在根目录下；校验在宿主层，内核只存储字符串。材料 `files/` 下的非仓库文件的锚点 `file` 是材料内部的文件名，适用第一套规则。仓库搜索与比较的路径参数适用同一套规则。
+
+**远端仓库地址**：只接受 `github.com` 上的仓库根地址，HTTPS 形式 `https://github.com/<owner>/<repo>`（可带 `.git` 或结尾的 `/`）与 SSH 形式 `git@github.com:<owner>/<repo>.git`。`<owner>` 与 `<repo>` 只含字母、数字、`-`、`_`、`.`，且不是 `.` 或 `..`；规范化后克隆到仓库目录下的 `github.com/<owner>/<repo>`。其他地址按普通网页处理。
 
 - **原始文件只读**：材料 `files/` 下的文件导入后不被任何接口改写。讲义只能写进 `topics/<id>/lessons/`，文件名以 `.md` 结尾。
 - **坏文件隔离**：`listTopics` 与 `listMaterials` 省略解析失败的条目；`listUnreadable()` 逐条给出目录名、账本路径与解析器原因，目录名与账本 `id` 不一致的条目同样列出。引用了不存在材料的课题也列出。
@@ -240,6 +248,8 @@ export interface LessonEntry {
   readonly name: string;
   readonly locator?: IntrinsicLocator;
   readonly lastActiveAt?: string;
+  /** Repository material IDs this lesson was written against, one version per repository; stamped by the store. */
+  readonly basedOn?: readonly string[];
 }
 
 export interface Topic {
@@ -275,6 +285,8 @@ export interface Material {
   readonly files: readonly MaterialFileEntry[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  /** Normalized GitHub URL; present only on repositories that Pith cloned. */
+  readonly remoteUrl?: string;
   /** Reading-aid toolkit IDs enabled on this material. */
   readonly aids: readonly string[];
   /** Absent until the material has been opened once. */
@@ -312,12 +324,16 @@ export interface WorkspaceStore {
   updateTopic(topicId: string, patch: { title?: string; target?: string; status?: TopicStatus; nextAction?: string; toolkits?: readonly string[] }): Promise<Topic>;
   attachMaterial(topicId: string, materialId: string): Promise<Topic>;
   appendTopicNote(topicId: string, note: AppendNoteInput): Promise<Note>;
+  /** Writes or overwrites a lesson and stamps `basedOn` with the latest version of each repository the topic references. */
   writeLesson(topicId: string, fileName: string, markdown: string): Promise<Topic>;
+  /** Re-stamps `basedOn` of an existing lesson to the latest versions without changing its content. */
+  rebaseLesson(topicId: string, fileName: string): Promise<Topic>;
   readLesson(topicId: string, fileName: string): Promise<string>;
   updateLessonLocator(topicId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
 
   listMaterials(): Promise<readonly Material[]>;
   getMaterial(materialId: string): Promise<Material | null>;
+  /** A repo import whose `externalPath` and `commitSha` match an existing material returns that material unchanged. */
   importMaterial(input: ImportMaterialInput): Promise<Material>;
   setMaterialAids(materialId: string, aids: readonly string[]): Promise<Material>;
   appendMaterialNote(materialId: string, note: AppendNoteInput): Promise<Note>;
@@ -343,6 +359,8 @@ export interface ImportMaterialInput {
   readonly files: readonly { readonly name: string; readonly mimeType?: string; readonly bytes: Uint8Array }[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  /** Only for repositories that Pith cloned; a normalized GitHub URL (3.6). */
+  readonly remoteUrl?: string;
   /** Reading aids to enable from the start; the caller decides them from a text sample. */
   readonly aids?: readonly string[];
 }
@@ -351,6 +369,10 @@ export interface ImportMaterialInput {
 `updateTopic` 只接受 `exploring ⇄ shelved` 与 `exploring → settled` 两种状态变化，其余抛错。`appendMaterialNote` 拒绝 `practice` 与 `author` 为 `guide` 的记录。原有的 `writeProfile`、`writeGeneratedFile`、`appendMaterialFiles`、`updateTopicIfUnchanged` 与 `toolkitsOrigin` 不再存在。
 
 `recordReading` 只写 `reading` 三个字段，不改动 `files`、`aids` 与材料级记录。它拒绝：空文件名与含 NUL 字符的名字；仓库材料里含 `..` 路径段或以 `/` 开头的路径；非仓库材料里不在 `files` 中的文件名。`updateReadingLocator` 继续只服务非仓库材料逐文件的位置。
+
+`writeLesson` 与 `rebaseLesson` 自己计算 `basedOn`（不变量 10、11），调用方不能指定；课题没有仓库材料时不写这个字段。`rebaseLesson` 只改账本里这一讲的 `basedOn`，讲义文件的字节不变；讲义不存在时抛错。材料 ID 由 Pith 生成，只含小写字母、数字与 `-`，所以 `basedOn` 可以用逗号分隔。
+
+`importMaterial` 对 `kind: repo` 先找 `externalPath` 与 `commitSha` 都相同的材料，找到就原样返回，不新建、不改动。`remoteUrl` 只接受 3.6 规范化后的 GitHub 地址，且只能和 `kind: repo` 一起出现。
 
 ```ts
 // src/core/engine/contract.ts
@@ -466,9 +488,52 @@ export interface HostPort {
   // existing members unchanged
   readonly toolServer?: ToolServerPort;
 }
+
+export interface RepositorySearchMatch {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
+}
+
+export interface RepositoryChange {
+  readonly path: string;
+  readonly status: "added" | "modified" | "deleted" | "renamed";
+  readonly previousPath?: string;
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+export interface RepositoryPort {
+  // inspectRepository, listFiles and readFile unchanged
+  /** Searches the text files of one commit; literal unless `regex` is set. */
+  searchFiles(externalPath: string, commitSha: string, query: {
+    readonly pattern: string; readonly regex?: boolean; readonly caseSensitive?: boolean;
+    readonly pathPrefix?: string; readonly limit?: number }):
+    Promise<{ readonly matches: readonly RepositorySearchMatch[]; readonly truncated: boolean }>;
+  /** Files that differ between two commits of one repository, paged. */
+  listChanges(externalPath: string, fromSha: string, toSha: string, offset?: number, limit?: number):
+    Promise<{ readonly changes: readonly RepositoryChange[]; readonly total: number; readonly nextOffset: number | null }>;
+  /** Unified diff of one file between two commits. */
+  readChange(externalPath: string, fromSha: string, toSha: string, filePath: string, maxLines?: number):
+    Promise<{ readonly path: string; readonly patch: string; readonly truncated: boolean }>;
+  /** Clones a GitHub repository into the managed directory with full history, or reuses the clone; pins the default-branch head. */
+  cloneRemote(remoteUrl: string, signal?: AbortSignal):
+    Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string; readonly remoteUrl: string }>;
+  /** Fetches a managed clone and pins the default-branch head after the fetch. */
+  fetchRemote(externalPath: string, signal?: AbortSignal): Promise<{ readonly commitSha: string }>;
+}
 ```
 
 `WorkspaceStoragePort` 增加 `copy(from, to)`，供画像留底使用。
+
+仓库端口的约束：
+
+- **搜索**：只搜该提交里的 UTF-8 普通文件，跳过二进制和超过单文件上限（与 `readFile` 相同，256 KiB）的文件。`limit` 默认 50、最大 200，每条 `text` 最多 300 字符。`regex` 为真时按扩展正则匹配，正则无效时以原因失败。`pathPrefix` 适用 3.6 的仓库相对路径规则。
+- **比较**：两个提交都必须在这个仓库里，只比较提交，不读工作区。`listChanges` 的 `limit` 默认 200、最大 1000；`readChange` 的 `maxLines` 默认 400、最大 2000，超出时 `truncated` 为真。
+- **克隆**：仓库目录是 `PITH_REPOSITORY_HOME`（绝对路径），未设置时为 `~/Library/Application Support/pith/repositories/`，克隆放在其下的 `github.com/<owner>/<repo>`。克隆完整历史，不检出工作区文件；`inspectRepository`、`listFiles`、`readFile` 与上面的搜索和比较对克隆同样可用。同一地址已经克隆过时复用并拉取，不重新克隆。`title` 是 `<owner>/<repo>`。
+- **固定引用**：`cloneRemote` 与 `fetchRemote` 给返回的提交加引用 `refs/pith/pins/<sha>`，上游改写历史后，材料绑定的提交仍然可读。
+- **凭据与失败**：克隆与拉取保留用户的全局 git 配置与 SSH 代理，以使用本机已有的登录凭据；其余只读命令照旧忽略全局与系统配置。git 不弹交互提示（`GIT_TERMINAL_PROMPT=0`）；需要登录、网络不可达或仓库不存在时，以原因失败。`signal` 中止时删除本次新建的不完整克隆目录。
+- `fetchRemote` 只用于仓库目录里由 Pith 克隆的仓库；本地仓库检查更新时用 `inspectRepository` 读当前提交。
 
 ---
 

@@ -85,5 +85,6 @@ Pith 不解析回复文本里的指令，不读取任何 Agent 的私有配置�
 | `<workspace>/topics/topic-<id>/conversation.json` | 课题的对话回合 | [`DefaultAttentionEngine`](../src/core/engine/AttentionEngine.ts) | 否 |
 | `<workspace>/_cache/` | 后台任务队列、行间译文、复述要点清单、封面缩略图 | 各自的所有者（引擎、`toolkit-interline`、`toolkit-feynman`、工作台） | 是，删除后自动重建 |
 | `~/Library/Application Support/pith/speech/` | Vault 外的本机语音运行时与模型（或 `PITH_SPEECH_HOME`） | [`NodeManagedSpeechRuntime`](../src/shells/speech/speechRuntime.ts) | 是，经设置面板重装 |
+| `~/Library/Application Support/pith/repositories/` | Vault 外 Pith 克隆的 GitHub 仓库：完整历史、不检出工作区，加上材料绑定提交的固定引用（或 `PITH_REPOSITORY_HOME`） | [`NodeRepositoryPort`](../src/shells/web/nodeRepository.ts) | 否：仓库材料指向这里。删除后这些材料读不出文件；重新导入同一链接会重新克隆，上游已改写掉的提交无法恢复 |
 
 代码只读当前格式。已发布的磁盘格式只做加法，确需破坏性变更时随发布附一次性迁移脚本，先备份再迁移（[AGENTS.md](../AGENTS.md) 核心约束 3）。读不出来的条目由看板的「无法读取」分区列出。

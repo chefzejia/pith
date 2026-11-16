@@ -9,7 +9,7 @@
   - `待复验`：验收过，但之后的重构或契约变更动到了它，还没有重新独立验收；自动化测试可能仍然通过。#51（11-13）重写了磁盘格式和全部写入链路，在它之前验收、之后没有再独立验收的条目都记为待复验。
   - `契约`：契约已写明，但没有独立验收记录（可能未实现、部分实现，或只有自动化测试）。
   - `提议`：还没写进契约的想法，见「提议」一节。
-- **Web / Obsidian**：`✓` 最近一次独立验收覆盖了该宿主；`○` 只有自动化测试；`–` 不适用。
+- **Web / Obsidian**：`✓` 最近一次独立验收覆盖了该宿主；`○` 只有自动化测试；`–` 不适用，或还没有实现。
 - **最近独立验收**：`#任务 @提交（日期）`，提交是 TASKS 中该任务的 `Verified-Commit`。标「受控」的表示验收用了受控夹具（音频、下载、模型回复等），不代表真实服务。
 - **证据**：验收报告与截图在执行环本机的 `.tmp/evidence/task-<ID>/`，不进 git，也会被清理；本文只记结论、提交与缺口。
 - **维护**：Brain 增删条目与提议。任务区块用 `Features` 字段列出它推进的条目，Router 核销时按验收报告同步这些行的状态、宿主、最近独立验收与已知缺口（[ROLES.md](ROLES.md) 第 2 条）。条目按「用户会说我能做某件事」来切，契约细节留在 `docs/subsystems/`。
@@ -24,7 +24,7 @@
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 验收中（#54） |
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | 等 v0.1.0 |
-| v0.2.0 · 学 GitHub 仓库 | 贴 GitHub 链接直接导入仓库（目前链接会被当成网页剪藏）；向导能在绑定提交里搜索代码（目前只能分页列文件、按行读）；加上自用中发现的问题 | 待写契约 |
+| v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60），发布验收 #61；自用中发现的问题插在 #61 之前 | 已排期 |
 | v0.3.0 · 读书与阅读规划 | 电子书导入（EPUB、PDF 已验收，CBZ 没有验收记录）；向导按目录规划阅读路线；今日下一步复验（F-NEXT-ACTION）。「规划阅读任务」要做成什么样，等用过 v0.1.0 再定 | 待定义 |
 | v0.4.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
@@ -41,6 +41,8 @@
 | F-INTAKE-FILE | 拖入或选择文件导入材料库；同名的音视频与字幕合成一份；只有一份时直接打开阅读 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | — |
 | F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 只验过课题内「添加材料」，首页直接贴链接在 #51 后没有独立验收；只用过一个公开页面 |
 | F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 只验过课题内「添加材料」，首页只贴路径、不带目标的入口没有独立验收 |
+| F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 契约 | – / – | 无 | — |
+| F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 契约 | – / – | 无 | — |
 | F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 宽窄变化用视口模拟，没有拖拽系统窗口 |
 | F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 只用过两种旧格式形状夹具，没有用 #47 版本生成的真实工作区验证 |
 
@@ -72,6 +74,8 @@
 | F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 没有自然观察到向导先反问 |
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | — |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 点击即写只在 Web 实测 |
+| F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本后，基于旧版本的讲可以「按新版本调整」，向导只重写受影响的讲 | 契约 | – / – | 无 | — |
+| F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 契约 | – / – | 无 | — |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #56 @d8f5d4e（11-14） | 工具写入途中停止没有真实覆盖；进程故障用受控夹具验证，不代表真实模型故障 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
 | F-TOPIC-NOTES | 课题内的高亮、笔记与向导批注，标明作者，点击跳回原文 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | — |
@@ -149,13 +153,15 @@
 
 ## 回归测试
 
-各条目当前对应的主要自动化测试，改动前后用 `npm run test:file -- <文件>` 回归；浏览器用例走 `npm run test:browser`。测试文件按历史任务命名，名字不代表覆盖范围。
+各条目当前对应的主要自动化测试，改动前后用 `npm run test:file -- <文件>` 回归；浏览器用例走 `npm run test:browser`。测试文件按历史任务命名，名字不代表覆盖范围。还没有实现的条目写 `—`，由实现它的任务补上。
 
 | ID | 测试 |
 | :--- | :--- |
 | F-INTAKE-FILE | [task33-intake.test.ts](../tests/task33-intake.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-INTAKE-LINK | [task41-reading.test.ts](../tests/task41-reading.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
 | F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
+| F-INTAKE-GITHUB | — |
+| F-REPO-VERSIONS | — |
 | F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts) |
 | F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts) |
 | F-READ-MD | [track2-reader-speech.test.ts](../tests/track2-reader-speech.test.ts)、[wave2-trackA-plugins.test.ts](../tests/wave2-trackA-plugins.test.ts) |
@@ -173,6 +179,8 @@
 | F-INTAKE-TOPIC | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
+| F-LESSON-VERSION | — |
+| F-REPO-SEARCH | — |
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |
 | F-TOPIC-NOTES | [task51-store.test.ts](../tests/task51-store.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
