@@ -24,7 +24,7 @@
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 验收中（#54） |
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | 等 v0.1.0 |
-| v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60），发布验收 #61；自用中发现的问题插在 #61 之前。验收用你要学的仓库：magpie、deepseek-harness（本地）与 herdr、t3code（GitHub） | 已排期 |
+| v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60）、费曼卡片内追问（#62），发布验收 #61；自用中发现的问题插在 #61 之前。验收用你要学的仓库：magpie、deepseek-harness（本地）与 herdr、t3code（GitHub） | 已排期 |
 | v0.3.0 · 读书与阅读规划 | 电子书导入（EPUB、PDF 已验收，CBZ 没有验收记录）；向导按目录规划阅读路线；今日下一步复验（F-NEXT-ACTION）。「规划阅读任务」要做成什么样，等用过 v0.1.0 再定 | 待定义 |
 | v0.4.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
@@ -93,7 +93,7 @@
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | F-TOOLKIT-MENU | 在顶栏开关训练工具；向导也可以按目标增删 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 实际增删只在 Web 做过，原生只核对了菜单内容 |
-| F-FEYNMAN | 费曼复述：先抽要点，提交后逐条对照原文，再自动追问一个缺口 | 已验收 | ✓ / ✓ | #53 @908aa0f（11-15） | Web 入口不传取消信号 |
+| F-FEYNMAN | 费曼复述：先抽要点，提交后逐条对照原文，再在卡片里追问一道考解释或应用的题 | 已验收 | ✓ / ✓ | #53 @908aa0f（11-15） | Web 入口不传取消信号；追问仍是旧做法（向导回合里出题），可能复述卡片上已显示的原文或多带一个小问（#54 F2），改为卡片内出题见 #62 |
 | F-SHADOWING | 影子跟读：四阶练习、录音转写、漏词标在原句上 | 待复验 | ○ / ○ | #46 @6c7ea68（11-12，受控音频与转写） | #46 用的是静音音频和合成的麦克风输入 |
 
 ### 结题与画像

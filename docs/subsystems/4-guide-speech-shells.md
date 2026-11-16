@@ -59,7 +59,7 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 | 可用训练工具 | 每个已注册训练工具的 ID 与 `whenToUse` |
 | 近期对话 | [`selectConversationHistory`](../../src/plugins/guide-acp/conversationMemory.ts) 从此前的回合里取：只取每个回合的用户消息与回复正文，最近 16 条，单条 2 000 字、合计 12 000 字以内，超长的保留首尾；最近一个回合附上当时给出的选项 |
 | 用户消息 | 本回合的输入 |
-| 本回合指令 | 工具经 `instruction` 给出的指令（如费曼复述的追问规则），没有则省略 |
+| 本回合指令 | 调用方经 `instruction` 给出的指令（如「按新版本调整」），没有则省略 |
 
 规则（写进提示词，由模型遵守）：
 
@@ -142,7 +142,7 @@ Pith 工具有没有被调用、结果是什么，以工具端点为准，不以
 | :--- | :--- |
 | 握手（`initialize`、`session/new`、配置项） | 各 60 秒（[`AGENT_HANDSHAKE_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts)） |
 | 前台回合的 `session/prompt` | 不设期限，用户用停止按钮结束 |
-| 后台一次性请求：下一步行动、行间翻译、复述要点与对照 | `guide-acp` 设置里的 `timeoutMs`（默认 300 秒，范围 5 到 600 秒） |
+| 后台一次性请求：下一步行动、行间翻译、复述要点、对照与追问出题 | `guide-acp` 设置里的 `timeoutMs`（默认 300 秒，范围 5 到 600 秒） |
 
 后台一次性请求经 `guide.prompt` 服务发出：一段提示词进，一段文本出，不挂工具端点，不带画像与对话。其他插件（`toolkit-interline`、`toolkit-feynman`）通过这个服务使用本机 Agent，不导入 `guide-acp`。
 
