@@ -31,6 +31,36 @@ test("Feynman comparison verifies every covered/contradicted quote and rejects m
   assert.throws(() => validateComparison([points[0]!], produced, { items: [{ id: "p1", status: "missing", quote: "" }], summary: "不错" }), /格式/);
 });
 
+const comparedResponse = '{"items":[{"id":"p1","status":"contradicted","quote":"版本不同也能用缓存。"},{"id":"p2","status":"covered","quote":"命中后少读一次。"}]}';
+const omittedResponse = '{"items":[{"id":"p1","status":"contradicted","quote":"版本不同也能用缓存。"},{"id":"p2","status":"missing","quote":""}]}';
+
+for (const scenario of [
+  { name: "unknown comparison ID", valid: comparedResponse, field: '"id":"p1"', invalid: '"id":"unknown-p1"', secondStatus: "covered", secondQuote: "命中后少读一次。", error: "对照条目无效" },
+  { name: "duplicate comparison ID", valid: comparedResponse, field: '"id":"p2"', invalid: '"id":"p1"', secondStatus: "covered", secondQuote: "命中后少读一次。", error: "对照条目无效" },
+  { name: "invalid comparison status", valid: comparedResponse, field: '"status":"covered"', invalid: '"status":"unsupported"', secondStatus: "covered", secondQuote: "命中后少读一次。", error: "对照条目无效" },
+  { name: "missing comparison with quote", valid: omittedResponse, field: '"quote":""', invalid: '"quote":"版本不同也能用缓存。"', secondStatus: "missing", secondQuote: "", error: "缺失条目不应有复述引用" },
+] as const) {
+  test(`Feynman service rejects ${scenario.name} from raw agent response`, async () => {
+    const root = await testSandbox("task53-response-");
+    try {
+      const produced = scenario.secondStatus === "missing" ? "版本不同也能用缓存。" : "版本不同也能用缓存。命中后少读一次。";
+      let response: string = scenario.valid;
+      const responses: string[] = [];
+      const service = createFeynmanContrast(new NodeWorkspaceStorage(root), { prompt: async () => { responses.push(response); return response; } });
+      assert.deepEqual(await service.compare(source, points, produced), {
+        toolkit: "feynman", points: [
+          { ...points[0]!, status: "contradicted", quote: "版本不同也能用缓存。" },
+          { ...points[1]!, status: scenario.secondStatus, quote: scenario.secondQuote },
+        ],
+      });
+      response = scenario.valid.replace(scenario.field, scenario.invalid);
+      assert.notEqual(response, scenario.valid);
+      await assert.rejects(service.compare(source, points, produced), { name: "Error", message: scenario.error });
+      assert.deepEqual(responses, [scenario.valid, response]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
 test("Feynman caches verified standards by paragraph hash across service restarts before any comparison", async () => {
   const root = await testSandbox("task53-cache-");
   try {
