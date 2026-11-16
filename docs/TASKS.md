@@ -52,11 +52,13 @@
 ---
 
 ## [Task #54] 终验：整体验收与交付
-- **Status**: pending
+- **Status**: blocked
 - **Depends-On**: #53
+- **Verified-Commit**: none
 - **发布版本**: v0.1.0
 - **Updated**: 2026-11-16
 - **Scope**: 验收工作区 `.tmp/evidence/task-54/`。包含：契约对照、全量门禁、真实用户路径（投喂/立项/课题内/训练/结题/搁置/无Agent/沙盒/旧格式）、观感终审包。
+- **阻塞证据**: F1 已在 0751ce1 独立复验通过；F2 原生首次追问先给遗漏答案仍未修复。三轮有限返修（开放问句生成、答案/作答方式投影、单目标与教学上下文隔离）均未通过真实语义预检，最后一批为 2 PASS / 3 带限制 / 5 FAIL，未形成可交独立 Tester 的新接受候选。按 ROLES 第 1 条连续返修止损升级；不据此断言 ACP/模型不支持或冻结契约自相矛盾。失败补丁及逐例输出已归档，源码/测试及 dist/dev 恢复 0751 接受业务，主树干净、Cleanup PASS；未安装、未打发布标签。详见 `.tmp/evidence/task-54/fix-followup-no-answer/worker-report.md`、`semantic-reading.json`（各批目录）及 `restoration-hashes.json`。
 - **报告**: `.tmp/evidence/task-54/final-report.md`。
 - **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。
 
