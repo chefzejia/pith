@@ -1,11 +1,7 @@
-<!-- reviewed-through: 2823ef2a6f9e693be23d16ecd47fa034195c1eef (2026-11-14) -->
+<!-- reviewed-through: 6c1a37205f0bad246431fe626499f90b791e60ea (2026-11-16) -->
 # Lessons from Merged Work
 
 ## Active Lessons
-
-**结构化模型响应的逐项校验须逐分支验证。**
-- `[周期审计 a0b1f1e A1]` 独立 Auditor 分别移除费曼对照的未知 ID、重复 ID、非法状态与 missing 非空引文四条拒绝守卫后，相关 12 项测试均仍全部通过；相邻伪造引文等五次对照破壁均准确报红。已有合法结果与引文错误覆盖不能证明其他结构校验受保护。回归须从实际响应字节调用真实解析链，以合法响应作正控制，每次只引入一个结构错误并保持数量及其他字段合法，断言精准拒绝；分别移除各自守卫时须变红，恢复后变绿。
-- Seen 1× (2026-11-16).
 
 **无向导状态的入口门禁必须覆盖已有课题和恢复路径。**
 - `[Task #54]` 工程自检与先前分项覆盖了首页立项禁用，却没有覆盖设置切为离线后搁置、恢复并重开已有课题的连续路径。独立 Web 验收中，课题发送按钮和历史选项仍可操作，界面未显示不可用原因；尚未实际发送离线回合，不能据此断言后端也放行。回归须检查当前可用性传入课题视图、输入与快捷动作的完整链路，并保留材料阅读、笔记、搁置与恢复的离线能力。
@@ -315,6 +311,8 @@
 - Seen 1× (2026-11-04).
 
 ## Moved to Guard Tests / Standards
+
+- **费曼对照响应的未知 ID、重复 ID、非法状态与 missing 非空引文须分别拒绝**（周期审计 a0b1f1e A1，Seen 1×，2026-11-16）→ 已固化为 [`tests/task53-feynman.test.ts`](../tests/task53-feynman.test.ts) 的四个 `Feynman service rejects … from raw agent response` 服务入口回归（6c1a372）；Worker 与独立 Tester 各自逐项验证删除对应守卫只令该断言报红、恢复后全绿。
 
 - **浏览器用例不得因缺少环境变量而在门禁中静默跳过**（2026-11-11：默认门禁跳过全部浏览器用例，`2b8acbe`、`8e411ca`、`07fe545`、`187f9e6`、`2a569fa`、`3f8d2ac`、`35d00d6` 七个提交先后使 11 个浏览器用例过期而无人察觉）→ 已固化为 `npm run test:browser`（[`scripts/test-browser.mjs`](../scripts/test-browser.mjs) 缺 Playwright 或 Chrome 即报错退出）与守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`the browser test command runs every test file that launches a browser, inside the sandbox preload, and never without a browser`）。
 - **测试进程不得继承真实 HOME 与本机语音运行时**（`[Task #33]` Worker 门禁、`[Task #34]` 同模式、2026-11-11 评审中裸跑 `npm test` 改写真实语音目录的 `gateway.cjs` 并产生 5 个假失败，Seen 3×）→ 已固化为测试预加载 [`tests/setup.ts`](../tests/setup.ts)（`npm test` 与 `npm run test:file` 注入一次性沙盒）、守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`every test entry point loads the sandbox preload`）与行为测试 [`tests/test-sandbox.test.ts`](../tests/test-sandbox.test.ts)。
