@@ -68,7 +68,7 @@ export function renderIntakeTurn(root: HTMLElement, turn: GuideTurn): void {
   }
 }
 
-export function mountIntake(root: HTMLElement, actions: IntakeActions, placeholder = "说出想搞懂的问题，或拖入文件、贴入链接与本地仓库路径…"): { dispose(): void } {
+export function mountIntake(root: HTMLElement, actions: IntakeActions, placeholder = "说出想搞懂的问题，或拖入文件、贴入链接与本地仓库路径…"): { dispose(): void; setGuideAvailable(available: boolean): void } {
   const doc = root.ownerDocument, session = new IntakeSession(actions.ports, actions.materials);
   root.innerHTML = `<form class="pith-intake-box"><div class="pith-intake-row"><button type="button" data-intake-files aria-label="添加文件">${pithIcon("plus")}</button><input type="file" multiple hidden><input name="title" aria-label="目标或材料"><button type="submit" data-intake-open aria-label="提交">${pithIcon("arrow-up")}</button></div><div data-intake-selected class="pith-intake-selected"></div><div class="pith-intake-process" aria-live="polite"></div><div class="pith-home-status" role="status"></div></form>`;
   const form = root.querySelector("form")!, input = root.querySelector<HTMLInputElement>('[name="title"]')!, picker = root.querySelector<HTMLInputElement>('[type="file"]')!, submit = root.querySelector<HTMLButtonElement>('[data-intake-open]')!, add = root.querySelector<HTMLButtonElement>('[data-intake-files]')!, status = root.querySelector<HTMLElement>('[role="status"]')!, process = root.querySelector<HTMLElement>('.pith-intake-process')!, chips = root.querySelector<HTMLElement>('[data-intake-selected]')!;
@@ -120,5 +120,5 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
     })();
   };
   showChips(); update();
-  return { dispose() { disposed = true; controller?.abort(); } };
+  return { dispose() { disposed = true; controller?.abort(); }, setGuideAvailable(available) { actions.guideAvailable = available; update(); } };
 }

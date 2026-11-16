@@ -62,14 +62,14 @@ test("reader speech checks visible words across chapters in both rendered shells
   }
 });
 
-test("Web clears quoted text between topics and retains per-topic guide visibility", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
+test("Web with a connected guide clears quoted text between topics and retains per-topic guide visibility", { timeout: 30000, skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
   const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
   const dir = await testSandbox("pith-navigation-behavior-");
   let browser: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
   let server: Awaited<ReturnType<typeof createPithWebServer>> | undefined;
   try {
     await mkdir(join(dir, "workspace"));
-    server = await createPithWebServer({ workspaceDir: join(dir, "workspace") });
+    server = await createPithWebServer({ workspaceDir: join(dir, "workspace"), guideProvider: { async run() { throw new Error("Navigation must not send guide turns"); } } });
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     const post = async (path: string, value: unknown) => { const response = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) }); assert.ok(response.ok); return response.json(); };

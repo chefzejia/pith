@@ -56,7 +56,13 @@ const ports: IntakePorts = {
 function intakeActions(): IntakeActions { return { ports, guideAvailable: guideAvailable(), settings: openSimpleSettings, topic: topic => openTopic(topic.id, true), fed: async materials => { if (materials.length === 1) await openMaterial(materials[0]!.id); else { await refresh(); home(materials.map(material => material.id)); } }, changed: async () => { await refresh(); compassView?.library(state.compass, state.boardMaterials); } }; }
 
 const guideVisibility = new Map<string, boolean>();
-async function refresh(): Promise<void> { state = await api<WebState>("/api/state"); }
+async function refresh(): Promise<void> {
+  const previous = state ? guideAvailable() : undefined;
+  state = await api<WebState>("/api/state");
+  const available = guideAvailable();
+  if (previous === available) return;
+  compassView?.setGuideAvailable(available); await workbench?.setGuideAvailable(available);
+}
 async function goHome(): Promise<void> { const request = ++navigation; await refresh(); if (request === navigation) home(); }
 function notify(error: unknown): void { const toast = requiredElement("#toast"); toast.textContent = error instanceof Error ? error.message : String(error); toast.hidden = false; window.setTimeout(() => { toast.hidden = true; }, 4000); }
 function home(focus: readonly string[] = []): void {
@@ -155,6 +161,7 @@ function openSimpleSettings() {
   const save = (fields: Record<string, unknown>) => enqueue(async () => {
     const result = await api<{ settings: WebSettings }>("/api/settings", fields);
     state.settings = result.settings;
+    if (fields.agentId !== undefined) await refresh();
     status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
   });
   const runtimePanel = requiredHost("#speech-runtime");

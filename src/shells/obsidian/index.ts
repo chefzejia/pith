@@ -1,4 +1,5 @@
 import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
+import { GUIDE_UNAVAILABLE_REASON } from "../../workbench/guideAvailability.ts";
 import { toolkitCatalog, trainingToolkits } from "../web/toolkits.ts";
 import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AnchorSource, type AgentProcessPort, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type Material, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
@@ -219,9 +220,11 @@ export class PithObsidianController {
   private topics: Awaited<ReturnType<DefaultWorkspaceStore["listTopics"]>> | null = null;
   private materials: Awaited<ReturnType<DefaultWorkspaceStore["listMaterials"]>> | null = null;
   private readonly views = new Set<PithObsidianView>();
+  private readonly guideAvailabilityListeners = new Set<(available: boolean) => void>();
   private readonly guideTurns = new Map<string, AbortController>();
 
   async runGuide(topicId: string, input: { text: string; anchor?: GuideAnchor; instruction?: string } | { turnId: string }, onUpdate?: (turn: GuideTurn) => void): Promise<GuideTurn> {
+    if (!this.hasGuideProvider()) throw new Error(GUIDE_UNAVAILABLE_REASON);
     if (this.guideTurns.has(topicId)) throw new Error("Topic already has a running turn");
     const controller = new AbortController(); this.guideTurns.set(topicId, controller);
     try { return "turnId" in input ? await this.engine.retryTurn(topicId, input.turnId, { signal: controller.signal, onUpdate }) : await this.engine.runTurn({ topicId, ...input }, { signal: controller.signal, onUpdate }); }
@@ -272,7 +275,14 @@ export class PithObsidianController {
     await this.refresh();
   }
   trainingToolkits(): readonly ToolkitDescriptor[] { return trainingToolkits; }
-  hasGuideProvider(): boolean { return this.injectedGuide || Boolean(this.agentId); }
+  hasGuideProvider(): boolean { return (this.injectedGuide || Boolean(this.agentId && this.host.process)) && this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"); }
+  onGuideAvailabilityChange(listener: (available: boolean) => void): () => void { this.guideAvailabilityListeners.add(listener); return () => { this.guideAvailabilityListeners.delete(listener); }; }
+  private async updateGuideAvailability(): Promise<void> {
+    const available = this.hasGuideProvider();
+    for (const view of this.views) view.setGuideAvailable(available);
+    for (const listener of this.guideAvailabilityListeners) listener(available);
+    await Promise.all([...this.views].map(view => view.refreshGuide()));
+  }
   private agentTimeoutMs(): number { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide) throw new Error("Guide service unavailable"); return guide.timeoutMs; }
   private async refresh(): Promise<void> {
     this.topics = null; this.materials = null;
@@ -363,10 +373,16 @@ export class PithObsidianController {
   async probeAgentOptions(id: string, force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.probeAgentOptions) throw new Error("Guide service unavailable"); return guide.probeAgentOptions(id, force); }
   async setAgentConfig(config: ObsidianAgentConfig): Promise<void> {
     if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string" || (config.persona !== "sanctuary" && config.persona !== "studio")) throw new Error("Invalid agent config");
+    const previous = this.hasGuideProvider();
     this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort; this.persona = config.persona;
     await this.refresh(); await this.save(config);
+    if (previous !== this.hasGuideProvider()) await this.updateGuideAvailability();
   }
-  async setPlugins(config: PluginsConfigFile): Promise<void> { this.config = config; await this.refresh(); const available = this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"); for (const view of this.views) view.setGuideAvailable(available); await this.save({ preset: config.preset ?? "all", plugins: config.plugins ?? {} }); }
+  async setPlugins(config: PluginsConfigFile): Promise<void> {
+    const previous = this.hasGuideProvider(); this.config = config; await this.refresh();
+    await this.save({ preset: config.preset ?? "all", plugins: config.plugins ?? {} });
+    if (previous !== this.hasGuideProvider()) await this.updateGuideAvailability();
+  }
   getPersona(): "sanctuary" | "studio" { return this.persona; }
   getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona }; }
   isAgentConfigured(): boolean { return this.agentConfigured; }
@@ -376,12 +392,12 @@ export class PithObsidianController {
   async speechRuntimeAction(action: "install" | "ensureRunning" | "stop" | "remove") { const runtime = this.host.speechRuntime; if (!runtime || !runtime[action]) throw new Error("本宿主不支持该操作"); return runtime[action](); }
   createView(root: HTMLElement, actions: ObsidianViewActions): PithObsidianView {
     const view = new PithObsidianView(root, actions);
-    view.setGuideAvailable(this.hasGuideProvider() && this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"));
+    view.setGuideAvailable(this.hasGuideProvider());
     this.views.add(view);
     return view;
   }
   releaseView(view: PithObsidianView): void { if (this.views.delete(view)) view.dispose(); }
-  dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
+  dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.guideAvailabilityListeners.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
 }
 
 const PITH_VIEW_TYPE = "pith-reader";
@@ -413,7 +429,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
   private readonly host: HostPort;
   private readonly guideByTopic: Map<string, boolean>;
   private readonly openSettings: (() => void) | undefined;
-  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, host: HostPort, workspace?: ObsidianWorkspace, openSettings?: () => void) { super(leaf); this.controller = controller; this.host = host; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; this.openSettings = openSettings; }
+  private readonly unsubscribeGuide: () => void;
+  constructor(leaf: ObsidianLeaf, controller: PithObsidianController, host: HostPort, workspace?: ObsidianWorkspace, openSettings?: () => void) { super(leaf); this.controller = controller; this.host = host; this.workspace = workspace; this.guideByTopic = controller.guideVisibility; this.openSettings = openSettings; this.unsubscribeGuide = controller.onGuideAvailabilityChange(available => { this.compassView?.setGuideAvailable(available); this.materialView?.setGuideAvailable(available); }); }
   getViewType(): string { return PITH_VIEW_TYPE; }
   getDisplayText(): string { return "Pith"; }
   getIcon(): string { return "sprout"; }
@@ -484,7 +501,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.materialView = instance; await instance.open();
   }
 
-  async onClose(): Promise<void> { this.generation++; this.disposeScenes(); await this.releaseReaderView(); }
+  async onClose(): Promise<void> { this.unsubscribeGuide?.(); this.generation++; this.disposeScenes(); await this.releaseReaderView(); }
 
   private report(error: unknown): void { new obsidian.Notice(error instanceof Error ? error.message : String(error)); }
   private restoreGuideSplit(): void {
@@ -555,7 +572,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
       openToolkit: (text, locator) => { if (this.view) this.view.openToolkit(toolkits(), text, text === undefined || !session.source ? undefined : { source: session.source, file: session.file, locator: locator || "text:offset:0", quote: text }); },
       selection: (action, text, locator) => { if (!session.source) throw new Error("文件来源不存在"); const anchor = { source: session.source, file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.capture({ owner: { topicId: topic.id }, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
-      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: (await this.controller.engine.getConversation(topic.id)).map(recoverInterruptedToolSteps), observations: await topicObservations(this.controller.store, topic.id), actions: guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, toolkits()) : [], readOnly: updated.status === "settled" }; },
+      guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: (await this.controller.engine.getConversation(topic.id)).map(recoverInterruptedToolSteps), observations: await topicObservations(this.controller.store, topic.id), actions: this.controller.hasGuideProvider() && guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, toolkits()) : [], readOnly: updated.status === "settled" }; },
       undoObservation: id => undoTopicObservation(this.controller.store, this.controller.engine, topic.id, id),
       openMaterial: async id => { await session.refresh(); await session.openMaterial(id); },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); return; } await this.controller.runGuide(topic.id, { text, anchor }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },

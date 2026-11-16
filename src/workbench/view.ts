@@ -11,6 +11,7 @@ import { InterlineView, preserveInterlinePosition, type InterlineViewPrepare } f
 import { VoiceInput } from "./voiceInput.ts";
 import { renderNavigation } from "./view/navigation.ts";
 import { noteEntries, renderGuide, type MaterialNotes } from "./view/guide.ts";
+import { GUIDE_UNAVAILABLE_REASON } from "./guideAvailability.ts";
 import { renderInlineToolkit, renderToolkitMenu } from "./view/toolkit.ts";
 import { PlaybackDeck } from "./view/playback.ts";
 import { RecallPractice } from "./recallPractice.ts";
@@ -385,13 +386,23 @@ export class PithWorkbenchView {
   private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile" | "source" | "materialGroups">): void {
     const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
     renderNavigation(this.navigation, document, navigate);
+    this.updateGuideActions();
   }
 
   guideElement(): HTMLElement { return this.guide; }
   showLessonLoading(title: string): void { this.closeInlineToolkit(); this.voice.cancel(); this.stopSpeech(); this.clearAudioAsset(); this.closeNavigation(); const section = this.doc.createElement("section"), heading = this.doc.createElement("h1"), status = this.doc.createElement("p"); section.className = "pith-lesson-loading"; heading.textContent = title; status.textContent = "向导正在结合课程大纲与源码为你撰写本讲讲义…"; status.setAttribute("role", "status"); section.append(heading, status); this.article.replaceChildren(section); }
   focusQuotedGuide(): void { if (this.pendingAnchor) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) input.focus(); } }
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
-  setGuideAvailable(available: boolean): void { this.guideAvailable = available; this.guideButton.hidden = false; this.updateReadingAids(); }
+  setGuideAvailable(available: boolean): void {
+    this.guideAvailable = available; this.guideButton.hidden = false; this.updateReadingAids(); this.updateGuideActions();
+    if (this.guide.querySelector(".pith-guide-compose")) this.renderGuide();
+  }
+  private updateGuideActions(): void {
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-selection="ask"],[data-planned-lesson]')) {
+      button.disabled = !this.guideAvailable;
+      button.title = this.guideAvailable ? "" : GUIDE_UNAVAILABLE_REASON;
+    }
+  }
   private updateReadingAids(): void {
     const controls = this.root.querySelector<HTMLElement>("[data-reading-aids]"); if (!controls) return;
     controls.hidden = this.currentSource?.kind !== "material";
@@ -479,16 +490,17 @@ export class PithWorkbenchView {
    */
   async guideTurn<T>(text: string, run: () => Promise<T>): Promise<T> {
     if (this.guideData.readOnly) throw new Error("已沉淀的课题不可发送消息");
+    if (!this.guideAvailable) throw new Error(GUIDE_UNAVAILABLE_REASON);
     if (this.guideSending) throw new Error("向导正在回应上一条消息");
     this.guideSending = true; this.guideError = ""; this.guidePending = { text, from: this.guideData.conversation.length }; this.guideTab = "chat"; this.renderGuide();
     try { const value = await run(); await this.refreshGuide(); return value; }
     catch (error) { this.guideError = error instanceof Error ? error.message : String(error); throw error; }
     finally { this.guideSending = false; this.guidePending = undefined; if (!this.disposed) this.renderGuide(); }
   }
-  quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
+  quoteSelection(anchor: SelectionAnchor, tab: "chat" | "notes"): void { if (tab === "chat" && !this.guideAvailable) { this.tip(GUIDE_UNAVAILABLE_REASON); return; } this.pendingAnchor = anchor; this.guideTab = tab; this.setGuideVisible(true); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(true); this.renderGuide(); this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus(); }
   private renderGuide(): void {
     this.voice.cancel("guide");
-    renderGuide(this.guide, { ...this.guideData, materialNotes: this.materialNotes }, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError, this.actions.scene === "material");
+    renderGuide(this.guide, { ...this.guideData, materialNotes: this.materialNotes, guideAvailable: this.guideAvailable }, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError, this.actions.scene === "material");
     if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock);
     const update = () => { for (const node of this.guide.querySelectorAll<HTMLElement>("[data-started]")) { const elapsed = node.querySelector<HTMLElement>("[data-guide-elapsed]"); if (elapsed) elapsed.textContent = `已用 ${Math.max(0, Math.floor((Date.now() - Date.parse(node.dataset.started!)) / 1000))} 秒`; } };
     update(); this.guideClock = this.guide.querySelector("[data-started]") ? this.win.setInterval(update, 1000) : undefined;
@@ -710,13 +722,14 @@ export class PithWorkbenchView {
     if (button.dataset.guideCopy) { const turn = this.guideData.conversation.find(item => item.id === button.dataset.guideCopy), step = turn?.steps[Number(button.dataset.guideCopyIndex)]; if (step?.kind === "reply") { try { await this.win.navigator.clipboard.writeText(step.markdown); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } } return; }
     if (button.hasAttribute("data-guide-bottom")) { const content = this.guide.querySelector<HTMLElement>(".pith-guide-content"); if (content) content.scrollTop = content.scrollHeight; button.hidden = true; return; }
     if (button.dataset.guideTab === "chat" || button.dataset.guideTab === "notes") { this.guideTab = button.dataset.guideTab; this.renderGuide(); return; }
-    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input && !this.guideSending && !this.guideData.readOnly) { input.value = button.dataset.guidePrompt; if (button.hasAttribute("data-guide-choice")) this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); else input.focus(); } return; }
+    if (button.dataset.guidePrompt) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input && this.guideAvailable && !this.guideSending && !this.guideData.readOnly) { input.value = button.dataset.guidePrompt; if (button.hasAttribute("data-guide-choice")) this.guide.querySelector<HTMLButtonElement>("[data-guide-send]")?.click(); else input.focus(); } return; }
     if (button.hasAttribute("data-guide-stop")) { if (this.actions.stopGuide) await this.actions.stopGuide(); return; }
-    if (button.dataset.guideRetry) { if (this.actions.retryGuide && !this.guideSending && !this.guideData.readOnly) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
+    if (button.dataset.guideRetry) { if (this.guideAvailable && this.actions.retryGuide && !this.guideSending && !this.guideData.readOnly) await this.guideTurn("", () => this.actions.retryGuide!(button.dataset.guideRetry!)); return; }
     if (button.hasAttribute("data-guide-send")) {
       const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"), sendGuide = this.actions.sendGuide;
       if (!input || !input.value.trim() || !sendGuide || this.guideSending || this.guideData.readOnly) return;
       const message = input.value, anchor = this.pendingAnchor, asNote = this.guideTab === "notes";
+      if (!asNote && !this.guideAvailable) return;
       input.value = ""; this.pendingAnchor = undefined;
       try {
         // A note is captured without a guide turn; a chat message is one guide turn.
@@ -760,7 +773,7 @@ export class PithWorkbenchView {
     else if (button.dataset.command === "import" && this.actions.importMaterial) this.actions.importMaterial();
     else if (button === this.navigationButton) { this.navigation.hidden = !this.navigation.hidden; button.setAttribute("aria-expanded", String(!this.navigation.hidden)); if (!this.navigation.hidden) updateTocLocation(this.navigation, this.article, this.reader, this.paged); }
     else if (button === this.guideButton) { const visible = this.guide.hidden; this.setGuideVisible(visible); if (this.actions.guideVisibilityChanged) this.actions.guideVisibilityChanged(visible); }
-    else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.actions.generateLesson) { this.tip("向导不可用，无法生成讲义"); return; } if (this.guideSending) { this.tip("向导正在回应上一条消息"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
+    else if (button.dataset.plannedLesson) { this.closeNavigation(); if (!this.guideAvailable || !this.actions.generateLesson) { this.tip(GUIDE_UNAVAILABLE_REASON); return; } if (this.guideSending) { this.tip("向导正在回应上一条消息"); return; } try { await this.actions.generateLesson(button.dataset.plannedLesson, button.dataset.plannedTitle || button.dataset.plannedLesson); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.file) { this.closeNavigation(); try { await this.actions.openFile(button.dataset.file, button.dataset.materialId ? { kind: "material", materialId: button.dataset.materialId } : button.hasAttribute("data-lesson") ? { kind: "lesson" } : undefined); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } }
     else if (button.dataset.locator) { this.closeNavigation(); const heading = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(node => node.dataset.locator === button.dataset.locator); if (heading) heading.scrollIntoView({ block: "start" }); }
     else if (button.dataset.command === "toolkit") { if (this.toolkitMenuOpen()) { this.toolkit.hidden = true; return; } const selected = this.readerSelection(); if (this.toolkit.hidden && selected) { this.requestedToolkitBlock = selected.block; this.actions.openToolkit(selected.quote, selected.locator); } else this.actions.openToolkit(); }

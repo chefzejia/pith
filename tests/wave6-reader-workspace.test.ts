@@ -38,7 +38,7 @@ test("Obsidian initializes under its own directory and rejects escaping roots", 
 test("selection opens the guide and records the user's topic preference", () => {
   const view = Object.create(PithObsidianView.prototype) as Record<string, unknown>;
   const recorded: boolean[] = [];
-  Object.assign(view, { actions: { guideVisibilityChanged: (visible: boolean) => recorded.push(visible) }, guide: { querySelector: () => null }, setGuideVisible: (visible: boolean) => recorded.push(visible), renderGuide() {} });
+  Object.assign(view, { guideAvailable: true, actions: { guideVisibilityChanged: (visible: boolean) => recorded.push(visible) }, guide: { querySelector: () => null }, setGuideVisible: (visible: boolean) => recorded.push(visible), renderGuide() {} });
   (view.quoteSelection as (anchor: object, tab: string) => void)({ file: "chapter", locator: "text:offset:0", quote: "text" }, "chat");
   assert.deepEqual(recorded, [true, true]);
   assert.doesNotMatch(obsidianStyles, /\.pith-dock-zone\{position:absolute/);

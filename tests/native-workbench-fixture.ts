@@ -3,7 +3,7 @@ import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { NodeRepositoryPort } from "../src/shells/web/nodeRepository.ts";
 
 /** Obsidian API, storage/repository ports and guide provider are explicit host boundaries. All product controllers/stores/engine are real. */
-export async function nativeWorkbenchFixture(page: any, directory: string, guide = false, options: { otherRightLeaf?: boolean } = {}): Promise<void> {
+export async function nativeWorkbenchFixture(page: any, directory: string, guide = false, options: { otherRightLeaf?: boolean; agentProcess?: boolean } = {}): Promise<void> {
   const storage = new NodeWorkspaceStorage(directory), repository = new NodeRepositoryPort();
   await page.exposeFunction("nativeStorage", async (method: string, args: any[]) => {
     if (method === "readBinary") return Array.from(await storage.readBinary(args[0]));
@@ -27,7 +27,7 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
   await page.goto("http://localhost:31552/");
   await page.evaluate(() => { (window as any).require = (id: string) => id === "obsidian" ? { ItemView: class { contentEl: HTMLElement; constructor(leaf: any) { this.contentEl = leaf.contentEl ?? document.getElementById("root"); } }, Plugin: class {}, Notice: class { constructor(message: string) { (window as any).notice = message; } } } : id === "node:util" ? { promisify: (fn: unknown) => fn } : id === "node:net" ? { BlockList: class { addSubnet() {} } } : {}; });
   await page.addScriptTag({ content: bundle.outputFiles[0]!.text }); await page.addScriptTag({ content: tools.outputFiles[0]!.text });
-  await page.evaluate(async ({ guide, otherRightLeaf }: { guide: boolean; otherRightLeaf?: boolean }) => {
+  await page.evaluate(async ({ guide, otherRightLeaf, agentProcess }: { guide: boolean; otherRightLeaf?: boolean; agentProcess?: boolean }) => {
     const w = window as any, call = (method: string) => (...args: unknown[]) => w.nativeStorage(method, args), storage: any = {};
     for (const method of ["exists", "readText", "writeText", "createText", "list", "mkdir", "copy"]) storage[method] = call(method);
     storage.readBinary = async (path: string) => new Uint8Array(await call("readBinary")(path));
@@ -35,7 +35,8 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     // The host boundary serializes updates; the real store still owns ledger mutations.
     storage.processText = async (path: string, update: (current: string) => string) => { const text = update(await storage.readText(path)); await storage.writeText(path, text); return text; };
     const repository = Object.fromEntries(["inspectRepository", "listFiles", "readFile"].map(method => [method, (...args: unknown[]) => w.nativeRepository(method, args)]));
-    const host = { id: "obsidian", storage, repository }; let controller: any;
+    const process = agentProcess ? { findExecutable: async () => null, probeExecutable: async () => null, spawnStdio: async () => { throw new Error("No agent process is run by the native availability fixture"); } } : undefined;
+    const host = { id: "obsidian", storage, repository, process }; let controller: any;
     const provider = { async run(input: any, options: any) {
       if (input.scope.kind !== "intake") throw new Error("Unexpected native guide turn");
       const tools = w.NativeTools.createScopedTools({ toolkits: w.NativeTools.testToolkits, store: controller.store, storage, materialIds: input.scope.materialIds, onChoices() {} });
@@ -61,5 +62,5 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     renderSplit();
     const view = new w.NativePith.PithWorkspaceView({}, controller, host, workspace, () => { w.settingsOpened = true; });
     w.nativeTask52 = { controller, view, workspace }; await view.onOpen();
-  }, { guide, otherRightLeaf: options.otherRightLeaf });
+  }, { guide, otherRightLeaf: options.otherRightLeaf, agentProcess: options.agentProcess });
 }

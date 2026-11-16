@@ -71,8 +71,11 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     await post("/api/chat", { topicId: topic.id, text: "New model" });
     assert.equal(sessions[3]?.model, "new-model");
     assert.equal((await post("/api/settings", { agentId: "" })).status, 200);
-    const offline = await (await post("/api/chat", { topicId: topic.id, text: "Offline" })).json() as { status: string; error?: string };
-    assert.equal(offline.status, "failed"); assert.ok(offline.error);
+    const beforeOffline = await storage.readText(`topics/${topic.id}/conversation.json`);
+    const offlineResponse = await post("/api/chat", { topicId: topic.id, text: "Offline" });
+    assert.equal(offlineResponse.status, 503);
+    assert.match((await offlineResponse.json() as { error: string }).error, /向导未连接/);
+    assert.equal(await storage.readText(`topics/${topic.id}/conversation.json`), beforeOffline);
     assert.equal((await post("/api/settings", { agentId: "dsh" })).status, 200);
     await close();
     server = await createPithWebServer({ workspaceDir: dir, guideProvider: { run: async (_input, options) => { options.onStep({ kind: "reply", markdown: "mock reply" }, 0); return { status: "completed" }; } } }); address = server.address(); assert.ok(address && typeof address !== "string"); base = `http://127.0.0.1:${address.port}`;

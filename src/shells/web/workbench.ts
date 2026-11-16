@@ -29,9 +29,11 @@ export class WebWorkbench {
   private readonly session: MaterialSession;
   private readonly streamTurn: (data: Record<string, unknown>) => Promise<GuideTurn | undefined>;
   private disposed = false;
+  private guideAvailable: boolean;
 
   constructor(options: WebWorkbenchOptions) {
     this.options = options;
+    this.guideAvailable = options.guideAvailable;
     const topicId = options.topic.id;
     const toolkits = [shadowingToolkit, feynmanToolkit];
     const streamTurn = async (data: Record<string, unknown>) => {
@@ -74,7 +76,7 @@ export class WebWorkbench {
       openSettings: options.settings,
       importMaterial: options.topic.status === "settled" ? undefined : options.importMaterial,
       openFile: (name, source) => this.session.openFile(name, source),
-      generateLesson: (name, title) => { if (!options.guideAvailable) throw new Error("向导不可用，无法生成讲义"); return this.session.generateLesson(name, title); },
+      generateLesson: (name, title) => { if (!this.guideAvailable) throw new Error("向导不可用，无法生成讲义"); return this.session.generateLesson(name, title); },
       openToolkit: (text, locator) => this.view.openToolkit(toolkits, text, text === undefined || !this.session.source ? undefined : { source: this.session.source, file: this.session.file, locator: locator || "text:offset:0", quote: text }),
       selection: (action, text, locator) => {
         if (!this.session.source) throw new Error("文件来源不存在");
@@ -91,7 +93,7 @@ export class WebWorkbench {
         ]);
         const topic = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === topicId);
         if (!topic) throw new Error("课题不存在");
-        const actions = options.guideAvailable ? await options.request<readonly GuideQuickAction[]>(`/api/topics/${encodeURIComponent(topicId)}/actions`) : [];
+        const actions = this.guideAvailable ? await options.request<readonly GuideQuickAction[]>(`/api/topics/${encodeURIComponent(topicId)}/actions`) : [];
         return { notes: topic.notes, toolkits: topic.toolkits, conversation, actions, observations, readOnly: topic.status === "settled" };
       },
       undoObservation: async observationId => { await options.request("/api/observations/undo", { topicId, observationId }); },
@@ -150,6 +152,11 @@ export class WebWorkbench {
   async openMaterial(id: string): Promise<void> { await this.session.refresh(); await this.session.openMaterial(id); }
 
   async open(): Promise<void> { await this.session.open(); }
+  async setGuideAvailable(available: boolean): Promise<void> {
+    if (this.disposed || this.guideAvailable === available) return;
+    this.guideAvailable = available; this.view.setGuideAvailable(available);
+    await this.view.refreshGuide();
+  }
 
   setGuideVisible(): void { this.view.setGuideVisible(true); this.updateGuideLayout(true); this.options.visibility(true); }
 

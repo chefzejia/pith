@@ -1,4 +1,5 @@
 import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
+import { GUIDE_UNAVAILABLE_REASON } from "../../workbench/guideAvailability.ts";
 import { trainingToolkits } from "./toolkits.ts";
 import { createFeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -111,6 +112,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   }, buildScenePrompt });
   const interlineSessions = new Map<string, { signature: string; session: InterlineSession }>();
   const guideTurns = new Map<string, AbortController>();
+  const guideAvailable = (): boolean => Boolean(options.guideProvider || settings.agentId) && runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active");
   const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ prompt: async (text, options) => { const service = runtime.getService<AgentPromptService>("guide.prompt"); if (!service) throw new Error("向导 Agent 不可用"); return service.prompt(text, options); } });
   const processEffects = (): void => {
     if (options.guideProvider || settings.agentId) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
@@ -210,6 +212,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         await refresh();
         const topic = await store.getTopic(decodeURIComponent(actionsPath[1]!));
         if (!topic) return send(res, 404, { error: "Topic not found" });
+        if (!guideAvailable()) return send(res, 200, []);
         const guide = runtime.getService<GuideAgentService>("guide.agent");
         if (!guide || !guide.quickActionsForTopic) return send(res, 503, { error: "Guide service unavailable" });
         const toolkits = trainingToolkits;
@@ -456,6 +459,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (url.pathname === "/api/chat" && method === "POST") {
         const data = await body(req);
         const topicId = str(data, "topicId");
+        if (!guideAvailable()) return send(res, 503, { error: GUIDE_UNAVAILABLE_REASON });
         if (guideTurns.has(topicId)) return send(res, 409, { error: "Topic already has a running turn" });
         const retryId = data.turnId === undefined ? undefined : str(data, "turnId");
         const text = retryId ? undefined : str(data, "text"), selection = anchor(data.anchor), instruction = data.instruction === undefined ? undefined : str(data, "instruction");

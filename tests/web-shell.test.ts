@@ -37,9 +37,10 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     const before = await readFile(join(workspace, "materials", material.id, "files", "source.md"));
     await post("/api/notes", { topicId: topic.id, kind: "highlight", body: "选中文本", anchor: { source: { kind: "material", materialId: material.id }, file: "source.md", locator: "text:offset:1", quote: "选中文本" } });
     await post("/api/notes", { topicId: topic.id, kind: "note", body: "我的笔记" });
-    const chat = await post("/api/chat", { topicId: topic.id, text: "我的问题" });
-    assert.equal(chat.guideEntry, undefined);
-    assert.equal((await get(`/api/chat?topicId=${topic.id}`)).length, 1);
+    const chat = await fetch(base + "/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topicId: topic.id, text: "我的问题" }) });
+    assert.equal(chat.status, 503);
+    assert.match((await chat.json() as { error: string }).error, /向导未连接/);
+    assert.equal((await get(`/api/chat?topicId=${topic.id}`)).length, 0);
     const settings = await post("/api/plugins", { preset: "essentials", persona: "studio" });
     assert.equal(settings.settings.persona, "studio");
     const locked = await post("/api/plugins", { id: "stage-reader", enabled: false });

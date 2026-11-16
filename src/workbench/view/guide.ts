@@ -2,6 +2,7 @@ import type { GuideTurn, GuideQuickAction, SelectionAnchor, Note } from "../../c
 import { renderRecallResult } from "./recall.ts";
 import { renderMarkdown } from "../../plugins/stage-reader/index.ts";
 import { isPreviousAttempt } from "../../core/engine/retryRecovery.ts";
+import { GUIDE_UNAVAILABLE_REASON } from "../guideAvailability.ts";
 
 export interface MaterialNotes {
   readonly materialId: string;
@@ -22,7 +23,11 @@ function toolLabel(name: string, preview: string): string {
   return `${labels[name] ?? name}${object ? ` ${object}` : ""}`;
 }
 
-export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; materialNotes?: MaterialNotes; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean }, tab: "chat" | "notes", anchor: SelectionAnchor | undefined, sending: boolean, pending?: { readonly text: string; readonly from: number }, error = "", notesOnly = false): void {
+export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; materialNotes?: MaterialNotes; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; observations?: readonly string[]; readOnly?: boolean; guideAvailable: boolean }, tab: "chat" | "notes", anchor: SelectionAnchor | undefined, sending: boolean, pending?: { readonly text: string; readonly from: number }, error = "", notesOnly = false): void {
+  const notesMode = notesOnly || tab === "notes";
+  const inputDisabled = Boolean(data.readOnly || (!notesMode && !data.guideAvailable));
+  const reason = !notesMode && !data.readOnly && !data.guideAvailable ? GUIDE_UNAVAILABLE_REASON : error;
+  const actionDisabled = !data.guideAvailable ? `disabled title="${escape(GUIDE_UNAVAILABLE_REASON)}"` : sending ? "disabled" : "";
   const previous = guide.querySelector<HTMLTextAreaElement>("textarea"), draft = previous?.value ?? "";
   const shown = guide.querySelector<HTMLElement>(".pith-guide-content"), sameTab = shown?.dataset.guideContent === tab;
   const scrollTop = sameTab ? shown!.scrollTop : 0, follow = !sameTab || shown!.scrollHeight - shown!.clientHeight - scrollTop < 32;
@@ -54,26 +59,26 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
     });
     flush();
     if (entry.status === "running") { const current = [...entry.steps].reverse().find(step => step.kind === "tool" && step.status === "running"); parts.push(`<div class="pith-guide-pending" role="status" data-started="${escape(entry.startedAt)}">${current && current.kind === "tool" ? escape(toolLabel(current.name, current.inputPreview)) : "向导正在回应"} · <span data-guide-elapsed></span></div>`); }
-    if (entry.status === "failed") parts.push(`<div class="pith-guide-failure" role="alert">${escape(entry.error ?? "向导请求失败")} ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}">重新请求</button>`}</div>`);
-    if (entry.status === "stopped") parts.push(`<div class="pith-guide-stopped">已停止 ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}">重新请求</button>`}</div>`);
-    if (entry === latest) parts.push(...choices.map((choice, index) => `<button class="pith-choice-btn" data-guide-prompt="${escape(choice)}" data-guide-choice><span>${index + 1}.</span> ${escape(choice)}</button>`));
+    if (entry.status === "failed") parts.push(`<div class="pith-guide-failure" role="alert">${escape(entry.error ?? "向导请求失败")} ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}" ${actionDisabled}>重新请求</button>`}</div>`);
+    if (entry.status === "stopped") parts.push(`<div class="pith-guide-stopped">已停止 ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}" ${actionDisabled}>重新请求</button>`}</div>`);
+    if (entry === latest) parts.push(...choices.map((choice, index) => `<button class="pith-choice-btn" data-guide-prompt="${escape(choice)}" data-guide-choice ${actionDisabled}><span>${index + 1}.</span> ${escape(choice)}</button>`));
     return `<section class="pith-guide-turn" data-turn-status="${entry.status}">${parts.join("")}</section>`;
   }).join("");
   const fresh = pending ? data.conversation.slice(pending.from) : [];
   const waiting = pending && sending && !fresh.length && !data.conversation.some(turn => turn.status === "running") ? `${pending.text ? `<div class="pith-guide-user">${escape(pending.text)}</div>` : ""}<div class="pith-guide-pending" role="status">向导正在回应</div>` : "";
-  const quick = sending || data.readOnly || choices.length ? "" : `<div class="pith-quick-actions">${data.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}">${escape(action.label)}</button>`).join("")}</div>`;
+  const quick = sending || data.readOnly || choices.length ? "" : `<div class="pith-quick-actions">${data.actions.map(action => `<button data-guide-prompt="${escape(action.prompt)}" ${actionDisabled}>${escape(action.label)}</button>`).join("")}</div>`;
   const noteMarkup = ({ note, owner }: { note: Note; owner: string }): string => note.anchor ? `<button class="pith-note-source" data-note-id="${escape(note.id)}" data-note-owner="${escape(owner)}" title="跳回原文"><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</button>${renderRecallResult(note.result)}` : `<p><strong>${noteLabels[note.kind]}${note.author === "guide" ? " · 向导" : ""}</strong><br>${escape(note.body)}</p>${renderRecallResult(note.result)}`;
   const materialCount = !notesOnly && data.materialNotes ? ` · 材料 ${data.materialNotes.notes.length}` : "";
   const primaryNotes = noteEntries(data.notes).map(noteMarkup).join("");
   const notes = notesOnly ? primaryNotes : `<section data-note-section="topic"><h3>课题笔记</h3>${primaryNotes}</section>${data.materialNotes ? `<section data-note-section="material"><h3>材料笔记 · ${escape(data.materialNotes.title)}</h3><small>只读</small>${noteEntries([], data.materialNotes).map(noteMarkup).join("")}</section>` : ""}`;
-  const markup = `<div class="pith-guide-tabs">${notesOnly ? "" : `<button data-guide-tab="chat" aria-pressed="${tab === "chat"}">对话</button>`}<button data-guide-tab="notes" aria-pressed="${tab === "notes"}">笔记 ${data.notes.length}${materialCount}</button></div><div class="pith-guide-content" data-guide-content="${tab}">${tab === "chat" ? conversation + waiting + quick : notes}</div><button data-guide-bottom ${follow ? "hidden" : ""}>回到底部</button><div class="pith-guide-compose"><blockquote>${anchor?.quote ? escape(anchor.quote) : ""}</blockquote><textarea aria-label="消息" placeholder="${data.readOnly ? "课题已沉淀" : notesOnly || tab === "notes" ? "写下笔记，只保存记录" : "给向导发消息"}" ${data.readOnly ? "disabled" : ""}></textarea><div data-guide-error role="alert">${escape(error)}</div>${sending ? '<button data-guide-stop>停止</button>' : `<button data-guide-send ${data.readOnly ? "disabled" : ""}>${notesOnly || tab === "notes" ? "保存笔记" : "发送"}</button>`}</div>`;
+  const markup = `<div class="pith-guide-tabs">${notesOnly ? "" : `<button data-guide-tab="chat" aria-pressed="${tab === "chat"}">对话</button>`}<button data-guide-tab="notes" aria-pressed="${tab === "notes"}">笔记 ${data.notes.length}${materialCount}</button></div><div class="pith-guide-content" data-guide-content="${tab}">${tab === "chat" ? conversation + waiting + quick : notes}</div><button data-guide-bottom ${follow ? "hidden" : ""}>回到底部</button><div class="pith-guide-compose"><blockquote>${anchor?.quote ? escape(anchor.quote) : ""}</blockquote><textarea aria-label="消息" placeholder="${data.readOnly ? "课题已沉淀" : notesOnly || tab === "notes" ? "写下笔记，只保存记录" : "给向导发消息"}" ${inputDisabled ? "disabled" : ""}></textarea><div data-guide-error role="alert">${escape(reason)}</div>${sending ? '<button data-guide-stop>停止</button>' : `<button data-guide-send ${inputDisabled ? "disabled" : ""}>${notesOnly || tab === "notes" ? "保存笔记" : "发送"}</button>`}</div>`;
   const compose = guide.querySelector<HTMLElement>(".pith-guide-compose");
   if (compose && previous) {
     const next = guide.ownerDocument.createElement("div"); next.innerHTML = markup;
     for (const selector of [".pith-guide-tabs", ".pith-guide-content", "[data-guide-bottom]"]) guide.querySelector(selector)!.replaceWith(next.querySelector(selector)!);
     compose.querySelector("blockquote")!.textContent = anchor?.quote ?? "";
-    compose.querySelector("[data-guide-error]")!.textContent = error;
-    previous.disabled = Boolean(data.readOnly);
+    compose.querySelector("[data-guide-error]")!.textContent = reason;
+    previous.disabled = inputDisabled;
     previous.placeholder = data.readOnly ? "课题已沉淀" : notesOnly || tab === "notes" ? "写下笔记，只保存记录" : "给向导发消息";
     const oldButton = compose.querySelector<HTMLButtonElement>("[data-guide-send],[data-guide-stop]")!, newButton = next.querySelector<HTMLButtonElement>("[data-guide-send],[data-guide-stop]")!;
     if (oldButton.hasAttribute("data-guide-send") !== newButton.hasAttribute("data-guide-send")) oldButton.replaceWith(newButton);

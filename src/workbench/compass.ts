@@ -16,7 +16,7 @@ export interface CompassActions {
 }
 const escape = (value: string): string => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
-export function renderCompass(root: HTMLElement, compass: AttentionCompassSnapshot, actions: CompassActions): { dispose(): void; library(snapshot: AttentionCompassSnapshot, covers: readonly BoardMaterial[], focus?: readonly string[]): void } {
+export function renderCompass(root: HTMLElement, compass: AttentionCompassSnapshot, actions: CompassActions): { dispose(): void; setGuideAvailable(available: boolean): void; library(snapshot: AttentionCompassSnapshot, covers: readonly BoardMaterial[], focus?: readonly string[]): void } {
   const materialFor = (id: string | undefined) => actions.materials?.find(item => item.id === id);
   const toolkit = (id: string) => ({ shadowing: "影子跟读", feynman: "费曼复述" } as Record<string, string>)[id] ?? id;
   const card = (topic: AttentionCompassSnapshot["exploring"][number]) => {
@@ -45,5 +45,5 @@ export function renderCompass(root: HTMLElement, compass: AttentionCompassSnapsh
     if (focus.length) container.querySelector(".pith-material-new")?.scrollIntoView({ block: "center" });
   };
   library(compass, actions.materials ?? []);
-  return { dispose: () => intake.dispose(), library };
+  return { dispose: () => intake.dispose(), library, setGuideAvailable: (available: boolean) => intake.setGuideAvailable(available) };
 }

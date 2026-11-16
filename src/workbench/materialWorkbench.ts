@@ -24,7 +24,7 @@ export class MaterialWorkbench {
   readonly view: PithWorkbenchView;
   readonly session: MaterialSession;
   private disposed = false;
-  private intake: { dispose(): void } | undefined;
+  private intake: ReturnType<typeof mountIntake> | undefined;
   private readonly options: MaterialWorkbenchOptions;
   constructor(options: MaterialWorkbenchOptions) {
     this.options = options;
@@ -64,5 +64,6 @@ export class MaterialWorkbench {
     this.intake = mountIntake(host, { ...this.options.intake, materials: [material], requireGoal: true }, "你想通过这份材料搞懂什么");
   }
   open(): Promise<void> { return this.session.open(); }
+  setGuideAvailable(available: boolean): void { this.options.intake.guideAvailable = available; this.view.setGuideAvailable(available); this.intake?.setGuideAvailable(available); }
   dispose(): void { this.disposed = true; this.intake?.dispose(); this.session.dispose(); this.view.dispose(); }
 }
