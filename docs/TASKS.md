@@ -7,7 +7,7 @@
 >
 > **本轮重构规则**，各任务不再重复：
 > 1. 目标契约在 `docs/`；各功能的实现与验收状态、已知缺口在 [FEATURES.md](FEATURES.md)。任务区块用 `Features` 字段列出它推进的台账条目（没有就写 `—`），核销时按 [ROLES.md](ROLES.md) 第 2 条同步这些行。
-> 2. 不做兼容（[AGENTS.md](../AGENTS.md) 核心约束 3）：旧格式不读取、不迁移、不留别名。被新契约取代的测试直接改写或删除，并在 Worker 报告里逐个列出文件名与原因；不得为了让旧测试通过而保留旧行为。
+> 2. 格式演进按 [AGENTS.md](../AGENTS.md) 核心约束 3：代码不读旧格式、不留别名；已发布的磁盘格式只做加法，破坏性变更须先由人确认并由发布任务附一次性迁移脚本。被新契约取代的测试直接改写或删除，并在 Worker 报告里逐个列出文件名与原因；不得为了让旧测试通过而保留旧行为。
 > 3. 冻结的内核形状在 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节。发现契约自相矛盾或无法落地时标 `blocked` 并写明证据，不自行改契约。
 > 4. 每个任务的 Worker 门禁都包含 `npm run typecheck`、`npm test`；改到 `src/workbench/`、`src/shells/` 或舞台渲染的还包含 `npm run test:browser` 与 `npm run build:obsidian`。下面各任务只列额外的门禁。
 > 5. 清理按 [ROLES.md](ROLES.md) 第 7 条。
