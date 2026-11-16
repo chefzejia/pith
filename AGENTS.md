@@ -27,7 +27,7 @@ npm test                   # 运行全仓单测与架构边界守卫（tests/bou
 npm run test:file -- tests/store.test.ts   # 在同一沙盒下运行指定测试文件（单跑文件一律走此入口）
 npm run test:browser       # 逐个文件运行全部浏览器用例（自动探测 Playwright 与 Chrome，或设 PITH_PLAYWRIGHT_MODULE / PITH_CHROME_PATH；缺任一即报错退出）；改动 src/workbench/、src/shells/ 或舞台渲染后必跑
 npm run build:obsidian     # 打包 dist/obsidian/ 并自动同步至 .dev-vault/.obsidian/plugins/pith/（不写仓库之外的任何路径）
-npm run install:obsidian   # 构建后把三个插件文件安装进真实 Vault（参数 > PITH_OBSIDIAN_VAULT > 默认 Vault）；仅在人类明确要求或任务包写明「交付」时执行（docs/ROLES.md 第 6 条）
+npm run install:obsidian   # 构建后把三个插件文件安装进真实 Vault（参数 > PITH_OBSIDIAN_VAULT > 默认 Vault）；仅在发布任务（任务区块写明 `发布版本`）或人类明确要求时执行（docs/ROLES.md 第 6 条）
 npm run verify:obsidian    # 拉起真实 /Applications/Obsidian.app (.dev-vault) 执行 CDP 端到端真机验收
 npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1:4173)
 ```

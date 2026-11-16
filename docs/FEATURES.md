@@ -14,12 +14,20 @@
 - **证据**：验收报告与截图在执行环本机的 `.tmp/evidence/task-<ID>/`，不进 git，也会被清理；本文只记结论、提交与缺口。
 - **维护**：Brain 增删条目与提议。任务区块用 `Features` 字段列出它推进的条目，Router 核销时按验收报告同步这些行的状态、宿主、最近独立验收与已知缺口（[ROLES.md](ROLES.md) 第 2 条）。条目按「用户会说我能做某件事」来切，契约细节留在 `docs/subsystems/`。
 
-## 交付与里程碑
+## 发布与里程碑
 
-- **真实 Vault 里的版本**：#47 @d9a1c73（11-12），装在默认 Vault，还没有开始实际使用。
-- **M1 · 文本主链自用交付**（进行中，#54）：Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），通过后交付。不覆盖语音、影子跟读与音视频。覆盖的条目：F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE。
-- **M1 之后 · 开始自用**：用一两个真实课题把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md)。
-- **M2 · 多媒体主链复验**（候选，待人确认）：F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS 在 #51 之后都没有独立验收，4 条真实语音浏览器用例默认跳过。排在开始自用之前还是之后，取决于第一个真实课题用不用得到听读与跟读。
+- **当前发布版本**：还没有。默认 Vault 里装的是 #47 @d9a1c73（11-12）的开发构建，还没有开始实际使用。
+- **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md) 第 6 条。
+- 里程碑按使用优先级排列：
+
+| 版本 | 内容 | 状态 |
+| :--- | :--- | :--- |
+| v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 验收中（#54） |
+| 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | 等 v0.1.0 |
+| v0.2.0 · 学 GitHub 仓库 | 贴 GitHub 链接直接导入仓库（目前链接会被当成网页剪藏）；向导能在绑定提交里搜索代码（目前只能分页列文件、按行读）；加上自用中发现的问题 | 待写契约 |
+| v0.3.0 · 读书与阅读规划 | 电子书导入（EPUB、PDF 已验收，CBZ 没有验收记录）；向导按目录规划阅读路线；今日下一步复验（F-NEXT-ACTION）。「规划阅读任务」要做成什么样，等用过 v0.1.0 再定 | 待定义 |
+| v0.4.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
+
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
 
 ## 功能清单
