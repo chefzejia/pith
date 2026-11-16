@@ -52,13 +52,16 @@
 ---
 
 ## [Task #54] 终验：整体验收与交付
-- **Status**: blocked
+- **Status**: pending
 - **Depends-On**: #53
 - **Verified-Commit**: none
 - **发布版本**: v0.1.0
 - **Updated**: 2026-11-16
 - **Scope**: 验收工作区 `.tmp/evidence/task-54/`。包含：契约对照、全量门禁、真实用户路径（投喂/立项/课题内/训练/结题/搁置/无Agent/沙盒/旧格式）、观感终审包。
 - **阻塞证据**: F1 已在 0751ce1 独立复验通过；F2 原生首次追问先给遗漏答案仍未修复。三轮有限返修（开放问句生成、答案/作答方式投影、单目标与教学上下文隔离）均未通过真实语义预检，最后一批为 2 PASS / 3 带限制 / 5 FAIL，未形成可交独立 Tester 的新接受候选。按 ROLES 第 1 条连续返修止损升级；不据此断言 ACP/模型不支持或冻结契约自相矛盾。失败补丁及逐例输出已归档，源码/测试及 dist/dev 恢复 0751 接受业务，主树干净、Cleanup PASS；未安装、未打发布标签。详见 `.tmp/evidence/task-54/fix-followup-no-answer/worker-report.md`、`semantic-reading.json`（各批目录）及 `restoration-hashes.json`。
+- **Brain 裁定（2026-11-16）**: F2 的根因是契约自相矛盾，不是实现缺陷：[3-toolkits.md](subsystems/3-toolkits.md) 3.3 第 4 步在卡片上显示每条要点的原文（未提及的那条也显示），追问回合的选区又带着整段原文，第 5 步却要求向导不说出答案地考回忆。契约已在 7eccbd6 改为卡片内出题、考解释与应用，由 #62 实现；F2 不再返修，记为 [FEATURES.md](FEATURES.md) 中 F-FEYNMAN 的已知缺口（[ROLES.md](ROLES.md) 第 4 条：模型措辞抽样验收，不阻塞发布）。
+  - **发布对象**：已接受业务 0751ce1。终验覆盖按以下组合认定，不重跑主链：Web G1–G10（908aa0f）加 F1 有限复验（0751ce1），原生 G1–G4（908aa0f）加 G5–G10（0751ce1）。0751ce1 之后只有 `docs/` 与 `tests/` 的提交（6c1a372 只改测试）。
+  - **Router 只做发布**：确认 0751ce1 与当前 HEAD 之间 `docs/`、`tests/` 之外没有差异；按 [ROLES.md](ROLES.md) 第 6 条安装、核对三哈希、在 0751ce1 上打 `v0.1.0` 标签、写 `delivery.txt`。可以在干净的主工作树上构建，三哈希须等于 `.tmp/evidence/task-54/fix-followup-no-answer/restoration-hashes.json` 记录的 0751 构建；不等就停下，标 `blocked` 并写明差异。核销提交更新 FEATURES 的「当前发布版本」，`Verified-Commit` 填 0751ce1；之后按依赖放行 #57。
 - **报告**: `.tmp/evidence/task-54/final-report.md`。
 - **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。
 
@@ -139,11 +142,32 @@
 
 ## [Task #61] 发布 v0.2.0：学 GitHub 仓库
 - **Status**: queued
-- **Depends-On**: #60
+- **Depends-On**: #62
 - **发布版本**: v0.2.0
-- **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
+- **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION、F-FEYNMAN
 - **Updated**: 2026-11-16
 - **Scope**: `manifest.json` 与 `package.json` 的版本号；验收工作区 `.tmp/evidence/task-61/`
 - **契约**: Web 与 Obsidian 各走一遍人类的真实课题「agent 框架怎么划分内核与插件」：magpie、deepseek-harness 用副本的本地路径，herdr、t3code 贴链接导入；带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md) 第 6 条发布。
 - **Worker 门禁**: 两处版本号改为 `0.2.0`，全量门禁通过。
 - **报告**: `.tmp/evidence/task-61/final-report.md`
+
+---
+
+## [Task #62] 费曼复述：卡片内追问
+- **Status**: queued
+- **Depends-On**: #60
+- **Features**: F-FEYNMAN
+- **Updated**: 2026-11-16
+- **Scope**: `src/plugins/toolkit-feynman/**`、`src/core/seams.ts`、`src/workbench/**`、`src/shells/**`、`tests/**`
+- **背景**: #54 F2 三轮改指令都失败，根因见 #54 的 Brain 裁定。失败样本与原始输入在 `.tmp/evidence/task-54/fix-followup-no-answer/`，不复用其中的候选补丁。
+- **契约**: 按 [3-toolkits.md](subsystems/3-toolkits.md) 第 2 节与 3.3 第 5 步、「降级」「边界」落地：
+  1. 删除 `ToolkitDescriptor.followUp`、`recallFollowUp` 与费曼追问的回合指令；向导的 `instruction` 通道保留，给「按新版本调整」用。
+  2. 焦点按 `contradicted` → `missing` → `covered` 选第一条。出题经 `guide.prompt` 后台一次性请求，内容只有原文段落、焦点要点与用户原话。返回值去掉首尾空白后须非空、不超过 200 字、不含换行、以「？」或「?」结尾；否则或请求失败、超时，用这一类的固定问法。固定问法由 Worker 定稿并写进测试。
+  3. 题目与作答框显示在逐条对照下方，生成期间显示「正在出题」并可跳过；题目不落盘。
+  4. 作答提交后以 `runTurn` 发起课题回合：`text` 由题目与回答组成，`anchor` 是这一段的锚点，不带 `instruction`。向导未连接时可以输入，提交不可用并说明原因。
+  5. 被新契约取代的测试按头部规则 2 改写或删除。
+- **开工前的对照**: 先不写界面，用第 2 项的出题请求，对 #54 归档的五类原始输入（收益遗漏、条件遗漏、相反条件、全部说到、另一收益遗漏）各用真实 Agent 出题 3 次，按 3.3「边界」的标准判定。三类焦点（`missing`、`contradicted`、`covered`）都达到 3 次中至少 2 次，才实现界面；达不到就停下，把原始输出交 Router 标 `blocked`，不往提示词里加禁令（[ROLES.md](ROLES.md) 第 4 条）。
+- **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：焦点顺序改成 `missing` 优先；出题请求混入课题对话、画像或其他要点；校验不过时没有用固定问法；作答回合带上 `instruction`；向导未连接时允许提交。另交付两个宿主上可执行的受控入口，让出题请求失败一次、其余请求照常走真实 Agent。
+- **Tester 验收**: Web 与 Obsidian 各一次，用真实 Agent。三类复述（说反一条、漏掉一条、全部说到）各做一遍：题目出现在卡片里，作答后对话里出现题目、回答与锚点，向导正常回应；跳过一次；断开向导后核对提交不可用及原因；经 Worker 的受控入口核对固定问法。另按 3.3「边界」抽样九道题，原始输出全部归档，不达标的样本写进已知缺口，不据此打回。
+- **核销**: Router 把 LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3.3 第 5 步与本任务的回归测试。
+- **交付**: 不交付，随 #61 发布。
