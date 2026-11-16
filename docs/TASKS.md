@@ -11,6 +11,7 @@
 > 3. 冻结的内核形状在 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节。发现契约自相矛盾或无法落地时标 `blocked` 并写明证据，不自行改契约。
 > 4. 每个任务的 Worker 门禁都包含 `npm run typecheck`、`npm test`；改到 `src/workbench/`、`src/shells/` 或舞台渲染的还包含 `npm run test:browser` 与 `npm run build:obsidian`。下面各任务只列额外的门禁。
 > 5. 清理按 [ROLES.md](ROLES.md) 第 7 条。
+> 6. 仓库类任务的验收样本是人类要学的仓库：本地的 `/Users/zejiawu/Projects/Project-Atlas/infra/magpie` 与 `/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`，GitHub 上的 `https://github.com/herdrdev/herdr` 与 `https://github.com/pingdotgg/t3code`。本地仓库只读：先 `git clone` 到 `.tmp/` 下再用副本，不在原仓库执行任何写操作（包括 fetch、checkout 与 pull）。
 
 ---
 
@@ -91,7 +92,7 @@
 - **契约**: 按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节的 `RepositoryPort.searchFiles` 与「仓库端口的约束」中的搜索一条，以及 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 的「代码」规则与 2.5 的 `pith_search_material` 落地。立项作用域下 `materialId` 可以是材料库里的任一仓库材料，课题作用域下必须是本课题引用的（2.4 工具端点一行）。
 - **不在范围内**: 比较、克隆与版本（#59、#60）。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：不跳过二进制文件；去掉 `limit` 上限；放行含 `..` 的 `pathPrefix`；课题作用域下放行未引用的材料。
-- **Tester 验收**: Web 与 Obsidian 各一次。导入一个真实本地仓库立项，要求向导找出一个函数的定义和全部调用点并写进讲义：对话过程里出现搜索步骤，讲义里的 `path:line` 跳到正确的行。另用一个含二进制文件、超大文件和中文内容的玩具仓库，核对搜索不报错、不返回二进制和超大文件、中文能搜到；正则写错时看到原因。
+- **Tester 验收**: Web 与 Obsidian 各一次，样本按头部规则 6。用 magpie 与 deepseek-harness 的副本带目标立项（例如「这两个框架怎么注册和加载插件」），要求向导找出关键函数的定义和全部调用点并写进讲义：对话过程里出现搜索步骤，讲义里的 `path:line` 跳到正确的行；在 deepseek-harness（约两万个文件）上记录单次搜索耗时。另用一个含二进制文件、超大文件和中文内容的玩具仓库，核对搜索不报错、不返回二进制和超大文件、中文能搜到；正则写错时看到原因。
 
 ---
 
@@ -109,7 +110,7 @@
   5. 测试不访问外网：用本地 bare 仓库作远端，在沙盒 `HOME` 的 git 全局配置里用 git 自带的 `url.<base>.insteadOf` 把 GitHub 地址改写过去；不用替身代替 git。
 - **不在范围内**: 检查更新、版本分组与讲义版本（#60）。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：去掉同提交复用；去掉固定引用（模拟上游强推后旧提交仍可读的断言）；去掉中止时的目录清理；克隆时也忽略全局 git 配置（经 `insteadOf` 的克隆断言）。
-- **Tester 验收**: Web 与 Obsidian 各一次。贴一个真实的小型公开 GitHub 仓库链接导入并打开嵌套文件；再贴一次同一链接，材料库不出现第二份；导入中途停止，不留材料，也不留半成品目录；贴一个不存在的仓库地址，看到明确原因；带目标贴链接走立项；在课题内经「添加材料」贴链接。核对克隆位于 `PITH_REPOSITORY_HOME` 下且没有检出工作区文件。私有仓库的成功克隆依赖人类本机凭据，不在沙盒验收范围，写进已知缺口。
+- **Tester 验收**: Web 与 Obsidian 各一次，样本按头部规则 6。贴 herdr 的链接导入并打开嵌套文件；再贴一次同一链接，材料库不出现第二份；带目标贴链接走立项；在课题内经「添加材料」贴链接。t3code 作大仓库样本：记录克隆耗时与仓库目录占用，并在克隆中途停止一次，不留材料，也不留半成品目录。贴一个不存在的仓库地址，看到明确原因。核对克隆位于 `PITH_REPOSITORY_HOME` 下、是浅克隆、没有检出工作区文件。私有仓库的成功克隆依赖人类本机凭据，不在沙盒验收范围，写进已知缺口。
 
 ---
 
@@ -126,7 +127,11 @@
   4. `pith_compare_material`、`pith_rebase_lesson` 与提示词的「材料」「讲义」两段和「新版本」规则，按 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 与 2.5。
   5. v0.1.0 已发布：已有讲义没有 `basedOn` 时按 3.2 的缺省规则读取，不改写已有账本（[AGENTS.md](../AGENTS.md) 核心约束 3）。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：`writeLesson` 不记 `basedOn`；出处在全部版本里解析（两个版本有同名文件且内容不同）；`rebaseLesson` 改动讲义字节；缺省 `basedOn` 被当成最新版本。
-- **Tester 验收**: Web 与 Obsidian 各一次。用一个真实本地仓库：导入并立项，写出至少两讲；在仓库里提交一处只影响其中一讲的改动；在材料库「检查更新」导入新版本，再点一次提示已是最新；在课题里「改用」新版本，两讲都标「基于旧版本」；点「按新版本调整」，向导查看差异后只重写受影响的那讲并写明变化，另一讲只改依据；出处跳到新版本，旧版本上的笔记仍跳回旧代码。向导未连接时「按新版本调整」不可用并说明原因，「改用」照常可用。Pith 克隆的仓库走一次检查更新，远端用 Tester 自己控制的本地 bare 仓库推送新提交。
+- **Tester 验收**: Web 与 Obsidian 各一次，样本按头部规则 6。
+  1. 真实演进：magpie 副本先停在 `965ae78e1`（11-05），导入并立项，写出至少两讲；再把副本快进到上游较新的提交（两者相隔上千个提交），在材料库「检查更新」导入新版本，再点一次提示已是最新。在课题里「改用」新版本，两讲都标「基于旧版本」；点「按新版本调整」，核对向导从各讲引用的文件出发查看差异，没有通读全部变化；引用的文件有变化的讲被重写并写明变化，其余只改依据；出处跳到新版本，旧版本上的笔记仍跳回旧代码。记录这一回合的耗时。
+  2. 受控用例：在玩具仓库里提交一处只影响其中一讲的改动，核对只有那一讲被重写。
+  3. Pith 克隆的仓库走一次检查更新：远端用 Tester 自己控制的本地 bare 仓库（可用 herdr 副本的较早提交起步），再推送较新的真实提交。
+  4. 向导未连接时「按新版本调整」不可用并说明原因，「改用」照常可用。
 
 ---
 
@@ -137,6 +142,6 @@
 - **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
 - **Updated**: 2026-11-16
 - **Scope**: `manifest.json` 与 `package.json` 的版本号；验收工作区 `.tmp/evidence/task-61/`
-- **契约**: Web 与 Obsidian 各走一遍学 GitHub 仓库的主链：贴链接导入、带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md) 第 6 条发布。
+- **契约**: Web 与 Obsidian 各走一遍人类的真实课题「agent 框架怎么划分内核与插件」：magpie、deepseek-harness 用副本的本地路径，herdr、t3code 贴链接导入；带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md) 第 6 条发布。
 - **Worker 门禁**: 两处版本号改为 `0.2.0`，全量门禁通过。
 - **报告**: `.tmp/evidence/task-61/final-report.md`
