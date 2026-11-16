@@ -12,13 +12,14 @@
 - **Web / Obsidian**：`✓` 最近一次独立验收覆盖了该宿主；`○` 只有自动化测试；`–` 不适用。
 - **最近独立验收**：`#任务 @提交（日期）`，提交是 TASKS 中该任务的 `Verified-Commit`。标「受控」的表示验收用了受控夹具（音频、下载、模型回复等），不代表真实服务。
 - **证据**：验收报告与截图在执行环本机的 `.tmp/evidence/task-<ID>/`，不进 git，也会被清理；本文只记结论、提交与缺口。
-- **维护**：Brain 维护本文，负责增删条目与提议；任务结案后按验收报告同步状态、宿主、最近独立验收与已知缺口。条目按「用户会说我能做某件事」来切，契约细节留在 `docs/subsystems/`。
+- **维护**：Brain 增删条目与提议。任务区块用 `Features` 字段列出它推进的条目，Router 核销时按验收报告同步这些行的状态、宿主、最近独立验收与已知缺口（[ROLES.md](ROLES.md) 第 2 条）。条目按「用户会说我能做某件事」来切，契约细节留在 `docs/subsystems/`。
 
 ## 交付与里程碑
 
-- **真实 Vault 里的版本**：#47 @d9a1c73（11-12），装在默认 Vault。它早于 #51 的磁盘格式：真实 Vault 里如果有这个版本建的课题和材料，下一次交付后会出现在「无法读取」，不迁移（[AGENTS.md](../AGENTS.md) 核心约束 3）。
+- **真实 Vault 里的版本**：#47 @d9a1c73（11-12），装在默认 Vault，还没有开始实际使用。
 - **M1 · 文本主链自用交付**（进行中，#54）：Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），通过后交付。不覆盖语音、影子跟读与音视频。覆盖的条目：F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE。
-- **M2 · 多媒体主链复验**（候选，待人确认）：F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS 在 #51 之后都没有独立验收，4 条真实语音浏览器用例默认跳过。
+- **M1 之后 · 开始自用**：用一两个真实课题把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md)。
+- **M2 · 多媒体主链复验**（候选，待人确认）：F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS 在 #51 之后都没有独立验收，4 条真实语音浏览器用例默认跳过。排在开始自用之前还是之后，取决于第一个真实课题用不用得到听读与跟读。
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
 
 ## 功能清单
