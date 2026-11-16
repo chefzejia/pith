@@ -516,10 +516,10 @@ export interface RepositoryPort {
   /** Unified diff of one file between two commits. */
   readChange(externalPath: string, fromSha: string, toSha: string, filePath: string, maxLines?: number):
     Promise<{ readonly path: string; readonly patch: string; readonly truncated: boolean }>;
-  /** Clones a GitHub repository into the managed directory with full history, or reuses the clone; pins the default-branch head. */
+  /** Clones a snapshot of a GitHub repository's default-branch head into the managed directory, or reuses the clone; pins that commit. */
   cloneRemote(remoteUrl: string, signal?: AbortSignal):
     Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string; readonly remoteUrl: string }>;
-  /** Fetches a managed clone and pins the default-branch head after the fetch. */
+  /** Fetches a snapshot of the default-branch head into a managed clone and pins that commit. */
   fetchRemote(externalPath: string, signal?: AbortSignal): Promise<{ readonly commitSha: string }>;
 }
 ```
@@ -530,8 +530,8 @@ export interface RepositoryPort {
 
 - **搜索**：只搜该提交里的 UTF-8 普通文件，跳过二进制和超过单文件上限（与 `readFile` 相同，256 KiB）的文件。`limit` 默认 50、最大 200，每条 `text` 最多 300 字符。`regex` 为真时按扩展正则匹配，正则无效时以原因失败。`pathPrefix` 适用 3.6 的仓库相对路径规则。
 - **比较**：两个提交都必须在这个仓库里，只比较提交，不读工作区。`listChanges` 的 `limit` 默认 200、最大 1000；`readChange` 的 `maxLines` 默认 400、最大 2000，超出时 `truncated` 为真。
-- **克隆**：仓库目录是 `PITH_REPOSITORY_HOME`（绝对路径），未设置时为 `~/Library/Application Support/pith/repositories/`，克隆放在其下的 `github.com/<owner>/<repo>`。克隆完整历史，不检出工作区文件；`inspectRepository`、`listFiles`、`readFile` 与上面的搜索和比较对克隆同样可用。同一地址已经克隆过时复用并拉取，不重新克隆。`title` 是 `<owner>/<repo>`。
-- **固定引用**：`cloneRemote` 与 `fetchRemote` 给返回的提交加引用 `refs/pith/pins/<sha>`，上游改写历史后，材料绑定的提交仍然可读。
+- **克隆**：仓库目录是 `PITH_REPOSITORY_HOME`（绝对路径），未设置时为 `~/Library/Application Support/pith/repositories/`，克隆放在其下的 `github.com/<owner>/<repo>`。每个版本只取那个提交的快照（深度为 1 的浅克隆），不检出工作区文件；之后每次拉取也只取默认分支最新提交的快照。比较两个版本只需要这两个快照，不需要中间的历史，所以不下载完整历史（大仓库的完整历史可达数百 MB）。`inspectRepository`、`listFiles`、`readFile` 与上面的搜索和比较对克隆同样可用。同一地址已经克隆过时复用并拉取，不重新克隆。`title` 是 `<owner>/<repo>`。
+- **固定引用**：`cloneRemote` 与 `fetchRemote` 给返回的提交加引用 `refs/pith/pins/<sha>`。旧版本的快照靠它保留，不被 git 的垃圾回收清掉；上游改写历史后，材料绑定的提交也仍然可读。
 - **凭据与失败**：克隆与拉取保留用户的全局 git 配置与 SSH 代理，以使用本机已有的登录凭据；其余只读命令照旧忽略全局与系统配置。git 不弹交互提示（`GIT_TERMINAL_PROMPT=0`）；需要登录、网络不可达或仓库不存在时，以原因失败。`signal` 中止时删除本次新建的不完整克隆目录。
 - `fetchRemote` 只用于仓库目录里由 Pith 克隆的仓库；本地仓库检查更新时用 `inspectRepository` 读当前提交。
 
