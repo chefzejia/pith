@@ -52,23 +52,24 @@
 ---
 
 ## [Task #54] 终验：整体验收与交付
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #53
-- **Verified-Commit**: none
+- **Verified-Commit**: 0751ce185f144694fe3e6d52c9dd57a810a06c35
 - **发布版本**: v0.1.0
 - **Updated**: 2026-11-16
 - **Scope**: 验收工作区 `.tmp/evidence/task-54/`。包含：契约对照、全量门禁、真实用户路径（投喂/立项/课题内/训练/结题/搁置/无Agent/沙盒/旧格式）、观感终审包。
-- **阻塞证据**: F1 已在 0751ce1 独立复验通过；F2 原生首次追问先给遗漏答案仍未修复。三轮有限返修（开放问句生成、答案/作答方式投影、单目标与教学上下文隔离）均未通过真实语义预检，最后一批为 2 PASS / 3 带限制 / 5 FAIL，未形成可交独立 Tester 的新接受候选。按 ROLES 第 1 条连续返修止损升级；不据此断言 ACP/模型不支持或冻结契约自相矛盾。失败补丁及逐例输出已归档，源码/测试及 dist/dev 恢复 0751 接受业务，主树干净、Cleanup PASS；未安装、未打发布标签。详见 `.tmp/evidence/task-54/fix-followup-no-answer/worker-report.md`、`semantic-reading.json`（各批目录）及 `restoration-hashes.json`。
+- **先前阻塞证据（已由下列 Brain 裁定解除）**: F1 已在 0751ce1 独立复验通过；F2 原生首次追问先给遗漏答案仍未修复。三轮有限返修（开放问句生成、答案/作答方式投影、单目标与教学上下文隔离）均未通过真实语义预检，最后一批为 2 PASS / 3 带限制 / 5 FAIL，未形成可交独立 Tester 的新接受候选。按 ROLES 第 1 条连续返修止损升级；不据此断言 ACP/模型不支持或冻结契约自相矛盾。失败补丁及逐例输出已归档，源码/测试及 dist/dev 恢复 0751 接受业务，主树干净、Cleanup PASS；未安装、未打发布标签。详见 `.tmp/evidence/task-54/fix-followup-no-answer/worker-report.md`、`semantic-reading.json`（各批目录）及 `restoration-hashes.json`。
 - **Brain 裁定（2026-11-16）**: F2 的根因是契约自相矛盾，不是实现缺陷：[3-toolkits.md](subsystems/3-toolkits.md) 3.3 第 4 步在卡片上显示每条要点的原文（未提及的那条也显示），追问回合的选区又带着整段原文，第 5 步却要求向导不说出答案地考回忆。契约已在 7eccbd6 改为卡片内出题、考解释与应用，由 #62 实现；F2 不再返修，记为 [FEATURES.md](FEATURES.md) 中 F-FEYNMAN 的已知缺口（[ROLES.md](ROLES.md) 第 4 条：模型措辞抽样验收，不阻塞发布）。
   - **发布对象**：已接受业务 0751ce1。终验覆盖按以下组合认定，不重跑主链：Web G1–G10（908aa0f）加 F1 有限复验（0751ce1），原生 G1–G4（908aa0f）加 G5–G10（0751ce1）。0751ce1 之后只有 `docs/` 与 `tests/` 的提交（6c1a372 只改测试）。
   - **Router 只做发布**：确认 0751ce1 与当前 HEAD 之间 `docs/`、`tests/` 之外没有差异；按 [ROLES.md](ROLES.md) 第 6 条安装、核对三哈希、在 0751ce1 上打 `v0.1.0` 标签、写 `delivery.txt`。可以在干净的主工作树上构建，三哈希须等于 `.tmp/evidence/task-54/fix-followup-no-answer/restoration-hashes.json` 记录的 0751 构建；不等就停下，标 `blocked` 并写明差异。核销提交更新 FEATURES 的「当前发布版本」，`Verified-Commit` 填 0751ce1；之后按依赖放行 #57。
+- **验收与交付结果**: 按 Brain 裁定接受组合终验；F1 已独立复验，F2 保留为已知缺口、由 #62 改新契约。干净 main 确认0751至发布HEAD仅 docs/tests 差异；已安装默认 ganfan-media Vault，其他插件条目未变；附注标签 v0.1.0 指向0751接受业务。三哈希与0751接受构建完全相同，见 `.tmp/evidence/task-54/delivery.txt`；未启动/退出/重载人类 Obsidian。Cleanup PASS，报告保留各宿主实际版本、G8及语音等未覆盖边界。
 - **报告**: `.tmp/evidence/task-54/final-report.md`。
 - **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。
 
 ---
 
 ## [Task #57] 台账守卫与 #54 结果入账
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #54
 - **Features**: —
 - **Updated**: 2026-11-16
