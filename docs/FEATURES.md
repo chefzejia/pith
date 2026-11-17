@@ -42,8 +42,8 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | F-INTAKE-FILE | 拖入或选择文件导入材料库；同名的音视频与字幕合成一份；只有一份时直接打开阅读 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮只用 Markdown 与一个可选字短 PDF；同名音视频/字幕合成沿用 #52，未作播放终验 |
 | F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 首页裸链接与课题内入口已覆盖；只用过 example.com 等少量公开页面，未扩外网故障矩阵 |
-| F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 首页裸路径与课题内引用已覆盖；本轮为本地玩具仓库，未扩非法路径矩阵 |
-| F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 契约 | – / – | 无 | — |
+| F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 待复验 | ✓ / ○ | #59 @71260bf（11-18，综合 FAIL） | #54 原验收保留；#59 双端 magpie/deepseek 副本绑定、同提交复用和嵌套阅读通过，Web 课题添加通过；原生立项反复 Invalid request，课题内添加与复用未覆盖，未定位根因；两轮 Cleanup PASS |
+| F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 待复验 | ✓ / ○ | #59 @71260bf（11-18，综合 FAIL） | 双端公网导入、嵌套源码、复用、浅克隆无检出、pin、自然取消与错误通过，Web 课题链通过；原生新空库立项仍 400，课题添加未覆盖。最小及完整工具探针成功不代替 GUI，根因未知；私有仓成功未覆盖，原始成功 result 字节不完整；两轮 Cleanup PASS |
 | F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 契约 | – / – | 无 | — |
 | F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 宽窄变化用视口模拟，没有拖拽系统窗口 |
 | F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两份 #51 旧形状夹具被拒且原字节未变、合法项可用；不是旧应用生成的完整历史库，没有迁移或修复 |
@@ -161,8 +161,8 @@
 | :--- | :--- |
 | F-INTAKE-FILE | [task33-intake.test.ts](../tests/task33-intake.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-INTAKE-LINK | [task41-reading.test.ts](../tests/task41-reading.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
-| F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
-| F-INTAKE-GITHUB | — |
+| F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
+| F-INTAKE-GITHUB | [task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
 | F-REPO-VERSIONS | — |
 | F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts) |
 | F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts) |
