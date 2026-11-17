@@ -108,14 +108,16 @@
 ---
 
 ## [Task #59] 贴 GitHub 链接导入仓库
-- **Status**: blocked
+- **Status**: verified
+- **Verified-Commit**: 71260bf557ab8c1acceed9e2e87565b96d6f291e
 - **Implementation-Commit**: 71260bf557ab8c1acceed9e2e87565b96d6f291e
 - **Depends-On**: #58
 - **Features**: F-INTAKE-GITHUB、F-INTAKE-REPO
 - **Updated**: 2026-11-18
-- **验收阻塞**: 独立 Tester 首轮及新空库原生有限补验均未完成原生真实立项，故原生课题内 GitHub／本地「添加材料」与复用尚未覆盖，综合 FAIL，不填写 Verified-Commit。原生首轮为两次 400 Invalid request、一次仅计划无课题；新空库补验首次完整 GUI 请求仍为 `400 SorryCode CN: Invalid request`，实际 1 材料／0 课题后按预算停止。不是已确认的 #59 代码缺陷，也未证实核心契约冲突，不能把受控探针或 Web 成功冒充原生终验通过。报告与终验图：`.tmp/evidence/task-59/tester/tester-report.md`、`.tmp/evidence/task-59/tester/native-supplement/03-first-request-400.png`。
+- **验收结果**: 继承先前已通过的双宿主矩阵，用户授权重试后独立 Tester 在真实 Obsidian `.dev-vault` 完成原生立项，以及课题内 GitHub／本地仓库添加、同提交复用和嵌套源码阅读，综合 PASS。实际落盘 1 课题、3 材料和 2 个讲义文件，三条材料引用各唯一。立项 GUI 提交至完成 580752ms，包含模型、工具和传输，不作 SLA；两次普通 read／bash 工具失败后通过 Pith 读取恢复。旧 400 与仅计划无课题的失败保留，具体原因仍未知；私有仓成功与 MCP HTTP 完整成功结果字节未覆盖。报告与截图：`.tmp/evidence/task-59/tester/retry-user/tester-report.md`、`.tmp/evidence/task-59/tester/retry-user/`。Cleanup PASS。
+- **先前验收阻塞（已补验）**: 独立 Tester 首轮及新空库原生有限补验未完成原生真实立项，原生首轮为两次 400 Invalid request、一次仅计划无课题；新空库补验返回 `400 SorryCode CN: Invalid request`，实际 1 材料／0 课题。不是已确认的 #59 代码缺陷，也未证实核心契约冲突。报告与终验图：`.tmp/evidence/task-59/tester/tester-report.md`、`.tmp/evidence/task-59/tester/native-supplement/03-first-request-400.png`。
 - **已通过与边界**: 业务实现的 typecheck、全仓 400 pass／107 条件 skip／0 fail、browser 149 pass／4 真实语音条件 skip／0 fail、Obsidian 构建及四项精准破壁通过。双宿主真实公网 herdr/t3code 导入、嵌套源码对照、同提交复用、浅克隆无检出、固定 pin、自然克隆取消及失败原因已实测；双端本地 magpie/deepseek 副本导入与复用通过。Web 真实立项及四份材料的课题内引用通过，保留首次 Invalid request 和中间回合仅计划的失败。Web t3code 导入 HTTP 请求 15840ms，原生进度截图至落盘 14798ms；目录逻辑大小分别 128694774／128695629 bytes，不作 SLA。原生 t3code 取消未命中，取消成功证据是保留既有 t3code 后停止 herdr 半成品；私有仓成功未覆盖。原始 MCP 成功 result 字节未全量导出，工具摘要不作替代；详见报告。
-- **诊断与恢复条件**: 未改 model／effort／供应商／凭据。三项各一次的真实默认 Agent 对照（无 MCP、两项原有 Pith 工具、完整 13 工具及原始 buildScenePrompt／engine.intake）均成功，后两项均有真实创建课题落盘；完整对照还写入两份讲义。这排除了「这些构造必然失败」的说法，不能证明上游稳定或排除原材料／完整内容、时变服务、Electron 环境差异。证据：`.tmp/evidence/task-59/worker/agent-probe/diagnosis.md`、`.tmp/evidence/task-59/worker/full-intake-probe/diagnosis.md`。第三轮原生独立验收又以被动字节透明 relay 取得实际失败帧，见下一项；不再把可自行取得的 ACP 帧留作外部待办。连续三轮有限真实验收均未补齐原生课题链，拒绝字段仍不明确，没有证据支持修改 Pith 或降低验收。后续须取得 DSH→供应商的失败 HTTP 详情／拒绝字段，或获得能精确复现并区分剩余条件的证据，再只补原生立项和课题内添加；不继续裸重试或改模型。#60 及后续依赖保持 queued。
+- **先前诊断**: 未改 model／effort／供应商／凭据。三项各一次的真实默认 Agent 对照（无 MCP、两项原有 Pith 工具、完整 13 工具及原始 buildScenePrompt／engine.intake）均成功，后两项均有真实创建课题落盘；完整对照还写入两份讲义。这排除了「这些构造必然失败」的说法，不能证明上游稳定或排除原材料／完整内容、时变服务、Electron 环境差异。证据：`.tmp/evidence/task-59/worker/agent-probe/diagnosis.md`、`.tmp/evidence/task-59/worker/full-intake-probe/diagnosis.md`。第三轮原生独立验收以被动字节透明 relay 取得实际失败帧，见下一项；拒绝字段仍不明确，没有证据支持修改 Pith 或降低验收。
 - **真实原生协议采证**: 第三轮同 71260bf、新空库、同目标且仅一次请求，实际 1 材料／0 课题。3379-byte 提示与原始 buildScenePrompt 逐字节相同，近期对话为空；默认 configOptions 与成功 Node 对照完全一致，没有 model／effort 覆盖或配置设置 RPC。prompt 发出 2187ms 后收到 Agent 的 id=3／-32603／400 Invalid request，期间没有 session/update，之后才关闭，排除本地超时或清理制造错误。提示只有仓库元数据，没有整库正文；不能归为正文过大。未捕获原生 MCP HTTP 或供应商 HTTP；一次公共 `dsh --help` 与必要公开程序源码核查未找到直接日志开关，当前 ACP 错误分支未透传 request ID。错误确实来自 Agent 下游，具体 HTTP 拒绝根因、材料／环境／时变条件仍未区分。独立报告及图：`.tmp/evidence/task-59/tester/native-trace/tester-report.md`、`native-trace/04-terminal-400.png`（后者相对 tester 目录）；完整帧：`.tmp/evidence/task-59/worker/native-trace/captures/tester-native-trace-1/protocol.jsonl`；源码与参数对照：`.tmp/evidence/task-59/worker/native-trace/analysis/diagnosis.md`。本轮未伪称三轮代码返修或确认核心契约冲突。
 - **清理**: Worker 自检、三轮 Tester、三项模型诊断、被动采证入口自检及只读比较均 Cleanup PASS；自有服务、唯一 Chrome、原生实例、Agent、运行沙盒已回收，仅保留 `.tmp/evidence/task-59/` 证据，唯一 main Worktree。未安装真实 Vault，未发布。
 - **Scope**: `src/core/**`、`src/shells/**`、`src/workbench/**`、`src/plugins/guide-acp/**`、`tests/**`
@@ -132,7 +134,7 @@
 ---
 
 ## [Task #60] 仓库版本与讲义绑定
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #59
 - **Features**: F-REPO-VERSIONS、F-LESSON-VERSION
 - **Updated**: 2026-11-16
