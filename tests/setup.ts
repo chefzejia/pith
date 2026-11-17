@@ -14,6 +14,7 @@ const screenshots = await testSandbox("pith-test-screenshots-");
 process.env.PITH_TEST_SCREENSHOT_DIR = screenshots;
 process.env.HOME = sandbox;
 process.env.PITH_SPEECH_HOME = join(sandbox, "speech");
+process.env.PITH_REPOSITORY_HOME = join(sandbox, "repositories");
 const cleanup = () => { rmSync(sandbox, { recursive: true, force: true }); rmSync(screenshots, { recursive: true, force: true }); };
 process.on("exit", cleanup);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

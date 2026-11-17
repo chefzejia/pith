@@ -51,6 +51,7 @@ export interface ImportMaterialInput {
   readonly files: readonly ImportMaterialFileInput[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  readonly remoteUrl?: string;
   readonly aids?: readonly string[];
 }
 

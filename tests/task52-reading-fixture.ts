@@ -30,16 +30,19 @@ export async function seedReadingWorkspace(workspace: string, repo: Awaited<Retu
   ] });
   await store.recordReading(fileOnly.id, { file: "02-only.md" });
   const topic = await store.createTopic({ title: "永久位置复验课题", target: "删除缓存后能否恢复同一材料位置", materialIds: [repository.id, ordinary.id, fileOnly.id], toolkits: [] });
-  const malformed = [];
+  const malformed: { id: string; title: string; path: string }[] = [];
   for (const [title, fields] of [
     ["E1 非法父目录", { readingFile: "packages/../escape.ts", readingOpenedAt: "2026-11-14T03:00:00.000Z" }],
     ["E2 缺少打开时间", { readingFile: repo.nested }],
     ["E3 孤立坐标", { readingLocator: "text:line:8" }],
   ] as const) {
-    const material = await store.importMaterial({ title, kind: "repo", files: [], aids: [], externalPath: repo.path, commitSha: repo.commit });
-    const path = join(workspace, "materials", material.id, "material.md"), parsed = parseFrontmatter(await readFile(path, "utf8"));
-    await writeFile(path, stringifyFrontmatter({ ...parsed.attributes, ...fields }, parsed.body));
-    malformed.push({ id: material.id, title, path });
+    // Malformed disk fixtures have independent IDs. Reimporting this same binding now
+    // deliberately reuses the valid material and must never corrupt its ledger.
+    const id = `malformed-reading-${malformed.length + 1}`, directory = join(workspace, "materials", id);
+    await mkdir(directory);
+    const path = join(directory, "material.md"), parsed = parseFrontmatter(await readFile(join(workspace, "materials", repository.id, "material.md"), "utf8"));
+    await writeFile(path, stringifyFrontmatter({ ...parsed.attributes, id, title, ...fields }, parsed.body));
+    malformed.push({ id, title, path });
   }
   await storage.writeText("_cache/web-settings.json", JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "", agentConfigured: true }));
   assert.equal((await store.listUnreadable()).length, 3);

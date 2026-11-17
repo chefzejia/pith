@@ -1,4 +1,5 @@
 export * from "./types.ts";
+export * from "./repositoryUrl.ts";
 export * from "./host.ts";
 export * from "./seams.ts";
 export * from "./store/contract.ts";

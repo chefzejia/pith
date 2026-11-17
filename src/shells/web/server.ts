@@ -290,17 +290,26 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         } catch (error) { return send(res, 503, { error: `语音引擎不可用，请前往 ⚙ 设置检查配置：${speechErrorMessage(error, url.pathname.endsWith("synthesize") ? tts : asr)}` }); }
       }
       if (method === "POST" && url.pathname === "/api/repo/inspect") {
-        const data = await body(req); return send(res, 200, await resolveRepositoryIntake(str(data, "repoPath"), repository));
+        const data = await body(req);
+        return send(res, 200, await resolveRepositoryIntake(str(data, "repoPath"), { inspectRepository: path => repository.inspectRepository(path), cloneRemote: async () => { throw new Error("请从导入入口克隆仓库"); } }));
       }
-      if (method === "POST" && url.pathname === "/api/materials/repo") {
-        const data = await body(req), { info, description } = await resolveRepositoryIntake(str(data, "repoPath"), repository);
-        const material = await store.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha });
-        await refresh(); return send(res, 201, { ...material, intakeDescription: description });
-      }
-      if (method === "POST" && url.pathname === "/api/materials/url") {
-        const data = await body(req), bundle = await ingestExternalUrl({ url: str(data, "url") }, http);
-        const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files, aids: initialMaterialAids(await sampleMaterialText(bundle.files)) });
-        await refresh(); return send(res, 201, material);
+      if (method === "POST" && (url.pathname === "/api/materials/repo" || url.pathname === "/api/materials/url")) {
+        const abort = new AbortController(), stop = () => abort.abort();
+        res.on("close", stop);
+        try {
+          const data = await body(req);
+          let material, description = "";
+          if (url.pathname.endsWith("/repo")) {
+            const resolved = await resolveRepositoryIntake(str(data, "repoPath"), repository, abort.signal);
+            abort.signal.throwIfAborted(); description = resolved.description;
+            material = await store.importMaterial({ ...resolved.info, kind: "repo", files: [] });
+          } else {
+            const bundle = await ingestExternalUrl({ url: str(data, "url") }, http, abort.signal);
+            abort.signal.throwIfAborted();
+            material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files, aids: initialMaterialAids(await sampleMaterialText(bundle.files)) });
+          }
+          await refresh(); return send(res, 201, { ...material, intakeDescription: description });
+        } finally { res.off("close", stop); }
       }
       if (method === "POST" && url.pathname === "/api/materials") {
         const data = await body(req);

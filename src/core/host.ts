@@ -124,6 +124,7 @@ export interface RepositorySearchMatch {
 }
 
 export interface RepositoryPort {
+  cloneRemote(remoteUrl: string, signal?: AbortSignal): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string; readonly remoteUrl: string }>;
   inspectRepository(repoPath: string): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string }>;
   listFiles(externalPath: string, commitSha: string, offset?: number, limit?: number): Promise<{ readonly files: readonly string[]; readonly total: number; readonly nextOffset: number | null }>;
   readFile(externalPath: string, commitSha: string, filePath: string, startLine?: number, maxLines?: number): Promise<RepositoryFileExcerpt>;

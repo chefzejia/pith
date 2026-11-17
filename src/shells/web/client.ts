@@ -22,7 +22,7 @@ const requiredSelect = (selector: string): HTMLSelectElement => { const node = r
 const requiredInput = (selector: string): HTMLInputElement | HTMLTextAreaElement => { const node = requiredElement(selector); if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement)) throw new Error(`Expected input ${selector}`); return node; };
 const requiredButton = (selector: string): HTMLButtonElement => { const node = requiredElement(selector); if (!(node instanceof HTMLButtonElement)) throw new Error(`Expected button ${selector}`); return node; };
 const main = requiredElement("#main"), drawer = requiredElement("#drawer");
-async function api<T = unknown>(path: string, data?: unknown): Promise<T> { const response = await fetch(path, data === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); const result: unknown = await response.json(); if (!response.ok) throw new Error(result && typeof result === "object" && "error" in result ? String(result.error) : `HTTP ${response.status}`); return result as T; }
+async function api<T = unknown>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> { const response = await fetch(path, data === undefined ? { signal } : { signal, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) }); const result: unknown = await response.json(); if (!response.ok) throw new Error(result && typeof result === "object" && "error" in result ? String(result.error) : `HTTP ${response.status}`); return result as T; }
 let state: WebState, topic: Topic | null = null, workbench: WebWorkbench | MaterialWorkbench | null = null, navigation = 0;
 let compassView: ReturnType<typeof renderCompass> | undefined, materialPicker: ReturnType<typeof openMaterialPicker> | undefined;
 const coverAttempts = new Set<string>();
@@ -35,8 +35,8 @@ async function cacheCover(material: Material): Promise<void> {
 }
 const ports: IntakePorts = {
   importFiles,
-  importUrl: async url => { const material = await api<Material>("/api/materials/url", { url }); await cacheCover(material); return material; },
-  importRepository: async repoPath => { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath }); return { material: result, description: result.intakeDescription }; },
+  importUrl: async (url, signal) => { const material = await api<Material>("/api/materials/url", { url }, signal); await cacheCover(material); return material; },
+  importRepository: async (repoPath, signal) => { const result = await api<Material & { intakeDescription: string }>("/api/materials/repo", { repoPath }, signal); return { material: result, description: result.intakeDescription }; },
   intake: async (input, options) => {
     const stop = () => { void api("/api/intake/stop", {}).catch(notify); };
     options.signal?.addEventListener("abort", stop, { once: true });

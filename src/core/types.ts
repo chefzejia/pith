@@ -90,6 +90,7 @@ export interface Material {
   readonly files: readonly MaterialFileEntry[];
   readonly externalPath?: string;
   readonly commitSha?: string;
+  readonly remoteUrl?: string;
   readonly aids: readonly string[];
   readonly reading?: MaterialReading;
   readonly notes: readonly Note[];

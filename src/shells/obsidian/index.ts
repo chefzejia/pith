@@ -469,8 +469,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
     const cache = async (material: Material) => { await cacheMaterialCover(this.host.storage, material, this.contentEl.ownerDocument).catch(() => {}); return material; };
     return {
       importFiles: async files => { const prepared = await prepareMaterialImport(files); return cache(await this.controller.importMaterial({ title: prepared.title, kind: prepared.kind, files: prepared.files })); },
-      importUrl: async url => { const bundle = await ingestExternalUrl({ url }, this.host.http); return cache(await this.controller.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files })); },
-      importRepository: async path => { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const { info, description } = await resolveRepositoryIntake(path, this.host.repository); return { material: await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha }), description }; },
+      importUrl: async (url, signal) => { const bundle = await ingestExternalUrl({ url }, this.host.http, signal); signal?.throwIfAborted(); return cache(await this.controller.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files })); },
+      importRepository: async (path, signal) => { if (!this.host.repository) throw new Error("本宿主不支持代码仓库"); const { info, description } = await resolveRepositoryIntake(path, this.host.repository, signal); signal?.throwIfAborted(); return { material: await this.controller.importMaterial({ title: info.title, kind: "repo", files: [], externalPath: info.externalPath, commitSha: info.commitSha, remoteUrl: info.remoteUrl }), description }; },
       intake: (input, options) => this.controller.engine.intake(input, options),
     };
   }

@@ -1,4 +1,5 @@
 import type { ExternalIngestBundle, ExternalIngestInput, HttpPort, HttpRequestSpec, HttpResponseData } from "../../core/index.ts";
+import { normalizeRepositoryUrl } from "../../core/index.ts";
 import { withHttpDeadline } from "../../core/host.ts";
 
 // The transport resolves and pins only public addresses, rejects redirects, and enforces the byte limit while streaming.
@@ -67,6 +68,7 @@ function safeMarkdown(value: string): string {
 }
 
 export async function ingestExternalUrl(input: ExternalIngestInput, http: HttpPort | undefined, signal?: AbortSignal): Promise<ExternalIngestBundle> {
+  if (normalizeRepositoryUrl(input.url)) throw new Error("代码仓库请用户从立项框或添加材料导入");
   if (!isPublicHttpUrl(input.url)) throw new Error("External URL is not public HTTP(S)");
   if (!http || !("requestPublic" in http) || typeof http.requestPublic !== "function") throw new Error("Safe public HTTP transport unavailable: DNS pinning and redirect protection required");
   const kind = input.kind ?? "article";

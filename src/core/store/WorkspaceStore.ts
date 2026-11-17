@@ -2,6 +2,7 @@ import type { WorkspaceStoragePort } from "../host.ts";
 import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, MaterialReading, Note, ProfileObservation, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
+import { normalizeRepositoryUrl } from "../repositoryUrl.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
 
 const notePattern = /^## \[(highlight|note|practice)\] ([^\n]+)\n<!-- pith-note:v1 -->\n([\s\S]*?)<!-- pith-note:end -->/gm;
@@ -188,6 +189,8 @@ function parseMaterial(markdown: string): { material: Material; attributes: Fron
   if (a.type !== "pith-material") throw new Error("Invalid material type");
   const kind = required(a, "kind");
   if (!["book", "article", "media", "discussion", "repo"].includes(kind)) throw new Error("Invalid material kind");
+  const remoteUrl = optional(a, "remoteUrl");
+  if (remoteUrl !== undefined && (kind !== "repo" || normalizeRepositoryUrl(remoteUrl) !== remoteUrl)) throw new Error("Invalid remoteUrl");
   if (!Array.isArray(a.files)) throw new Error("Invalid material files");
   if (!Array.isArray(a.aids) || !a.aids.every(item => typeof item === "string")) throw new Error("Invalid material aids");
   const files = a.files.map(item => {
@@ -211,7 +214,7 @@ function parseMaterial(markdown: string): { material: Material; attributes: Fron
   const id = name(required(a, "id")), notes = parseNotes(body);
   if (notes.some(note => note.author !== "user" || note.kind === "practice" || (note.anchor && (note.anchor.source.kind !== "material" || note.anchor.source.materialId !== id)))) throw new Error("Invalid material note");
   return { attributes: a, body, material: { id, title: required(a, "title"), kind: kind as MaterialKind,
-    createdAt: required(a, "createdAt"), files, aids: a.aids as string[], notes, ...(reading ? { reading } : {}), externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha") } };
+    createdAt: required(a, "createdAt"), files, aids: a.aids as string[], notes, ...(reading ? { reading } : {}), externalPath: optional(a, "externalPath"), commitSha: optional(a, "commitSha"), ...(remoteUrl !== undefined ? { remoteUrl } : {}) } };
 }
 
 function noteMarkdown(note: Note): string {
@@ -429,6 +432,11 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   importMaterial(input: ImportMaterialInput): Promise<Material> {
     return this.queue.run(async () => {
       await this.scaffold();
+      if (input.remoteUrl !== undefined && (input.kind !== "repo" || normalizeRepositoryUrl(input.remoteUrl) !== input.remoteUrl)) throw new Error("Invalid remoteUrl");
+      if (input.kind === "repo" && input.externalPath && input.commitSha) {
+        const existing = (await this.listMaterials()).find(material => material.kind === "repo" && material.externalPath === input.externalPath && material.commitSha === input.commitSha);
+        if (existing) return existing;
+      }
       const id = name(await this.uniqueId("material", input.title));
       const dir = `materials/${id}`;
       if (await this.storage.exists(dir)) throw new Error("Material already exists");
@@ -439,6 +447,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         type: "pith-material", id, title: input.title, kind: input.kind, createdAt: new Date().toISOString(),
         ...(input.externalPath !== undefined ? { externalPath: input.externalPath } : {}),
         ...(input.commitSha !== undefined ? { commitSha: input.commitSha } : {}),
+        ...(input.remoteUrl !== undefined ? { remoteUrl: input.remoteUrl } : {}),
         files: files.map(file => fileFields(file)), aids: [...(input.aids ?? [])],
       };
       const markdown = stringifyFrontmatter(a, "\n");

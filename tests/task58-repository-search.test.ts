@@ -45,7 +45,7 @@ async function fixture() {
   const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage);
   await store.ensureScaffold();
   const material = await store.importMaterial({ title: "仓库", kind: "repo", files: [], externalPath: path, commitSha: binding.commitSha });
-  const other = await store.importMaterial({ title: "未引用", kind: "repo", files: [], externalPath: path, commitSha: binding.commitSha });
+  const other = await store.importMaterial({ title: "未引用", kind: "repo", files: [], externalPath: path, commitSha: first });
   const article = await store.importMaterial({ title: "普通文档", kind: "article", files: [{ name: "a.md", bytes: new TextEncoder().encode("article") }] });
   const topic = await store.createTopic({ title: "插件入口", target: "理解注册", materialIds: [material.id, article.id], toolkits: [] });
   const search = (query: Parameters<RepositoryPort["searchFiles"]>[2]) => port.searchFiles(path, binding.commitSha, query);

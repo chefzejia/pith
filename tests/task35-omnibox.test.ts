@@ -31,9 +31,9 @@ test("repository paths retain spaces, expand home and reject foreign paths", asy
     const exact = await resolveRepositoryIntake(longer, port); assert.equal(exact.info.externalPath, longer); assert.equal(exact.description, "");
     assert.equal((await resolveRepositoryIntake(`${longer} 深入学习`, port)).info.externalPath, longer);
     const denied = Object.assign(new Error("denied"), { code: "EACCES", syscall: "realpath" });
-    await assert.rejects(resolveRepositoryIntake(`${repo} denied`, { inspectRepository: async () => { throw denied; } }), error => error === denied);
+    await assert.rejects(resolveRepositoryIntake(`${repo} denied`, { cloneRemote: port.cloneRemote, inspectRepository: async () => { throw denied; } }), error => error === denied);
     const gitMissing = Object.assign(new Error("git missing"), { code: "ENOENT", syscall: "spawn git" });
-    await assert.rejects(resolveRepositoryIntake(`${repo} target`, { inspectRepository: async () => { throw gitMissing; } }), error => error === gitMissing);
+    await assert.rejects(resolveRepositoryIntake(`${repo} target`, { cloneRemote: port.cloneRemote, inspectRepository: async () => { throw gitMissing; } }), error => error === gitMissing);
     if (process.platform !== "win32") await assert.rejects(port.inspectRepository("C:\\repo"), /Windows/);
     assert.match(pithIcon("sliders"), /viewBox="0 0 24 24".*stroke-width="1.75"/);
   } finally { if (previous === undefined) delete process.env.HOME; else process.env.HOME = previous; await rm(root, { recursive: true, force: true }); }

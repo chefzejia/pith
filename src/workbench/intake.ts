@@ -1,11 +1,11 @@
-import type { GuideTurn, Material, Topic, TurnOptions } from "../core/index.ts";
+import { normalizeRepositoryUrl, type GuideTurn, type Material, type Topic, type TurnOptions } from "../core/index.ts";
 import { groupMaterialFiles } from "./importMaterial.ts";
 import { pithIcon } from "./icons.ts";
 
 export interface IntakePorts {
   importFiles(files: File[]): Promise<Material>;
-  importUrl(url: string): Promise<Material>;
-  importRepository(path: string): Promise<{ material: Material; description: string }>;
+  importUrl(url: string, signal?: AbortSignal): Promise<Material>;
+  importRepository(path: string, signal?: AbortSignal): Promise<{ material: Material; description: string }>;
   intake(input: { text: string; materialIds: readonly string[]; previous?: readonly GuideTurn[] }, options: TurnOptions): Promise<{ topic: Topic | null; turn: GuideTurn }>;
 }
 export interface IntakeActions {
@@ -28,7 +28,7 @@ export function splitIntakeText(text: string): { goal: string; repositories: str
   });
   // The repository port resolves a bare path (including spaces) and its trailing goal.
   if (/^(?:\/|~\/|[a-z]:[\\/])/i.test(goal.trim())) { repositories.push(goal.trim()); goal = ""; }
-  goal = goal.replace(/https?:\/\/\S+/gi, url => { urls.push(url); return " "; }).replace(/\s+/g, " ").trim();
+  goal = goal.replace(/(?:https?:\/\/|git@github\.com:)\S+/gi, url => { if (normalizeRepositoryUrl(url)) repositories.push(url); else if (/^https?:/i.test(url)) urls.push(url); else return url; return " "; }).replace(/\s+/g, " ").trim();
   return { goal, repositories: [...new Set(repositories)], urls: [...new Set(urls)] };
 }
 
@@ -39,16 +39,17 @@ export class IntakeSession {
   private readonly imports = new Map<string | File, { material: Material; description?: string }>();
   private readonly ports: IntakePorts;
   constructor(ports: IntakePorts, materials: readonly Material[] = []) { this.ports = ports; for (const material of materials) this.materials.set(material.id, material); }
-  async prepare(text: string, files: readonly File[], imported: () => Promise<void>): Promise<string> {
+  async prepare(text: string, files: readonly File[], imported: () => Promise<void>, signal?: AbortSignal, progress?: (message: string) => void): Promise<string> {
     const input = splitIntakeText(text), descriptions: string[] = [];
     const keep = async (key: string | File, create: () => Promise<{ material: Material; description?: string }>) => {
+      signal?.throwIfAborted();
       let result = this.imports.get(key);
       if (!result) { result = await create(); this.imports.set(key, result); await imported(); }
       this.materials.set(result.material.id, result.material);
       if (result.description) descriptions.push(result.description);
     };
-    for (const path of input.repositories) await keep(`repo:${path}`, () => this.ports.importRepository(path));
-    for (const url of input.urls) await keep(`url:${url}`, async () => ({ material: await this.ports.importUrl(url) }));
+    for (const path of input.repositories) { progress?.(normalizeRepositoryUrl(path) ? `正在克隆仓库 ${path}…` : `正在读取仓库 ${path}…`); await keep(`repo:${path}`, () => this.ports.importRepository(path, signal)); }
+    for (const url of input.urls) { progress?.(`正在导入 ${url}…`); await keep(`url:${url}`, async () => ({ material: await this.ports.importUrl(url, signal) })); }
     for (const group of groupMaterialFiles(files)) await keep(group[0]!, async () => ({ material: await this.ports.importFiles(group) }));
     return [input.goal, ...descriptions].filter(Boolean).join("\n");
   }
@@ -102,7 +103,7 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
     input.disabled = add.disabled = true; submit.disabled = false; submit.innerHTML = pithIcon("stop"); submit.setAttribute("aria-label", "停止"); status.textContent = "正在导入材料…"; showChips();
     void (async () => {
       try {
-        const goal = await session.prepare(original, selected, async () => { if (actions.changed) await actions.changed(); });
+        const goal = await session.prepare(original, selected, async () => { if (actions.changed) await actions.changed(); }, signal, message => { if (!disposed) status.textContent = message; });
         selected = []; resolvedGoal = { input: original, text: goal };
         if (signal.aborted) throw new Error("已停止；已导入的材料保留在材料库");
         if (!goal) { if (session.previous.length || actions.requireGoal) { status.textContent = actions.requireGoal ? "请输入你想搞懂的问题" : "请回答向导的问题"; return; } await actions.fed([...session.materials.values()]); return; }
@@ -115,7 +116,7 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
         if (result.topic) { await actions.topic(result.topic); return; }
         if (result.turn.status !== "completed") throw new Error(result.turn.error || (result.turn.status === "stopped" ? "已停止" : "立项失败"));
         selected = []; input.value = ""; input.placeholder = "回答向导的问题…"; status.textContent = "请补充目标后再次提交";
-      } catch (error) { if (!disposed) { input.value = original; status.textContent = error instanceof Error ? error.message : String(error); } }
+      } catch (error) { if (!disposed) { input.value = original; status.textContent = signal.aborted ? "已停止" : error instanceof Error ? error.message : String(error); } }
       finally { controller = undefined; if (!disposed) { input.disabled = add.disabled = false; submit.disabled = false; submit.innerHTML = pithIcon("arrow-up"); submit.setAttribute("aria-label", "提交"); showChips(); update(true); } }
     })();
   };

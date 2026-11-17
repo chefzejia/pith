@@ -1,6 +1,10 @@
-import type { Material, RepositoryPort } from "../core/index.ts";
+import { normalizeRepositoryUrl, type Material, type RepositoryPort } from "../core/index.ts";
 
-export async function resolveRepositoryIntake(input: string, repository: Pick<RepositoryPort, "inspectRepository">): Promise<{ info: Awaited<ReturnType<RepositoryPort["inspectRepository"]>>; description: string }> {
+export async function resolveRepositoryIntake(input: string, repository: Pick<RepositoryPort, "inspectRepository" | "cloneRemote">, signal?: AbortSignal): Promise<{ info: Awaited<ReturnType<RepositoryPort["inspectRepository"]>> & { remoteUrl?: string }; description: string }> {
+  signal?.throwIfAborted();
+  const [first, ...rest] = input.trim().split(/\s+/);
+  const remote = normalizeRepositoryUrl(first ?? "");
+  if (remote) return { info: await repository.cloneRemote(remote, signal), description: rest.join(" ").replace(/^—\s*/, "") };
   const separators = [...input.matchAll(/\s+/g)].map(match => match.index).reverse();
   const candidates = [input.length, ...separators];
   let missing: unknown;

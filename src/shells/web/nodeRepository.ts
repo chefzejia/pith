@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute } from "node:path";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, realpath, rm, stat } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
+import { normalizeRepositoryUrl } from "../../core/index.ts";
 import type { RepositoryFileExcerpt, RepositoryPort, RepositorySearchMatch } from "../../core/index.ts";
 
 const run = promisify(execFile);
@@ -16,6 +17,45 @@ async function git(root: string, args: string[], maxBuffer = maxTreeBytes): Prom
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" });
   return (await run("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root, ...args], { encoding: "buffer", env, maxBuffer, timeout: 15000, windowsHide: true })).stdout;
+}
+
+// Only clone/fetch use the user's Git configuration and credential/SSH environment.
+// A detached process group lets cancellation reap Git's own transport descendants too.
+async function remoteGit(args: string[], signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["-c", "core.fsmonitor=false", ...args], {
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" },
+      detached: process.platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "", error = "", timedOut = false;
+    const kill = () => { try { if (process.platform === "win32") child.kill("SIGKILL"); else if (child.pid) process.kill(-child.pid, "SIGKILL"); } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause; } };
+    const timer = setTimeout(() => { timedOut = true; kill(); }, 180_000);
+    signal?.addEventListener("abort", kill, { once: true });
+    if (signal?.aborted) kill();
+    child.stdout.on("data", (data: Buffer) => { output = (output + data.toString("utf8")).slice(-8192); });
+    child.stderr.on("data", (data: Buffer) => { error = (error + data.toString("utf8")).slice(-8192); });
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", kill); };
+    child.on("error", cause => { cleanup(); reject(cause); });
+    child.on("close", code => {
+      cleanup();
+      if (signal?.aborted) reject(new Error("已停止克隆仓库"));
+      else if (timedOut) reject(new Error("仓库操作超时"));
+      else if (code !== 0) reject(new Error(`仓库操作失败：${error.trim() || `git exited ${code}`}`));
+      else resolve(output.trim());
+    });
+  });
+}
+
+// Shared across host instances; operations for distinct remotes remain independent.
+const clones = new Map<string, Promise<unknown>>();
+async function waitForClone(previous: Promise<unknown>, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => { signal?.removeEventListener("abort", abort); reject(new Error("已停止克隆仓库")); };
+    signal?.addEventListener("abort", abort, { once: true });
+    void previous.catch(() => {}).then(() => { signal?.removeEventListener("abort", abort); resolve(); });
+  });
 }
 
 function validPath(path: string): boolean {
@@ -45,6 +85,44 @@ async function grep(root: string, args: string[], maxBuffer = maxTreeBytes): Pro
 }
 
 export class NodeRepositoryPort implements RepositoryPort {
+  async cloneRemote(input: string, signal?: AbortSignal): Promise<{ externalPath: string; commitSha: string; title: string; remoteUrl: string }> {
+    const remoteUrl = normalizeRepositoryUrl(input);
+    if (!remoteUrl) throw new Error("请输入 GitHub 仓库根地址");
+    const home = process.env.PITH_REPOSITORY_HOME ?? join(homedir(), "Library/Application Support/pith/repositories");
+    if (!isAbsolute(home)) throw new Error("PITH_REPOSITORY_HOME 必须是绝对路径");
+    const title = remoteUrl.slice("https://github.com/".length), target = join(home, "github.com", title);
+    while (clones.has(target)) await waitForClone(clones.get(target)!, signal);
+    signal?.throwIfAborted();
+    const operation = (async () => {
+      let created = false;
+      try {
+        await mkdir(join(target, ".."), { recursive: true });
+        try { await mkdir(target); created = true; }
+        catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause; }
+        signal?.throwIfAborted();
+        if (created) await remoteGit(["clone", "--depth=1", "--no-checkout", "--no-tags", "--", remoteUrl, target], signal);
+        else {
+          // Fail closed if a managed pathname is occupied by an unrelated repository.
+          const origin = decoder.decode(await git(target, ["config", "--get", "remote.origin.url"], 4096)).trim();
+          if (origin !== remoteUrl) throw new Error("仓库目录的远端地址不匹配");
+          await remoteGit(["-C", target, "fetch", "--depth=1", "--no-tags", "origin", "HEAD"], signal);
+        }
+        const commitSha = decoder.decode(await git(target, ["rev-parse", "--verify", created ? "HEAD^{commit}" : "FETCH_HEAD^{commit}"])).trim();
+        if (!commitPattern.test(commitSha)) throw new Error("仓库 commit 无效");
+        signal?.throwIfAborted();
+        await remoteGit(["-C", target, "update-ref", `refs/pith/pins/${commitSha}`, commitSha], signal);
+        await remoteGit(["-C", target, "update-ref", "HEAD", commitSha], signal);
+        signal?.throwIfAborted();
+        return { externalPath: await realpath(target), commitSha, title, remoteUrl };
+      } catch (cause) {
+        if (created) await rm(target, { recursive: true, force: true });
+        throw cause;
+      }
+    })();
+    clones.set(target, operation);
+    try { return await operation; }
+    finally { if (clones.get(target) === operation) clones.delete(target); }
+  }
   async inspectRepository(repoPath: string): Promise<{ externalPath: string; commitSha: string; title: string }> {
     if (/^[a-z]:[\\/]/i.test(repoPath) && process.platform !== "win32") throw new Error("当前系统不支持 Windows 仓库路径");
     if (repoPath.startsWith("~/")) repoPath = `${homedir()}/${repoPath.slice(2)}`;

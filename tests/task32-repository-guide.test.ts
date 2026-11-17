@@ -74,7 +74,7 @@ test("scoped repository tools read the pinned commit and reject other materials"
     await mkdir(join(root, "workspace"));
     const storage = new NodeWorkspaceStorage(join(root, "workspace")), store = new DefaultWorkspaceStore(storage); await store.ensureScaffold();
     const material = await store.importMaterial({ title: "代码", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
-    const other = await store.importMaterial({ title: "其他", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: binding.commitSha });
+    const other = await store.importMaterial({ title: "其他", kind: "repo", files: [], externalPath: binding.externalPath, commitSha: (await repo.git("rev-parse", "HEAD^")).stdout.trim() });
     const topic = await store.createTopic({ title: "读源码", target: "理解入口", materialIds: [material.id], toolkits: [] });
     const tools = createScopedTools({ toolkits: testToolkits, topicId: topic.id, store, storage, repository, onChoices: () => {} });
     const call = (name: string, args: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(args);
