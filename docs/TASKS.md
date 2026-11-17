@@ -69,10 +69,11 @@
 ---
 
 ## [Task #57] 台账守卫与 #54 结果入账
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: 6665123f7cfff0f8f3a66a081ae91fa6417c775a
 - **Depends-On**: #54
 - **Features**: —
-- **Updated**: 2026-11-16
+- **Updated**: 2026-11-17
 - **Scope**: `tests/**`、`docs/FEATURES.md`
 - **契约**:
   1. 新增 `tests/feature-ledger.test.ts`，校验 [FEATURES.md](FEATURES.md) 与本文件：
@@ -85,12 +86,13 @@
   2. 按 #54 的终验报告（`.tmp/evidence/task-54/final-report.md`）与本文件中的 #54 区块，同步台账「发布与里程碑」中 v0.1.0 列出的各行：状态、宿主、最近独立验收、已知缺口；同时把里程碑表里 v0.1.0 一行的状态改成验收结果（当前发布版本由 Router 在 #54 核销时按 [ROLES.md](ROLES.md) 第 6 条更新）。只同步事实，不增删条目，不改「提议」与契约文档；报告与台账冲突或判断不了的行，列进 Worker 报告交 Router 判定。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：把一行状态改成非法词；删掉某个 ID 的回归测试行；在 `docs/subsystems/` 放一个没被链接的文件；让一个带 `Features` 的 `verified` 区块所列行引用更早的提交（可用合成的区块文本）。
 - **Tester 验收**: 本任务没有界面。Tester 逐行对照 #54 的终验报告与截图索引，检查第 2 项写进台账的结论、宿主与缺口没有夸大或遗漏，并重放 Worker 的破壁记录。
+- **验收结果**: 独立 Tester PASS：21 行结论/宿主/版本/缺口与原始报告及78图索引一致，保留F2、新卡片未实现和F-SANDBOX待复验边界；7条守卫通过，四项独立破壁各为7绿→6绿1个对应断言红→恢复7绿。Worker typecheck、全仓386 pass/104 skip/0 fail（含boundaries）与构建通过，产物仍0751；未跑新GUI/模型，不冒充#54新终验。Cleanup PASS，主树干净、自有运行资源已回收。报告及重放证据：`.tmp/evidence/task-57/tester/tester-report.md`、`.tmp/evidence/task-57/tester/replays/`；工程报告：`.tmp/evidence/task-57/worker/worker-report.md`。
 - **交付**: 不交付。
 
 ---
 
 ## [Task #58] 向导在仓库里搜代码
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #57
 - **Features**: F-REPO-SEARCH
 - **Updated**: 2026-11-16
