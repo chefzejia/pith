@@ -77,7 +77,7 @@
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本后，基于旧版本的讲可以「按新版本调整」，向导只重写受影响的讲 | 契约 | – / – | 无 | — |
-| F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 契约 | – / – | 无 | — |
+| F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #58 @dc0f7ae（11-18；搜索主链6354ed4，表格有限复验dc0f7ae） | GUI 成功 result 原始字节未完整导出，过滤/限额/准确作用域另有真实 Git/MCP 回归；保留上游中断与模型计数/解释偏差；仅核对静态调用，计时为 warm GUI 观测 |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
 | F-TOPIC-NOTES | 课题内的高亮、笔记与向导批注，标明作者，点击跳回原文 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮核对 user 笔记、材料只读记录分区与回跳；guide 总结见结题，两课题隔离沿用 #52 |
@@ -182,7 +182,7 @@
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
 | F-LESSON-VERSION | — |
-| F-REPO-SEARCH | — |
+| F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |
 | F-TOPIC-NOTES | [task51-store.test.ts](../tests/task51-store.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |

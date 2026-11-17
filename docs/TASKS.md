@@ -92,20 +92,23 @@
 ---
 
 ## [Task #58] 向导在仓库里搜代码
-- **Status**: pending
+- **Status**: verified
+- **Verified-Commit**: dc0f7ae42032be22a7af08ba4053a139ac96a684
 - **Depends-On**: #57
 - **Features**: F-REPO-SEARCH
-- **Updated**: 2026-11-16
+- **Updated**: 2026-11-18
 - **Scope**: `src/core/host.ts`、`src/shells/**`、`src/plugins/guide-acp/**`、`tests/**`
 - **契约**: 按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节的 `RepositoryPort.searchFiles` 与「仓库端口的约束」中的搜索一条，以及 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 的「代码」规则与 2.5 的 `pith_search_material` 落地。立项作用域下 `materialId` 可以是材料库里的任一仓库材料，课题作用域下必须是本课题引用的（2.4 工具端点一行）。
 - **不在范围内**: 比较、克隆与版本（#59、#60）。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：不跳过二进制文件；去掉 `limit` 上限；放行含 `..` 的 `pathPrefix`；课题作用域下放行未引用的材料。
 - **Tester 验收**: Web 与 Obsidian 各一次，样本按头部规则 6。用 magpie 与 deepseek-harness 的副本带目标立项（例如「这两个框架怎么注册和加载插件」），要求向导找出关键函数的定义和全部调用点并写进讲义：对话过程里出现搜索步骤，讲义里的 `path:line` 跳到正确的行；在 deepseek-harness（约两万个文件）上记录单次搜索耗时。另用一个含二进制文件、超大文件和中文内容的玩具仓库，核对搜索不报错、不返回二进制和超大文件、中文能搜到；正则写错时看到原因。
+- **验收结果**: 独立 Tester 综合 PASS：搜索真实主链在 6354ed4，双宿主各 27 个出处与独立源码底稿一致（2 定义、25 静态调用）；deepseek 单次 warm GUI 耗时 Web 691ms、原生 803ms，含传输/渲染，不作 SLA。非法正则与前缀原因、恢复查询有真实步骤；成功 result 字节未完整导出，过滤、限额与准确作用域由真实 Git/MCP 回归及四项精准破壁证明，GUI 权限负例的错误材料 ID 不作该项证明。原生长出处挤压表格的 F1 已在 dc0f7ae 修复，经保留原始讲义的双宿主有限真实 GUI 复验通过：无竖排/重叠、局部键盘/滚轮横滚、各一次正确 :131 跳转，10 图均亲看；原生宽窗为 1440×900 CSS 视口、实体窗口 1440×859。保留上游断流、写入后回合 failed、模型计数/解释偏差和静态调用非动态图边界。最终 typecheck、全仓 396 pass/106 skip、browser 148 pass/4 真实语音条件 skip/0 fail、构建与表格三项破壁通过。Cleanup PASS，自有实例/运行目录已回收；未交付真实 Vault。
+- **报告与截图**: `.tmp/evidence/task-58/tester/tester-report.md`（原搜索实测接续）、`.tmp/evidence/task-58/fix-table/tester/tester-report.md`（最终签收）、`.tmp/evidence/task-58/fix-table/tester/`（终验截图）；工程报告在 `.tmp/evidence/task-58/worker/` 与 `.tmp/evidence/task-58/fix-table/worker/`。
 
 ---
 
 ## [Task #59] 贴 GitHub 链接导入仓库
-- **Status**: queued
+- **Status**: pending
 - **Depends-On**: #58
 - **Features**: F-INTAKE-GITHUB、F-INTAKE-REPO
 - **Updated**: 2026-11-16
