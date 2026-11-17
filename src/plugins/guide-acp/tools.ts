@@ -222,6 +222,15 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
   };
   const checkKeys = (input: Readonly<Record<string, unknown>>, allowed: readonly string[]) => { if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("Invalid tool arguments"); };
   const number = (input: Readonly<Record<string, unknown>>, key: string) => { const value = input[key]; if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) throw new Error(`Invalid ${key}`); return value as number | undefined; };
+  tools.push({ name: "pith_search_material", description: "Search UTF-8 text in a repository material's pinned commit. Returns path, 1-based line, text (up to 300 characters) and truncated. Literal and case-insensitive by default; optional POSIX extended regex, case sensitivity and literal path prefix. Read matching lines with pith_read_material.", inputSchema: schema({ materialId: field, pattern: field, regex: { type: "boolean" }, caseSensitive: { type: "boolean" }, pathPrefix: field, limit: { type: "integer", minimum: 1, maximum: 200, default: 50 } }, ["materialId", "pattern"]), write: false, async execute(input) {
+    checkKeys(input, ["materialId", "pattern", "regex", "caseSensitive", "pathPrefix", "limit"]);
+    const material = await scopedMaterial(input);
+    if (material.kind !== "repo") throw new Error("搜索仅支持仓库材料");
+    if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable");
+    if (typeof input.pattern !== "string" || !input.pattern || (input.pathPrefix !== undefined && typeof input.pathPrefix !== "string")) throw new Error("Invalid search text");
+    if ((input.regex !== undefined && typeof input.regex !== "boolean") || (input.caseSensitive !== undefined && typeof input.caseSensitive !== "boolean")) throw new Error("Invalid search option");
+    return repository.searchFiles(material.externalPath, material.commitSha, { pattern: input.pattern, regex: input.regex as boolean | undefined, caseSensitive: input.caseSensitive as boolean | undefined, pathPrefix: input.pathPrefix as string | undefined, limit: number(input, "limit") });
+  } });
   tools.push({ name: "pith_list_material", description: "List files in the current material.", inputSchema: { type: "object", properties: { materialId: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["materialId"], additionalProperties: false }, write: false, async execute(input) {
     checkKeys(input, ["materialId", "offset", "limit"]); const material = await scopedMaterial(input);
     if (material.kind === "repo") { if (!repository || !material.externalPath || !material.commitSha) throw new Error("Repository unavailable"); return repository.listFiles(material.externalPath, material.commitSha, number(input, "offset"), number(input, "limit")); }

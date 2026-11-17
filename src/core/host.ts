@@ -117,10 +117,21 @@ export interface RepositoryFileExcerpt {
   readonly truncated: boolean;
 }
 
+export interface RepositorySearchMatch {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
+}
+
 export interface RepositoryPort {
   inspectRepository(repoPath: string): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string }>;
   listFiles(externalPath: string, commitSha: string, offset?: number, limit?: number): Promise<{ readonly files: readonly string[]; readonly total: number; readonly nextOffset: number | null }>;
   readFile(externalPath: string, commitSha: string, filePath: string, startLine?: number, maxLines?: number): Promise<RepositoryFileExcerpt>;
+  /** Searches the text files of one commit; literal unless `regex` is set. */
+  searchFiles(externalPath: string, commitSha: string, query: {
+    readonly pattern: string; readonly regex?: boolean; readonly caseSensitive?: boolean;
+    readonly pathPrefix?: string; readonly limit?: number }):
+    Promise<{ readonly matches: readonly RepositorySearchMatch[]; readonly truncated: boolean }>;
 }
 
 export interface MediaSearchCandidate {

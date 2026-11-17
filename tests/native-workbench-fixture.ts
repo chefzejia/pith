@@ -16,9 +16,10 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     if (method === "copy") return storage.copy(args[0], args[1]);
     throw new Error(`Unexpected host method: ${method}`);
   });
-  await page.exposeFunction("nativeRepository", async (method: "inspectRepository" | "listFiles" | "readFile", args: any[]) => {
+  await page.exposeFunction("nativeRepository", async (method: "inspectRepository" | "listFiles" | "readFile" | "searchFiles", args: any[]) => {
     if (method === "inspectRepository") return repository.inspectRepository(args[0]);
     if (method === "listFiles") return repository.listFiles(args[0], args[1], args[2], args[3]);
+    if (method === "searchFiles") return repository.searchFiles(args[0], args[1], args[2]);
     return repository.readFile(args[0], args[1], args[2], args[3], args[4]);
   });
   const bundle = await build({ entryPoints: ["src/shells/obsidian/index.ts"], bundle: true, write: false, platform: "browser", format: "iife", globalName: "NativePith", external: ["node:*", "obsidian"] });
@@ -34,7 +35,7 @@ export async function nativeWorkbenchFixture(page: any, directory: string, guide
     for (const method of ["createBinary", "writeBinary"]) storage[method] = (path: string, value: Uint8Array) => call(method)(path, Array.from(value));
     // The host boundary serializes updates; the real store still owns ledger mutations.
     storage.processText = async (path: string, update: (current: string) => string) => { const text = update(await storage.readText(path)); await storage.writeText(path, text); return text; };
-    const repository = Object.fromEntries(["inspectRepository", "listFiles", "readFile"].map(method => [method, (...args: unknown[]) => w.nativeRepository(method, args)]));
+    const repository = Object.fromEntries(["inspectRepository", "listFiles", "readFile", "searchFiles"].map(method => [method, (...args: unknown[]) => w.nativeRepository(method, args)]));
     const process = agentProcess ? { findExecutable: async () => null, probeExecutable: async () => null, spawnStdio: async () => { throw new Error("No agent process is run by the native availability fixture"); } } : undefined;
     const host = { id: "obsidian", storage, repository, process }; let controller: any;
     const provider = { async run(input: any, options: any) {
