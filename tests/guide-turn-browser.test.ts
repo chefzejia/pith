@@ -25,15 +25,22 @@ const occurrences = (locator: any, text: string): Promise<number> => locator.eva
 
 async function assertTableScrolls(page: any, selector: string): Promise<void> {
   const table = page.locator(`${selector} .pith-guide-reply table`).first();
-  const layout = await table.evaluate((element: HTMLElement) => {
+  const layout = await table.evaluate((element: HTMLTableElement) => {
     const container = element.closest<HTMLElement>(".pith-guide-content")!;
-    element.scrollLeft = element.scrollWidth;
-    return { width: element.clientWidth, contentWidth: element.scrollWidth, scrollLeft: element.scrollLeft, containerWidth: container.clientWidth,
-      columns: Array.from(element.querySelectorAll("th"), cell => cell.getBoundingClientRect().width) };
+    const scroller = element.parentElement!;
+    scroller.scrollLeft = 0;
+    const before = scroller.scrollLeft;
+    scroller.scrollLeft = scroller.scrollWidth;
+    return { width: scroller.clientWidth, contentWidth: scroller.scrollWidth, before, scrollLeft: scroller.scrollLeft, containerWidth: container.clientWidth, containerOverflow: container.scrollWidth - container.clientWidth,
+      columns: Array.from(element.querySelectorAll("th"), (cell, index) => {
+        const cells = Array.from(element.rows, row => row.cells[index]!);
+        const longest = Math.max(...cells.map(item => Array.from(item.textContent ?? "").length));
+        return { width: cell.getBoundingClientRect().width, minimum: Math.min(100, longest * parseFloat(getComputedStyle(cell).fontSize)), lines: cells.map(item => { const range = document.createRange(); range.selectNodeContents(item); return new Set(Array.from(range.getClientRects(), rect => Math.round(rect.top))).size; }) };
+      }) };
   });
   assert.equal(layout.columns.length, 3);
-  assert.ok(layout.columns.every((width: number) => width >= 100), JSON.stringify(layout));
-  assert.ok(layout.width <= layout.containerWidth && layout.contentWidth > layout.width && layout.scrollLeft > 0, JSON.stringify(layout));
+  assert.ok(layout.columns.every((column: { width: number; minimum: number; lines: number[] }) => column.width >= column.minimum && column.lines.every(lines => lines === 1)), JSON.stringify(layout));
+  assert.ok(layout.width <= layout.containerWidth && layout.containerOverflow <= 1 && layout.contentWidth > layout.width && layout.scrollLeft > layout.before, JSON.stringify(layout));
 }
 
 async function assertChoicesFit(page: any, selector: string): Promise<void> {

@@ -128,7 +128,7 @@ function renderTableHtml(rawTable: string, attrs: string): string {
   if (rows.length < 2) return `<pre ${attrs}><code>${escape(rawTable)}</code></pre>`;
   const headCells = parseCells(rows[0]!);
   const bodyRows = rows.slice(2).map(parseCells);
-  return `<table ${attrs}><thead><tr>${headCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return `<div class="pith-table-scroll" tabindex="0" role="region" aria-label="表格，可横向滚动"><table ${attrs}><thead><tr>${headCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 export function renderMarkdown(markdown: string): string {
