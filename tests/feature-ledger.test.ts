@@ -84,8 +84,7 @@ function acceptanceCommit(feature: Feature): string {
   return commitInHistory(match[1]!);
 }
 
-function checkTaskFeatures(markdown: string): void {
-  const known = new Map(features().map(feature => [feature.id, feature]));
+function checkTaskFeatures(markdown: string, known = new Map(features().map(feature => [feature.id, feature]))): void {
   const blocks = [...markdown.matchAll(/^## \[Milestone #(\d+)\][^\n]*\n([\s\S]*?)(?=^## \[Milestone #|$(?![\s\S]))/gm)];
   assert.ok(blocks.length > 0, "TASKS must contain milestone blocks");
   for (const block of blocks) {
@@ -100,6 +99,7 @@ function checkTaskFeatures(markdown: string): void {
       if (field("Status") !== "verified") continue;
       const verified = field("Verified-Commit");
       assert.ok(verified, `#${block[1]}: verified milestone has no Verified-Commit`);
+      if (feature.state === "待复验") continue;
       const accepted = acceptanceCommit(feature);
       const ancestor = spawnSync("git", ["-C", ROOT, "merge-base", "--is-ancestor", commitInHistory(verified), accepted], { encoding: "utf8" });
       assert.equal(ancestor.status, 0, `#${block[1]} ${id}: acceptance ${feature.acceptance} predates or diverges from Verified-Commit ${verified}; ${ancestor.stderr}`);
@@ -160,4 +160,36 @@ test("verified feature ancestry accepts equal and descendant commits using the r
   for (const verified of ["0751ce185f144694fe3e6d52c9dd57a810a06c35", "908aa0f9ad9bfb68941f09fdd3e4e49901edfee5"]) {
     checkTaskFeatures(`## [Milestone #54] release ancestry control\n- **Status**: verified\n- **Verified-Commit**: ${verified}\n- **Features**: F-OFFLINE\n`);
   }
+});
+
+function syntheticVerifiedTask(feature: Feature, verified: string): string {
+  return [
+    "## [Milestone #60] synthetic ledger regression",
+    "- **Status**: verified",
+    `- **Verified-Commit**: ${verified}`,
+    `- **Features**: ${feature.id}`,
+    "",
+  ].join("\n");
+}
+
+test("verified milestones allow pending features without an acceptance SHA", () => {
+  const pending: Feature = { id: "F-TEST-PENDING", state: "待复验", hosts: "○ / ○", acceptance: "无" };
+  const known = new Map([[pending.id, pending]]);
+  checkTaskFeatures(syntheticVerifiedTask(pending, git("rev-parse", "HEAD")), known);
+});
+
+test("verified milestones require accepted features to have a valid descendant acceptance commit", () => {
+  const [newer, older] = git("rev-list", "--max-count=2", "HEAD").split("\n");
+  assert.ok(newer && older, "test requires two commits in repository history");
+  const accepted = (acceptance: string): Feature => ({
+    id: "F-TEST-ACCEPTED", state: "已验收", hosts: "✓ / ○", acceptance,
+  });
+  const invalid = accepted("#60 @not-a-commit（11-18）");
+  assert.throws(() => checkTaskFeatures(syntheticVerifiedTask(invalid, newer), new Map([[invalid.id, invalid]])), /acceptance must contain/);
+
+  const predating = accepted(`#60 @${older.slice(0, 7)}（11-18）`);
+  assert.throws(() => checkTaskFeatures(syntheticVerifiedTask(predating, newer), new Map([[predating.id, predating]])), /predates or diverges/);
+
+  const descendant = accepted(`#60 @${newer.slice(0, 7)}（11-18）`);
+  checkTaskFeatures(syntheticVerifiedTask(descendant, older), new Map([[descendant.id, descendant]]));
 });
