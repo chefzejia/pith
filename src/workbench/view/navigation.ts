@@ -15,6 +15,13 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
   const fileButton = (name: string): void => { const button = doc.createElement("button"); button.textContent = name; button.dataset.file = name; button.setAttribute("aria-current", String(name === document.currentFile)); navigation.append(button); };
   if (document.materialGroups) {
     if (document.files.length || document.curriculum?.length) group("讲义");
+    if (document.files.some(file => file.outdated)) {
+      const action = doc.createElement("div"), button = doc.createElement("button"), reason = doc.createElement("small");
+      action.className = "pith-lesson-adjustment";
+      button.type = "button"; button.dataset.adjustLessons = ""; button.textContent = "按新版本调整";
+      reason.hidden = true;
+      action.append(button, reason); navigation.append(action);
+    }
     const staleBadge = (button: HTMLElement, name: string) => { if (document.files.find(file => file.name === name)?.outdated) { const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "基于旧版本"; button.append(badge); } };
     const planned = document.curriculum ?? [];
     for (const item of planned) {

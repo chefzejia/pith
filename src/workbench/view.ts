@@ -392,11 +392,6 @@ export class PithWorkbenchView {
   private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile" | "source" | "materialGroups">): void {
     const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
     renderNavigation(this.navigation, document, navigate);
-    const previous = this.root.querySelector(".pith-lesson-version"); previous?.remove();
-    if (document.source?.kind === "lesson" && document.files.find(file => file.name === document.currentFile)?.outdated) {
-      const status = this.doc.createElement("div"), label = this.doc.createElement("span"), action = this.doc.createElement("button"); status.className = "pith-lesson-version";
-      label.textContent = "基于旧版本"; action.textContent = "按新版本调整"; action.dataset.adjustLessons = ""; status.append(label, action); this.reader.before(status);
-    }
     this.updateGuideActions();
   }
 
@@ -409,12 +404,16 @@ export class PithWorkbenchView {
     if (this.guide.querySelector(".pith-guide-compose")) this.renderGuide();
   }
   private updateGuideActions(): void {
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-selection="ask"],[data-planned-lesson],[data-adjust-lessons]')) {
-      button.disabled = !this.guideAvailable || (button.hasAttribute("data-adjust-lessons") && (this.guideSending || Boolean(this.guideData.readOnly)));
-      button.title = !this.guideAvailable ? GUIDE_UNAVAILABLE_REASON : button.hasAttribute("data-adjust-lessons") && this.guideData.readOnly ? "课题已沉淀" : "";
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-selection="ask"],[data-planned-lesson]')) {
+      button.disabled = !this.guideAvailable;
+      button.title = this.guideAvailable ? "" : GUIDE_UNAVAILABLE_REASON;
     }
-    const status = this.root.querySelector(".pith-lesson-version");
-    if (status) { status.querySelector("small")?.remove(); if (!this.guideAvailable) { const reason = this.doc.createElement("small"); reason.textContent = GUIDE_UNAVAILABLE_REASON; status.append(reason); } }
+    const adjustment = this.navigation.querySelector(".pith-lesson-adjustment");
+    if (!adjustment) return;
+    const button = adjustment.querySelector<HTMLButtonElement>("[data-adjust-lessons]")!, reason = adjustment.querySelector("small")!;
+    const unavailable = this.guideData.readOnly ? "课题已沉淀" : !this.guideAvailable || !this.actions.adjustLessons ? GUIDE_UNAVAILABLE_REASON : this.guideSending ? "向导正在回应上一条消息" : "";
+    button.disabled = Boolean(unavailable);
+    reason.hidden = !unavailable; reason.textContent = unavailable;
   }
   private updateReadingAids(): void {
     const controls = this.root.querySelector<HTMLElement>("[data-reading-aids]"); if (!controls) return;
@@ -697,8 +696,12 @@ export class PithWorkbenchView {
       button.disabled = true;
       try { await this.actions.useRepositoryVersion(button.dataset.useVersion); this.tip("已引用新版本，原有讲义与笔记保留"); } catch (error) { button.disabled = false; this.tip(error instanceof Error ? error.message : String(error)); } return;
     }
-    if (button.hasAttribute("data-adjust-lessons") && this.actions.adjustLessons && this.guideAvailable && !this.guideSending) {
-      await this.guideTurn("按新版本调整", () => this.actions.adjustLessons!()).catch(() => {}); return;
+    if (button.hasAttribute("data-adjust-lessons")) {
+      if (!button.disabled && this.actions.adjustLessons && this.guideAvailable && !this.guideSending && !this.guideData.readOnly) {
+        this.closeNavigation();
+        await this.guideTurn("按新版本调整", () => this.actions.adjustLessons!()).catch(() => {});
+      }
+      return;
     }
     if (button.dataset.file || button.dataset.guideLesson || button.dataset.guideMaterial || button.dataset.noteId || button.dataset.citationPath || button.dataset.command === "home") {
       try { await this.persistLocator(); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); return; }

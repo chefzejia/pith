@@ -9,7 +9,7 @@ export async function checkRepositoryUpdate(store: WorkspaceStore, repository: R
   return { material, added: !existing.some(item => item.id === material.id) };
 }
 
-export const ADJUST_LESSONS_MESSAGE = "请按新版本调整当前课题的讲义。逐讲读取，先比较该讲引用路径的差异；受影响讲义重写并说明相对上一版的变化，未受影响讲义仅更新依据，保留正文。";
+export const ADJUST_LESSONS_MESSAGE = "请按新版本调整当前课题基于旧版本的讲义。逐讲读取：先调用 pith_read_lesson 找出该讲引用的文件，再调用 pith_compare_material，带路径比较讲义依据版本与课题最新引用版本；仅在需要了解整体变化时才分页查看变更文件列表，不通读全部变化。引用的文件有实质变化时，用 pith_write_lesson 重写受影响的讲义，并加入「相对上一版的变化」一段；不受影响的讲义只调用 pith_rebase_lesson 更新依据，保持正文字节不变。最后在回复中列出改了哪些讲、为什么改。";
 
 export async function resolveRepositoryIntake(input: string, repository: Pick<RepositoryPort, "inspectRepository" | "cloneRemote">, signal?: AbortSignal): Promise<{ info: Awaited<ReturnType<RepositoryPort["inspectRepository"]>> & { remoteUrl?: string }; description: string }> {
   signal?.throwIfAborted();
