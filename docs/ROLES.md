@@ -1,6 +1,6 @@
 # 双环协作角色契约（Brain · Router · Worker · Tester · Auditor）
 
-角色拆分只看两种差异：**信息差异**（作者自审会退化为自我确认，所以 Worker 与 Tester 分开）与**交互对象差异**（面对人类的会话与被自动化唤醒的后台会话阻塞语义不同，所以 Router 独立）。本文件是 Router 被唤醒后读取的完整协议，与 `multi-agent-collab` Skill v1.3.1 保持一致；Pith 特有的规则集中在文末“项目专有规则”，其他文档按小节名引用。
+角色拆分只看两种差异：**信息差异**（作者自审会退化为自我确认，所以 Worker 与 Tester 分开）与**交互对象差异**（面对人类的会话与被自动化唤醒的后台会话阻塞语义不同，所以 Router 独立）。本文件是 Router 被唤醒后读取的完整协议，与 `multi-agent-collab` Skill v1.4.0 保持一致；Pith 特有的规则集中在文末“项目专有规则”，其他文档按小节名引用。
 
 调度单位是**里程碑**：一条真实用户路径能端到端走通、Tester 一轮就能判定的可观测增量。里程碑内分若干**切片**，切片是 Worker 的工作单位：Scope 重叠或有串行依赖的并成同一个切片，Scope 正交才分开并行；只有一个切片的里程碑直接在区块里写 `Scope`。里程碑编号沿用项目现有序列。
 
@@ -44,7 +44,12 @@
 
 ### 功能台账同步
 
-里程碑区块的 `Features` 字段列出它推进的 `docs/FEATURES.md` 条目（没有就写 `—`）。列了条目时，Tester 报告按这些条目逐行给出结论与未覆盖边界；Router 结案时在同一次提交里更新这些行的状态、宿主、最近独立验收、已知缺口与回归测试，提交前跑 `npm run test:file -- tests/feature-ledger.test.ts`，用 `git commit --only docs/TASKS.md docs/FEATURES.md` 提交。Router 只改所列的行，不增删条目或提议，那归 Brain。
+里程碑区块的 `Features` 字段列出它推进或动到的 `docs/FEATURES.md` 条目（没有就写 `—`）。
+
+1. Tester 报告按这些条目逐行给出结论与未覆盖边界。
+2. Router 结案时在同一次提交里同步这些行：独立验收通过的写成 `已验收`，填 `#<里程碑> @<Verified-Commit 前 7 位>（月-日）`，同时更新宿主、已知缺口与回归测试；动到但没有独立验收的降为 `待复验`，验收栏写“无”、跳过 Tester 的里程碑也照此处理。提交前跑 `npm run test:file -- tests/feature-ledger.test.ts`，用 `git commit --only docs/TASKS.md docs/FEATURES.md` 提交。
+3. 写明 `发布版本` 的里程碑，发布前把这个版本范围内的 `待复验` 条目按真实用户路径重新独立验收。
+4. Router 只改所列的行，不增删条目或提议，那归 Brain；已知缺口写一句结论，细节留在提交正文与证据目录。
 
 ### 程序保证与模型产出分开验收
 
@@ -56,7 +61,7 @@
 
 - **安装**：在通过验收的提交的干净检出上，确认 `manifest.json` 与 `package.json` 的 `version` 等于发布版本（不等时由 Worker 在本里程碑内改好并通过门禁），运行 `npm run install:obsidian`（默认 Vault），核对真实 Vault 插件目录内 `main.js`、`styles.css`、`manifest.json` 的 SHA-256 与 `dist/obsidian/` 一致、目录内其余文件未变。不启动、不退出、不重载人类的 Obsidian，不读取 Vault 内 Pith 工作区的正文。
 - **打标签**：在该提交上打附注标签 `v<版本>`，标签说明写本次相对上一个标签的台账变化：新增或转为已验收的条目、仍待复验的条目、已知缺口。
-- **记录**：提交 SHA、标签与三个哈希记入 `.tmp/evidence/milestone-<ID>/delivery.txt` 并写进该里程碑的验收结果；结案提交同时更新 `docs/FEATURES.md`「发布与里程碑」里的当前发布版本（`git commit --only docs/TASKS.md docs/FEATURES.md`）。
+- **记录**：提交 SHA、标签与三个哈希记入 `.tmp/evidence/milestone-<ID>/delivery.txt` 并写进该里程碑的验收结果；结案提交同时更新 `docs/FEATURES.md`「发布与版本」里的当前发布版本（`git commit --only docs/TASKS.md docs/FEATURES.md`）。
 - **补丁**：发布后发现、要在下个版本之前修的问题，由 Brain 开补丁里程碑：从标签拉 `release/v<主>.<次>` 分支，在 `.tmp/worktrees/` 下修复并做针对性验收，打补丁标签（如 `v0.1.1`）并安装，再把修复合回 `main`。
 
 ### 归档与清理门禁
