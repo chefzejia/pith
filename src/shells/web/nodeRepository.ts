@@ -1,10 +1,10 @@
 import { execFile, spawn } from "node:child_process";
 import { mkdir, realpath, rm, stat } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, sep } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { normalizeRepositoryUrl } from "../../core/index.ts";
-import type { RepositoryFileExcerpt, RepositoryPort, RepositorySearchMatch } from "../../core/index.ts";
+import type { RepositoryChange, RepositoryFileExcerpt, RepositoryPort, RepositorySearchMatch } from "../../core/index.ts";
 
 const run = promisify(execFile);
 const commitPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
@@ -12,11 +12,38 @@ const maxTreeBytes = 8 * 1024 * 1024;
 const maxFileBytes = 256 * 1024;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-async function git(root: string, args: string[], maxBuffer = maxTreeBytes): Promise<Buffer> {
+function readOnlyGitEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" });
-  return (await run("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root, ...args], { encoding: "buffer", env, maxBuffer, timeout: 15000, windowsHide: true })).stdout;
+  return env;
+}
+async function git(root: string, args: string[], maxBuffer = maxTreeBytes): Promise<Buffer> {
+  return (await run("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root, ...args], { encoding: "buffer", env: readOnlyGitEnv(), maxBuffer, timeout: 15000, windowsHide: true })).stdout;
+}
+
+async function gitPatch(root: string, args: string[], maxLines: number): Promise<{ patch: string; truncated: boolean }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root, ...args], { env: readOnlyGitEnv(), stdio: ["ignore", "pipe", "pipe"], timeout: 15000, killSignal: "SIGKILL", windowsHide: true });
+    const decoder = new TextDecoder("utf-8", { fatal: true }), lines: string[] = [];
+    let pending = "", error = "", failure: unknown, truncated = false;
+    const line = (value: string) => { if (lines.length === maxLines) truncated = true; else lines.push(value); };
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (truncated || failure) return;
+      try {
+        pending += decoder.decode(chunk, { stream: true }); let end: number;
+        while ((end = pending.indexOf("\n")) >= 0 && !truncated) { line(pending.slice(0, end)); pending = pending.slice(end + 1); }
+        if (truncated) pending = "";
+      } catch (cause) { failure = cause; child.kill("SIGKILL"); }
+    });
+    child.stderr.on("data", (chunk: Buffer) => { error = (error + chunk.toString("utf8")).slice(-8192); });
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (failure) { reject(failure); return; }
+      if (code !== 0) { reject(new Error(`仓库比较失败：${error.trim() || signal || code}`)); return; }
+      try { if (!truncated) { pending += decoder.decode(); if (pending) line(pending); } resolve({ patch: lines.join("\n"), truncated }); } catch (cause) { reject(cause); }
+    });
+  });
 }
 
 // Only clone/fetch use the user's Git configuration and credential/SSH environment.
@@ -85,6 +112,50 @@ async function grep(root: string, args: string[], maxBuffer = maxTreeBytes): Pro
 }
 
 export class NodeRepositoryPort implements RepositoryPort {
+  async fetchRemote(externalPath: string, signal?: AbortSignal): Promise<{ commitSha: string }> {
+    signal?.throwIfAborted();
+    const home = process.env.PITH_REPOSITORY_HOME ?? join(homedir(), "Library/Application Support/pith/repositories");
+    if (!isAbsolute(home) || !isAbsolute(externalPath)) throw new Error("仓库绑定无效");
+    const canonical = await realpath(externalPath), managedHome = await realpath(home);
+    if (!canonical.startsWith(managedHome + sep)) throw new Error("只可拉取 Pith 克隆的仓库");
+    const origin = decoder.decode(await git(canonical, ["config", "--get", "remote.origin.url"], 4096)).trim();
+    const remoteUrl = normalizeRepositoryUrl(origin);
+    if (!remoteUrl || remoteUrl !== origin || canonical !== await realpath(join(home, "github.com", remoteUrl.slice("https://github.com/".length)))) throw new Error("仓库目录的远端地址不匹配");
+    const result = await this.cloneRemote(remoteUrl, signal);
+    return { commitSha: result.commitSha };
+  }
+  async listChanges(externalPath: string, fromSha: string, toSha: string, offset = 0, limit = 200): Promise<{ changes: RepositoryChange[]; total: number; nextOffset: number | null }> {
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("仓库比较分页参数无效");
+    const [before, after] = await Promise.all([entries(externalPath, fromSha), entries(externalPath, toSha)]);
+    const ordinary = new Set([...before, ...after].map(entry => entry.path));
+    const flags = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-relative", "--find-renames"];
+    const stats = decoder.decode(await git(externalPath, [...flags, "--numstat", "-z", fromSha, toSha, "--"])).split("\0");
+    const counts = new Map<string, { additions: number; deletions: number }>();
+    for (let index = 0; index < stats.length && stats[index]; index++) {
+      const match = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/u.exec(stats[index]!);
+      if (!match) throw new Error("仓库差异统计无效");
+      let path = match[3]!;
+      if (!path) { index++; path = stats[++index]!; }
+      counts.set(path, { additions: match[1] === "-" ? 0 : Number(match[1]), deletions: match[2] === "-" ? 0 : Number(match[2]) });
+    }
+    const names = decoder.decode(await git(externalPath, [...flags, "--name-status", "-z", fromSha, toSha, "--"])).split("\0");
+    const changes: RepositoryChange[] = [];
+    for (let index = 0; index < names.length && names[index];) {
+      const status = names[index++]!, oldPath = names[index++]!;
+      const path = status.startsWith("R") ? names[index++]! : oldPath;
+      if (!validPath(path) || !ordinary.has(path) && !ordinary.has(oldPath)) continue;
+      const count = counts.get(path); if (!count) throw new Error("仓库差异统计缺失");
+      changes.push({ path, status: status.startsWith("R") ? "renamed" : status === "A" ? "added" : status === "D" ? "deleted" : "modified", ...(status.startsWith("R") ? { previousPath: oldPath } : {}), ...count });
+    }
+    return { changes: changes.slice(offset, offset + limit), total: changes.length, nextOffset: offset + limit < changes.length ? offset + limit : null };
+  }
+  async readChange(externalPath: string, fromSha: string, toSha: string, filePath: string, maxLines = 400): Promise<{ path: string; patch: string; truncated: boolean }> {
+    if (!validPath(filePath) || !Number.isSafeInteger(maxLines) || maxLines < 1 || maxLines > 2000) throw new Error("仓库差异参数无效");
+    const path = filePath.split("/").filter(part => part !== ".").join("/");
+    const [before, after] = await Promise.all([entries(externalPath, fromSha), entries(externalPath, toSha)]);
+    if (![...before, ...after].some(entry => entry.path === path)) throw new Error("仓库快照中没有这个普通文件");
+    return { path, ...await gitPatch(externalPath, ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-relative", "--find-renames", "--unified=3", fromSha, toSha, "--", `:(literal)${path}`], maxLines) };
+  }
   async cloneRemote(input: string, signal?: AbortSignal): Promise<{ externalPath: string; commitSha: string; title: string; remoteUrl: string }> {
     const remoteUrl = normalizeRepositoryUrl(input);
     if (!remoteUrl) throw new Error("请输入 GitHub 仓库根地址");

@@ -3,6 +3,7 @@ import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, Materia
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { normalizeRepositoryUrl } from "../repositoryUrl.ts";
+import { latestRepositoryIds, lessonRepositoryMaterials } from "../repositoryVersions.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
 
 const notePattern = /^## \[(highlight|note|practice)\] ([^\n]+)\n<!-- pith-note:v1 -->\n([\s\S]*?)<!-- pith-note:end -->/gm;
@@ -161,7 +162,12 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid lesson");
     const fileName = name(required(item, "name"));
     if (!fileName.endsWith(".md")) throw new Error("Invalid lesson name");
-    return { name: fileName, locator: optional(item, "locator"), lastActiveAt: optional(item, "lastActiveAt") };
+    let basedOn: string[] | undefined;
+    if (Object.hasOwn(item, "basedOn")) {
+      const value = required(item, "basedOn"); basedOn = value.split(",").map(name);
+      if (new Set(basedOn).size !== basedOn.length || basedOn.some(id => !materialIds.includes(id))) throw new Error("Invalid lesson basedOn");
+    }
+    return { name: fileName, locator: optional(item, "locator"), lastActiveAt: optional(item, "lastActiveAt"), ...(basedOn ? { basedOn } : {}) };
   });
   if (new Set(lessons.map(lesson => lesson.name)).size !== lessons.length) throw new Error("Duplicate lesson");
   return { attributes: a, body, topic: {
@@ -344,6 +350,10 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     if (!await this.storage.exists(path)) return null;
     const topic = parseTopic(await this.storage.readText(path)).topic;
     if (topic.id !== topicId) throw new Error("Topic id does not match path");
+    if (topic.lessons.some(lesson => lesson.basedOn !== undefined)) {
+      const materials = (await Promise.all(topic.materialIds.map(id => this.getMaterial(id)))).filter((item): item is Material => item !== null);
+      for (const lesson of topic.lessons) lessonRepositoryMaterials(lesson, materials);
+    }
     return topic;
   }
   createTopic(input: CreateTopicInput): Promise<Topic> {
@@ -433,9 +443,13 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     return this.queue.run(async () => {
       await this.scaffold();
       if (input.remoteUrl !== undefined && (input.kind !== "repo" || normalizeRepositoryUrl(input.remoteUrl) !== input.remoteUrl)) throw new Error("Invalid remoteUrl");
+      let createdAt = new Date().toISOString();
       if (input.kind === "repo" && input.externalPath && input.commitSha) {
-        const existing = (await this.listMaterials()).find(material => material.kind === "repo" && material.externalPath === input.externalPath && material.commitSha === input.commitSha);
+        const versions = (await this.listMaterials()).filter(material => material.kind === "repo" && material.externalPath === input.externalPath);
+        const existing = versions.find(material => material.commitSha === input.commitSha);
         if (existing) return existing;
+        const previous = versions.map(material => material.createdAt).sort().at(-1);
+        if (previous && previous >= createdAt) createdAt = new Date(Date.parse(previous) + 1).toISOString();
       }
       const id = name(await this.uniqueId("material", input.title));
       const dir = `materials/${id}`;
@@ -444,7 +458,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       if (new Set(filenames).size !== filenames.length) throw new Error("Duplicate file name");
       const files = await Promise.all(input.files.map(file => fileEntry(file.name, file.mimeType ?? "application/octet-stream", file.bytes)));
       const a: Frontmatter = {
-        type: "pith-material", id, title: input.title, kind: input.kind, createdAt: new Date().toISOString(),
+        type: "pith-material", id, title: input.title, kind: input.kind, createdAt,
         ...(input.externalPath !== undefined ? { externalPath: input.externalPath } : {}),
         ...(input.commitSha !== undefined ? { commitSha: input.commitSha } : {}),
         ...(input.remoteUrl !== undefined ? { remoteUrl: input.remoteUrl } : {}),
@@ -471,12 +485,36 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         if (await this.storage.exists(filePath)) throw new Error("Untracked lesson already exists");
         entries.push({ name: fileName });
       }
+      const basis = await this.lessonBasis(parsed.topic);
+      const entry = entries.find(item => item.name === fileName)!;
+      if (basis.length) entry.basedOn = basis.join(","); else delete entry.basedOn;
       await this.storage.mkdir(`${dir}/lessons`);
       if (await this.storage.exists(filePath)) await this.storage.writeText(filePath, markdown); else await this.storage.createText(filePath, markdown);
       parsed.attributes.updatedAt = new Date().toISOString();
       const ledger = stringifyFrontmatter(parsed.attributes, parsed.body), topic = parseTopic(ledger).topic;
       await this.storage.writeText(path, ledger);
       return topic;
+    });
+  }
+  private async lessonBasis(topic: Topic): Promise<string[]> {
+    const materials = await Promise.all(topic.materialIds.map(async id => {
+      const material = await this.getMaterial(id); if (!material) throw new Error("Material not found"); return material;
+    }));
+    return latestRepositoryIds(materials);
+  }
+  rebaseLesson(topicId: string, fileName: string): Promise<Topic> {
+    return this.queue.run(async () => {
+      name(fileName);
+      const path = `topics/${name(topicId)}/topic.md`, parsed = parseTopic(await this.storage.readText(path));
+      if (parsed.topic.id !== topicId) throw new Error("Topic id does not match path");
+      const entries = parsed.attributes.lessons as Record<string, string | number | boolean | null>[];
+      const entry = entries.find(item => item.name === fileName);
+      if (!entry || !await this.storage.exists(`topics/${topicId}/lessons/${fileName}`)) throw new Error("Lesson not found");
+      const basis = await this.lessonBasis(parsed.topic);
+      if (basis.length) entry.basedOn = basis.join(","); else delete entry.basedOn;
+      parsed.attributes.updatedAt = new Date().toISOString();
+      const ledger = stringifyFrontmatter(parsed.attributes, parsed.body), topic = parseTopic(ledger).topic;
+      await this.storage.writeText(path, ledger); return topic;
     });
   }
   async readLesson(topicId: string, fileName: string): Promise<string> {

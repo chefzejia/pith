@@ -20,7 +20,7 @@ import { audioContentType, videoContentType, isMediaFile, isSourceTextFile, reso
 import { initialMaterialAids } from "../../workbench/toolkitSlot.ts";
 import { boardMaterials, materialCoverSource, coverCachePath } from "../../workbench/boardMaterials.ts";
 import { topicObservations, undoTopicObservation } from "../../workbench/observations.ts";
-import { resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
+import { checkRepositoryUpdate, resolveRepositoryIntake } from "../../workbench/repositoryIntake.ts";
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
@@ -225,6 +225,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (method === "POST") { const data = await body(req), value = data.url; if (value !== null && (typeof value !== "string" || value.length > 500000 || !/^data:image\/png;base64,[a-zA-Z0-9+/=]+$/.test(value))) throw new Error("Invalid thumbnail"); await storage.mkdir("_cache/covers"); await storage.writeText(coverCachePath(material.id), JSON.stringify({ url: value })); return send(res, 200, {}); }
       }
       if (method === "POST" && url.pathname === "/api/materials/attach") { const data = await body(req); const topic = await store.attachMaterial(str(data, "topicId"), str(data, "materialId")); await refresh(); return send(res, 200, topic); }
+      if (method === "POST" && url.pathname === "/api/materials/check-update") { const data = await body(req); const result = await checkRepositoryUpdate(store, repository, str(data, "materialId")); await refresh(); return send(res, 200, result); }
       if (method === "POST" && url.pathname === "/api/materials/aids") { const data = await body(req); if (!Array.isArray(data.aids) || !data.aids.every(id => id === "interline") || new Set(data.aids).size !== data.aids.length) throw new Error("Invalid reading aids"); const material = await store.setMaterialAids(str(data, "materialId"), data.aids); await refresh(); return send(res, 200, material); }
       if (method === "POST" && ["/api/reading-locator", "/api/material-open"].includes(url.pathname)) {
         const data = await body(req), file = str(data, "file"), locator = url.pathname === "/api/reading-locator" ? str(data, "locator") : undefined;
@@ -339,7 +340,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); paths.push(...page.files); offset = page.nextOffset; }
           repositoryFiles[material.id] = paths;
         }
-        return send(res, 200, { topic, materials, repositoryFiles, readings: materialReadings(materials) });
+        return send(res, 200, { topic, materials, libraryMaterials: await store.listMaterials(), repositoryFiles, readings: materialReadings(materials) });
       }
       if (method === "GET" && url.pathname === "/api/topic-lesson") {
         const topicId = url.searchParams.get("topicId"), fileName = url.searchParams.get("name");

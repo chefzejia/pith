@@ -9,7 +9,7 @@ import { audioContentType, videoContentType, resolveMediaPair } from "./mediaAss
 import { toolkitSlot } from "./toolkitSlot.ts";
 import { InterlineView, preserveInterlinePosition, type InterlineViewPrepare } from "../plugins/toolkit-interline/index.ts";
 import { VoiceInput } from "./voiceInput.ts";
-import { renderNavigation } from "./view/navigation.ts";
+import { renderNavigation, type NavigationMaterial, type NavigationLesson } from "./view/navigation.ts";
 import { noteEntries, renderGuide, type MaterialNotes } from "./view/guide.ts";
 import { GUIDE_UNAVAILABLE_REASON } from "./guideAvailability.ts";
 import { renderInlineToolkit, renderToolkitMenu } from "./view/toolkit.ts";
@@ -32,7 +32,7 @@ export interface ObsidianReaderDocument {
   readonly materialNotes?: MaterialNotes;
   readonly locator?: string;
   readonly html: string;
-  readonly files: readonly { name: string; mimeType?: string }[];
+  readonly files: readonly (NavigationLesson & { mimeType?: string })[];
   readonly mediaFiles?: readonly { name: string; mimeType?: string }[];
   readonly currentFile: string;
   readonly mediaFile?: string | null;
@@ -40,7 +40,7 @@ export interface ObsidianReaderDocument {
   readonly sections: readonly ReaderSectionHeading[];
   readonly curriculum?: readonly CurriculumItem[];
   readonly source?: AnchorSource;
-  readonly materialGroups?: readonly { readonly id: string; readonly title: string; readonly kind?: string; readonly files: readonly { readonly name: string }[] }[];
+  readonly materialGroups?: readonly NavigationMaterial[];
 }
 
 export interface ObsidianViewActions {
@@ -73,6 +73,9 @@ export interface ObsidianViewActions {
   guideVisibilityChanged?(visible: boolean): void;
   openSettings?(): void;
   importMaterial?(): void;
+  checkRepositoryUpdate?(id: string): Promise<string>;
+  useRepositoryVersion?(id: string): Promise<void>;
+  adjustLessons?(): Promise<void>;
 }
 
 function sameSource(a: AnchorSource | undefined, b: AnchorSource | undefined): boolean {
@@ -328,7 +331,10 @@ export class PithWorkbenchView {
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
     this.article.innerHTML = document.html;
     this.reader.scrollTo({ left: 0, top: 0, behavior: "instant" });
-    if (document.source?.kind === "lesson") this.renderRepositoryCitations(document.materialGroups ?? []);
+    if (document.source?.kind === "lesson") {
+      const basis = document.files.find(file => file.name === document.currentFile)?.basedOn;
+      this.renderRepositoryCitations((document.materialGroups ?? []).filter(group => basis === undefined || basis.includes(group.id)));
+    }
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
     this.navigationDocument = document;
@@ -386,6 +392,11 @@ export class PithWorkbenchView {
   private renderNavigation(document: Pick<ObsidianReaderDocument, "files" | "curriculum" | "sections" | "currentFile" | "source" | "materialGroups">): void {
     const navigate = (locator: string) => { this.closeNavigation(); const target = resolveReaderLocator(this.article, locator); if (target) { if (this.speechResult) this.stopSpeech(); navigateReaderTarget(this.reader, target, this.paged); if (this.paged) { this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } } else this.tip("无法定位书内目标"); };
     renderNavigation(this.navigation, document, navigate);
+    const previous = this.root.querySelector(".pith-lesson-version"); previous?.remove();
+    if (document.source?.kind === "lesson" && document.files.find(file => file.name === document.currentFile)?.outdated) {
+      const status = this.doc.createElement("div"), label = this.doc.createElement("span"), action = this.doc.createElement("button"); status.className = "pith-lesson-version";
+      label.textContent = "基于旧版本"; action.textContent = "按新版本调整"; action.dataset.adjustLessons = ""; status.append(label, action); this.reader.before(status);
+    }
     this.updateGuideActions();
   }
 
@@ -398,10 +409,12 @@ export class PithWorkbenchView {
     if (this.guide.querySelector(".pith-guide-compose")) this.renderGuide();
   }
   private updateGuideActions(): void {
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-selection="ask"],[data-planned-lesson]')) {
-      button.disabled = !this.guideAvailable;
-      button.title = this.guideAvailable ? "" : GUIDE_UNAVAILABLE_REASON;
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-selection="ask"],[data-planned-lesson],[data-adjust-lessons]')) {
+      button.disabled = !this.guideAvailable || (button.hasAttribute("data-adjust-lessons") && (this.guideSending || Boolean(this.guideData.readOnly)));
+      button.title = !this.guideAvailable ? GUIDE_UNAVAILABLE_REASON : button.hasAttribute("data-adjust-lessons") && this.guideData.readOnly ? "课题已沉淀" : "";
     }
+    const status = this.root.querySelector(".pith-lesson-version");
+    if (status) { status.querySelector("small")?.remove(); if (!this.guideAvailable) { const reason = this.doc.createElement("small"); reason.textContent = GUIDE_UNAVAILABLE_REASON; status.append(reason); } }
   }
   private updateReadingAids(): void {
     const controls = this.root.querySelector<HTMLElement>("[data-reading-aids]"); if (!controls) return;
@@ -501,6 +514,7 @@ export class PithWorkbenchView {
   private renderGuide(): void {
     this.voice.cancel("guide");
     renderGuide(this.guide, { ...this.guideData, materialNotes: this.materialNotes, guideAvailable: this.guideAvailable }, this.guideTab, this.pendingAnchor, this.guideSending, this.guidePending, this.guideError, this.actions.scene === "material");
+    this.updateGuideActions();
     if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock);
     const update = () => { for (const node of this.guide.querySelectorAll<HTMLElement>("[data-started]")) { const elapsed = node.querySelector<HTMLElement>("[data-guide-elapsed]"); if (elapsed) elapsed.textContent = `已用 ${Math.max(0, Math.floor((Date.now() - Date.parse(node.dataset.started!)) / 1000))} 秒`; } };
     update(); this.guideClock = this.guide.querySelector("[data-started]") ? this.win.setInterval(update, 1000) : undefined;
@@ -674,6 +688,18 @@ export class PithWorkbenchView {
     if (!button && prose && prose !== this.toolkitBlock && this.article.contains(prose) && this.mountedToolkits.some(id => id === "shadowing" || id === "feynman")) { const selection = this.win.getSelection(); if (selection && !selection.isCollapsed) return; this.requestedToolkitBlock = prose; const range = this.doc.createRange(); range.selectNodeContents(this.article); range.setEndBefore(prose); this.actions.openToolkit(proseTextNodes(prose).map(node => node.data).join("").trim(), prose.dataset.locator || `text:offset:${range.toString().length}`); return; }
     if (!button || button.disabled) return;
     if (!this.root.contains(button) && !this.guide.contains(button)) return;
+    if (button.dataset.checkRepository && this.actions.checkRepositoryUpdate) {
+      button.disabled = true; button.textContent = "正在检查…";
+      try { this.tip(await this.actions.checkRepositoryUpdate(button.dataset.checkRepository)); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); }
+      finally { button.disabled = false; button.textContent = "检查更新"; } return;
+    }
+    if (button.dataset.useVersion && this.actions.useRepositoryVersion) {
+      button.disabled = true;
+      try { await this.actions.useRepositoryVersion(button.dataset.useVersion); this.tip("已引用新版本，原有讲义与笔记保留"); } catch (error) { button.disabled = false; this.tip(error instanceof Error ? error.message : String(error)); } return;
+    }
+    if (button.hasAttribute("data-adjust-lessons") && this.actions.adjustLessons && this.guideAvailable && !this.guideSending) {
+      await this.guideTurn("按新版本调整", () => this.actions.adjustLessons!()).catch(() => {}); return;
+    }
     if (button.dataset.file || button.dataset.guideLesson || button.dataset.guideMaterial || button.dataset.noteId || button.dataset.citationPath || button.dataset.command === "home") {
       try { await this.persistLocator(); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); return; }
     }

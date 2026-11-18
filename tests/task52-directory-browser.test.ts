@@ -61,7 +61,8 @@ test("lesson titles and badge text fit both navigation branches and host button 
             };
           });
           if (captureDirectory) await writeFile(join(captureDirectory, `${scenario}.json`), JSON.stringify(geometry, null, 2));
-          assert.equal(geometry.lessons.length, curriculum.length);
+          const expectedLessons = [...curriculum, ...(grouped ? [{ title: extraFile, status: "ready" as const }] : [])];
+          assert.equal(geometry.lessons.length, expectedLessons.length);
           const contains = (outer: { left: number; right: number; top: number; bottom: number }, inner: typeof outer) => inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
           for (const lesson of geometry.lessons) for (const text of lesson.text) {
             const detail = `${scenario} ${JSON.stringify(lesson)}`;
@@ -71,9 +72,9 @@ test("lesson titles and badge text fit both navigation branches and host button 
           for (const [index, lesson] of geometry.lessons.entries()) {
             const detail = `${scenario} ${JSON.stringify(lesson)}`;
             assert.ok(lesson.title, `missing lesson title node: ${detail}`);
-            assert.equal(lesson.title.label, curriculum[index]!.title);
+            assert.equal(lesson.title.label, expectedLessons[index]!.title);
             assert.ok(lesson.title.text.length > 1, `long title must wrap: ${detail}`);
-            if (curriculum[index]!.status === "planned") {
+            if (expectedLessons[index]!.status === "planned") {
               assert.ok(lesson.badge, `missing pending badge: ${detail}`);
               assert.equal(lesson.badge.label, "待生成");
               assert.ok(lesson.badge.text.length > 0, detail);

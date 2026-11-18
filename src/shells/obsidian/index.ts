@@ -24,7 +24,7 @@ import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit
 import { renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { renderCompass } from "../../workbench/compass.ts";
 import { pithIcon } from "../../workbench/icons.ts";
-import { renderRepositoryText } from "../../workbench/repositoryIntake.ts";
+import { ADJUST_LESSONS_MESSAGE, checkRepositoryUpdate, renderRepositoryText } from "../../workbench/repositoryIntake.ts";
 import { MaterialSession, type SessionState } from "../../workbench/materialSession.ts";
 import { boardMaterials, cacheMaterialCover } from "../../workbench/boardMaterials.ts";
 import { topicObservations, undoTopicObservation } from "../../workbench/observations.ts";
@@ -313,6 +313,7 @@ export class PithObsidianController {
   }
   async importMaterial(input: ImportMaterialInput, topicId?: string) { if (topicId && !await this.store.getTopic(topicId)) throw new Error("Topic not found"); const material = await this.store.importMaterial({ ...input, aids: input.aids ?? initialMaterialAids(await sampleMaterialText(input.files)) }); if (topicId) await this.store.attachMaterial(topicId, material.id); await this.refresh(); return material; }
   async setMaterialAids(id: string, aids: readonly string[]) { const material = await this.store.setMaterialAids(id, aids); await this.refresh(); return material; }
+  async checkRepositoryUpdate(id: string) { if (!this.host.repository) throw new Error("Repository unavailable"); const result = await checkRepositoryUpdate(this.store, this.host.repository, id); await this.refresh(); return result; }
   async rememberReading(materialId: string, file: string, locator?: string): Promise<void> {
     const material = await this.store.getMaterial(materialId); if (!material) throw new Error("材料不存在");
     if (locator && material.kind !== "repo") await this.store.updateReadingLocator(materialId, file, locator);
@@ -328,7 +329,7 @@ export class PithObsidianController {
       while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); files.push(...page.files); offset = page.nextOffset; }
       repositoryFiles[material.id] = files;
     }
-    return { topic, materials, repositoryFiles, readings: materialReadings(materials) };
+    return { topic, materials, libraryMaterials: await this.store.listMaterials(), repositoryFiles, readings: materialReadings(materials) };
   }
   async renderTopicFile(topicId: string | undefined, source: AnchorSource, name: string) {
     if (source.kind === "lesson") { if (!topicId) throw new Error("课题不存在"); const text = await this.store.readLesson(topicId, name), reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader) throw new Error("阅读器不可用"); return { text, html: reader.render(text), sections: reader.sections(text), format: "markdown" as const }; }
@@ -448,6 +449,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     this.disposeScenes();
     this.compassView = renderCompass(root, compass, {
       materials, intake: this.intakeActions(),
+      checkUpdate: async id => { const result = await this.controller.checkRepositoryUpdate(id); return { snapshot: await this.controller.openCompass(), covers: await this.controller.openBoardMaterials(), message: result.added ? `已导入 @${result.material.commitSha?.slice(0, 7)}` : "已是最新版本" }; },
       ...(this.openSettings ? { settings: this.openSettings } : {}),
       open: id => { void this.openTopic(id).catch(error => this.report(error)); },
       openMaterial: id => { void this.openMaterial(id).catch(error => this.report(error)); },
@@ -576,6 +578,9 @@ export class PithWorkspaceView extends obsidian.ItemView {
       undoObservation: id => undoTopicObservation(this.controller.store, this.controller.engine, topic.id, id),
       openMaterial: async id => { await session.refresh(); await session.openMaterial(id); },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); return; } await this.controller.runGuide(topic.id, { text, anchor }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
+      checkRepositoryUpdate: async id => { const result = await this.controller.checkRepositoryUpdate(id); await session.refresh(); return result.added ? `已导入 @${result.material.commitSha?.slice(0, 7)}` : "已是最新版本"; },
+      useRepositoryVersion: async id => { await this.controller.store.attachMaterial(topic.id, id); await session.refresh(); },
+      adjustLessons: async () => { originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id); await this.controller.runGuide(topic.id, { text: "按新版本调整", instruction: ADJUST_LESSONS_MESSAGE }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
       stopGuide: async () => { this.controller.stopGuide(topic.id); },
       retryGuide: async turnId => { await this.controller.runGuide(topic.id, { turnId }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const selected = current.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(selected, this.controller.trainingToolkits()) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },

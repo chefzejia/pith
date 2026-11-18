@@ -93,6 +93,10 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
       if (!fileName.endsWith(".md") || /[/\\\0]/.test(fileName)) throw new Error("Invalid lesson file name");
       return store.writeLesson(text(input, "topicId", 200), fileName, markdown);
     } },
+    { name: "pith_rebase_lesson", description: "Update an unchanged lesson's repository basis to the latest referenced versions without changing its bytes.", inputSchema: schema({ topicId: field, fileName: field }, ["topicId", "fileName"]), async execute(input) {
+      keys(input, ["topicId", "fileName"]);
+      return store.rebaseLesson(text(input, "topicId", 200), text(input, "fileName", 200));
+    } },
     { name: "pith_configure_toolkits", description: "Configure topic toolkits.", inputSchema: schema({ topicId: field, toolkits: { type: "array", items: field } }, ["topicId", "toolkits"]), async execute(input) {
       keys(input, ["topicId", "toolkits"]);
       if (!Array.isArray(input.toolkits)) throw new Error("Invalid toolkits");
@@ -166,7 +170,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     } finally { creating = false; }
   }, effects(result) { const topic = result as { id: string }; return [{ kind: "topic", topicId: topic.id }]; } });
   for (const tool of original) {
-    if (!["pith_save_note", "pith_write_lesson", "pith_configure_toolkits", "pith_settle_topic", "pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) continue;
+    if (!["pith_save_note", "pith_write_lesson", "pith_rebase_lesson", "pith_configure_toolkits", "pith_settle_topic", "pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) continue;
     const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
     const properties = { ...source.properties }; delete properties.topicId;
     const inputSchema = { ...tool.inputSchema, properties, required: (source.required ?? []).filter(name => name !== "topicId") };
@@ -204,7 +208,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     }, effects(result, input) {
       const value = result as Record<string, unknown>;
       if (tool.name === "pith_save_note" && typeof value?.id === "string") return [{ kind: "note", noteId: value.id }];
-      if (tool.name === "pith_write_lesson" && typeof input.fileName === "string") return [{ kind: "lesson", fileName: input.fileName }];
+      if (["pith_write_lesson", "pith_rebase_lesson"].includes(tool.name) && typeof input.fileName === "string") return [{ kind: "lesson", fileName: input.fileName }];
       if (tool.name === "pith_configure_toolkits" && Array.isArray(value?.toolkits)) return [{ kind: "toolkits", toolkits: value.toolkits as string[] }];
       if (tool.name === "pith_settle_topic" && topicId) return [{ kind: "topic", topicId }, ...((Array.isArray(value?.observations) ? value.observations : []) as { id: string; text: string }[]).map(item => ({ kind: "observation" as const, observationId: item.id, text: item.text }))];
       const material = value?.material as Record<string, unknown> | undefined;
@@ -222,6 +226,18 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
   };
   const checkKeys = (input: Readonly<Record<string, unknown>>, allowed: readonly string[]) => { if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("Invalid tool arguments"); };
   const number = (input: Readonly<Record<string, unknown>>, key: string) => { const value = input[key]; if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) throw new Error(`Invalid ${key}`); return value as number | undefined; };
+  if (options.topicId) tools.push({ name: "pith_compare_material", description: "Compare two referenced versions of the same repository. Supply path for a bounded patch; otherwise page change metadata. Start with paths cited in each lesson.", inputSchema: schema({ fromMaterialId: field, toMaterialId: field, path: field, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 1000, default: 200 }, maxLines: { type: "integer", minimum: 1, maximum: 2000, default: 400 } }, ["fromMaterialId", "toMaterialId"]), write: false, async execute(input) {
+    checkKeys(input, ["fromMaterialId", "toMaterialId", "path", "offset", "limit", "maxLines"]);
+    const from = await scopedMaterial({ materialId: input.fromMaterialId }), to = await scopedMaterial({ materialId: input.toMaterialId });
+    if (from.kind !== "repo" || to.kind !== "repo" || !from.externalPath || from.externalPath !== to.externalPath || !from.commitSha || !to.commitSha) throw new Error("Materials must be versions of the same repository");
+    if (!repository) throw new Error("Repository unavailable");
+    if (input.path !== undefined) {
+      if (input.offset !== undefined || input.limit !== undefined) throw new Error("Pagination is only for change lists");
+      return repository.readChange(from.externalPath, from.commitSha, to.commitSha, text(input, "path", 4096), number(input, "maxLines"));
+    }
+    if (input.maxLines !== undefined) throw new Error("maxLines requires path");
+    return repository.listChanges(from.externalPath, from.commitSha, to.commitSha, number(input, "offset"), number(input, "limit"));
+  } });
   tools.push({ name: "pith_search_material", description: "Search UTF-8 text in a repository material's pinned commit. Returns path, 1-based line, text (up to 300 characters) and truncated. Literal and case-insensitive by default; optional POSIX extended regex, case sensitivity and literal path prefix. Read matching lines with pith_read_material.", inputSchema: schema({ materialId: field, pattern: field, regex: { type: "boolean" }, caseSensitive: { type: "boolean" }, pathPrefix: field, limit: { type: "integer", minimum: 1, maximum: 200, default: 50 } }, ["materialId", "pattern"]), write: false, async execute(input) {
     checkKeys(input, ["materialId", "pattern", "regex", "caseSensitive", "pathPrefix", "limit"]);
     const material = await scopedMaterial(input);

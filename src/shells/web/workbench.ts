@@ -4,7 +4,7 @@ import { feynmanToolkit } from "../../plugins/toolkit-feynman/index.ts";
 import type { GuideTurn, GuideQuickAction, Material, SelectionAnchor, Topic } from "../../core/index.ts";
 import type { InterlineViewUnit } from "../../plugins/toolkit-interline/index.ts";
 import { MaterialSession, type SessionDocument, type SessionState } from "../../workbench/materialSession.ts";
-import { renderRepositoryText } from "../../workbench/repositoryIntake.ts";
+import { ADJUST_LESSONS_MESSAGE, renderRepositoryText } from "../../workbench/repositoryIntake.ts";
 import { renderFile } from "../../plugins/stage-reader/index.ts";
 
 type Request = <T>(path: string, data?: unknown) => Promise<T>;
@@ -99,6 +99,9 @@ export class WebWorkbench {
       undoObservation: async observationId => { await options.request("/api/observations/undo", { topicId, observationId }); },
       openMaterial: async id => { await this.session.refresh(); await this.session.openMaterial(id); },
       sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) await options.request("/api/notes", { topicId, kind: "note", body: text, anchor }); else { await streamTurn({ text, anchor }); await this.session.refresh(); } },
+      checkRepositoryUpdate: async materialId => { const result = await options.request<{ material: Material; added: boolean }>("/api/materials/check-update", { materialId }); await this.session.refresh(); return result.added ? `已导入 @${result.material.commitSha?.slice(0, 7)}` : "已是最新版本"; },
+      useRepositoryVersion: async materialId => { await options.request("/api/materials/attach", { topicId, materialId }); await this.session.refresh(); },
+      adjustLessons: async () => { this.setGuideVisible(); await streamTurn({ text: "按新版本调整", instruction: ADJUST_LESSONS_MESSAGE }); await this.session.refresh(); },
       stopGuide: async () => { await options.request("/api/chat/stop", { topicId }); },
       retryGuide: async turnId => { await streamTurn({ turnId }); await this.session.refresh(); },
       toggleToolkit: async (id, enabled) => { if (!toolkits.some(toolkit => toolkit.id === id && toolkit.role === "training")) throw new Error("Invalid toolkit ID"); const state = await options.request<{ compass: { exploring: readonly Topic[]; shelved: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const selected = topic.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits: selected }); this.view.setToolkits(updated.toolkits); },

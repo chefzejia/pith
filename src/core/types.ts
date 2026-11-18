@@ -46,6 +46,7 @@ export interface Note {
 
 export interface LessonEntry {
   readonly name: string;
+  readonly basedOn?: readonly string[];
   readonly locator?: IntrinsicLocator;
   readonly lastActiveAt?: string;
 }

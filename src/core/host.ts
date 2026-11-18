@@ -123,8 +123,21 @@ export interface RepositorySearchMatch {
   readonly text: string;
 }
 
+export interface RepositoryChange {
+  readonly path: string;
+  readonly status: "added" | "modified" | "deleted" | "renamed";
+  readonly previousPath?: string;
+  readonly additions: number;
+  readonly deletions: number;
+}
+
 export interface RepositoryPort {
   cloneRemote(remoteUrl: string, signal?: AbortSignal): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string; readonly remoteUrl: string }>;
+  fetchRemote(externalPath: string, signal?: AbortSignal): Promise<{ readonly commitSha: string }>;
+  listChanges(externalPath: string, fromSha: string, toSha: string, offset?: number, limit?: number):
+    Promise<{ readonly changes: readonly RepositoryChange[]; readonly total: number; readonly nextOffset: number | null }>;
+  readChange(externalPath: string, fromSha: string, toSha: string, filePath: string, maxLines?: number):
+    Promise<{ readonly path: string; readonly patch: string; readonly truncated: boolean }>;
   inspectRepository(repoPath: string): Promise<{ readonly externalPath: string; readonly commitSha: string; readonly title: string }>;
   listFiles(externalPath: string, commitSha: string, offset?: number, limit?: number): Promise<{ readonly files: readonly string[]; readonly total: number; readonly nextOffset: number | null }>;
   readFile(externalPath: string, commitSha: string, filePath: string, startLine?: number, maxLines?: number): Promise<RepositoryFileExcerpt>;

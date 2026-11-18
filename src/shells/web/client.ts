@@ -70,6 +70,7 @@ function home(focus: readonly string[] = []): void {
   main.style.height = "100vh";
   compassView = renderCompass(main, state.compass, {
     materials: state.boardMaterials, intake: intakeActions(),
+    checkUpdate: async materialId => { const result = await api<{ material: { commitSha: string }; added: boolean }>("/api/materials/check-update", { materialId }); await refresh(); return { snapshot: state.compass, covers: state.boardMaterials, message: result.added ? `已导入 @${result.material.commitSha.slice(0, 7)}` : "已是最新版本" }; },
     open: id => { void openTopic(id).catch(notify); }, openMaterial: id => { void openMaterial(id).catch(notify); },
     setStatus: async (id, status) => { await api(`/api/topics/${encodeURIComponent(id)}/status`, { status }); await goHome(); }, settings: openSimpleSettings,
   });

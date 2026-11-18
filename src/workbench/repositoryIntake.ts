@@ -1,4 +1,15 @@
-import { normalizeRepositoryUrl, type Material, type RepositoryPort } from "../core/index.ts";
+import { normalizeRepositoryUrl, type Material, type RepositoryPort, type WorkspaceStore } from "../core/index.ts";
+
+export async function checkRepositoryUpdate(store: WorkspaceStore, repository: RepositoryPort, materialId: string): Promise<{ material: Material; added: boolean }> {
+  const previous = await store.getMaterial(materialId);
+  if (!previous || previous.kind !== "repo" || !previous.externalPath) throw new Error("仓库材料不存在");
+  const { commitSha } = previous.remoteUrl ? await repository.fetchRemote(previous.externalPath) : await repository.inspectRepository(previous.externalPath);
+  const existing = await store.listMaterials();
+  const material = await store.importMaterial({ title: previous.title, kind: "repo", files: [], externalPath: previous.externalPath, commitSha, ...(previous.remoteUrl ? { remoteUrl: previous.remoteUrl } : {}) });
+  return { material, added: !existing.some(item => item.id === material.id) };
+}
+
+export const ADJUST_LESSONS_MESSAGE = "请按新版本调整当前课题的讲义。逐讲读取，先比较该讲引用路径的差异；受影响讲义重写并说明相对上一版的变化，未受影响讲义仅更新依据，保留正文。";
 
 export async function resolveRepositoryIntake(input: string, repository: Pick<RepositoryPort, "inspectRepository" | "cloneRemote">, signal?: AbortSignal): Promise<{ info: Awaited<ReturnType<RepositoryPort["inspectRepository"]>> & { remoteUrl?: string }; description: string }> {
   signal?.throwIfAborted();

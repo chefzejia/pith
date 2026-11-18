@@ -81,6 +81,8 @@ export interface WorkspaceStore {
   attachMaterial(topicId: string, materialId: string): Promise<Topic>;
   appendTopicNote(topicId: string, note: AppendNoteInput): Promise<Note>;
   writeLesson(topicId: string, fileName: string, markdown: string): Promise<Topic>;
+  /** Updates only the repository basis of an existing lesson, preserving its bytes. */
+  rebaseLesson(topicId: string, fileName: string): Promise<Topic>;
   readLesson(topicId: string, fileName: string): Promise<string>;
   updateLessonLocator(topicId: string, fileName: string, locator: IntrinsicLocator): Promise<void>;
 

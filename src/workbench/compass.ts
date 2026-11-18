@@ -1,5 +1,5 @@
 import { readingPositionLabel } from "./readingState.ts";
-import type { AttentionCompassSnapshot } from "../core/index.ts";
+import { materialVersionGroups, type AttentionCompassSnapshot } from "../core/index.ts";
 import { cleanMaterialTitle } from "../plugins/stage-reader/epub.ts";
 import type { BoardMaterial } from "./boardMaterials.ts";
 import { workbenchStyles } from "./view.ts";
@@ -13,6 +13,7 @@ export interface CompassActions {
   setStatus?(id: string, status: "exploring" | "shelved"): Promise<void>;
   settings?(): void;
   materials?: readonly BoardMaterial[];
+  checkUpdate?(id: string): Promise<{ snapshot: AttentionCompassSnapshot; covers: readonly BoardMaterial[]; message: string }>;
 }
 const escape = (value: string): string => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
@@ -30,20 +31,29 @@ export function renderCompass(root: HTMLElement, compass: AttentionCompassSnapsh
   root.querySelector<HTMLButtonElement>("[data-home-settings]")?.addEventListener("click", () => actions.settings?.());
   root.querySelectorAll<HTMLButtonElement>("[data-topic]").forEach(button => button.onclick = () => actions.open(button.dataset.topic!));
   for (const [selector, status] of [["[data-shelve]", "shelved"], ["[data-restore]", "exploring"]] as const) root.querySelectorAll<HTMLButtonElement>(selector).forEach(button => button.onclick = () => { button.disabled = true; void actions.setStatus?.(button.dataset.shelve ?? button.dataset.restore!, status).catch(error => { button.disabled = false; button.title = String(error); }); });
-  let expanded = false;
+  let expanded = false, disposed = false;
+  const checks = new Map<string, { busy: boolean; message: string }>();
   const library = (snapshot: AttentionCompassSnapshot, covers: readonly BoardMaterial[], focus: readonly string[] = []) => {
     const container = root.querySelector<HTMLElement>(".pith-library")!, kinds: Record<string, string> = { book: "书籍", article: "文章", media: "音视频", discussion: "讨论", repo: "仓库" };
     if (focus.length) expanded = true;
-    const recent = [...snapshot.library].sort((a, b) => { const opened = (entry: typeof a) => covers.find(item => item.id === entry.material.id)?.reading?.openedAt ?? entry.material.files.reduce((latest, file) => file.lastActiveAt && file.lastActiveAt > latest ? file.lastActiveAt : latest, entry.material.createdAt); return opened(b).localeCompare(opened(a)); });
+    const grouped = materialVersionGroups(snapshot.library.map(entry => entry.material)).map(group => ({ material: group.latest, versions: group.versions, topicIds: [...new Set(snapshot.library.filter(entry => group.versions.some(version => version.id === entry.material.id)).flatMap(entry => entry.topicIds))] }));
+    const recent = grouped.sort((a, b) => { const opened = (entry: typeof a) => covers.find(item => item.id === entry.material.id)?.reading?.openedAt ?? entry.material.files.reduce((latest, file) => file.lastActiveAt && file.lastActiveAt > latest ? file.lastActiveAt : latest, entry.material.createdAt); return opened(b).localeCompare(opened(a)); });
     const entries = expanded ? recent : recent.slice(0, 12);
-    container.innerHTML = `<div class="pith-home-heading"><h2>材料库</h2><span>${snapshot.library.length}</span></div><div class="pith-library-grid">${entries.map(({ material, topicIds }) => {
+    container.innerHTML = `<div class="pith-home-heading"><h2>材料库</h2><span>${grouped.length}</span></div><div class="pith-library-grid">${entries.map(({ material, topicIds, versions }) => {
       const board = covers.find(item => item.id === material.id), cover = board?.coverUrl, position = board?.reading ? { name: board.reading.file, locator: board.reading.locator } : material.files.filter(file => file.lastActiveAt).sort((a, b) => (b.lastActiveAt ?? "").localeCompare(a.lastActiveAt ?? ""))[0];
-      return `<button class="pith-material-card${focus.includes(material.id) ? " pith-material-new" : ""}" data-material="${escape(material.id)}">${cover ? `<img src="${escape(cover)}" width="64" height="88" loading="lazy" alt="">` : `<span class="pith-material-cover" aria-hidden="true">${pithIcon(material.kind === "repo" ? "code" : "book")}</span>`}<span><strong>${escape(material.title)}</strong><small>${kinds[material.kind]} · ${topicIds.length} 个课题引用</small><small>${position ? `上次读到 ${escape(position.name)}${position.locator ? ` · ${escape(readingPositionLabel(position.locator))}` : ""}` : "尚未阅读"}</small></span></button>`;
-    }).join("")}</div>${!expanded && snapshot.library.length > 12 ? '<button data-library-more>展开全部材料</button>' : !entries.length ? '<p class="pith-empty-library">文件、链接与仓库都可以直接放在这里。</p>' : ""}`;
+      const status = checks.get(material.externalPath ?? material.id);
+      return `<article class="pith-library-entry"><button class="pith-material-card${versions.some(version => focus.includes(version.id)) ? " pith-material-new" : ""}" data-material="${escape(material.id)}">${cover ? `<img src="${escape(cover)}" width="64" height="88" loading="lazy" alt="">` : `<span class="pith-material-cover" aria-hidden="true">${pithIcon(material.kind === "repo" ? "code" : "book")}</span>`}<span><strong>${escape(material.title)}</strong><small>${kinds[material.kind]}${material.kind === "repo" ? ` @${escape(material.commitSha?.slice(0, 7) ?? "")} · ${versions.length} 个版本` : ""} · ${topicIds.length} 个课题引用</small><small>${position ? `上次读到 ${escape(position.name)}${position.locator ? ` · ${escape(readingPositionLabel(position.locator))}` : ""}` : "尚未阅读"}</small></span></button>${material.kind === "repo" && actions.checkUpdate ? `<div class="pith-library-update"><button data-check-update="${escape(material.id)}" ${status?.busy ? "disabled" : ""}>${status?.busy ? "正在检查…" : "检查更新"}</button><small role="status">${escape(status?.message ?? "")}</small></div>` : ""}</article>`;
+    }).join("")}</div>${!expanded && grouped.length > 12 ? '<button data-library-more>展开全部材料</button>' : !entries.length ? '<p class="pith-empty-library">文件、链接与仓库都可以直接放在这里。</p>' : ""}`;
     container.querySelectorAll<HTMLButtonElement>("[data-material]").forEach(button => button.onclick = () => actions.openMaterial(button.dataset.material!));
+    container.querySelectorAll<HTMLButtonElement>("[data-check-update]").forEach(button => button.onclick = () => {
+      const id = button.dataset.checkUpdate!, material = snapshot.library.find(entry => entry.material.id === id)!.material, key = material.externalPath ?? id;
+      if (checks.get(key)?.busy) return;
+      checks.set(key, { busy: true, message: "" }); library(snapshot, covers);
+      void actions.checkUpdate!(id).then(result => { checks.set(key, { busy: false, message: result.message }); if (!disposed) library(result.snapshot, result.covers); }, error => { checks.set(key, { busy: false, message: error instanceof Error ? error.message : String(error) }); if (!disposed) library(snapshot, covers); });
+    });
     container.querySelector<HTMLButtonElement>("[data-library-more]")?.addEventListener("click", () => { expanded = true; library(snapshot, covers); });
     if (focus.length) container.querySelector(".pith-material-new")?.scrollIntoView({ block: "center" });
   };
   library(compass, actions.materials ?? []);
-  return { dispose: () => intake.dispose(), library, setGuideAvailable: (available: boolean) => intake.setGuideAvailable(available) };
+  return { dispose: () => { disposed = true; intake.dispose(); }, library, setGuideAvailable: (available: boolean) => intake.setGuideAvailable(available) };
 }
