@@ -1,21 +1,21 @@
-# Pith · 任务调度板（TASKS Queue）
+# Pith · 里程碑调度板
 
 > **仓库根目录**：
-> **单文件滑动任务栈与多 Worktree 协同契约**：详见 [ROLES.md](ROLES.md) 等文档。
+> **协议**：以 [ROLES.md](ROLES.md) 为准，Router 每次取单前重读，协议改动在下一个里程碑生效。
 >
-> **状态**：`pending`（执行环按序执行）· `queued`（前置任务未完成，执行环不执行）· `verified` · `blocked` · `superseded`。Router 核销一个任务时，在同一次提交里把 `Depends-On` 已全部满足的 `queued` 任务改为 `pending`（[ROLES.md](ROLES.md) 第 2 条）；前置任务 `blocked` 时链条停住，等 Brain。
+> **状态**：`pending` · `verified` · `blocked` · `superseded`。里程碑之间的先后写在 `Depends-On`：前置全部 `verified` 才派发，前置 `blocked` 时链条停住，等 Brain（[ROLES.md](ROLES.md)「里程碑状态、前置与唤醒」）。
 >
-> **本轮重构规则**，各任务不再重复：
-> 1. 目标契约在 `docs/`；各功能的实现与验收状态、已知缺口在 [FEATURES.md](FEATURES.md)。任务区块用 `Features` 字段列出它推进的台账条目（没有就写 `—`），核销时按 [ROLES.md](ROLES.md) 第 2 条同步这些行。
+> **本轮重构规则**，各里程碑不再重复：
+> 1. 目标契约在 `docs/`；各功能的实现与验收状态、已知缺口在 [FEATURES.md](FEATURES.md)。里程碑区块用 `Features` 字段列出它推进的台账条目（没有就写 `—`），核销时按 [ROLES.md](ROLES.md)「功能台账同步」同步这些行。
 > 2. 格式演进按 [AGENTS.md](../AGENTS.md) 核心约束 3：代码不读旧格式、不留别名；已发布的磁盘格式只做加法，破坏性变更须先由人确认并由发布任务附一次性迁移脚本。被新契约取代的测试直接改写或删除，并在 Worker 报告里逐个列出文件名与原因；不得为了让旧测试通过而保留旧行为。
 > 3. 冻结的内核形状在 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节。发现契约自相矛盾或无法落地时标 `blocked` 并写明证据，不自行改契约。
-> 4. 每个任务的 Worker 门禁都包含 `npm run typecheck`、`npm test`；改到 `src/workbench/`、`src/shells/` 或舞台渲染的还包含 `npm run test:browser` 与 `npm run build:obsidian`。下面各任务只列额外的门禁。
-> 5. 清理按 [ROLES.md](ROLES.md) 第 7 条。
+> 4. 默认门禁见 [ROLES.md](ROLES.md)「默认门禁与验收」；下面各里程碑只列额外的门禁。
+> 5. 清理按 [ROLES.md](ROLES.md)「归档与清理门禁」。
 > 6. 仓库类任务的验收样本是人类要学的仓库：本地的 `/Users/zejiawu/Projects/Project-Atlas/infra/magpie` 与 `/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`，GitHub 上的 `https://github.com/herdrdev/herdr` 与 `https://github.com/pingdotgg/t3code`。本地仓库只读：先 `git clone` 到 `.tmp/` 下再用副本，不在原仓库执行任何写操作（包括 fetch、checkout 与 pull）。
 
 ---
 
-## [Task #52] 工作台：材料库、材料阅读、立项与工具归属
+## [Milestone #52] 工作台：材料库、材料阅读、立项与工具归属
 - **Status**: verified
 - **Depends-On**: #55, #56
 - **Verified-Commit**: d9aa70543bb99cec47a22833e7fabf305f2a307e
@@ -39,7 +39,7 @@
 ---
 
 
-## [Task #53] 费曼复述：要点对照
+## [Milestone #53] 费曼复述：要点对照
 - **Status**: verified
 - **Depends-On**: #52
 - **Verified-Commit**: 908aa0f9ad9bfb68941f09fdd3e4e49901edfee5
@@ -51,7 +51,7 @@
 
 ---
 
-## [Task #54] 终验：整体验收与交付
+## [Milestone #54] 终验：整体验收与交付
 - **Status**: verified
 - **Depends-On**: #53
 - **Verified-Commit**: 0751ce185f144694fe3e6d52c9dd57a810a06c35
@@ -59,16 +59,16 @@
 - **Updated**: 2026-11-16
 - **Scope**: 验收工作区 `.tmp/evidence/task-54/`。包含：契约对照、全量门禁、真实用户路径（投喂/立项/课题内/训练/结题/搁置/无Agent/沙盒/旧格式）、观感终审包。
 - **先前阻塞证据（已由下列 Brain 裁定解除）**: F1 已在 0751ce1 独立复验通过；F2 原生首次追问先给遗漏答案仍未修复。三轮有限返修（开放问句生成、答案/作答方式投影、单目标与教学上下文隔离）均未通过真实语义预检，最后一批为 2 PASS / 3 带限制 / 5 FAIL，未形成可交独立 Tester 的新接受候选。按 ROLES 第 1 条连续返修止损升级；不据此断言 ACP/模型不支持或冻结契约自相矛盾。失败补丁及逐例输出已归档，源码/测试及 dist/dev 恢复 0751 接受业务，主树干净、Cleanup PASS；未安装、未打发布标签。详见 `.tmp/evidence/task-54/fix-followup-no-answer/worker-report.md`、`semantic-reading.json`（各批目录）及 `restoration-hashes.json`。
-- **Brain 裁定（2026-11-16）**: F2 的根因是契约自相矛盾，不是实现缺陷：[3-toolkits.md](subsystems/3-toolkits.md) 3.3 第 4 步在卡片上显示每条要点的原文（未提及的那条也显示），追问回合的选区又带着整段原文，第 5 步却要求向导不说出答案地考回忆。契约已在 7eccbd6 改为卡片内出题、考解释与应用，由 #62 实现；F2 不再返修，记为 [FEATURES.md](FEATURES.md) 中 F-FEYNMAN 的已知缺口（[ROLES.md](ROLES.md) 第 4 条：模型措辞抽样验收，不阻塞发布）。
+- **Brain 裁定（2026-11-16）**: F2 的根因是契约自相矛盾，不是实现缺陷：[3-toolkits.md](subsystems/3-toolkits.md) 3.3 第 4 步在卡片上显示每条要点的原文（未提及的那条也显示），追问回合的选区又带着整段原文，第 5 步却要求向导不说出答案地考回忆。契约已在 7eccbd6 改为卡片内出题、考解释与应用，由 #62 实现；F2 不再返修，记为 [FEATURES.md](FEATURES.md) 中 F-FEYNMAN 的已知缺口（[ROLES.md](ROLES.md)「程序保证与模型产出分开验收」：模型措辞抽样验收，不阻塞发布）。
   - **发布对象**：已接受业务 0751ce1。终验覆盖按以下组合认定，不重跑主链：Web G1–G10（908aa0f）加 F1 有限复验（0751ce1），原生 G1–G4（908aa0f）加 G5–G10（0751ce1）。0751ce1 之后只有 `docs/` 与 `tests/` 的提交（6c1a372 只改测试）。
-  - **Router 只做发布**：确认 0751ce1 与当前 HEAD 之间 `docs/`、`tests/` 之外没有差异；按 [ROLES.md](ROLES.md) 第 6 条安装、核对三哈希、在 0751ce1 上打 `v0.1.0` 标签、写 `delivery.txt`。可以在干净的主工作树上构建，三哈希须等于 `.tmp/evidence/task-54/fix-followup-no-answer/restoration-hashes.json` 记录的 0751 构建；不等就停下，标 `blocked` 并写明差异。核销提交更新 FEATURES 的「当前发布版本」，`Verified-Commit` 填 0751ce1；之后按依赖放行 #57。
+  - **Router 只做发布**：确认 0751ce1 与当前 HEAD 之间 `docs/`、`tests/` 之外没有差异；按 [ROLES.md](ROLES.md)「发布步骤」安装、核对三哈希、在 0751ce1 上打 `v0.1.0` 标签、写 `delivery.txt`。可以在干净的主工作树上构建，三哈希须等于 `.tmp/evidence/task-54/fix-followup-no-answer/restoration-hashes.json` 记录的 0751 构建；不等就停下，标 `blocked` 并写明差异。核销提交更新 FEATURES 的「当前发布版本」，`Verified-Commit` 填 0751ce1；之后按依赖放行 #57。
 - **验收与交付结果**: 按 Brain 裁定接受组合终验；F1 已独立复验，F2 保留为已知缺口、由 #62 改新契约。干净 main 确认0751至发布HEAD仅 docs/tests 差异；已安装默认 ganfan-media Vault，其他插件条目未变；附注标签 v0.1.0 指向0751接受业务。三哈希与0751接受构建完全相同，见 `.tmp/evidence/task-54/delivery.txt`；未启动/退出/重载人类 Obsidian。Cleanup PASS，报告保留各宿主实际版本、G8及语音等未覆盖边界。
 - **报告**: `.tmp/evidence/task-54/final-report.md`。
-- **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md) 第 6 条。
+- **交付**: 以上全部通过后执行 [ROLES.md](ROLES.md)「发布步骤」。
 
 ---
 
-## [Task #57] 台账守卫与 #54 结果入账
+## [Milestone #57] 台账守卫与 #54 结果入账
 - **Status**: verified
 - **Verified-Commit**: 6665123f7cfff0f8f3a66a081ae91fa6417c775a
 - **Depends-On**: #54
@@ -83,7 +83,7 @@
      - 「回归测试」表的 ID 集合与功能清单完全一致；每个 ID 至少一个测试链接，状态为 `契约` 的可以写 `—`（链接能否打开由现有文档链接守卫负责）。
      - `docs/subsystems/` 下每个文件都被 [ARCHITECTURE.md](ARCHITECTURE.md) 链接。
      - 本文件中任务区块的 `Features` 字段（`—` 除外）只列台账里存在的 ID；`verified` 区块所列的每一行，「最近独立验收」引用的提交等于该区块的 `Verified-Commit`，或是它的后代。
-  2. 按 #54 的终验报告（`.tmp/evidence/task-54/final-report.md`）与本文件中的 #54 区块，同步台账「发布与里程碑」中 v0.1.0 列出的各行：状态、宿主、最近独立验收、已知缺口；同时把里程碑表里 v0.1.0 一行的状态改成验收结果（当前发布版本由 Router 在 #54 核销时按 [ROLES.md](ROLES.md) 第 6 条更新）。只同步事实，不增删条目，不改「提议」与契约文档；报告与台账冲突或判断不了的行，列进 Worker 报告交 Router 判定。
+  2. 按 #54 的终验报告（`.tmp/evidence/task-54/final-report.md`）与本文件中的 #54 区块，同步台账「发布与里程碑」中 v0.1.0 列出的各行：状态、宿主、最近独立验收、已知缺口；同时把里程碑表里 v0.1.0 一行的状态改成验收结果（当前发布版本由 Router 在 #54 核销时按 [ROLES.md](ROLES.md)「发布步骤」更新）。只同步事实，不增删条目，不改「提议」与契约文档；报告与台账冲突或判断不了的行，列进 Worker 报告交 Router 判定。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：把一行状态改成非法词；删掉某个 ID 的回归测试行；在 `docs/subsystems/` 放一个没被链接的文件；让一个带 `Features` 的 `verified` 区块所列行引用更早的提交（可用合成的区块文本）。
 - **Tester 验收**: 本任务没有界面。Tester 逐行对照 #54 的终验报告与截图索引，检查第 2 项写进台账的结论、宿主与缺口没有夸大或遗漏，并重放 Worker 的破壁记录。
 - **验收结果**: 独立 Tester PASS：21 行结论/宿主/版本/缺口与原始报告及78图索引一致，保留F2、新卡片未实现和F-SANDBOX待复验边界；7条守卫通过，四项独立破壁各为7绿→6绿1个对应断言红→恢复7绿。Worker typecheck、全仓386 pass/104 skip/0 fail（含boundaries）与构建通过，产物仍0751；未跑新GUI/模型，不冒充#54新终验。Cleanup PASS，主树干净、自有运行资源已回收。报告及重放证据：`.tmp/evidence/task-57/tester/tester-report.md`、`.tmp/evidence/task-57/tester/replays/`；工程报告：`.tmp/evidence/task-57/worker/worker-report.md`。
@@ -91,7 +91,7 @@
 
 ---
 
-## [Task #58] 向导在仓库里搜代码
+## [Milestone #58] 向导在仓库里搜代码
 - **Status**: verified
 - **Verified-Commit**: dc0f7ae42032be22a7af08ba4053a139ac96a684
 - **Depends-On**: #57
@@ -107,7 +107,7 @@
 
 ---
 
-## [Task #59] 贴 GitHub 链接导入仓库
+## [Milestone #59] 贴 GitHub 链接导入仓库
 - **Status**: verified
 - **Verified-Commit**: 71260bf557ab8c1acceed9e2e87565b96d6f291e
 - **Implementation-Commit**: 71260bf557ab8c1acceed9e2e87565b96d6f291e
@@ -133,7 +133,7 @@
 
 ---
 
-## [Task #60] 仓库版本与讲义绑定
+## [Milestone #60] 仓库版本与讲义绑定
 - **Status**: pending
 - **Depends-On**: #59
 - **Features**: F-REPO-VERSIONS、F-LESSON-VERSION
@@ -154,21 +154,21 @@
 
 ---
 
-## [Task #61] 发布 v0.2.0：学 GitHub 仓库
-- **Status**: queued
+## [Milestone #61] 发布 v0.2.0：学 GitHub 仓库
+- **Status**: pending
 - **Depends-On**: #62
 - **发布版本**: v0.2.0
 - **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION、F-FEYNMAN
 - **Updated**: 2026-11-16
-- **Scope**: `manifest.json` 与 `package.json` 的版本号；验收工作区 `.tmp/evidence/task-61/`
-- **契约**: Web 与 Obsidian 各走一遍人类的真实课题「agent 框架怎么划分内核与插件」：magpie、deepseek-harness 用副本的本地路径，herdr、t3code 贴链接导入；带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md) 第 6 条发布。
+- **Scope**: `manifest.json` 与 `package.json` 的版本号；验收工作区 `.tmp/evidence/milestone-61/`
+- **契约**: Web 与 Obsidian 各走一遍人类的真实课题「agent 框架怎么划分内核与插件」：magpie、deepseek-harness 用副本的本地路径，herdr、t3code 贴链接导入；带目标立项、向导搜索代码并写讲义、点出处跳转、记笔记、费曼复述、检查更新导入新版本、改用、按新版本调整、结题。再抽查 v0.1.0 已验收的投喂、阅读、离线可用与搁置恢复没有退化。全部通过后按 [ROLES.md](ROLES.md)「发布步骤」发布。
 - **Worker 门禁**: 两处版本号改为 `0.2.0`，全量门禁通过。
-- **报告**: `.tmp/evidence/task-61/final-report.md`
+- **报告**: `.tmp/evidence/milestone-61/final-report.md`
 
 ---
 
-## [Task #62] 费曼复述：卡片内追问
-- **Status**: queued
+## [Milestone #62] 费曼复述：卡片内追问
+- **Status**: pending
 - **Depends-On**: #60
 - **Features**: F-FEYNMAN
 - **Updated**: 2026-11-16
@@ -180,7 +180,7 @@
   3. 题目与作答框显示在逐条对照下方，生成期间显示「正在出题」并可跳过；题目不落盘。
   4. 作答提交后以 `runTurn` 发起课题回合：`text` 由题目与回答组成，`anchor` 是这一段的锚点，不带 `instruction`。向导未连接时可以输入，提交不可用并说明原因。
   5. 被新契约取代的测试按头部规则 2 改写或删除。
-- **开工前的对照**: 先不写界面，用第 2 项的出题请求，对 #54 归档的五类原始输入（收益遗漏、条件遗漏、相反条件、全部说到、另一收益遗漏）各用真实 Agent 出题 3 次，按 3.3「边界」的标准判定。三类焦点（`missing`、`contradicted`、`covered`）都达到 3 次中至少 2 次，才实现界面；达不到就停下，把原始输出交 Router 标 `blocked`，不往提示词里加禁令（[ROLES.md](ROLES.md) 第 4 条）。
+- **开工前的对照**: 先不写界面，用第 2 项的出题请求，对 #54 归档的五类原始输入（收益遗漏、条件遗漏、相反条件、全部说到、另一收益遗漏）各用真实 Agent 出题 3 次，按 3.3「边界」的标准判定。三类焦点（`missing`、`contradicted`、`covered`）都达到 3 次中至少 2 次，才实现界面；达不到就停下，把原始输出交 Router 标 `blocked`，不往提示词里加禁令（[ROLES.md](ROLES.md)「程序保证与模型产出分开验收」）。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：焦点顺序改成 `missing` 优先；出题请求混入课题对话、画像或其他要点；校验不过时没有用固定问法；作答回合带上 `instruction`；向导未连接时允许提交。另交付两个宿主上可执行的受控入口，让出题请求失败一次、其余请求照常走真实 Agent。
 - **Tester 验收**: Web 与 Obsidian 各一次，用真实 Agent。三类复述（说反一条、漏掉一条、全部说到）各做一遍：题目出现在卡片里，作答后对话里出现题目、回答与锚点，向导正常回应；跳过一次；断开向导后核对提交不可用及原因；经 Worker 的受控入口核对固定问法。另按 3.3「边界」抽样九道题，原始输出全部归档，不达标的样本写进已知缺口，不据此打回。
 - **核销**: Router 把 LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3.3 第 5 步与本任务的回归测试。

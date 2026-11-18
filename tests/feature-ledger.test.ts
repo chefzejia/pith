@@ -80,14 +80,14 @@ function commitInHistory(ref: string): string {
 
 function acceptanceCommit(feature: Feature): string {
   const match = /#\d+ @([0-9a-f]{7})(?![0-9a-z])/.exec(feature.acceptance);
-  assert.ok(match, `${feature.id}: acceptance must contain #task @7-character-commit`);
+  assert.ok(match, `${feature.id}: acceptance must contain #<id> @7-character-commit`);
   return commitInHistory(match[1]!);
 }
 
 function checkTaskFeatures(markdown: string): void {
   const known = new Map(features().map(feature => [feature.id, feature]));
-  const blocks = [...markdown.matchAll(/^## \[Task #(\d+)\][^\n]*\n([\s\S]*?)(?=^## \[Task #|$(?![\s\S]))/gm)];
-  assert.ok(blocks.length > 0, "TASKS must contain task blocks");
+  const blocks = [...markdown.matchAll(/^## \[Milestone #(\d+)\][^\n]*\n([\s\S]*?)(?=^## \[Milestone #|$(?![\s\S]))/gm)];
+  assert.ok(blocks.length > 0, "TASKS must contain milestone blocks");
   for (const block of blocks) {
     const body = block[2]!;
     const field = (name: string) => new RegExp(`^- \\*\\*${name}\\*\\*:[ \\t]*(.*)$`, "m").exec(body)?.[1]?.trim();
@@ -99,7 +99,7 @@ function checkTaskFeatures(markdown: string): void {
       assert.ok(feature, `#${block[1]}: unknown feature ${id}`);
       if (field("Status") !== "verified") continue;
       const verified = field("Verified-Commit");
-      assert.ok(verified, `#${block[1]}: verified task has no Verified-Commit`);
+      assert.ok(verified, `#${block[1]}: verified milestone has no Verified-Commit`);
       const accepted = acceptanceCommit(feature);
       const ancestor = spawnSync("git", ["-C", ROOT, "merge-base", "--is-ancestor", commitInHistory(verified), accepted], { encoding: "utf8" });
       assert.equal(ancestor.status, 0, `#${block[1]} ${id}: acceptance ${feature.acceptance} predates or diverges from Verified-Commit ${verified}; ${ancestor.stderr}`);
@@ -151,13 +151,13 @@ test("every subsystem file is linked from the architecture map", () => {
   check(join(ROOT, "docs/subsystems"));
 });
 
-test("task features exist and verified acceptance never predates the task commit", () => {
+test("milestone features exist and verified acceptance never predates the milestone commit", () => {
   checkTaskFeatures(tasks);
 });
 
 test("verified feature ancestry accepts equal and descendant commits using the release ledger", () => {
   // #54 predates Features fields; these synthetic blocks exercise both ancestry cases against its real ledger row and Git history.
   for (const verified of ["0751ce185f144694fe3e6d52c9dd57a810a06c35", "908aa0f9ad9bfb68941f09fdd3e4e49901edfee5"]) {
-    checkTaskFeatures(`## [Task #54] release ancestry control\n- **Status**: verified\n- **Verified-Commit**: ${verified}\n- **Features**: F-OFFLINE\n`);
+    checkTaskFeatures(`## [Milestone #54] release ancestry control\n- **Status**: verified\n- **Verified-Commit**: ${verified}\n- **Features**: F-OFFLINE\n`);
   }
 });
