@@ -26,7 +26,7 @@ Pith 的输入不局限于电子书，[`stage-reader`](../../src/plugins/stage-r
 2. **第二层：任意纯文本与代码源文件（`.ts / .py / .rs / .go / .js / .json / .yaml / .txt / .sh / .abc` 等）**
    - 用户导入任意代码文件、配置文件、文本乐谱或日志时，`stage-reader` 将其按行渲染为带 `text:line:<N>` 内在坐标的可选中文本，可以框选任意行高亮、记笔记；在课题内还可以问向导或用 `feynman` 复述。
 3. **第三层：绑定的本地 Git 仓库（`kind: "repo"`）**
-   - 仓库材料没有导入的文件。目录抽屉列出绑定提交（`commitSha`）里的普通文件，点开的文件经 [`RepositoryPort`](../../src/core/host.ts) 从该提交读取，按第二层的方式渲染，坐标是 `repo:<commitSha>:<path>#L<start>-L<end>`。讲义里的 `path:line` 出处点击后在舞台打开对应文件并定位到该行。出处只在这一讲依据的版本里解析（`basedOn`，[1-core-store-engine.md](1-core-store-engine.md) 不变量 11），同一仓库的其他版本不参与；在这些版本里找不到的出处按普通文字显示。
+   - 仓库材料没有导入的文件。目录抽屉列出绑定提交（`commitSha`）里的普通文件，点开的文件经 [`RepositoryPort`](../../src/core/host.ts) 从该提交读取，按第二层的方式渲染，坐标是 `repo:<commitSha>:<path>#L<start>-L<end>`。讲义里的 `path:line` 出处点击后在舞台打开对应文件并定位到该行。出处只在这一讲依据的版本里解析（`basedOn`，[1-core-store-engine.md](1-core-store-engine.md) 不变量 11），同一仓库的其他版本不参与；在这些版本里找不到的出处按普通文字显示。识别出处的规则只有一份纯函数实现：渲染可点的出处，和判断一讲引用了哪些文件（版本变化时用），都调用它。
    - 读到的永远是绑定提交的内容，不是工作区里未提交的改动。
 4. **空态**
    - 课题没有讲义也没有材料时，舞台显示课题目标与「规划课程大纲与第一讲」入口；向导写入讲义后自动切换并渲染。

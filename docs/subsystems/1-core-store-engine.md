@@ -45,7 +45,7 @@
 8. **画像只在结题时由向导写入。** 观察条目的新增只发生在 `pith_settle_topic` 里；撤回发生在 `pith_settle_topic` 里，或由用户在对话里撤销。
 9. **Pith 不删除任何课题或材料。** 工作区是普通文件，可以在文件管理器里删除；删除后悬空的引用由看板的「无法读取」分区报告，不自动修复。
 10. **同一仓库的版本。** `kind: repo` 且 `externalPath` 相同的材料是同一仓库的不同版本，按 `createdAt` 排序，最近导入的是最新版本。导入新版本是新建一份材料，旧版本不变；课题改用新版本是追加引用，旧版本的引用保留（不变量 4），记在旧版本上的笔记照常指向旧代码。
-11. **讲义记下依据的版本。** 每一讲在课题账本里记下写入时本课题每个仓库引用的最新版本（`basedOn`）。讲义里的仓库出处只在这些版本里解析；课题里某个仓库有了比 `basedOn` 更新的版本，这一讲就是「基于旧版本」。
+11. **讲义记下依据的版本。** 每一讲在课题账本里记下写入时本课题每个仓库引用的最新版本（`basedOn`）。讲义里的仓库出处只在这些版本里解析；课题里某个仓库有了比 `basedOn` 更新的版本，这一讲就是「基于旧版本」。课题改用某仓库的新版本时，程序比较这一讲依据的提交与新提交：这一讲引用的文件（[2-stages.md](2-stages.md) 第 2 节）都没有变化的，由程序直接改依据（`rebaseLesson`）；有变化的保持「基于旧版本」，并列出变化的文件。比较失败时不改依据。
 
 内核代码、存储协议与工具接口固定使用中性领域词，界面文案由 [`SurfacePersona`](../../src/core/types.ts) 决定：
 
@@ -401,8 +401,6 @@ export interface GuideTurn {
   readonly user: {
     readonly text: string;
     readonly anchor?: SelectionAnchor;
-    /** Guidance for this turn supplied by a toolkit; sent to the guide, kept for retry, not displayed. */
-    readonly instruction?: string;
   };
   readonly steps: readonly TurnStep[];
   /** Next-step options offered by the guide in this turn. */
@@ -445,7 +443,7 @@ export interface AttentionEngine {
 
   getConversation(topicId: string): Promise<readonly GuideTurn[]>;
   /** Runs one guide turn on a topic. Resolves with the settled turn; agent failures settle as `failed`, never reject. */
-  runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor; instruction?: string }, options?: TurnOptions): Promise<GuideTurn>;
+  runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor }, options?: TurnOptions): Promise<GuideTurn>;
   /** Runs a failed or stopped turn again with the same user message, replacing that turn. */
   retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn>;
 
@@ -462,7 +460,7 @@ export interface AttentionEngine {
 /** Implemented by the guide plugin; the engine owns persistence of the turn. */
 export interface GuideProvider {
   run(input: { scope: { kind: "intake"; materialIds: readonly string[] } | { kind: "topic"; topicId: string };
-    text: string; anchor?: SelectionAnchor; instruction?: string; history: readonly GuideTurn[] },
+    text: string; anchor?: SelectionAnchor; history: readonly GuideTurn[] },
     // `onStep` appends when `index` equals the number of steps so far, and replaces the step at `index` otherwise.
     options: { signal: AbortSignal; onStep(step: TurnStep, index: number): void; onChoices(choices: readonly string[]): void }):
     Promise<{ readonly status: "completed" | "stopped" } | { readonly status: "failed"; readonly error: string }>;

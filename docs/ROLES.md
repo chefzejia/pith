@@ -22,7 +22,7 @@
 
 里程碑之间的先后写在 `Depends-On` 字段（没有写“—”）：前置全部 `verified` 才可派发；前置被标 `superseded (by #M)` 时改看 #M；前置被标 `blocked` 时，依赖它的里程碑保持 `pending`、不派发，等 Brain 处理。
 
-`.git/hooks/post-commit` 在一次提交新增 `pending` 状态行，或有里程碑新变为 `pending` 时唤醒 Router；Router 自己的结案提交不会自激。唤醒消息只要求重读本文件并执行前置已满足的 `pending` 里程碑，协议细节以本文件为准。
+`.git/hooks/post-commit` 在一次提交新增 `pending` 状态行、有里程碑新变为 `pending`，或有 `pending` 里程碑新变为可派发（前置全部 `verified`）时唤醒 Router。Router 自己的结案或升级提交（把 `pending` 改为 `verified` 或 `blocked`）不触发最后一条，Router 在当前回合自己继续排空。唤醒消息只要求重读本文件并执行前置已满足的 `pending` 里程碑，协议细节以本文件为准。
 
 ## 默认门禁与验收（里程碑里只写偏离项）
 
