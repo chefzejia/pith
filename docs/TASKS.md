@@ -21,7 +21,8 @@
 ---
 
 ## [Milestone #61] 发布 v0.2.0：学 GitHub 仓库
-- **Status**: pending
+- **Status**: superseded (by #64)
+- **取代原因**: 人类要求已知问题一律改造、不作已知缺陷发布。「按新版本调整」在真实仓库上改不成讲义，由 #64 改为程序判断受影响的讲、逐讲请向导重写，并在同一里程碑发布 v0.2.0。
 - **Verified-Commit**: none
 - **Depends-On**: —
 - **发布版本**: v0.2.0
@@ -53,12 +54,44 @@
   4. 课题笔记里每次提交各有一条作者是你的实训记录，带对照结果；结题门禁认它们。
   5. 断开向导：卡片说明对照不可用，复述仍能保存，没有「再复述一次」。
   6. 之前版本留下的费曼实训记录照常显示在笔记里，不参与「上次」比较。
-- **不在范围内**：向导与提示词（`runTurn` 的 `instruction` 通道保留给「按新版本调整」）；抽要点与对照的提示词；其他训练工具。
-- **Scope**：`src/plugins/toolkit-feynman/**`、`src/core/seams.ts`、`src/workbench/**`、`src/shells/**`、`tests/**`、`manifest.json`、`package.json`
+  7. Web 端在抽要点进行中关掉卡片，对应的后台 Agent 请求随即结束（与原生一致）。
+- **不在范围内**：向导的其他行为与提示词规则；抽要点与对照的提示词；其他训练工具。
+- **Scope**：`src/plugins/toolkit-feynman/**`、`src/core/seams.ts`、`src/core/engine/**`、`src/plugins/guide-acp/**`、`src/workbench/**`、`src/shells/**`、`tests/**`、`manifest.json`、`package.json`
 - **行为契约**：按 [3-toolkits.md](subsystems/3-toolkits.md) 第 2 节与 3.3、[ARCHITECTURE.md](ARCHITECTURE.md) 第三节落地。暴力重构，不留兼容，不留残留：
   1. 删除 `ToolkitDescriptor.followUp`、`recallFollowUp`、工作台的追问端口与 `followUpError`、视图与两个宿主壳里的 `followUpPractice` 接线、追问相关的状态文案，以及只为它们存在的参数（如 `RecallPractice.submit` 的 `toolkit`）。被取代的测试直接删除或改写，Worker 报告逐个列出。
   2. 新增的只有三样：实训记录的 `result.passage`；「再复述一次」；对照结果里的「上次：…」标记。不新增设置、存储文件或模型请求。
   3. 不读取、不迁移、不补写旧的费曼记录。
-  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.3.0`。
-- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `followUp`、`recallFollowUp`、`followUpPractice`。手动破壁各一次后恢复，对应断言须各自变红：「上次」匹配不比较 `passage`；「再复述一次」后结果没有收起或原文没有遮住；保存复述后发起了课题回合；`result` 缺 `passage`。
+  4. `instruction` 通道一并删除：#64 去掉「按新版本调整」后，费曼追问是它唯一的使用者。删除 `runTurn`、`retryTurn`、`GuideTurn.user`、`GuideProvider.run`、宿主壳与 Web 接口里的 `instruction`，以及场景提示词的「本回合指令」段（[1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节、[4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2）。旧 `conversation.json` 里残留的 `instruction` 字段不读、不迁移。
+  5. Web 入口把取消传到服务端：卡片关闭或重开时，Web 端正在进行的抽要点与对照请求随之中止，与原生一致。
+  6. `manifest.json` 与 `package.json` 的 `version` 改为 `0.3.0`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `followUp`、`recallFollowUp`、`followUpPractice`、「本回合指令」，也没有名为 `instruction` 的字段或参数（提示词正文里的英文单词不算）。手动破壁各一次后恢复，对应断言须各自变红：「上次」匹配不比较 `passage`；「再复述一次」后结果没有收起或原文没有遮住；保存复述后发起了课题回合；`result` 缺 `passage`；Web 端关闭卡片后服务端请求没有中止。
 - **结案**：F-FEYNMAN 的「用户能做什么」改为「费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态」，其余列按 ROLES「功能台账同步」更新。LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3-toolkits 3.3 与上面的守卫测试。通过后按 ROLES「发布步骤」发布 v0.3.0。
+
+---
+
+## [Milestone #64] 仓库新版本：程序判断哪些讲受影响，并发布 v0.2.0
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: —
+- **发布版本**: v0.2.0
+- **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
+- **用户可观测目标**：仓库更新后，在材料库「检查更新」导入新版本，在课题里「改用」它：引用的文件没变的讲自动跟上新版本；变了的讲标「基于旧版本」并列出变化的文件。在这样的讲上点「请向导按新版本重写」，向导输入框里出现写好的消息，发送后向导只重写这一讲。没有「按新版本调整」按钮。Obsidian 插件列表里的 Pith 显示 0.2.0。
+- **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent，样本按头部规则 5。
+  1. 真实课题「agent 框架怎么划分内核与插件」：magpie、deepseek-harness 用副本的本地路径，herdr、t3code 贴链接导入；带目标立项，向导搜索代码并写讲义，点出处跳转，记笔记，结题。
+  2. 版本路径：magpie 副本先停在 `965ae78e1` 立项，写出至少两讲且讲义引用代码；把副本快进到较新的上游提交，在材料库「检查更新」导入新版本，再点一次提示已是最新。课题「改用」新版本后，用 `git diff` 独立核对：每一讲是否标记，与它引用的文件有没有变化一致；没标记的讲出处跳到新版本；标记的讲列出的文件与实际变化一致。
+  3. 在一个标记的讲上点「请向导按新版本重写」：输入框里的消息点名这一讲、变化的文件和两个短提交号；发送后对话里是一条普通消息；向导写完后这一讲的标记消失、出处跳到新版本，旧版本上的笔记仍跳回旧代码。向导写得好不好按 ROLES「程序保证与模型产出分开验收」记录，不打回。
+  4. 受控用例：玩具仓库只改其中一讲引用的文件，改用后只有那一讲被标记；经 Worker 提供的受控入口让比较失败一次，依据不变、标记保留并说明原因。
+  5. 断开向导：「请向导按新版本重写」不可用并说明原因；「改用」和自动改依据照常。
+  6. 抽查 v0.1.0 已验收的投喂、阅读、离线可用、搁置与恢复没有退化。
+  - 发布前清债：本版范围内的待复验条目只有 F-REPO-VERSIONS 与 F-LESSON-VERSION，由第 2 到 5 步独立验收；其他待复验条目不在本版范围。
+- **不在范围内**：费曼（#63）；`instruction` 通道本里程碑不动（费曼的旧追问还在用，由 #63 删除）；新功能。
+- **Scope**：`src/core/**`、`src/workbench/**`、`src/shells/**`、`src/plugins/stage-reader/**`、`src/plugins/guide-acp/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 不变量 11、[2-stages.md](subsystems/2-stages.md) 第 2 节第 3 条、[4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2「新版本」、[5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md) 4.2 落地。暴力重构，不留兼容，不留残留：
+  1. 删除「按新版本调整」按钮、`ADJUST_LESSONS_MESSAGE`、视图与两个宿主壳里的 `adjustLessons` 接线，以及只为它们存在的代码和测试，Worker 报告逐个列出。
+  2. 出处识别抽成一份纯函数，放在 `src/core/`、与 `repositoryVersions.ts` 同处；视图渲染出处与「这一讲引用了哪些文件」都调用它，不留第二套匹配规则。
+  3. 「改用」之后的比较与改依据只有一份共享实现，两个宿主壳只接线：比较用 `RepositoryPort.listChanges`，改依据用 `rebaseLesson`；比较失败时不改依据，标记保留并显示原因。变化的文件按需计算，不新增存储。
+  4. 「请向导按新版本重写」只把消息放进输入框，不自动发送，不带 `instruction`。
+  5. 已有讲义没有 `basedOn` 时按 1-core 3.2 的缺省规则读取，不改写已有账本。
+  6. `manifest.json` 与 `package.json` 的 `version` 改为 `0.2.0`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `ADJUST_LESSONS_MESSAGE`、`adjustLessons`。手动破壁各一次后恢复，对应断言须各自变红：改用后不比较、全部改依据；视图另写一套出处匹配，结果与共享函数不一致；比较失败时仍改依据；「请向导按新版本重写」直接发送。另交付两个宿主上可执行的受控入口，让比较失败一次。
+- **结案**：F-REPO-VERSIONS、F-LESSON-VERSION 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.2.0。
