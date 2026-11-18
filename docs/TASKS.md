@@ -95,3 +95,27 @@
   6. `manifest.json` 与 `package.json` 的 `version` 改为 `0.2.0`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `ADJUST_LESSONS_MESSAGE`、`adjustLessons`。手动破壁各一次后恢复，对应断言须各自变红：改用后不比较、全部改依据；视图另写一套出处匹配，结果与共享函数不一致；比较失败时仍改依据；「请向导按新版本重写」直接发送。另交付两个宿主上可执行的受控入口，让比较失败一次。
 - **结案**：F-REPO-VERSIONS、F-LESSON-VERSION 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.2.0。
+
+---
+
+## [Milestone #65] 向导用顶尖课程编排讲义，并发布 v0.4.0
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #63
+- **发布版本**: v0.4.0
+- **Features**: F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE
+- **用户可观测目标**：用户的材料不够回答他的问题时，向导去 MIT OCW 等名校公开课和经典教材里，挑出讲这个问题最好的那几讲，只把相关的讲义、习题、考试和官方解答导入成一份材料，并说明为什么选、跳过了什么。讲义里的 PDF 页码出处点一下就打开到那一页，讲座视频用带时间点的公开链接。结题优先用那门课的官方题检验，结题后的选项里有下一个值得投入的问题。Obsidian 插件列表里的 Pith 显示 0.4.0。
+- **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent。
+  1. 选一个需要大学课程才能讲透的问题（例如「进程之间怎么靠页表做隔离」），不带材料立项：过程里有 `pith_read_external` 浏览课程页面的步骤；导入的是一份材料，只含相关讲次的 PDF，文件按链接命名、都能阅读；回复说明了选择理由与跳过的内容。
+  2. 讲义里的 `文件名#page=N` 出处可点，打开到对应页；故意改错的页码或文件名按普通文字显示；讲座视频链接带时间点。
+  3. 提出结题：检验题来自材料里带官方解答的考试或习题，向导对照官方解答回应；结题后的选项包含下一个问题和对应讲次。第 1、3 步的选材与出题质量是模型产出，按 ROLES「程序保证与模型产出分开验收」记录，不打回。
+  4. 程序部分：只读浏览不产生材料；多个链接合成一份材料；超出数量或大小上限、某个链接失败、内网地址或重定向时，整次导入以原因失败，不留下材料。
+  5. 抽查仓库学习、费曼复述、离线可用、搁置与恢复没有退化。
+- **不在范围内**：学习路线、课程模板、整门课离线包导入、「习题」工具、EPUB 章节出处、导入讲座视频、在 Pith 里运行代码。
+
+### 切片
+1. **S1** `Scope: src/plugins/guide-acp/**、src/shells/**、tests/**、manifest.json、package.json`：按 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2 与 2.5 落地。新增只读工具 `pith_read_external`；`pith_ingest_external` 接受 PDF，一次 1 到 20 个链接合成一份材料，文件按链接命名，网页不超过 4 MB、PDF 不超过 32 MB、合计不超过 128 MB，任何一个失败则整次失败、不留材料，地址与传输沿用现有的公网校验；场景提示词加「选材」规则，并改「讲义」「结题」两条。不加输出校验或门槛（[ARCHITECTURE.md](ARCHITECTURE.md) 第三节）。`version` 改为 `0.4.0`。
+2. **S2** `Scope: src/core/**、src/workbench/**、src/plugins/stage-reader/**、src/plugins/stage-timeline/**、tests/**`：按 [2-stages.md](subsystems/2-stages.md) 第 3 节「讲义里的出处」，在 #64 的那一份共享出处识别函数上扩展 `#page=` 与 `#t=`，不另写第二套匹配规则；点击后在舞台打开文件并定位，音视频不自动播放；越界、对不上的按普通文字显示，同名文件按材料分别给出处。
+
+- **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：只读工具写入了材料；多个链接中有一个失败时仍留下材料；视图另写一套出处匹配、与共享函数的结果不一致；越界页码仍可点击跳转。
+- **结案**：F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.0。
