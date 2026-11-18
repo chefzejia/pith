@@ -271,6 +271,108 @@ for (const scenario of ["mask after reconnect", "offline save", "offline retry g
   });
 }
 
+for (const scenario of ["saved and unsaved", "in-flight receipt", "failed save"] as const) {
+  test(`offline Feynman close/reopen: ${scenario}`, { skip: !enabled, timeout: 35000 }, async () => {
+    const root = await testSandbox("task63-reopen-");
+    const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
+    const topic = await store.createTopic({ title: "离线草稿", target: "解释", materialIds: [], toolkits: ["feynman"] });
+    await store.writeLesson(topic.id, "source.md", source);
+    const server = await createPithWebServer({ workspaceDir: root, processPort: { findExecutable: async () => null, probeExecutable: async () => null, spawnStdio: async () => { throw new Error("Explicitly offline"); } } });
+    let browser: any;
+    const release = deferred<void>();
+    try {
+      const address = server.address(); assert.ok(address && typeof address !== "string");
+      const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
+      browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true });
+      const page = await browser.newPage(); page.setDefaultTimeout(6000);
+      await page.goto(`http://127.0.0.1:${address.port}`);
+      await page.locator(`[data-topic="${topic.id}"]`).first().click();
+      await page.locator(".pith-article").getByText(source).waitFor();
+      const card = page.locator(".pith-inline-toolkit"), field = card.locator("[data-toolkit-produced]");
+      const save = card.getByRole("button", { name: "保存复述" });
+      const close = card.getByRole("button", { name: "收起" });
+      const open = async () => {
+        await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click();
+        await card.getByRole("status").getByText(/向导未连接/).waitFor();
+      };
+      const status = card.getByRole("status");
+      const entries = async () => (await store.getTopic(topic.id))!.notes;
+      await open();
+      const firstText = scenario === "saved and unsaved" ? "\n第一份正文" : "第一份正文";
+      await field.fill(firstText);
+      if (scenario === "saved and unsaved") {
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), firstText, "unsubmitted drafts are restored");
+        await save.click(); await status.getByText(/本次复述已保存/).waitFor();
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), "", "a saved body must not be restored as a draft");
+        assert.equal(await save.isDisabled(), true);
+        const [first] = await entries();
+        assert.equal((await entries()).length, 1);
+        await field.fill(firstText); await save.click(); await status.getByText(/本次复述已保存/).waitFor();
+        const replayed = await entries();
+        assert.equal(replayed.length, 2);
+        assert.notEqual(replayed[1]!.id, first!.id, "a deliberately retyped attempt can use the same text");
+      } else if (scenario === "in-flight receipt") {
+        let hold: { seen: ReturnType<typeof deferred<void>>; release: ReturnType<typeof deferred<void>> } | undefined;
+        await page.route("**/api/notes", async (route: any) => {
+          const active = hold; if (!active) return route.continue();
+          active.seen.resolve(); await active.release.promise; await route.continue();
+        });
+        for (const laterEdit of [false, true]) {
+          const pending = { seen: deferred<void>(), release: deferred<void>() };
+          hold = pending;
+          void release.promise.then(pending.release.resolve);
+          await save.click(); await pending.seen.promise;
+          await close.click(); await open();
+          assert.equal(await field.inputValue(), "第一份正文", "a pending write is not a receipt");
+          assert.equal(await save.isDisabled(), true, "the same in-flight submission cannot be started again");
+          if (laterEdit) {
+            await field.fill("后写的编辑"); await field.fill("第一份正文");
+            await close.click(); await open();
+          }
+          const response = page.waitForResponse((item: any) => item.url().endsWith("/api/notes") && item.ok());
+          hold = undefined; pending.release.resolve(); await response;
+          await page.waitForFunction(() => {
+            const field = document.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
+            const save = document.querySelector<HTMLButtonElement>("[data-toolkit-submit]");
+            return field && save && (!field.value || !save.disabled);
+          });
+          assert.equal(await field.inputValue(), laterEdit ? "第一份正文" : "", "a receipt only consumes its submitted draft revision");
+          assert.equal(await save.isDisabled(), !laterEdit);
+          assert.equal((await entries()).length, laterEdit ? 2 : 1);
+          if (!laterEdit) await field.fill("第一份正文");
+        }
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), "第一份正文", "the later draft survives another reopen");
+        const refreshing = deferred<void>();
+        await page.route("**/api/chat?*", async (route: any) => {
+          refreshing.resolve(); await release.promise; await route.continue();
+        }, { times: 1 });
+        await save.click(); await refreshing.promise;
+        assert.equal((await entries()).length, 3);
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), "", "the save receipt consumed the draft before the guide refresh completed");
+        assert.equal(await save.isDisabled(), true);
+        release.resolve();
+      } else {
+        await page.route("**/api/notes", async (route: any) => {
+          await route.fulfill({ status: 500, json: { error: "实训保存失败" } });
+        }, { times: 1 });
+        await save.click(); await page.getByText("实训保存失败", { exact: true }).waitFor();
+        assert.equal((await entries()).length, 0);
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), "第一份正文", "a failed save leaves the draft available");
+        await save.click(); await status.getByText(/本次复述已保存/).waitFor();
+        await close.click(); await open();
+        assert.equal(await field.inputValue(), "");
+        assert.equal((await entries()).length, 1);
+      }
+      assert.ok((await entries()).every(note => note.author === "user" && note.kind === "practice" && !note.result));
+    } finally { release.resolve(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+  });
+}
+
 test("reselecting a transformed paragraph sends original prose and a matching anchor, also after switching toolkits", { skip: !enabled, timeout: 40000 }, async () => {
   const root = await testSandbox("task53-reselect-"); let browser: any;
   const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));

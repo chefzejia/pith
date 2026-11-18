@@ -232,7 +232,8 @@ export class PithWorkbenchView {
   private toolkitStage: ToolkitStage = "listen-decompose";
   private toolkitTarget = "";
   private toolkitProduced = "";
-  private readonly toolkitDrafts = new Map<string, string>();
+  private readonly toolkitDrafts = new Map<string, { text: string }>();
+  private readonly recallSubmissions = new Map<string, { text: string } | undefined>();
   private toolkitAnchor: SelectionAnchor | undefined;
   private toolkitResult: ToolkitDiagnosis | null = null;
   private recall: RecallPractice | undefined;
@@ -311,9 +312,9 @@ export class PithWorkbenchView {
     this.article.addEventListener("mouseup", () => this.showSelection(), options);
     this.article.addEventListener("input", event => {
       const field = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
-      if (!field || event.target !== field || !this.recall || this.recall.available) return;
-      const save = this.inlineToolkit?.querySelector<HTMLButtonElement>("[data-toolkit-submit]");
-      if (save) save.disabled = !this.recall.canSubmit(field.value);
+      if (!field || event.target !== field || !this.recall) return;
+      this.readToolkit();
+      this.updateRecallSubmit();
     }, options);
     this.assetControls.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.classList.contains("pith-media-seek")) { const player = this.speaking ? this.speechAudio : this.cuePlayer ?? this.recordedPlayer; if (player) { player.currentTime = Number(input.value); this.updateAssetControls(); } else this.seekMedia(Number(input.value)); } }, options);
   }
@@ -666,7 +667,7 @@ export class PithWorkbenchView {
     }
     if (this.assetAudio) this.assetAudio.pause();
     if (this.speaking) this.stopSpeech();
-    this.toolkitProduced = this.toolkitDrafts.get(this.toolkitDraftKey()) ?? "";
+    this.toolkitProduced = this.toolkitDrafts.get(this.toolkitDraftKey())?.text ?? "";
     this.toolkitReveal = false; this.setToolkitActive(true); return true;
   }
   private renderToolkit(): void {
@@ -678,12 +679,14 @@ export class PithWorkbenchView {
     if (!toolkit.stages.includes(this.toolkitStage)) this.toolkitStage = toolkit.stages[0]!;
     if (this.toolkitLenses) this.toolkitLenses.remove();
     if (toolkit.id === "feynman" && !this.recall) {
+      const key = this.toolkitDraftKey();
       const recall = new RecallPractice(this.toolkitTarget, this.toolkitAnchor!, {
         prepare: (source, signal) => { if (!this.actions.prepareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.prepareRecall(source, signal); },
         compare: (source, points, produced, signal) => { if (!this.actions.compareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.compareRecall(source, points, produced, signal); },
         capture: async (body, anchor, result) => {
           if (!this.actions.savePractice) throw new Error("实训保存不可用");
           const note = await this.actions.savePractice(body, anchor, result);
+          this.consumeRecallDraft(key, recall);
           await this.refreshGuide().catch(error => { if (!this.disposed) this.tip(error instanceof Error ? error.message : String(error)); });
           return note;
         },
@@ -692,11 +695,41 @@ export class PithWorkbenchView {
     }
     const recall = this.recall;
     const previous = recall?.result && recall.recordId ? previousRecall(this.guideData.notes, recall.recordId, recall.result.passage) : undefined;
-    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus, recall, previous });
+    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus, recall, previous, recallSubmitting: Boolean(recall && this.recallSubmissions.has(this.toolkitDraftKey())) });
     this.updateCueButtons();
   }
   private toolkitDraftKey(): string { return JSON.stringify([this.toolkitId, this.toolkitAnchor?.file, this.toolkitAnchor?.locator, this.toolkitAnchor?.quote]); }
-  private readToolkit(): void { const produced = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]"); if (produced && produced.value !== this.toolkitProduced) { this.toolkitResult = null; this.toolkitStatus = ""; } if (produced) { this.toolkitProduced = produced.value; this.toolkitDrafts.set(this.toolkitDraftKey(), produced.value); } }
+  private readToolkit(): void {
+    const field = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
+    if (!field) return;
+    const changed = field.value !== this.toolkitProduced;
+    if (changed) { this.toolkitResult = null; this.toolkitStatus = ""; }
+    this.toolkitProduced = field.value;
+    const key = this.toolkitDraftKey();
+    if (!this.recall) this.toolkitDrafts.set(key, { text: field.value });
+    else if (changed) {
+      if (!field.value.trim() || (this.recall.saved && this.recall.produced.trim() === field.value.trim())) this.toolkitDrafts.delete(key);
+      else this.toolkitDrafts.set(key, { text: field.value });
+    }
+  }
+  private consumeRecallDraft(key: string, origin: RecallPractice): void {
+    const submitted = this.recallSubmissions.get(key);
+    if (!submitted) return;
+    const active = !this.disposed && this.recall && this.toolkitDraftKey() === key;
+    if (active) this.readToolkit();
+    // Only the submitted revision is consumed, even if a later edit has the same text.
+    if (this.toolkitDrafts.get(key) !== submitted) return;
+    this.toolkitDrafts.delete(key);
+    if (active && this.recall !== origin) {
+      this.toolkitProduced = "";
+      const field = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
+      if (field) field.value = "";
+    }
+  }
+  private updateRecallSubmit(): void {
+    const submit = this.inlineToolkit?.querySelector<HTMLButtonElement>("[data-toolkit-submit]");
+    if (this.recall && submit) submit.disabled = this.recallSubmissions.has(this.toolkitDraftKey()) || this.recall.busy || (!this.recall.available && !this.recall.canSubmit(this.toolkitProduced));
+  }
 
   private closeNavigation(): void { this.navigation.hidden = true; this.navigationButton.setAttribute("aria-expanded", "false"); }
   private toolkitMenuOpen(): boolean { return !this.toolkit.hidden && this.toolkit.querySelector(".pith-toolkit-group") !== null; }
@@ -818,8 +851,15 @@ export class PithWorkbenchView {
           this.toolkitStatus = "已记入实训账本"; this.toolkitResult = null; await this.refreshGuide();
         } else if (this.recall) {
           const recall = this.recall;
+          const key = this.toolkitDraftKey(), retry = button.hasAttribute("data-toolkit-retry");
+          if (this.recallSubmissions.has(key) || !recall.canSubmit(this.toolkitProduced, retry)) { this.renderToolkit(); return; }
           this.toolkitStatus = "";
-          await recall.submit(this.toolkitProduced, button.hasAttribute("data-toolkit-retry"));
+          this.recallSubmissions.set(key, this.toolkitDrafts.get(key));
+          try { await recall.submit(this.toolkitProduced, retry); }
+          finally {
+            this.recallSubmissions.delete(key);
+            if (!this.disposed && this.toolkitDraftKey() === key) this.updateRecallSubmit();
+          }
           if (this.disposed || this.recall !== recall) return;
           if (recall.result) this.toolkitReveal = true;
         }

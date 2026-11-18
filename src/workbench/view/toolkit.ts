@@ -14,7 +14,7 @@ export function renderToolkitMenu(panel: HTMLElement, toolkits: readonly Toolkit
   }
 }
 
-export function renderInlineToolkit(input: { block: HTMLElement; inline: HTMLElement; source: HTMLElement; display: HTMLElement; toolkit: ToolkitDescriptor; stage: ToolkitStage; target: string; reveal: boolean; recorded: boolean; result: ToolkitDiagnosis | null; produced: string; status: string; recall?: RecallPractice; previous?: ReadonlyMap<string, RecallStatus> }): HTMLElement | null {
+export function renderInlineToolkit(input: { block: HTMLElement; inline: HTMLElement; source: HTMLElement; display: HTMLElement; toolkit: ToolkitDescriptor; stage: ToolkitStage; target: string; reveal: boolean; recorded: boolean; result: ToolkitDiagnosis | null; produced: string; status: string; recall?: RecallPractice; previous?: ReadonlyMap<string, RecallStatus>; recallSubmitting?: boolean }): HTMLElement | null {
   const { block, inline, source, display, toolkit, stage, target, reveal, recorded, result, produced, status } = input;
   const esc = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
   const labels: Record<ToolkitStage, string> = { "listen-decompose": "韵律", "guided-follow": "原文", "scaffold-cloze": "骨干", "blind-produce": "盲听" };
@@ -40,9 +40,11 @@ export function renderInlineToolkit(input: { block: HTMLElement; inline: HTMLEle
     recall?.preparation === "failed" ? `对照不可用：${recall.error}。复述仍可保存。` : "要点已准备，请用自己的话复述。";
   inline.innerHTML = shadowing ? `<div class="pith-shadowing-dock"><button type="button" data-toolkit-play-cue aria-pressed="false">${pithIcon("play")} 原声${stage === "listen-decompose" ? " 0.75x" : ""}</button><button type="button" data-toolkit-loop-cue aria-pressed="false">${pithIcon("repeat")} 循环</button><button type="button" data-voice="toolkit" aria-pressed="false">${pithIcon("mic")} 开口跟读</button><button type="button" data-toolkit-play-recorded ${recorded ? "" : "hidden disabled"}>${pithIcon("volume")} 回听对比</button><button data-toolkit-save ${recorded ? "" : "hidden"} ${result ? "" : "disabled"}>${pithIcon("check")} 记入账本</button>${result ? `<div class="pith-shadowing-feedback">识别：${esc(produced)} · 准确度 ${Math.round(result.accuracyScore * 100)}%</div>` : ""}<div role="status">${esc(status)}</div></div>` :
     `<strong>${esc(toolkit.label)}</strong><button data-toolkit-close aria-label="收起">${pithIcon("close")}</button><button data-toolkit-reveal>${reveal ? "合上原文" : "查看原文"}</button>
-    <label>复述文本<textarea data-toolkit-produced ${recall?.busy ? "disabled" : comparison && !offline ? "readonly" : ""}>${esc(produced)}</textarea></label>
-    ${offline || !comparison ? `<button data-toolkit-submit ${retry ? "data-toolkit-retry" : ""} ${recall?.busy || (offline && !recall?.canSubmit(produced)) ? "disabled" : ""}>${offline ? "保存复述" : retry ? "重试对照（新尝试）" : "提交对照"}</button>` : ""}
+    <label>复述文本<textarea data-toolkit-produced ${recall?.busy ? "disabled" : comparison && !offline ? "readonly" : ""}></textarea></label>
+    ${offline || !comparison ? `<button data-toolkit-submit ${retry ? "data-toolkit-retry" : ""} ${input.recallSubmitting || recall?.busy || (offline && !recall?.canSubmit(produced)) ? "disabled" : ""}>${offline ? "保存复述" : retry ? "重试对照（新尝试）" : "提交对照"}</button>` : ""}
     ${renderRecallResult(comparison, input.previous)}<div role="status">${esc(status || recallStatus)}</div>
     ${comparison && !offline ? `<button data-toolkit-repeat>${pithIcon("repeat")} 再复述一次</button>` : ""}`;
+  const field = inline.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
+  if (field) field.value = produced;
   return lenses;
 }
