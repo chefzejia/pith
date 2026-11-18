@@ -70,8 +70,8 @@
 ---
 
 ## [Milestone #64] 仓库新版本：程序判断哪些讲受影响，并发布 v0.2.0
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 00e761223f2b227aef2f35d747eb4ce0e74b5686
 - **Depends-On**: —
 - **发布版本**: v0.2.0
 - **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
@@ -95,6 +95,7 @@
   6. `manifest.json` 与 `package.json` 的 `version` 改为 `0.2.0`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `ADJUST_LESSONS_MESSAGE`、`adjustLessons`。手动破壁各一次后恢复，对应断言须各自变红：改用后不比较、全部改依据；视图另写一套出处匹配，结果与共享函数不一致；比较失败时仍改依据；「请向导按新版本重写」直接发送。另交付两个宿主上可执行的受控入口，让比较失败一次。
 - **结案**：F-REPO-VERSIONS、F-LESSON-VERSION 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.2.0。
+- **结果**：Web 与 Obsidian 真实四仓课题、版本比较、逐讲重写和结题通过；受控比较失败保留旧依据，离线仍可改用，旧笔记保持旧出处。双端 1280/390px 结题计数复验通过，Cleanup PASS。证据：`.tmp/evidence/milestone-64/tester/final-report.md`、`.tmp/evidence/milestone-64/tester-recheck/final-report.md`（双端终验截图同目录）。默认 `ganfan-media` 已安装并校验，附注标签 `v0.2.0` 指向 Verified-Commit；三个 SHA-256 与安装记录见 `.tmp/evidence/milestone-64/delivery.txt`。
 
 ---
 

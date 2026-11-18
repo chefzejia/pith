@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.1.0（#54 @0751ce1，已安装默认 ganfan-media Vault；附注标签 `v0.1.0`）。费曼旧追问的 F2 保留为已知缺口；追问将重新设计，不阻塞发布。
+- **当前发布版本**：v0.2.0（#64 @00e7612，已安装默认 ganfan-media Vault；附注标签 `v0.2.0`）。费曼保留 v0.1.0 行为及 F2 已知缺口，由 #63 重做。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
 
@@ -24,7 +24,7 @@
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | v0.1.0 已安装，待开始 |
-| v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲），实现与发布验收在 #64。费曼保持 v0.1.0 行为，不阻塞发布。验收用你要学的仓库：magpie、deepseek-harness（本地）与 herdr、t3code（GitHub） | 实现与发布验收中（#64） |
+| v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已排期 |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已排期 |
 | v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
@@ -44,8 +44,8 @@
 | F-INTAKE-FILE | 拖入或选择文件导入材料库；同名的音视频与字幕合成一份；只有一份时直接打开阅读 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮只用 Markdown 与一个可选字短 PDF；同名音视频/字幕合成沿用 #52，未作播放终验 |
 | F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 首页裸链接与课题内入口已覆盖；只用过 example.com 等少量公开页面，未扩外网故障矩阵 |
 | F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #59 @71260bf（11-18） | 双端 magpie/deepseek 副本绑定、同提交复用和嵌套阅读通过；原生补验课题内添加及复用通过。先前三轮原生立项失败的原因未知；Cleanup PASS |
-| F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 已验收 | ✓ / ✓ | #59 @71260bf（11-18） | 双端公网导入、嵌套源码、复用、浅克隆无检出、pin、自然取消与错误通过；原生补验真实立项及课题内添加通过，立项耗时约 581 秒。旧 Agent 400 原因未知；私有仓成功及完整原始 MCP result 未覆盖；Cleanup PASS |
-| F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 待复验 | ○ / ○ | 无 | #60 两端版本导入通过；完整 Web 与 Obsidian 课题内版本路径由 #64 验收。 |
+| F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 两端真实导入 herdr、t3code 并在课题引用；私有仓未覆盖。 |
+| F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实 magpie 快进、合卡、再次检查和课题改用通过。 |
 | F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 宽窄变化用视口模拟，没有拖拽系统窗口 |
 | F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两份 #51 旧形状夹具被拒且原字节未变、合法项可用；不是旧应用生成的完整历史库，没有迁移或修复 |
 
@@ -77,10 +77,10 @@
 | F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 没有自然观察到先反问；创建前停止沿用 #52，工具生效后的停止不承诺删除已写课题 |
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
-| F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 待复验 | ○ / ○ | 无 | #60 原生玩具路径通过；真实 magpie 双宿主调整未完成，Web 无写入，原生样本在调整前取消；详见 `.tmp/evidence/task-60/tester/adjustment-v2/final-report.md`，批量调整由 #64 改为程序判断受影响的讲、逐讲请向导重写。 |
+| F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实单讲重写、旧笔记回旧版、受控失败及离线通过；重写实测耗时数分钟，Web 的稳定讲分支由玩具仓覆盖。 |
 | F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 契约 | – / – | 无 | — |
 | F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 契约 | – / – | 无 | — |
-| F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #58 @dc0f7ae（11-18；搜索主链6354ed4，表格有限复验dc0f7ae） | GUI 成功 result 原始字节未完整导出，过滤/限额/准确作用域另有真实 Git/MCP 回归；保留上游中断与模型计数/解释偏差；仅核对静态调用，计时为 warm GUI 观测 |
+| F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实搜索、读取及出处跳转通过；未导出完整原始 MCP 搜索响应、未穷尽审计模型的四仓结论。 |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
 | F-TOPIC-NOTES | 课题内的高亮、笔记与向导批注，标明作者，点击跳回原文 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮核对 user 笔记、材料只读记录分区与回跳；guide 总结见结题，两课题隔离沿用 #52 |
@@ -184,7 +184,7 @@
 | F-INTAKE-TOPIC | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
-| F-LESSON-VERSION | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
+| F-LESSON-VERSION | [task64-lesson-versions.test.ts](../tests/task64-lesson-versions.test.ts)、[task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
 | F-SOURCE-COURSES | — |
 | F-LESSON-CITE | — |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |
