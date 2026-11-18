@@ -169,7 +169,7 @@
 ---
 
 ## [Milestone #62] 费曼复述：卡片内追问
-- **Status**: pending
+- **Status**: blocked
 - **Depends-On**: #60
 - **Features**: F-FEYNMAN
 - **Updated**: 2026-11-16
@@ -182,6 +182,7 @@
   4. 作答提交后以 `runTurn` 发起课题回合：`text` 由题目与回答组成，`anchor` 是这一段的锚点，不带 `instruction`。向导未连接时可以输入，提交不可用并说明原因。
   5. 被新契约取代的测试按头部规则 2 改写或删除。
 - **开工前的对照**: 先不写界面，用第 2 项的出题请求，对 #54 归档的五类原始输入（收益遗漏、条件遗漏、相反条件、全部说到、另一收益遗漏）各用真实 Agent 出题 3 次，按 3.3「边界」的标准判定。三类焦点（`missing`、`contradicted`、`covered`）都达到 3 次中至少 2 次，才实现界面；达不到就停下，把原始输出交 Router 标 `blocked`，不往提示词里加禁令（[ROLES.md](ROLES.md)「程序保证与模型产出分开验收」）。
+- **阻塞证据**: 五类输入各请求 3 次，共 15 次真实 `guide.prompt` 调用；`missing` 仅 4/9 达标（门槛 6/9），其中条件遗漏 0/3；`contradicted` 2/3、`covered` 3/3。另有一次 upstream rate limit，按未达标计。未实现 UI/产品代码，未调提示词。逐条盲判、输入、prompt 与原始输出：`.tmp/evidence/milestone-62/preflight-assessment.md`、`.tmp/evidence/milestone-62/preflight-results.json`。
 - **Worker 门禁**: 手动破壁各一次后恢复，对应断言须各自变红：焦点顺序改成 `missing` 优先；出题请求混入课题对话、画像或其他要点；校验不过时没有用固定问法；作答回合带上 `instruction`；向导未连接时允许提交。另交付两个宿主上可执行的受控入口，让出题请求失败一次、其余请求照常走真实 Agent。
 - **Tester 验收**: Web 与 Obsidian 各一次，用真实 Agent。三类复述（说反一条、漏掉一条、全部说到）各做一遍：题目出现在卡片里，作答后对话里出现题目、回答与锚点，向导正常回应；跳过一次；断开向导后核对提交不可用及原因；经 Worker 的受控入口核对固定问法。另按 3.3「边界」抽样九道题，原始输出全部归档，不达标的样本写进已知缺口，不据此打回。
 - **核销**: Router 把 LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3.3 第 5 步与本任务的回归测试。
