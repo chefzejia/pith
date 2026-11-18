@@ -41,8 +41,8 @@
 ---
 
 ## [Milestone #63] 费曼复述：看完原文再复述一次
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 68c1a0e99678dba9661d18ba68f75c3e46b6a9c4
 - **Depends-On**: #61
 - **发布版本**: v0.3.0
 - **Features**: F-FEYNMAN
@@ -66,6 +66,7 @@
   6. `manifest.json` 与 `package.json` 的 `version` 改为 `0.3.0`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `followUp`、`recallFollowUp`、`followUpPractice`、「本回合指令」，也没有名为 `instruction` 的字段或参数（提示词正文里的英文单词不算）。手动破壁各一次后恢复，对应断言须各自变红：「上次」匹配不比较 `passage`；「再复述一次」后结果没有收起或原文没有遮住；保存复述后发起了课题回合；`result` 缺 `passage`；Web 端关闭卡片后服务端请求没有中止。
 - **结案**：F-FEYNMAN 的「用户能做什么」改为「费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态」，其余列按 ROLES「功能台账同步」更新。LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3-toolkits 3.3 与上面的守卫测试。通过后按 ROLES「发布步骤」发布 v0.3.0。
+- **结果**：真实 Web 与 Obsidian 七项通过，包括复练、仅变化项显示上次、离线重开不重复入账、旧记录及关卡取消。Cleanup PASS。报告与截图：`.tmp/evidence/milestone-63/tester-recheck-2/`。默认 `ganfan-media` 已安装，附注标签 `v0.3.0` 指向 Verified-Commit，安装件 SHA-256 见 `.tmp/evidence/milestone-63/delivery.txt`。
 
 ---
 

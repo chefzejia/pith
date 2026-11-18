@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.2.0（#64 @00e7612，已安装默认 ganfan-media Vault；附注标签 `v0.2.0`）。费曼保留 v0.1.0 行为及 F2 已知缺口，由 #63 重做。
+- **当前发布版本**：v0.3.0（#63 @68c1a0e，已安装默认 ganfan-media Vault；附注标签 `v0.3.0`）。费曼复述不再自动发起向导追问。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
 
@@ -25,7 +25,7 @@
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | v0.1.0 已安装，待开始 |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
-| v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已排期 |
+| v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已排期 |
 | v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
@@ -98,7 +98,7 @@
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | F-TOOLKIT-MENU | 在顶栏开关训练工具；向导也可以按目标增删 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮使用费曼入口；工具增删沿用 #52，仅 Web 实际增删，原生只核对菜单内容 |
-| F-FEYNMAN | 费曼复述：先抽要点，提交后逐条对照原文，再自动发起一次向导追问 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 保存、自动回合与实际补答通过；追问仍在向导回合，首问 F2 仍失败：原生先给 missing 完整答案，Web 先指认遗漏，也可能多带小问；按 Brain 裁定作为已知缺口发布；#63 去掉自动追问、改为「再复述一次」（v0.3.0）；Web 入口不传取消信号（#63 修复），三类/故障/取消专项沿用 #53 |
+| F-FEYNMAN | 费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态 | 已验收 | ✓ / ✓ | #63 @68c1a0e（11-19） | 双端真实复练、离线保存及取消通过；写入失败和在线故障重试只由受控回归覆盖。 |
 | F-SHADOWING | 影子跟读：四阶练习、录音转写、漏词标在原句上 | 待复验 | ○ / ○ | #46 @6c7ea68（11-12，受控音频与转写） | #46 用的是静音音频和合成的麦克风输入 |
 
 ### 结题与画像
@@ -198,7 +198,7 @@
 | F-GUIDE-INGEST | [wave4-trackA-speech-timeline-ingest.test.ts](../tests/wave4-trackA-speech-timeline-ingest.test.ts)、[audit-4e6422f.test.ts](../tests/audit-4e6422f.test.ts) |
 | F-MEDIA-CORPUS | [task37-media.test.ts](../tests/task37-media.test.ts)、[task39-browser.test.ts](../tests/task39-browser.test.ts) |
 | F-TOOLKIT-MENU | [toolkit-menu-browser.test.ts](../tests/toolkit-menu-browser.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts) |
-| F-FEYNMAN | [task53-feynman.test.ts](../tests/task53-feynman.test.ts)、[task53-feynman-browser.test.ts](../tests/task53-feynman-browser.test.ts)、[task53-prepare-cancellation.test.ts](../tests/task53-prepare-cancellation.test.ts) |
+| F-FEYNMAN | [task53-feynman.test.ts](../tests/task53-feynman.test.ts)、[task53-feynman-browser.test.ts](../tests/task53-feynman-browser.test.ts)、[task53-prepare-cancellation.test.ts](../tests/task53-prepare-cancellation.test.ts)、[boundaries.test.ts](../tests/boundaries.test.ts) |
 | F-SHADOWING | [task34-shadowing-browser.test.ts](../tests/task34-shadowing-browser.test.ts)、[task18-shadowing-multilingual.test.ts](../tests/task18-shadowing-multilingual.test.ts) |
 | F-SETTLE | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts) |
 | F-PROFILE-OBS | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[audit11713-recovery.test.ts](../tests/audit11713-recovery.test.ts)、[audit11713-browser.test.ts](../tests/audit11713-browser.test.ts) |
