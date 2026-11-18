@@ -49,6 +49,12 @@ Pith 的输入不局限于电子书，[`stage-reader`](../../src/plugins/stage-r
 - **正文与非正文严格标记（`data-prose`）**：标题、普通段落、引文标记为 `data-prose="true"`；代码块、数学公式、表格、YAML Frontmatter、教学卡片以及 `interline` 工具嵌入的译文节点一律标记为 `data-prose="false"`。下游 TTS 伴读仅提取 `data-prose="true"` 的纯粹原文朗读。
 - **内嵌教学块协议（[`extractTeachingBlocks`](../../src/plugins/stage-reader/teachingBlocks.ts)）**：识别讲义中的 ````pith-teaching```` 围栏块与 `> [!reflection|hint|checkpoint|explanation]` Callout，渲染为 `<section class="pith-teaching-block" data-teaching-kind="..." data-locator="text:line:<n>" data-prose="false">`，供向导在定制讲义中插入思考卡、提示与自测锚点而不被 TTS 误读。
 - **文本重定位容错（[`matchTextAnchor`](../../src/plugins/stage-reader/textAnchor.ts)）**：优先按 `locator` 精确匹配，当文本前部发生插入/删除导致偏移漂移时，回退至 `quote + prefix + suffix` 上下文匹配度与最小距离评分重定位。
+- **讲义里的出处**：讲义可以引用本课题材料里的文件，有三种写法，都由第 2 节所说的那一份出处识别函数解析：
+  - `path:line`：仓库材料里的文件和行，只在这一讲依据的版本里解析；
+  - `文件名#page=N`：PDF、CBZ 或固定版 EPUB 的第 N 页，对应坐标 `page:N`；
+  - `文件名#t=秒` 或 `文件名#t=分:秒`：音视频的时间点，对应坐标 `time:秒`。
+
+  `#page=` 沿用 PDF 打开参数的写法，`#t=` 沿用 W3C 媒体片段的写法。文件名必须是本课题引用的某份材料里的文件；页码或时间超出文件范围、文件名对不上时，按普通文字显示。同名文件出现在多份材料里时，和仓库出处一样，每份材料一个可点的出处，标出材料标题。点击后在舞台打开这份文件并定位到该坐标；音视频定位后不自动播放。
 
 ---
 

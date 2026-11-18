@@ -26,7 +26,7 @@
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | v0.1.0 已安装，待开始 |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲），实现与发布验收在 #64。费曼保持 v0.1.0 行为，不阻塞发布。验收用你要学的仓库：magpie、deepseek-harness（本地）与 herdr、t3code（GitHub） | 实现与发布验收中（#64） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已排期 |
-| v0.4.0 · 读书与阅读规划 | 电子书导入（EPUB、PDF 已验收，CBZ 没有验收记录）；向导按目录规划阅读路线；今日下一步复验（F-NEXT-ACTION）。「规划阅读任务」要做成什么样，等用过 v0.1.0 再定 | 待定义 |
+| v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已排期 |
 | v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
@@ -78,6 +78,8 @@
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 待复验 | ○ / ○ | 无 | #60 原生玩具路径通过；真实 magpie 双宿主调整未完成，Web 无写入，原生样本在调整前取消；详见 `.tmp/evidence/task-60/tester/adjustment-v2/final-report.md`，批量调整由 #64 改为程序判断受影响的讲、逐讲请向导重写。 |
+| F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 契约 | – / – | 无 | — |
+| F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 契约 | – / – | 无 | — |
 | F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #58 @dc0f7ae（11-18；搜索主链6354ed4，表格有限复验dc0f7ae） | GUI 成功 result 原始字节未完整导出，过滤/限额/准确作用域另有真实 Git/MCP 回归；保留上游中断与模型计数/解释偏差；仅核对静态调用，计时为 warm GUI 观测 |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
@@ -86,7 +88,7 @@
 | F-SHELVE | 搁置与恢复课题，不经向导 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 离线搁置、恢复、重开后材料/记录/历史保留；没有扩展后台下一步矩阵 |
 | F-NEXT-ACTION | 今日下一步：后台为进行中的课题生成一个 15 分钟内的行动 | 待复验 | ○ / ○ | #47 @d9a1c73（11-12，仅 Web） | — |
 | F-OFFLINE | 没有向导时：投喂、阅读、记录、搁置照常；立项、课题回合、结题与行间翻译不可用并说明原因 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | F1 已在真实活课题复验：发送与历史动作禁用有原因，草稿引用保留，恢复后真实回合完成；原生当时无 retry/choices 且 quick 收起，这些由 Web 实际历史覆盖；原生未额外观察短英文链接的行间离线说明 |
-| F-GUIDE-INGEST | 向导抓取公开网页或讨论，导入为材料并在课题里引用 | 待复验 | ○ / ○ | #50 @0d3aab3（11-13，仅 Web） | — |
+| F-GUIDE-INGEST | 向导只读浏览公开网页；把选中的网页与 PDF（一次最多 20 个链接）导入为一份材料，并在课题里引用 | 待复验 | ○ / ○ | #50 @0d3aab3（11-13，仅 Web） | — |
 | F-MEDIA-CORPUS | 向导搜索并拉取公开音视频与字幕，挂上影子跟读，切片导读写成讲义 | 待复验 | ○ / ○ | #39 @7418a54（11-11，受控下载与转写） | — |
 
 ### 训练工具
@@ -183,6 +185,8 @@
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
 | F-LESSON-VERSION | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
+| F-SOURCE-COURSES | — |
+| F-LESSON-CITE | — |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |
