@@ -44,7 +44,7 @@
 | F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 首页裸链接与课题内入口已覆盖；只用过 example.com 等少量公开页面，未扩外网故障矩阵 |
 | F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #59 @71260bf（11-18） | 双端 magpie/deepseek 副本绑定、同提交复用和嵌套阅读通过；原生补验课题内添加及复用通过。先前三轮原生立项失败的原因未知；Cleanup PASS |
 | F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 已验收 | ✓ / ✓ | #59 @71260bf（11-18） | 双端公网导入、嵌套源码、复用、浅克隆无检出、pin、自然取消与错误通过；原生补验真实立项及课题内添加通过，立项耗时约 581 秒。旧 Agent 400 原因未知；私有仓成功及完整原始 MCP result 未覆盖；Cleanup PASS |
-| F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 契约 | – / – | 无 | — |
+| F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 待复验 | ○ / ○ | 无 | #60 两端版本导入通过；完整 Web 与 Obsidian 课题内版本路径留待 #61。 |
 | F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 宽窄变化用视口模拟，没有拖拽系统窗口 |
 | F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两份 #51 旧形状夹具被拒且原字节未变、合法项可用；不是旧应用生成的完整历史库，没有迁移或修复 |
 
@@ -76,7 +76,7 @@
 | F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 没有自然观察到先反问；创建前停止沿用 #52，工具生效后的停止不承诺删除已写课题 |
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
-| F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本后，基于旧版本的讲可以「按新版本调整」，向导只重写受影响的讲 | 契约 | – / – | 无 | — |
+| F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本后，基于旧版本的讲可以「按新版本调整」，向导只重写受影响的讲 | 待复验 | ○ / ○ | 无 | #60 原生玩具路径通过；真实 magpie 双宿主调整未完成，Web 无写入，原生样本在调整前取消；详见 `.tmp/evidence/task-60/tester/adjustment-v2/final-report.md`，由 #61 复验。 |
 | F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #58 @dc0f7ae（11-18；搜索主链6354ed4，表格有限复验dc0f7ae） | GUI 成功 result 原始字节未完整导出，过滤/限额/准确作用域另有真实 Git/MCP 回归；保留上游中断与模型计数/解释偏差；仅核对静态调用，计时为 warm GUI 观测 |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
@@ -163,7 +163,7 @@
 | F-INTAKE-LINK | [task41-reading.test.ts](../tests/task41-reading.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
 | F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
 | F-INTAKE-GITHUB | [task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
-| F-REPO-VERSIONS | — |
+| F-REPO-VERSIONS | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
 | F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts) |
 | F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts) |
 | F-READ-MD | [track2-reader-speech.test.ts](../tests/track2-reader-speech.test.ts)、[wave2-trackA-plugins.test.ts](../tests/wave2-trackA-plugins.test.ts) |
@@ -181,7 +181,7 @@
 | F-INTAKE-TOPIC | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
-| F-LESSON-VERSION | — |
+| F-LESSON-VERSION | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |

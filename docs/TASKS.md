@@ -134,9 +134,10 @@
 ---
 
 ## [Milestone #60] 仓库版本与讲义绑定
-- **Status**: pending
+- **Status**: verified
 - **Depends-On**: #59
 - **Features**: F-REPO-VERSIONS、F-LESSON-VERSION
+- **Verified-Commit**: `1280386219246c965e59080463e65ca562c921c1`
 - **Updated**: 2026-11-16
 - **Scope**: `src/core/**`、`src/shells/**`、`src/workbench/**`、`src/plugins/guide-acp/**`、`src/plugins/stage-reader/**`、`tests/**`
 - **契约**:
