@@ -142,7 +142,7 @@ Pith 工具有没有被调用、结果是什么，以工具端点为准，不以
 | :--- | :--- |
 | 握手（`initialize`、`session/new`、配置项） | 各 60 秒（[`AGENT_HANDSHAKE_TIMEOUT_MS`](../../src/plugins/guide-acp/acpSession.ts)） |
 | 前台回合的 `session/prompt` | 不设期限，用户用停止按钮结束 |
-| 后台一次性请求：下一步行动、行间翻译、复述要点、对照与追问出题 | `guide-acp` 设置里的 `timeoutMs`（默认 300 秒，范围 5 到 600 秒） |
+| 后台一次性请求：下一步行动、行间翻译、复述要点与对照 | `guide-acp` 设置里的 `timeoutMs`（默认 300 秒，范围 5 到 600 秒） |
 
 后台一次性请求经 `guide.prompt` 服务发出：一段提示词进，一段文本出，不挂工具端点，不带画像与对话。其他插件（`toolkit-interline`、`toolkit-feynman`）通过这个服务使用本机 Agent，不导入 `guide-acp`。
 

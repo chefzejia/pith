@@ -87,7 +87,7 @@
 └── _cache/                         # 可删除，删除后自动重建
     ├── effects.json                # 后台任务队列
     ├── interline/<material>/<file>.<lang>.unit-<n>.json
-    ├── feynman/<source>/<file>.<passage-sha>.json   # 复述要点清单
+    ├── feynman/<source>/<file>.<passage-hash>.json  # 复述要点清单
     └── covers/<material>.<ext>     # 看板封面缩略图
 ```
 
