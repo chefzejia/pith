@@ -411,7 +411,6 @@ export interface LocalAcpGuideProviderOptions {
     readonly userMessage: string;
     readonly conversation?: readonly GuideHistoryTurn[];
     readonly anchor?: SelectionAnchor;
-    readonly instruction?: string;
   }) => string;
 }
 
@@ -449,7 +448,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
         profileMarkdown: profile.markdown, topic, materials,
         availableToolkits: this.options.getToolkits?.().filter(toolkit => toolkit.role === "training"),
         userMessage: input.text, conversation: selectConversationHistory(input.history),
-        anchor: input.anchor, instruction: input.instruction,
+        anchor: input.anchor,
       });
       let count = 0;
       const nextIndex = () => count++;

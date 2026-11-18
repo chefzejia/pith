@@ -13,6 +13,7 @@ import { renderNavigation, type NavigationMaterial, type NavigationLesson } from
 import { noteEntries, renderGuide, type MaterialNotes } from "./view/guide.ts";
 import { GUIDE_UNAVAILABLE_REASON } from "./guideAvailability.ts";
 import { renderInlineToolkit, renderToolkitMenu } from "./view/toolkit.ts";
+import { previousRecall } from "./view/recall.ts";
 import { PlaybackDeck } from "./view/playback.ts";
 import { RecallPractice } from "./recallPractice.ts";
 import type { FeynmanContrast, RecallResult } from "../plugins/toolkit-feynman/index.ts";
@@ -64,10 +65,9 @@ export interface ObsidianViewActions {
   sendGuide?(text: string, anchor: SelectionAnchor | undefined, saveAsNote: boolean): Promise<void>;
   stopGuide?(): Promise<void>;
   retryGuide?(turnId: string): Promise<void>;
-  savePractice?(body: string, anchor: SelectionAnchor | undefined, result?: RecallResult): Promise<void>;
+  savePractice?(body: string, anchor: SelectionAnchor | undefined, result?: RecallResult): Promise<Note>;
   prepareRecall?: FeynmanContrast["prepare"];
   compareRecall?: FeynmanContrast["compare"];
-  followUpPractice?(body: string, anchor: SelectionAnchor, instruction: string): Promise<void>;
   mountToolkit?(id: string): Promise<void>;
   toggleToolkit?(id: string, enabled: boolean): Promise<void>;
   guideVisibilityChanged?(visible: boolean): void | Promise<void>;
@@ -466,7 +466,7 @@ export class PithWorkbenchView {
       }
     }
   }
-  dispose(): void { this.disposed = true; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
+  dispose(): void { this.disposed = true; this.recall?.dispose(); this.recall = undefined; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
   private clearAudioAsset(): void { this.assetGeneration++; const media = this.assetAudio; this.assetAudio = null; if (media) { media.pause(); media.removeAttribute("src"); media.load(); } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; this.playback.renderCueMarkers(); }
   private async loadAsset(): Promise<void> {
@@ -652,17 +652,18 @@ export class PithWorkbenchView {
       const recall = new RecallPractice(this.toolkitTarget, this.toolkitAnchor!, {
         prepare: (source, signal) => { if (!this.actions.prepareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.prepareRecall(source, signal); },
         compare: (source, points, produced, signal) => { if (!this.actions.compareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.compareRecall(source, points, produced, signal); },
-        capture: (body, anchor, result) => { if (!this.actions.savePractice) return Promise.reject(new Error("实训保存不可用")); return this.actions.savePractice(body, anchor, result); },
-        followUp: async (body, instruction, anchor) => {
-          if (this.disposed || this.recall !== recall || !this.inlineToolkit) return;
-          if (!this.actions.followUpPractice) throw new Error("向导不可用");
-          this.guideTab = "chat"; this.setGuideVisible(true); this.actions.guideVisibilityChanged?.(true);
-          await this.guideTurn(body, () => this.actions.followUpPractice!(body, anchor, instruction));
+        capture: async (body, anchor, result) => {
+          if (!this.actions.savePractice) throw new Error("实训保存不可用");
+          const note = await this.actions.savePractice(body, anchor, result);
+          await this.refreshGuide().catch(error => { if (!this.disposed) this.tip(error instanceof Error ? error.message : String(error)); });
+          return note;
         },
       }, () => { if (!this.disposed && this.recall === recall && this.inlineToolkit) { this.readToolkit(); this.renderToolkit(); } });
       this.recall = recall;
     }
-    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus, recall: this.recall });
+    const recall = this.recall;
+    const previous = recall?.result && recall.recordId ? previousRecall(this.guideData.notes, recall.recordId, recall.result.passage) : undefined;
+    this.toolkitLenses = renderInlineToolkit({ block: this.toolkitBlock!, inline: this.inlineToolkit!, source: this.toolkitSource!, display: this.toolkitDisplay!, toolkit, stage: this.toolkitStage, target: this.toolkitTarget, reveal: this.toolkitReveal, recorded: Boolean(this.recordedUrl), result: this.toolkitResult, produced: this.toolkitProduced, status: this.toolkitStatus, recall, previous });
     this.updateCueButtons();
   }
   private toolkitDraftKey(): string { return JSON.stringify([this.toolkitId, this.toolkitAnchor?.file, this.toolkitAnchor?.locator, this.toolkitAnchor?.quote]); }
@@ -739,6 +740,14 @@ export class PithWorkbenchView {
     }
     if (button.hasAttribute("data-toolkit-close")) { this.closeInlineToolkit(); return; }
     if (button.hasAttribute("data-toolkit-reveal")) { this.readToolkit(); this.toolkitReveal = !this.toolkitReveal; this.renderToolkit(); return; }
+    if (button.hasAttribute("data-toolkit-repeat")) {
+      if (!this.recall?.repeat()) return;
+      this.toolkitReveal = false; this.toolkitProduced = ""; this.toolkitStatus = "";
+      this.toolkitDrafts.delete(this.toolkitDraftKey());
+      this.renderToolkit();
+      this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]")?.focus();
+      return;
+    }
     if (button.dataset.citationPath && button.dataset.citationMaterial && button.dataset.citationLine) { try { await this.actions.openFile(button.dataset.citationPath, { kind: "material", materialId: button.dataset.citationMaterial }); const suffix = `#L${button.dataset.citationLine}-L${button.dataset.citationLine}`; const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator?.endsWith(suffix)); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.noteId) { const owner = button.dataset.noteOwner ?? "primary", note = noteEntries(this.guideData.notes, this.materialNotes).find(item => item.owner === owner && item.note.id === button.dataset.noteId)?.note; if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile || !sameSource(anchor.source, this.currentSource)) await this.actions.openFile(anchor.file, anchor.source); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.noteOwner === owner && item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) { if (this.paged) { navigateReaderTarget(this.reader, target, true); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else target.scrollIntoView({ block: "center" }); } else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideLesson) { try { await this.actions.openFile(button.dataset.guideLesson, { kind: "lesson" }); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
@@ -781,10 +790,9 @@ export class PithWorkbenchView {
         } else if (this.recall) {
           const recall = this.recall;
           this.toolkitStatus = "";
-          if (this.guideSending) throw new Error("向导正在回应上一条消息");
-          await recall.submit(this.toolkitProduced, toolkit);
+          await recall.submit(this.toolkitProduced);
           if (this.disposed || this.recall !== recall) return;
-          await this.refreshGuide();
+          if (recall.result) this.toolkitReveal = true;
         }
         if (!this.disposed && version === this.toolkitVersion) this.renderToolkit();
       } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); if (button.isConnected) button.disabled = false; }

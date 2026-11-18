@@ -489,8 +489,8 @@ test("background next action rejects tool output without changing learner eviden
   } finally { runtime.stop(); }
 });
 
-test("practice prompt keeps its anchor, explanation and rubric", () => {
+test("scene prompt keeps the user's message and selection anchor", () => {
   const topic = { id: "t", title: "Practice", target: "Explain", status: "exploring" as const, materialIds: [], lessons: [], notes: [], toolkits: [], createdAt: "", updatedAt: "" };
-  const prompt = buildScenePrompt({ profileMarkdown: "", topic, materials: [], userMessage: "自己的复述", anchor: { source: { kind: "lesson" }, file: "test.md", locator: "text:offset:0", quote: "目标原文" }, instruction: "指出前提并给出反例" });
-  assert.match(prompt, /目标原文/); assert.match(prompt, /自己的复述/); assert.match(prompt, /本回合指令/); assert.match(prompt, /指出前提并给出反例/);
+  const prompt = buildScenePrompt({ profileMarkdown: "", topic, materials: [], userMessage: "自己的复述", anchor: { source: { kind: "lesson" }, file: "test.md", locator: "text:offset:0", quote: "目标原文" } });
+  assert.match(prompt, /目标原文/); assert.match(prompt, /自己的复述/);
 });

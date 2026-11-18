@@ -423,3 +423,23 @@ test("batch lesson adjustment is absent from product source", () => {
   const forbidden = /\b(?:ADJUST_LESSONS_MESSAGE|adjustLessons)\b/;
   for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(SRC, file));
 });
+
+test("source has no retired toolkit follow-up or instruction channel", () => {
+  const forbidden = /followUp|recallFollowUp|followUpPractice|本回合指令/;
+  for (const path of walkTsFiles(SRC)) {
+    const source = readFileSync(path, "utf8");
+    assert.doesNotMatch(source, forbidden, relative(SRC, path));
+    const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) || ts.isStringLiteral(node)) {
+        const parent = node.parent;
+        const field = ("name" in parent && parent.name === node) ||
+          (ts.isElementAccessExpression(parent) && parent.argumentExpression === node) ||
+          (ts.isComputedPropertyName(parent) && parent.expression === node);
+        if (field) assert.notEqual(node.text, "instruction", relative(SRC, path) + ":" + (file.getLineAndCharacterOfPosition(node.getStart()).line + 1));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+  }
+});

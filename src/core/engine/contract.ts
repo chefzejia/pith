@@ -61,7 +61,7 @@ export interface GuideTurn {
   readonly status: TurnStatus;
   readonly startedAt: string;
   readonly endedAt?: string;
-  readonly user: { readonly text: string; readonly anchor?: SelectionAnchor; readonly instruction?: string };
+  readonly user: { readonly text: string; readonly anchor?: SelectionAnchor };
   readonly steps: readonly TurnStep[];
   readonly choices: readonly string[];
   readonly error?: string;
@@ -73,7 +73,7 @@ export interface TurnOptions {
 }
 
 export interface GuideProvider {
-  run(input: { scope: { kind: "intake"; materialIds: readonly string[] } | { kind: "topic"; topicId: string }; text: string; anchor?: SelectionAnchor; instruction?: string; history: readonly GuideTurn[] }, options: { signal: AbortSignal; onStep(step: TurnStep, index: number): void; onChoices(choices: readonly string[]): void }): Promise<{ readonly status: "completed" | "stopped" } | { readonly status: "failed"; readonly error: string }>;
+  run(input: { scope: { kind: "intake"; materialIds: readonly string[] } | { kind: "topic"; topicId: string }; text: string; anchor?: SelectionAnchor; history: readonly GuideTurn[] }, options: { signal: AbortSignal; onStep(step: TurnStep, index: number): void; onChoices(choices: readonly string[]): void }): Promise<{ readonly status: "completed" | "stopped" } | { readonly status: "failed"; readonly error: string }>;
 }
 
 export interface AttentionCompassSnapshot {
@@ -106,7 +106,7 @@ export interface AttentionEngine {
   }): Promise<Note>;
 
   getConversation(topicId: string): Promise<readonly GuideTurn[]>;
-  runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor; instruction?: string }, options?: TurnOptions): Promise<GuideTurn>;
+  runTurn(input: { topicId: string; text: string; anchor?: SelectionAnchor }, options?: TurnOptions): Promise<GuideTurn>;
   retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn>;
 
   /** Durable Effects queue management. */

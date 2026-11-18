@@ -13,6 +13,14 @@ function component(value: string): string {
   return value;
 }
 
+function turnUser({ text, anchor }: GuideTurn["user"]): GuideTurn["user"] {
+  return { text, ...(anchor ? { anchor } : {}) };
+}
+
+function conversationTurn(turn: GuideTurn): GuideTurn {
+  return { ...turn, user: turnUser(turn.user) };
+}
+
 export class DefaultAttentionEngine implements AttentionEngine {
   private readonly store: WorkspaceStore;
   private readonly storage: WorkspaceStoragePort;
@@ -92,12 +100,12 @@ export class DefaultAttentionEngine implements AttentionEngine {
     return this.queue.run(async () => {
       const turns = await this.readArray<GuideTurn>(path);
       const active = runningTopics.get(this.storage.mutationIdentity ?? this.storage);
-      return turns.map(turn => turn.status === "running" && !active?.has(id) ? { ...turn, status: "stopped", error: "进程中断" } : turn);
+      return turns.map(conversationTurn).map(turn => turn.status === "running" && !active?.has(id) ? { ...turn, status: "stopped", error: "进程中断" } : turn);
     });
   }
   runTurn(input: Parameters<AttentionEngine["runTurn"]>[0], options?: TurnOptions): Promise<GuideTurn> {
     if (!input.text.trim()) throw new Error("Message is empty");
-    return this.executeTurn(input.topicId, { text: input.text, ...(input.anchor ? { anchor: input.anchor } : {}), ...(input.instruction ? { instruction: input.instruction } : {}) }, undefined, options);
+    return this.executeTurn(input.topicId, turnUser(input), undefined, options);
   }
   async retryTurn(topicId: string, turnId: string, options?: TurnOptions): Promise<GuideTurn> {
     const prior = (await this.getConversation(topicId)).find(turn => turn.id === turnId);
@@ -123,7 +131,7 @@ export class DefaultAttentionEngine implements AttentionEngine {
         const index = replaceId === undefined ? -1 : turns.findIndex(item => item.id === replaceId);
         if (replaceId !== undefined && (index < 0 || !["stopped", "failed", "running"].includes(turns[index]!.status))) throw new Error("Turn cannot be retried");
         if (index >= 0) { receipts = retryReceipts(turns[index]!); turn = { ...turn, steps: receipts }; }
-        history = index < 0 ? [...turns] : turns.slice(0, index);
+        history = (index < 0 ? turns : turns.slice(0, index)).map(conversationTurn);
         if (index < 0) turns.push(turn); else turns[index] = turn;
         await this.storage.writeText(path, `${JSON.stringify(turns, null, 2)}\n`);
       });

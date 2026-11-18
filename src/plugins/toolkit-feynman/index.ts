@@ -1,5 +1,5 @@
 import { registerPlugin, type HostPort, type AgentPromptService, type ToolkitStage, type ToolkitDescriptor, type Topic } from "../../core/index.ts";
-import { createFeynmanContrast, recallFollowUp } from "./contrast.ts";
+import { createFeynmanContrast } from "./contrast.ts";
 export * from "./contrast.ts";
 
 export function feynmanInUse(topics: readonly Topic[]): number {
@@ -29,16 +29,16 @@ export function transformCue(text: string, stage: ToolkitStage): string {
 
 export const feynmanToolkit: ToolkitDescriptor = {
   id: "feynman", role: "training", label: "费曼复述", category: "comprehension",
-  whenToUse: "架构设计、源码机制、核心概念或理论需要合书复述与苏格拉底反例追问时挂载", compatibleStages: ["reader", "timeline"], uiProtocol: "inline-stage-lens",
+  whenToUse: "架构设计、源码机制、核心概念或理论需要合书复述并逐条对照原文时挂载", compatibleStages: ["reader", "timeline"], uiProtocol: "inline-stage-lens",
   stages: ["blind-produce"],
-  transformCue, followUp: recallFollowUp,
+  transformCue,
   quickActions: [{ id: "feynman-coach", label: "费曼深水区追问", prompt: "请审视我的费曼复述，指出逻辑跳跃或概念遗漏，并用一个反例追问我。" }],
 };
 
 registerPlugin({
   id: "toolkit-feynman", api: "^1", requires: ["stage.reader"], provides: ["toolkit.feynman"], essential: false,
   name: "Feynman Recall Toolkit",
-  description: "Blind explanation and guided reflection",
+  description: "Blind explanation and source comparison",
   oneInUse: "1 topic using feynman", manyInUse: "{n} topics using feynman",
   apply(ctx) {
     ctx.provide("toolkit.feynman", feynmanToolkit);

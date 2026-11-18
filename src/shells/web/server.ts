@@ -356,10 +356,24 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         return send(res, 200, { text: parts.join("\n"), commitSha: material.commitSha });
       }
       if (method === "POST" && (url.pathname === "/api/feynman/prepare" || url.pathname === "/api/feynman/compare")) {
-        const data = await body(req), topic = await store.getTopic(str(data, "topicId"));
-        if (!topic || !topic.toolkits.includes("feynman")) throw new Error("费曼未挂载");
-        const source = str(data, "source"), points = await recall.prepare(source);
-        return send(res, 200, url.pathname.endsWith("/prepare") ? points : await recall.compare(source, points, str(data, "produced")));
+        if (!options.promptService && !guideAvailable()) return send(res, 503, { error: GUIDE_UNAVAILABLE_REASON });
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        res.once("close", cancel);
+        try {
+          if (res.destroyed) cancel();
+          const data = await body(req), topic = await store.getTopic(str(data, "topicId"));
+          if (!topic || !topic.toolkits.includes("feynman")) throw new Error("费曼未挂载");
+          const { signal } = controller;
+          const source = str(data, "source"), points = await recall.prepare(source, signal);
+          signal.throwIfAborted();
+          const result = url.pathname.endsWith("/prepare") ? points : await recall.compare(source, points, str(data, "produced"), signal);
+          if (!signal.aborted) return send(res, 200, result);
+          return;
+        } catch (error) {
+          if (!controller.signal.aborted) throw error;
+          return;
+        } finally { res.off("close", cancel); }
       }
       if (method === "POST" && (url.pathname === "/api/toolkit/diagnose" || url.pathname === "/api/toolkit/transform")) {
         const data = await body(req);
@@ -469,13 +483,13 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (!guideAvailable()) return send(res, 503, { error: GUIDE_UNAVAILABLE_REASON });
         if (guideTurns.has(topicId)) return send(res, 409, { error: "Topic already has a running turn" });
         const retryId = data.turnId === undefined ? undefined : str(data, "turnId");
-        const text = retryId ? undefined : str(data, "text"), selection = anchor(data.anchor), instruction = data.instruction === undefined ? undefined : str(data, "instruction");
+        const text = retryId ? undefined : str(data, "text"), selection = anchor(data.anchor);
         const controller = new AbortController(); guideTurns.set(topicId, controller);
         const stream = req.headers.accept === "text/event-stream";
         if (stream) res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
         try {
           const turnOptions = { signal: controller.signal, onUpdate: (turn: import("../../core/index.ts").GuideTurn) => { if (stream && !res.destroyed) res.write(`data: ${JSON.stringify(turn)}\n\n`); } };
-          const result = retryId ? await engine.retryTurn(topicId, retryId, turnOptions) : await engine.runTurn({ topicId, text: text!, anchor: selection, instruction }, turnOptions);
+          const result = retryId ? await engine.retryTurn(topicId, retryId, turnOptions) : await engine.runTurn({ topicId, text: text!, anchor: selection }, turnOptions);
           if (stream) { res.end(); return; }
           return send(res, 201, result);
         } catch (error) { if (stream) { res.write(`event: error\ndata: ${JSON.stringify(error instanceof Error ? error.message : String(error))}\n\n`); res.end(); return; } throw error; }

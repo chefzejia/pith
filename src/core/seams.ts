@@ -240,7 +240,6 @@ export interface ToolkitDescriptor {
   readonly stages: readonly ToolkitStage[];
   transformCue(text: string, stage: ToolkitStage): string;
   diagnose?(targetText: string, producedText: string): ToolkitDiagnosis;
-  followUp?(result: Readonly<Record<string, unknown>>): string;
   quickActions: readonly { id: string; label: string; prompt: string }[];
 }
 
@@ -345,7 +344,6 @@ export interface GuideAgentService {
     readonly conversation?: readonly { readonly role: "user" | "guide"; readonly text: string }[];
     readonly anchor?: SelectionAnchor;
     readonly availableToolkits?: readonly Pick<ToolkitDescriptor, "id" | "role" | "label" | "category" | "whenToUse">[];
-    readonly instruction?: string;
   }): string;
 }
 

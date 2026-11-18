@@ -8,7 +8,7 @@ import { renderRepositoryText } from "../../workbench/repositoryIntake.ts";
 import type { LessonVersions } from "../../workbench/lessonVersions.ts";
 import { renderFile } from "../../plugins/stage-reader/index.ts";
 
-type Request = <T>(path: string, data?: unknown) => Promise<T>;
+type Request = <T>(path: string, data?: unknown, signal?: AbortSignal) => Promise<T>;
 
 export interface WebWorkbenchOptions {
   root: HTMLElement;
@@ -105,10 +105,9 @@ export class WebWorkbench {
       stopGuide: async () => { await options.request("/api/chat/stop", { topicId }); },
       retryGuide: async turnId => { await streamTurn({ turnId }); await this.session.refresh(); },
       toggleToolkit: async (id, enabled) => { if (!toolkits.some(toolkit => toolkit.id === id && toolkit.role === "training")) throw new Error("Invalid toolkit ID"); const state = await options.request<{ compass: { exploring: readonly Topic[]; shelved: readonly Topic[]; settled: readonly Topic[] } }>("/api/state"); const topic = [...state.compass.exploring, ...state.compass.shelved, ...state.compass.settled].find(item => item.id === topicId); if (!topic) throw new Error("课题不存在"); const selected = topic.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await options.request<Topic>(`/api/topics/${encodeURIComponent(topicId)}/toolkits`, { toolkits: selected }); this.view.setToolkits(updated.toolkits); },
-      savePractice: async (body, anchor, result) => { await options.request("/api/notes", { topicId, kind: "practice", body, anchor, result }); },
-      prepareRecall: source => options.request("/api/feynman/prepare", { topicId, source }),
-      compareRecall: (source, _points, produced) => options.request("/api/feynman/compare", { topicId, source, produced }),
-      followUpPractice: async (body, anchor, instruction) => { const turn = await streamTurn({ text: body, instruction, anchor }); if (turn?.status !== "completed") throw new Error(turn?.error || "向导追问未完成"); },
+      savePractice: (body, anchor, result) => options.request("/api/notes", { topicId, kind: "practice", body, anchor, result }),
+      prepareRecall: (source, signal) => options.request("/api/feynman/prepare", { topicId, source }, signal),
+      compareRecall: (source, _points, produced, signal) => options.request("/api/feynman/compare", { topicId, source, produced }, signal),
       setMaterialAids: async aids => { if (!this.session.material) throw new Error("材料不存在"); await options.request("/api/materials/aids", { materialId: this.session.material.id, aids }); await this.session.refresh(); },
       saveLocator: async locator => { if (!this.session.source) return; await options.request("/api/reading-locator", { ...(this.session.source.kind === "lesson" ? { topicId } : { materialId: this.session.source.materialId }), file: this.session.file, locator }); },
       prepareInterline: async (units: readonly InterlineViewUnit[], index, mode) => { if (!this.session.material) throw new Error("材料不存在"); return options.request<{ html: string; status: string; error?: string }>("/api/interline", { topicId, materialId: this.session.material.id, file: this.session.file, units, index, mode }); },

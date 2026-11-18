@@ -23,10 +23,9 @@ test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind 
   assert.throws(() => transformCue(text, "invalid" as never), /Invalid scaffold stage/);
 });
 
-test("Only shadowing diagnoses; Feynman contributes result-driven followUp", () => {
+test("Only shadowing diagnoses", () => {
   assert.equal(feynmanToolkit.diagnose, undefined);
   assert.equal(typeof shadowingToolkit.diagnose, "function");
-  assert.equal(feynmanToolkit.followUp!({}), "");
 });
 
 test("registered Feynman plugin is kept active by injected topic usage and promotes its reader", () => {

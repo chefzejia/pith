@@ -5,7 +5,7 @@ import { setImmediate as turn } from "node:timers/promises";
 import { testSandbox } from "./sandbox.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { DefaultAttentionEngine, DefaultWorkspaceStore } from "../src/core/index.ts";
-import { createFeynmanContrast, feynmanToolkit } from "../src/plugins/toolkit-feynman/index.ts";
+import { createFeynmanContrast } from "../src/plugins/toolkit-feynman/index.ts";
 import { RecallPractice } from "../src/workbench/recallPractice.ts";
 
 const source = "只有通过检查才可发布。";
@@ -55,8 +55,8 @@ test("Feynman initial extraction can reopen immediately and save only the new re
     const topic = await store.createTopic({ title: "发布", target: "解释发布条件", materialIds: [], toolkits: ["feynman"] });
     await store.writeLesson(topic.id, "source.md", source);
     const anchor = { source: { kind: "lesson" as const }, file: "source.md", locator: "text:line:0", quote: source };
-    let changes = 0, follows = 0;
-    const ports = { ...f.contrast, capture: (body: string, target: typeof anchor, result?: import("../src/plugins/toolkit-feynman/index.ts").RecallResult) => engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor: target, result }), followUp: async () => { follows++; } };
+    let changes = 0;
+    const ports = { ...f.contrast, capture: (body: string, target: typeof anchor, result?: import("../src/plugins/toolkit-feynman/index.ts").RecallResult) => engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor: target, result }) };
     const old = new RecallPractice(source, anchor, ports, () => { changes++; });
     const first = await f.request(0);
     assert.equal((await store.getTopic(topic.id))!.notes.length, 0);
@@ -65,11 +65,11 @@ test("Feynman initial extraction can reopen immediately and save only the new re
     assert.equal(f.storage.checks, 2, "reopening must start fresh preparation synchronously");
     const second = await f.request(1); assert.equal(second.signal?.aborted, false);
     second.resolve(response); first.reject(new Error("old transport finished cancelling"));
-    await fresh.submit(source, feynmanToolkit);
+    await fresh.submit(source);
     assert.equal(fresh.preparation, "ready"); assert.equal(fresh.error, ""); assert.equal(fresh.saved, true);
     const notes = (await new DefaultWorkspaceStore(f.storage).getTopic(topic.id))!.notes;
     assert.equal(notes.length, 1); assert.deepEqual(notes[0]!.anchor, anchor); assert.deepEqual(notes[0]!.result, fresh.result);
-    assert.ok(fresh.result); assert.equal(follows, 1); assert.equal(changes, before);
+    assert.ok(fresh.result); assert.equal(changes, before);
   } finally { await f.close(); }
 });
 

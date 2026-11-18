@@ -224,7 +224,7 @@ export class PithObsidianController {
   private readonly guideAvailabilityListeners = new Set<(available: boolean) => void>();
   private readonly guideTurns = new Map<string, AbortController>();
 
-  async runGuide(topicId: string, input: { text: string; anchor?: GuideAnchor; instruction?: string } | { turnId: string }, onUpdate?: (turn: GuideTurn) => void): Promise<GuideTurn> {
+  async runGuide(topicId: string, input: { text: string; anchor?: GuideAnchor } | { turnId: string }, onUpdate?: (turn: GuideTurn) => void): Promise<GuideTurn> {
     if (!this.hasGuideProvider()) throw new Error(GUIDE_UNAVAILABLE_REASON);
     if (this.guideTurns.has(topicId)) throw new Error("Topic already has a running turn");
     const controller = new AbortController(); this.guideTurns.set(topicId, controller);
@@ -580,10 +580,9 @@ export class PithWorkspaceView extends obsidian.ItemView {
       stopGuide: async () => { this.controller.stopGuide(topic.id); },
       retryGuide: async turnId => { await this.controller.runGuide(topic.id, { turnId }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const selected = current.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(selected, this.controller.trainingToolkits()) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
-      savePractice: async (body, anchor, result) => { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }); },
-      prepareRecall: async (source, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!service) throw new Error("费曼对照不可用"); return service.prepare(source, signal); },
-      compareRecall: async (source, points, produced, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!service) throw new Error("费曼对照不可用"); return service.compare(source, points, produced, signal); },
-      followUpPractice: async (body, anchor, instruction) => { const turn = await this.controller.runGuide(topic.id, { text: body, instruction, anchor }, turn => originatingView.updateGuideTurn(turn)); if (turn.status !== "completed") throw new Error(turn.error || "向导追问未完成"); },
+      savePractice: (body, anchor, result) => this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }),
+      prepareRecall: async (source, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!this.controller.hasGuideProvider() || !service) throw new Error("向导未连接，费曼对照不可用"); return service.prepare(source, signal); },
+      compareRecall: async (source, points, produced, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!this.controller.hasGuideProvider() || !service) throw new Error("向导未连接，费曼对照不可用"); return service.compare(source, points, produced, signal); },
       mountToolkit: async id => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits([...current.toolkits, id], toolkits()) }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
     });
     this.view = originatingView;
