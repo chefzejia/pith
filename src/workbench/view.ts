@@ -309,6 +309,12 @@ export class PithWorkbenchView {
     root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); } }, options);
     this.doc.addEventListener("keydown", event => { const target = event.target as Element | null; if (!this.root.isConnected || !this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return; if (!this.root.contains(target) && (target !== this.doc.body || activeReader.get(this.doc) !== this)) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
     this.article.addEventListener("mouseup", () => this.showSelection(), options);
+    this.article.addEventListener("input", event => {
+      const field = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
+      if (!field || event.target !== field || !this.recall || this.recall.available) return;
+      const save = this.inlineToolkit?.querySelector<HTMLButtonElement>("[data-toolkit-submit]");
+      if (save) save.disabled = !this.recall.canSubmit(field.value);
+    }, options);
     this.assetControls.addEventListener("input", event => { const input = event.target as HTMLInputElement; if (input.classList.contains("pith-media-seek")) { const player = this.speaking ? this.speechAudio : this.cuePlayer ?? this.recordedPlayer; if (player) { player.currentTime = Number(input.value); this.updateAssetControls(); } else this.seekMedia(Number(input.value)); } }, options);
   }
 
@@ -335,7 +341,12 @@ export class PithWorkbenchView {
       this.renderRepositoryCitations((document.materialGroups ?? []).filter(group => group.kind === "repo" && basis?.includes(group.id)));
     }
     this.adaptEpubColors();
-    if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
+    if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => {
+      if (this.speaking) this.stopSpeech();
+      preserveInterlinePosition(this.reader, this.article, this.paged, () => {
+        change(); this.restoreRecallOverlay(); this.markExisting();
+      }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes);
+    }, message => this.tip(message), proseTextNodes);
     this.navigationDocument = document;
     this.renderNavigation(document);
     this.closeNavigation();
@@ -394,6 +405,11 @@ export class PithWorkbenchView {
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
   setGuideAvailable(available: boolean): void {
     this.guideAvailable = available; this.guideButton.hidden = false; this.updateReadingAids(); this.updateGuideActions();
+    if (this.recall && this.recall.available !== available) {
+      this.readToolkit();
+      this.recall.setAvailable(available);
+      this.renderToolkit();
+    }
     if (this.guide.querySelector(".pith-guide-compose")) this.renderGuide();
   }
   private updateGuideActions(): void {
@@ -620,6 +636,19 @@ export class PithWorkbenchView {
       this.selectionRange = selection.getRangeAt(0).cloneRange();
     }
   }
+  private restoreRecallOverlay(): void {
+    const { toolkitBlock: block, toolkitSource: source, toolkitDisplay: display, inlineToolkit: inline } = this;
+    if (!this.recall || !block || !source || !display || !inline || this.article.contains(source)) return;
+    // A line or an entire EPUB unit may have been replaced by the reading aid.
+    const target = this.article.contains(block) ? block : resolveReaderLocator(this.article, block.dataset.locator ?? "");
+    if (!target) return;
+    this.preserveMovedSelection(target, () => {
+      source.replaceChildren(...Array.from(target.childNodes));
+      target.append(source, display);
+    });
+    if (inline.previousElementSibling !== target) target.insertAdjacentElement("afterend", inline);
+    this.toolkitBlock = target;
+  }
   private mountInlineToolkit(): boolean {
     const requested = this.requestedToolkitBlock;
     const anchor = this.toolkitAnchor;
@@ -658,7 +687,7 @@ export class PithWorkbenchView {
           await this.refreshGuide().catch(error => { if (!this.disposed) this.tip(error instanceof Error ? error.message : String(error)); });
           return note;
         },
-      }, () => { if (!this.disposed && this.recall === recall && this.inlineToolkit) { this.readToolkit(); this.renderToolkit(); } });
+      }, () => { if (!this.disposed && this.recall === recall && this.inlineToolkit) { this.readToolkit(); this.renderToolkit(); } }, this.guideAvailable);
       this.recall = recall;
     }
     const recall = this.recall;
@@ -790,7 +819,7 @@ export class PithWorkbenchView {
         } else if (this.recall) {
           const recall = this.recall;
           this.toolkitStatus = "";
-          await recall.submit(this.toolkitProduced);
+          await recall.submit(this.toolkitProduced, button.hasAttribute("data-toolkit-retry"));
           if (this.disposed || this.recall !== recall) return;
           if (recall.result) this.toolkitReveal = true;
         }

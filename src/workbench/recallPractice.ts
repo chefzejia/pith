@@ -13,44 +13,66 @@ export class RecallPractice {
   busy = false;
   saved = false;
   produced = "";
-  private readonly pending: Promise<void>;
-  private readonly abort = new AbortController();
+  private pending?: Promise<void>;
+  private connection?: AbortController;
+  private disposed = false;
   private readonly source: string;
   private readonly anchor: SelectionAnchor;
   private readonly ports: RecallPracticePorts;
   private readonly changed: () => void;
-  constructor(source: string, anchor: SelectionAnchor, ports: RecallPracticePorts, changed: () => void = () => {}) {
+  constructor(source: string, anchor: SelectionAnchor, ports: RecallPracticePorts, changed: () => void = () => {}, available = true) {
     this.source = source; this.anchor = anchor; this.ports = ports; this.changed = changed;
-    this.pending = this.prepare();
+    this.setAvailable(available);
   }
-  private async prepare(): Promise<void> {
-    try { this.points = await this.ports.prepare(this.source, this.abort.signal); this.preparation = "ready"; }
-    catch (error) { this.preparation = "failed"; this.error = error instanceof Error ? error.message : String(error); }
-    if (!this.abort.signal.aborted) this.changed();
+  get available(): boolean { return this.connection !== undefined; }
+  setAvailable(available: boolean): void {
+    if (this.disposed || this.available === available) return;
+    this.connection?.abort();
+    this.connection = available ? new AbortController() : undefined;
+    this.pending = this.connection && this.preparation !== "ready" ? this.prepare(this.connection.signal) : undefined;
   }
-  async submit(produced: string): Promise<void> {
-    if (this.abort.signal.aborted || this.busy || this.result || !produced.trim()) return;
-    const retryExtraction = this.saved && this.preparation === "failed";
-    this.busy = true; this.saved = false; this.produced = produced; this.changed();
+  private async prepare(signal: AbortSignal): Promise<void> {
+    this.preparation = "loading";
     try {
-      await this.pending;
-      // A retry after failed extraction is another attempt, with a fresh request.
-      if (retryExtraction && !this.abort.signal.aborted) await this.prepare();
+      const points = await this.ports.prepare(this.source, signal);
+      if (signal.aborted) return;
+      this.points = points; this.preparation = "ready"; this.error = "";
+    } catch (error) {
+      if (signal.aborted) return;
+      this.preparation = "failed"; this.error = error instanceof Error ? error.message : String(error);
+    }
+    this.changed();
+  }
+  canSubmit(produced: string, retry = false): boolean {
+    if (this.disposed || this.busy || !produced.trim() || (retry && !this.available)) return false;
+    return !this.saved || this.produced.trim() !== produced.trim() || (this.available && !this.result);
+  }
+  async submit(produced: string, retry = false): Promise<void> {
+    if (!this.canSubmit(produced, retry)) return;
+    const connection = this.connection;
+    const retryExtraction = this.saved && this.preparation === "failed";
+    this.busy = true; this.saved = false; this.result = undefined; this.recordId = undefined; this.produced = produced; this.changed();
+    try {
       let result: RecallResult | undefined;
-      if (this.preparation === "ready") {
-        try { result = await this.ports.compare(this.source, this.points, produced, this.abort.signal); this.error = ""; }
-        catch (error) { this.error = error instanceof Error ? error.message : String(error); }
+      if (connection) {
+        await this.pending;
+        if (retryExtraction && !connection.signal.aborted) await this.prepare(connection.signal);
+        if (!connection.signal.aborted && this.preparation === "ready") {
+          try { result = await this.ports.compare(this.source, this.points, produced, connection.signal); this.error = ""; }
+          catch (error) { if (this.connection === connection) this.error = error instanceof Error ? error.message : String(error); }
+        }
       }
+      if (this.connection !== connection) result = undefined;
       const note = await this.ports.capture(produced, this.anchor, result);
       this.result = result;
       this.recordId = note.id;
       this.saved = true;
-    } finally { this.busy = false; if (!this.abort.signal.aborted) this.changed(); }
+    } finally { this.busy = false; if (!this.disposed) this.changed(); }
   }
   repeat(): boolean {
-    if (this.busy || !this.result) return false;
+    if (!this.available || this.busy || !this.result) return false;
     this.result = undefined; this.recordId = undefined; this.saved = false; this.produced = "";
     return true;
   }
-  dispose(): void { this.abort.abort(); }
+  dispose(): void { this.disposed = true; this.connection?.abort(); }
 }
