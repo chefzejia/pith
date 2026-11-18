@@ -36,3 +36,29 @@
 - **不在范围内**：费曼复述保持 v0.1.0 的行为（保存复述后自动发起向导追问，F2 是已知缺口），不按 [3-toolkits.md](subsystems/3-toolkits.md) 3.3 第 5 步验收，也不改费曼代码；追问另行重新设计，不阻塞本次发布。不加新功能。
 - **Scope**：`manifest.json` 与 `package.json` 的 `version` 改为 `0.2.0`；验收工作区 `.tmp/evidence/milestone-61/`。验收中发现的程序缺陷按 ROLES「显性问题不出执行环」修复，Scope 按缺陷所在文件授权。
 - **报告**：`.tmp/evidence/milestone-61/final-report.md`。通过后按 ROLES「发布步骤」发布。
+
+---
+
+## [Milestone #63] 费曼复述：看完原文再复述一次
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #61
+- **发布版本**: v0.3.0
+- **Features**: F-FEYNMAN
+- **用户可观测目标**：在课题里对一段文字做费曼复述：遮住原文写一遍，提交后逐条看到说到、未提及、说反和原文；看完点「再复述一次」重写，这次的结果在状态变化的条目旁标出上一次的状态。复述之后不会自动出现向导回合。Obsidian 插件列表里的 Pith 显示 0.3.0。
+- **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent。
+  1. 选一段复述，故意漏一条、说反一条：逐条结果正确，向导栏没有新回合。
+  2. 点「再复述一次」：原文重新遮住，结果收起，文本框为空；这次补上漏掉的那条，它显示「说到」并标「上次：未提及」，没变的条目不标。
+  3. 关掉卡片、重开同一段再复述，「上次」仍按最近一次比较；重新加载宿主后也一样。
+  4. 课题笔记里每次提交各有一条作者是你的实训记录，带对照结果；结题门禁认它们。
+  5. 断开向导：卡片说明对照不可用，复述仍能保存，没有「再复述一次」。
+  6. 之前版本留下的费曼实训记录照常显示在笔记里，不参与「上次」比较。
+- **不在范围内**：向导与提示词（`runTurn` 的 `instruction` 通道保留给「按新版本调整」）；抽要点与对照的提示词；其他训练工具。
+- **Scope**：`src/plugins/toolkit-feynman/**`、`src/core/seams.ts`、`src/workbench/**`、`src/shells/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：按 [3-toolkits.md](subsystems/3-toolkits.md) 第 2 节与 3.3、[ARCHITECTURE.md](ARCHITECTURE.md) 第三节落地。暴力重构，不留兼容，不留残留：
+  1. 删除 `ToolkitDescriptor.followUp`、`recallFollowUp`、工作台的追问端口与 `followUpError`、视图与两个宿主壳里的 `followUpPractice` 接线、追问相关的状态文案，以及只为它们存在的参数（如 `RecallPractice.submit` 的 `toolkit`）。被取代的测试直接删除或改写，Worker 报告逐个列出。
+  2. 新增的只有三样：实训记录的 `result.passage`；「再复述一次」；对照结果里的「上次：…」标记。不新增设置、存储文件或模型请求。
+  3. 不读取、不迁移、不补写旧的费曼记录。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.3.0`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `followUp`、`recallFollowUp`、`followUpPractice`。手动破壁各一次后恢复，对应断言须各自变红：「上次」匹配不比较 `passage`；「再复述一次」后结果没有收起或原文没有遮住；保存复述后发起了课题回合；`result` 缺 `passage`。
+- **结案**：F-FEYNMAN 的「用户能做什么」改为「费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态」，其余列按 ROLES「功能台账同步」更新。LESSONS 中「模型追问须验实际问题是否对应本次缺口」一条移到已晋升列表，指向 3-toolkits 3.3 与上面的守卫测试。通过后按 ROLES「发布步骤」发布 v0.3.0。
