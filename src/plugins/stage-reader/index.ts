@@ -1,6 +1,6 @@
 import { registerPlugin, type Material, type MaterialFileEntry, type ProseBlock, type ReaderSectionHeading, type RenderedDocumentView, type StageReaderService } from "../../core/index.ts";
 import { renderEpub } from "./epub.ts";
-import { renderCbz, renderImage, renderPdf } from "./fixedPage.ts";
+import { fixedPageFormat, renderCbz, renderImage, renderPdf } from "./fixedPage.ts";
 import { computePagination, resolveResponsiveLayout } from "./pagination.ts";
 import { extractTeachingBlocks, teachingBlockRanges } from "./teachingBlocks.ts";
 import { matchTextAnchor } from "./textAnchor.ts";
@@ -174,9 +174,10 @@ export function renderMarkdown(markdown: string, collect?: CollectText): string 
 }
 
 export async function renderFile(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {
-  if (/\.epub$/i.test(file.name) || file.mimeType === "application/epub+zip") return renderEpub(bytes);
-  if (/\.pdf$/i.test(file.name) || file.mimeType === "application/pdf") return renderPdf(file, bytes);
-  if (/\.cbz$/i.test(file.name) || ["application/vnd.comicbook+zip", "application/x-cbz"].includes(file.mimeType)) return renderCbz(file, bytes);
+  const fixed = fixedPageFormat(file);
+  if (fixed === "epub") return renderEpub(bytes);
+  if (fixed === "pdf") return renderPdf(file, bytes);
+  if (fixed === "cbz") return renderCbz(file, bytes);
   if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) || ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mimeType)) return renderImage(file, bytes);
   let markdown: string;
   try { markdown = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`Unsupported binary reader format: ${file.name}`); }

@@ -99,7 +99,9 @@ export class MaterialSession {
     if (!this.active() || request !== this.generation) return;
     this.adapter.updateNavigation(navigation.files, navigation.curriculum, navigation.groups);
     if (!this.file && ((next.topic?.lessons ?? []).length || next.materials.some(material => material.files.length || next.repositoryFiles[material.id]?.length))) await this.open();
-    else if (this.source?.kind === "lesson" && next.topic?.lessons.some(lesson => lesson.name === this.file) && JSON.stringify(previous.topic?.lessons.find(lesson => lesson.name === this.file)) !== JSON.stringify(next.topic?.lessons.find(lesson => lesson.name === this.file))) await this.openFile(this.file, this.source);
+    else if (this.source?.kind === "lesson" && next.topic?.lessons.some(lesson => lesson.name === this.file) &&
+      (JSON.stringify(previous.topic?.materialIds) !== JSON.stringify(next.topic.materialIds) ||
+        JSON.stringify(previous.topic?.lessons.find(lesson => lesson.name === this.file)) !== JSON.stringify(next.topic.lessons.find(lesson => lesson.name === this.file)))) await this.openFile(this.file, this.source);
   }
   async generateLesson(name: string, title: string): Promise<void> {
     const request = ++this.generation, previous = this.file, source = this.source;

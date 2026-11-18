@@ -348,6 +348,15 @@ export class PithObsidianController {
     await this.refresh(); await this.save({ speech: this.speechConfig, speechProfiles: this.speechProfiles, speechSettingsVersion: 1 });
   }
   async readAudioAsset(materialId: string, name: string): Promise<Uint8Array> { const material = await this.store.getMaterial(materialId); const entry = material && material.files.find(file => file.name === name); if (!entry || !(audioContentType(entry) || videoContentType(entry))) throw new Error("音视频文件不存在"); return this.host.storage.readBinary(`materials/${materialId}/files/${entry.name}`); }
+  async readCitationFile(topicId: string, materialId: string, name: string, signal: AbortSignal): Promise<Uint8Array> {
+    const topic = await this.store.getTopic(topicId);
+    signal.throwIfAborted();
+    if (!topic?.materialIds.includes(materialId)) throw new Error("材料不属于课题");
+    const material = await this.store.getMaterial(materialId), file = material?.files.find(entry => entry.name === name);
+    signal.throwIfAborted();
+    if (!file) throw new Error("材料文件不存在");
+    return this.host.storage.readBinary(`materials/${materialId}/files/${file.name}`);
+  }
   async renderMaterialFile(materialId: string, name: string) {
     const material = await this.store.getMaterial(materialId); const file = material && material.files.find(entry => entry.name === name);
     if (!material || !file) throw new Error("材料文件不存在");
@@ -564,6 +573,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
         await session.generateLesson(name, title);
       },
       loadAudio: name => { if (!session.material) throw new Error("材料不存在"); return this.controller.readAudioAsset(session.material.id, name); },
+      readCitationFile: (materialId, name, signal) => this.controller.readCitationFile(topic.id, materialId, name, signal),
       transcribeAudio: async (bytes, mimeType, signal) => { const asr = this.controller.runtime.getService<SpeechAsrService>("speech.asr"); if (!asr || !asr.transcribeAudio) throw new Error("请先在设置中配置语音识别服务"); return asr.transcribeAudio(bytes, mimeType, signal); },
       setMaterialAids: async aids => { if (!session.material) throw new Error("材料不存在"); await this.controller.setMaterialAids(session.material.id, aids); await session.refresh(); },
       saveLocator: async locator => { if (session.source?.kind === "lesson") await this.controller.store.updateLessonLocator(topic.id, session.file, locator); else if (session.material) await this.controller.rememberReading(session.material.id, session.file, locator); },

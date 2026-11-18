@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { WorkspaceStoragePort, WorkspaceStore } from "../src/core/index.ts";
+import { repositoryCitations, type CitationPosition } from "../src/core/repositoryCitations.ts";
+import { createScopedTools } from "../src/plugins/guide-acp/tools.ts";
+import type { PublicHttpPort } from "../src/plugins/guide-acp/externalIngest.ts";
+import { coverPng, storedZip } from "./task29-fixture.ts";
+import { manyPagePdf, pdfFixture } from "./task55-pdf-fixture.ts";
+
+export const lesson = "01-course.md";
+const course = "https://courses.example.com";
+const valid = ["lecture.pdf#page=2", "lecture.pdf#page=3", "slides.cbz#page=2", "fixed.epub#page=2", "lecture.webm#t=0:02", "lecture.webm#t=1.5"];
+const invalid = ["lecture.pdf#page=4", "missing.pdf#page=1", "lecture.pdf#page=0", "lecture.pdf#page=2.5", "slides.cbz#page=3", "fixed.epub#page=3", "flow.epub#page=1", "lecture.webm#t=9", "lecture.webm#t=0:70", "lecture.webm#t=-1"];
+
+function epub(fixed: boolean) {
+  return storedZip({
+    "META-INF/container.xml": '<container><rootfile full-path="O/book.opf"/></container>',
+    "O/book.opf": `<package><metadata>${fixed ? '<meta property="rendition:layout">pre-paginated</meta>' : ""}</metadata><manifest><item id="one" href="one.xhtml"/><item id="two" href="two.xhtml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>`,
+    "O/one.xhtml": "<html><body><p>First spread</p></body></html>",
+    "O/two.xhtml": "<html><body><p>Second spread</p></body></html>",
+  });
+}
+
+export async function seedCitations(store: WorkspaceStore, storage: WorkspaceStoragePort) {
+  const encoder = new TextEncoder();
+  const http: PublicHttpPort = {
+    async request() { assert.fail("unprotected transport"); },
+    async requestPublic(spec) {
+      const path = new URL(spec.url).pathname;
+      const [bytes, type] = path === "/lesson/lecture.pdf" ? [pdfFixture("Memory overview", "Address translation"), "application/pdf"]
+        : path === "/practice/lecture.pdf" ? [manyPagePdf(3), "application/pdf"]
+        : [encoder.encode("<main><h1>Exercises</h1><p>Trace a memory reference.</p></main>"), "text/html"];
+      return { status: 200, headers: { "content-type": type }, bytes, text: () => new TextDecoder().decode(bytes) };
+    },
+  };
+  const tools = createScopedTools({ store, storage, http, onChoices() {} });
+  const ingest = tools.find(tool => tool.name === "pith_ingest_external")!;
+  const one = await ingest.execute({ title: "Course notes", urls: [course + "/lesson/lecture.pdf", course + "/lesson/exercises"] }) as { material: { id: string } };
+  const two = await ingest.execute({ title: "Practice set", urls: [course + "/practice/lecture.pdf"] }) as { material: { id: string } };
+  const media = await store.importMaterial({ title: "Recorded lecture", kind: "media", files: [
+    { name: "lecture.webm", mimeType: "video/webm", bytes: await readFile(new URL("./fixtures/task38-video.webm", import.meta.url)) },
+    { name: "lecture.vtt", mimeType: "text/vtt", bytes: encoder.encode("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nMapping a virtual address\n") },
+  ] });
+  const books = await store.importMaterial({ title: "Image and book slides", kind: "book", files: [
+    { name: "slides.cbz", mimeType: "application/x-cbz", bytes: storedZip({ "1.png": coverPng, "2.png": coverPng }) },
+    { name: "fixed.epub", mimeType: "application/epub+zip", bytes: epub(true) },
+    { name: "flow.epub", mimeType: "application/epub+zip", bytes: epub(false) },
+  ] });
+  await store.importMaterial({ title: "Unreferenced", kind: "book", files: [{ name: "missing.pdf", mimeType: "application/pdf", bytes: pdfFixture() }] });
+  const topic = await store.createTopic({ title: "Course source navigation", target: "How does virtual address translation work?", materialIds: [one.material.id, two.material.id, media.id, books.id], toolkits: [] });
+  await store.writeLesson(topic.id, lesson, `# Course source navigation
+
+## Course readings
+
+Start at \`${valid[0]}\`, then compare ${valid[1]}.
+
+## Lecture slides and recording
+
+Review ${valid[2]} and ${valid[3]}. Watch ${valid[4]} or ${valid[5]}.
+
+[Public lecture at 2 seconds](https://example.com/lecture#t=2)
+
+## Invalid references
+
+${invalid.map(text => `- \`${text}\``).join("\n")}
+`);
+  return { topic, one: one.material.id, two: two.material.id, books: books.id, media: media.id };
+}
+
+export async function exerciseCitations(page: any, fixture: Awaited<ReturnType<typeof seedCitations>>, evidence?: { directory: string; host: string }) {
+  const article = page.locator(".pith-article");
+  const citations = article.locator(".pith-source-citation");
+  const capture = async (step: string) => {
+    if (evidence) await page.screenshot({ path: join(evidence.directory, `${evidence.host}-${step}.png`) });
+  };
+  const open = async () => {
+    await page.locator(".pith-nav-toggle").click();
+    await page.locator(`[data-file="${lesson}"]`).click();
+    await article.getByRole("heading", { name: "Course source navigation" }).waitFor();
+  };
+  await page.locator(`.pith-topic-card[data-topic="${fixture.topic.id}"]`).click();
+  await article.getByRole("heading", { name: "Course source navigation" }).waitFor();
+  await citations.filter({ hasText: "lecture.webm#t=1.5" }).waitFor();
+  for (const text of invalid) {
+    const node = article.locator("li").getByText(text, { exact: true });
+    assert.equal(await node.count(), 1, `out-of-range or invalid source remains ordinary text: ${text}`);
+    assert.equal(await article.locator("li .pith-source-citation").filter({ hasText: text }).count(), 0, `out-of-range or invalid source must not be clickable: ${text}`);
+  }
+  const sources = [
+    { id: fixture.one, files: [{ name: "lecture.pdf", position: "page" as CitationPosition, limit: 2 }] },
+    { id: fixture.two, files: [{ name: "lecture.pdf", position: "page" as CitationPosition, limit: 3 }] },
+    { id: fixture.books, files: [{ name: "slides.cbz", position: "page" as CitationPosition, limit: 2 }, { name: "fixed.epub", position: "page" as CitationPosition, limit: 2 }] },
+    { id: fixture.media, files: [{ name: "lecture.webm", position: "time" as CitationPosition, limit: 4 }] },
+  ];
+  const expected = repositoryCitations(valid, sources, (source, path) => source.files.find(file => file.name === path)?.limit).flatMap(matches =>
+    matches.flatMap(match => match.sources.map(source => [match.path, match.locator, source.id])));
+  assert.deepEqual(await citations.evaluateAll((nodes: HTMLElement[]) => nodes.map(node => [node.dataset.citationPath, node.dataset.citationLocator, node.dataset.citationMaterial])), expected, "the rendered buttons agree with the shared citation matcher");
+  assert.deepEqual(await citations.filter({ hasText: "lecture.pdf#page=2" }).allTextContents(), ["lecture.pdf#page=2 (Course notes)", "lecture.pdf#page=2 (Practice set)"]);
+  assert.equal(await article.getByRole("link", { name: "Public lecture at 2 seconds" }).getAttribute("href"), "https://example.com/lecture#t=2");
+  await capture("lesson");
+  await citations.filter({ hasText: "lecture.pdf#page=2 (Course notes)" }).click();
+  const pdfPage = article.locator('.pith-fixed-page[data-locator="page:2"]');
+  await pdfPage.getByText("Address translation").waitFor();
+  await page.waitForFunction(() => {
+    const page = document.querySelector('.pith-fixed-page[data-locator="page:2"]'), reader = document.querySelector(".pith-reader");
+    if (!page || !reader) return false;
+    const bounds = page.getBoundingClientRect(), viewport = reader.getBoundingClientRect();
+    return bounds.left + bounds.width / 2 >= viewport.left && bounds.left + bounds.width / 2 < viewport.right;
+  });
+  await capture("pdf-page-2");
+  await open();
+  await citations.filter({ hasText: "lecture.pdf#page=3 (Practice set)" }).click();
+  await article.locator('.pith-fixed-page[data-locator="page:3"]').waitFor();
+  await open();
+  await citations.filter({ hasText: "slides.cbz#page=2" }).click();
+  await article.locator('.pith-fixed-page[data-locator="page:2"]').waitFor();
+  await open();
+  await citations.filter({ hasText: "fixed.epub#page=2" }).click();
+  await article.locator('.pith-epub-chapter[data-locator="page:2"]').getByText("Second spread").waitFor();
+  await open();
+  await citations.filter({ hasText: "lecture.webm#t=0:02" }).click();
+  await page.waitForFunction(() => {
+    const media = document.querySelector<HTMLVideoElement>(".pith-article video");
+    return media?.paused && Math.abs(media.currentTime - 2) < 0.05;
+  });
+  assert.equal(await page.getByRole("button", { name: "播放", exact: true }).count(), 1);
+  await capture("video-paused");
+}

@@ -1,6 +1,6 @@
 {
   "name": "pith",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Pith: We used all human wisdom to train AI. Pith uses AI's training pipeline to train you.",
   "type": "module",

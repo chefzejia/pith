@@ -5,7 +5,7 @@ import { lessonVersionDetails, type LessonVersions } from "../lessonVersions.ts"
 
 export interface NavigationLesson { readonly name: string; readonly basedOn?: readonly string[]; readonly outdated?: boolean; readonly versions?: LessonVersions[string] }
 export interface NavigationMaterial {
-  readonly id: string; readonly title: string; readonly kind?: string; readonly files: readonly { readonly name: string }[];
+  readonly id: string; readonly title: string; readonly kind?: string; readonly files: readonly { readonly name: string; readonly mimeType?: string }[];
   readonly externalPath?: string; readonly commitSha?: string; readonly createdAt?: string;
   readonly basedLessons?: readonly string[]; readonly newerVersion?: { readonly id: string; readonly commitSha: string };
 }

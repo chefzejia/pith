@@ -5,10 +5,19 @@ import type { FixedPageEntry, MaterialFileEntry, ProseBlock, RenderedDocumentVie
 const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const maxSide = 4096, maxPixels = 12_000_000;
 
-export async function renderPdf(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {
+function loadPdf(bytes: Uint8Array) {
   // PDF.js uses its local in-process worker when this handler is present.
   (globalThis as typeof globalThis & { pdfjsWorker?: { WorkerMessageHandler: unknown } }).pdfjsWorker = { WorkerMessageHandler };
-  const loading = getDocument({ data: Uint8Array.from(bytes), isEvalSupported: false, useWorkerFetch: false, useSystemFonts: true, disableAutoFetch: true, disableStream: true });
+  return getDocument({ data: Uint8Array.from(bytes), isEvalSupported: false, useWorkerFetch: false, useSystemFonts: true, disableAutoFetch: true, disableStream: true });
+}
+
+export async function pdfPageCount(bytes: Uint8Array): Promise<number> {
+  const loading = loadPdf(bytes);
+  try { return (await loading.promise).numPages; } finally { await loading.destroy(); }
+}
+
+export async function renderPdf(file: MaterialFileEntry, bytes: Uint8Array): Promise<RenderedDocumentView> {
+  const loading = loadPdf(bytes);
   try {
     const pdf = await loading.promise;
     if (pdf.numPages < 1) throw new Error("PDF has no readable pages");

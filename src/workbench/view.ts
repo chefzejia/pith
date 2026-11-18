@@ -17,6 +17,9 @@ import { previousRecall } from "./view/recall.ts";
 import { PlaybackDeck } from "./view/playback.ts";
 import { RecallPractice } from "./recallPractice.ts";
 import type { FeynmanContrast, RecallResult } from "../plugins/toolkit-feynman/index.ts";
+import { fixedPageCount, fixedPageFormat } from "../plugins/stage-reader/fixedPage.ts";
+import { mediaDuration, probeMediaDuration } from "../plugins/stage-timeline/index.ts";
+import { repositoryCitations, type CitationPosition } from "../core/repositoryCitations.ts";
 
 export interface ObsidianAgentConfig {
   readonly agentId: "" | "dsh" | "claude" | "codex";
@@ -58,6 +61,7 @@ export interface ObsidianViewActions {
   synthesizeSpeech?(text: string, signal: AbortSignal): Promise<{ readonly bytes: Uint8Array; readonly mimeType: string }>;
   transcribeAudio?(bytes: Uint8Array, mimeType: string, signal?: AbortSignal): Promise<{ readonly text: string }>;
   loadAudio?(name: string): Promise<Uint8Array>;
+  readCitationFile?(materialId: string, name: string, signal: AbortSignal): Promise<Uint8Array>;
   prepareInterline?: InterlineViewPrepare;
   guideData?(): Promise<{ notes: readonly Note[]; conversation: readonly GuideTurn[]; actions: readonly GuideQuickAction[]; toolkits: readonly string[]; observations?: readonly string[]; readOnly?: boolean }>;
   undoObservation?(id: string): Promise<void>;
@@ -179,6 +183,9 @@ export class PithWorkbenchView {
   private assetUrl: string | null = null;
   private assetSource: { name: string; type: string } | null = null;
   private assetGeneration = 0;
+  private assetPending: Promise<void> | undefined;
+  private citationAbort = new AbortController();
+  private readonly citationBounds = new Map<string, number>();
   private readonly navigationButton: HTMLButtonElement;
   private readonly guideButton: HTMLButtonElement;
   private selectionRange: Range | null = null;
@@ -335,11 +342,12 @@ export class PithWorkbenchView {
     this.stopSpeech(); this.selectionRange = null; this.popover.hidden = true;
     this.clearAudioAsset(); this.assetSource = null;
     const title = this.root.querySelector(".pith-title"); if (title) title.textContent = document.title;
+    this.citationAbort.abort(); this.citationAbort = new AbortController();
     this.article.innerHTML = document.html;
     this.reader.scrollTo({ left: 0, top: 0, behavior: "instant" });
     if (document.source?.kind === "lesson") {
       const basis = document.files.find(file => file.name === document.currentFile)?.basedOn;
-      this.renderRepositoryCitations((document.materialGroups ?? []).filter(group => group.kind === "repo" && basis?.includes(group.id)));
+      this.renderCitations((document.materialGroups ?? []).filter(group => group.kind !== "repo" || basis?.includes(group.id)));
     }
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => {
@@ -362,30 +370,105 @@ export class PithWorkbenchView {
     const mediaFiles = document.mediaFiles ?? document.files;
     const asset = document.mediaFile === undefined ? resolveMediaPair(mediaFiles, document.currentFile).media : mediaFiles.find(file => file.name === document.mediaFile) ?? null;
     const video = this.article.querySelector<HTMLVideoElement>(".pith-timeline-video"); if (video) video.removeAttribute("src");
-    if (asset && this.actions.loadAudio) { const type = typeOf(asset); if (type) { this.assetSource = { name: asset.name, type }; void this.loadAsset(); } }
+    if (asset && this.actions.loadAudio) { const type = typeOf(asset); if (type) { this.assetSource = { name: asset.name, type }; this.assetPending = this.loadAsset(); } }
   }
 
-  private renderRepositoryCitations(groups: NonNullable<ObsidianReaderDocument["materialGroups"]>): void {
+  private renderCitations(groups: NonNullable<ObsidianReaderDocument["materialGroups"]>): void {
     if (!groups.length) return;
-    const walker = this.doc.createTreeWalker(this.article, 4), nodes: Text[] = []; let node: Node | null;
-    while ((node = walker.nextNode())) if (!(node.parentElement?.closest("pre,a,button"))) nodes.push(node as Text);
-    const citations = repositoryCitations(nodes.map(text => text.data), groups);
+    const signal = this.citationAbort.signal, read = this.actions.readCitationFile;
+    const sources = groups.map(group => ({
+      id: group.id, title: group.title, files: group.files.flatMap<{ name: string; position?: CitationPosition; page?: ReturnType<typeof fixedPageFormat>; media?: string }>(file => {
+        const name = file.name;
+        if (group.kind === "repo") return [{ name }];
+        const page = fixedPageFormat(file);
+        const media = videoContentType({ name, mimeType: file.mimeType ?? "" }) ?? audioContentType({ name, mimeType: file.mimeType ?? "" });
+        const position: CitationPosition | undefined = page ? "page" : media ? "time" : undefined;
+        return position ? [{ name, position, page, media: media ?? undefined }] : [];
+      }),
+    }));
+    const textNodes = () => {
+      const walker = this.doc.createTreeWalker(this.article, 4), nodes: Text[] = [];
+      let node: Node | null;
+      while ((node = walker.nextNode())) if (!node.parentElement?.closest("pre,a,button")) nodes.push(node as Text);
+      return nodes;
+    };
+    const key = (id: string, path: string) => JSON.stringify([id, path]);
+    const bound = (source: typeof sources[number], path: string) => this.citationBounds.get(key(source.id, path));
+    const nodes = textNodes();
+    const candidates = repositoryCitations(nodes.map(text => text.data), sources);
+    const pending = new Map<string, () => Promise<void>>();
+    if (read) for (const matches of candidates) for (const match of matches) {
+      if (!match.locator) continue;
+      for (const source of match.sources) {
+        const path = match.path, id = key(source.id, path);
+        if (this.citationBounds.has(id) || pending.has(id)) continue;
+        const file = source.files.find(item => item.name === path)!;
+        pending.set(id, async () => {
+          try {
+            const bytes = await read(source.id, path, signal);
+            if (signal.aborted) return;
+            const limit = file.page ? await fixedPageCount(file.page, bytes) : file.media ? await probeMediaDuration(this.doc, bytes, file.media, signal) : undefined;
+            if (limit !== undefined && !signal.aborted) this.citationBounds.set(id, limit);
+          } catch { /* Unreadable bounds leave the source as plain text. */ }
+        });
+      }
+    }
+    if (!pending.size) { this.markCitations(nodes, repositoryCitations(nodes.map(text => text.data), sources, bound)); return; }
+    void (async () => {
+      for (const load of pending.values()) { if (signal.aborted) return; await load(); }
+      if (signal.aborted) return;
+      const current = textNodes();
+      this.markCitations(current, repositoryCitations(current.map(text => text.data), sources, bound));
+    })();
+  }
+
+  private markCitations(nodes: readonly Text[], citations: ReturnType<typeof repositoryCitations<{ id: string; title: string; files: readonly { name: string }[] }>>): void {
     for (const [textIndex, text] of nodes.entries()) {
       const value = text.data, matches = citations[textIndex]!; if (!matches.length) continue;
       const fragment = this.doc.createDocumentFragment(); let offset = 0;
-      for (const { start, end, path, line, sources } of matches) {
+      for (const { start, end, path, line, locator, ambiguous, sources } of matches) {
         fragment.append(this.doc.createTextNode(value.slice(offset, start)));
         const label = value.slice(start, end);
         for (const [index, candidate] of sources.entries()) {
           if (index) fragment.append(this.doc.createTextNode(" / "));
           const button = this.doc.createElement("button"); button.type = "button"; button.className = "pith-source-citation";
-          button.dataset.citationPath = path; button.dataset.citationMaterial = candidate.id; button.dataset.citationLine = String(line);
-          button.textContent = sources.length === 1 ? label : `${label} (${candidate.title})`; fragment.append(button);
+          button.dataset.citationPath = path; button.dataset.citationMaterial = candidate.id;
+          if (locator) button.dataset.citationLocator = locator;
+          else button.dataset.citationLine = String(line);
+          button.textContent = ambiguous ? `${label} (${candidate.title})` : label; fragment.append(button);
         }
         offset = end;
       }
       fragment.append(this.doc.createTextNode(value.slice(offset))); text.replaceWith(fragment);
     }
+  }
+
+  private async openCitation(button: HTMLButtonElement): Promise<void> {
+    const { citationPath: path, citationMaterial: materialId, citationLine: line, citationLocator: locator } = button.dataset;
+    if (!path || !materialId) return;
+    const source: AnchorSource = { kind: "material", materialId };
+    await this.actions.openFile(path, source);
+    if (this.disposed || this.currentFile !== path || !sameSource(this.currentSource, source)) return;
+    if (locator?.startsWith("time:")) {
+      const signal = this.citationAbort.signal;
+      await this.assetPending;
+      const media = this.assetAudio;
+      const limit = media ? await mediaDuration(media, signal) : undefined, time = Number(locator.slice(5));
+      if (signal.aborted) return;
+      if (!media || limit === undefined || time > limit) { this.tip("无法定位原文"); return; }
+      media.pause();
+      this.seekMedia(time);
+      return;
+    }
+    const suffix = `#L${line}-L${line}`;
+    const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => locator ? item.dataset.locator === locator : item.dataset.locator?.endsWith(suffix));
+    if (!target) { this.tip("无法定位原文"); return; }
+    if (this.paged) {
+      navigateReaderTarget(this.reader, target, true);
+      this.readerPosition = captureReaderPosition(this.reader, this.article);
+      this.updatePageCount();
+    } else target.scrollIntoView({ block: "center" });
+    this.scheduleLocator();
   }
 
   updateMaterialNavigation(files: ObsidianReaderDocument["files"], curriculum: ObsidianReaderDocument["curriculum"], materialGroups?: ObsidianReaderDocument["materialGroups"]): void {
@@ -401,7 +484,7 @@ export class PithWorkbenchView {
   }
 
   guideElement(): HTMLElement { return this.guide; }
-  showLessonLoading(title: string): void { this.closeInlineToolkit(); this.voice.cancel(); this.stopSpeech(); this.clearAudioAsset(); this.closeNavigation(); const section = this.doc.createElement("section"), heading = this.doc.createElement("h1"), status = this.doc.createElement("p"); section.className = "pith-lesson-loading"; heading.textContent = title; status.textContent = "向导正在结合课程大纲与源码为你撰写本讲讲义…"; status.setAttribute("role", "status"); section.append(heading, status); this.article.replaceChildren(section); }
+  showLessonLoading(title: string): void { this.citationAbort.abort(); this.closeInlineToolkit(); this.voice.cancel(); this.stopSpeech(); this.clearAudioAsset(); this.closeNavigation(); const section = this.doc.createElement("section"), heading = this.doc.createElement("h1"), status = this.doc.createElement("p"); section.className = "pith-lesson-loading"; heading.textContent = title; status.textContent = "向导正在结合课程大纲与源码为你撰写本讲讲义…"; status.setAttribute("role", "status"); section.append(heading, status); this.article.replaceChildren(section); }
   focusQuotedGuide(): void { if (this.pendingAnchor) { const input = this.guide.querySelector<HTMLTextAreaElement>("textarea"); if (input) input.focus(); } }
   setGuideVisible(visible: boolean): void { if (!visible) this.voice.cancel("guide"); this.guide.hidden = !visible; this.guideButton.setAttribute("aria-pressed", String(visible)); if (this.guide.parentElement === this.layout) this.layout.classList.toggle("pith-guide-closed", !visible); }
   setGuideAvailable(available: boolean): void {
@@ -483,9 +566,9 @@ export class PithWorkbenchView {
       }
     }
   }
-  dispose(): void { this.disposed = true; this.recall?.dispose(); this.recall = undefined; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
+  dispose(): void { this.disposed = true; this.citationAbort.abort(); this.recall?.dispose(); this.recall = undefined; this.stopCuePlayback(); this.voice.dispose(); this.stopRecordedPlayback(); if (this.interline) this.interline.dispose(); this.stopSpeech(); this.clearAudioAsset(); if (this.locatorTimer !== undefined) this.win.clearTimeout(this.locatorTimer); this.events.abort(); if (this.resizeObserver) this.resizeObserver.disconnect(); if (this.themeObserver) this.themeObserver.disconnect(); if (activeReader.get(this.doc) === this) activeReader.delete(this.doc); if (this.toastTimer !== undefined) this.win.clearTimeout(this.toastTimer); if (this.guideClock !== undefined) this.win.clearInterval(this.guideClock); this.guide.remove(); this.root.replaceChildren(); this.root.classList.remove("pith-view"); }
 
-  private clearAudioAsset(): void { this.assetGeneration++; const media = this.assetAudio; this.assetAudio = null; if (media) { media.pause(); media.removeAttribute("src"); media.load(); } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; this.playback.renderCueMarkers(); }
+  private clearAudioAsset(): void { this.assetGeneration++; this.assetPending = undefined; const media = this.assetAudio; this.assetAudio = null; if (media) { media.pause(); media.removeAttribute("src"); media.load(); } if (this.assetUrl) URL.revokeObjectURL(this.assetUrl); this.assetUrl = null; this.assetControls.hidden = true; this.mediaDeck.hidden = !this.speaking; this.playback.renderCueMarkers(); }
   private async loadAsset(): Promise<void> {
     const source = this.assetSource, load = this.actions.loadAudio; if (!source || !load) return; const generation = ++this.assetGeneration;
     try { const bytes = await load(source.name); if (this.disposed || generation !== this.assetGeneration) return;
@@ -810,7 +893,7 @@ export class PithWorkbenchView {
       this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]")?.focus();
       return;
     }
-    if (button.dataset.citationPath && button.dataset.citationMaterial && button.dataset.citationLine) { try { await this.actions.openFile(button.dataset.citationPath, { kind: "material", materialId: button.dataset.citationMaterial }); const suffix = `#L${button.dataset.citationLine}-L${button.dataset.citationLine}`; const target = Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator?.endsWith(suffix)); if (target) target.scrollIntoView({ block: "center" }); else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
+    if (button.dataset.citationPath) { try { await this.openCitation(button); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.noteId) { const owner = button.dataset.noteOwner ?? "primary", note = noteEntries(this.guideData.notes, this.materialNotes).find(item => item.owner === owner && item.note.id === button.dataset.noteId)?.note; if (!note || !note.anchor) return; try { const anchor = note.anchor; if (anchor.file !== this.currentFile || !sameSource(anchor.source, this.currentSource)) await this.actions.openFile(anchor.file, anchor.source); const mark = Array.from(this.article.querySelectorAll<HTMLElement>("mark[data-pith-note]")).find(item => item.dataset.noteOwner === owner && item.dataset.pithNote === note.id); const target = mark || Array.from(this.article.querySelectorAll<HTMLElement>("[data-locator]")).find(item => item.dataset.locator === anchor.locator); if (target) { if (this.paged) { navigateReaderTarget(this.reader, target, true); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else target.scrollIntoView({ block: "center" }); } else this.tip("无法定位原文"); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideLesson) { try { await this.actions.openFile(button.dataset.guideLesson, { kind: "lesson" }); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
     if (button.dataset.guideMaterial && this.actions.openMaterial) { try { await this.actions.openMaterial(button.dataset.guideMaterial); } catch (error) { this.tip(error instanceof Error ? error.message : String(error)); } return; }
@@ -966,5 +1049,4 @@ export function mountPithWorkbench(root: HTMLElement, actions: ObsidianViewActio
   layout.append(view.guideElement());
   return view;
 }
-import { repositoryCitations } from "../core/repositoryCitations.ts";
 import { lessonVersionDetails } from "./lessonVersions.ts";

@@ -354,7 +354,7 @@ async function safeSvg(bytes: Uint8Array, resource: (href: string) => Promise<st
   await renderSvg(root, resource, writer);
   return new TextEncoder().encode(writer.finish());
 }
-export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentView> {
+async function epubPublication(bytes: Uint8Array) {
   const zip = new Zip(bytes);
   const container = xml(await zip.text("META-INF/container.xml"));
   const rootPath = descendants(container, "rootfile")[0]?.attrs["full-path"];
@@ -365,12 +365,28 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     const id = item.attrs["id"], href = item.attrs["href"];
     if (id && href) manifest.set(id, { path: resolve(dir(opfPath), href), properties: item.attrs["properties"] ?? "", media: item.attrs["media-type"] ?? "" });
   }
-  const spine = descendants(opf, "itemref").filter(item => item.attrs["linear"] !== "no").map(item => {
+  const fixed = descendants(opf, "meta").some(meta => meta.attrs["property"] === "rendition:layout" && meta.children.join("").trim() === "pre-paginated");
+  const items = descendants(opf, "itemref").filter(item => item.attrs["linear"] !== "no");
+  const spine = items.map(item => {
     const entry = manifest.get(item.attrs["idref"] ?? "");
     if (!entry) throw new Error("EPUB spine item missing");
     return entry.path;
   });
   if (!spine.length) throw new Error("EPUB spine is empty");
+  const fixedPages = items.every(item => {
+    const properties = (item.attrs["properties"] ?? "").split(/\s+/);
+    return !properties.includes("rendition:layout-reflowable") && (fixed || properties.includes("rendition:layout-pre-paginated"));
+  });
+  return { zip, opf, manifest, spine, fixedPages };
+}
+
+export async function epubFixedPageCount(bytes: Uint8Array): Promise<number | undefined> {
+  const { spine, fixedPages } = await epubPublication(bytes);
+  return fixedPages ? spine.length : undefined;
+}
+
+export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentView> {
+  const { zip, opf, manifest, spine, fixedPages } = await epubPublication(bytes);
   const linkTarget = (base: string, href: string): { chapter: number; fragment: string } | null => {
     try {
       if (!href || /[?\u0000-\u0020\u007f]/.test(href) || href.indexOf("#") !== href.lastIndexOf("#")) return null;
@@ -540,7 +556,7 @@ export async function renderEpub(bytes: Uint8Array): Promise<RenderedDocumentVie
     html.escaped(bodyClass); html.append('"');
     if (body.attrs["id"] && safeFragmentId(body.attrs["id"])) attribute("id", body.attrs["id"]);
     if (bodyStyle) attribute("style", bodyStyle);
-    html.append(` data-epub-chapter="${chapter}" data-locator="text:section:${chapter};block:0">`);
+    html.append(` data-epub-chapter="${chapter}" data-locator="${fixedPages ? `page:${chapter + 1}` : `text:section:${chapter};block:0`}">`);
     const writeStyle = (css: string): void => {
       const style = sanitizeStylesheet(css, chapter, Math.max(0, html.remaining - 15));
       if (style) { html.append("<style>"); html.append(style); html.append("</style>"); }

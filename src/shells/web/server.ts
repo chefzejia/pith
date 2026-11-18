@@ -25,6 +25,7 @@ import { checkRepositoryUpdate, resolveRepositoryIntake } from "../../workbench/
 import { migrateLegacySpeech, switchSpeechMode, validSpeechProfiles, type SpeechMode, type SpeechProfiles } from "../speech/speechSettings.ts";
 import { agentInterlineTranslator, InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
 import { ingestExternalUrl } from "../../plugins/guide-acp/externalIngest.ts";
+import { fixedPageFormat } from "../../plugins/stage-reader/fixedPage.ts";
 import { sampleMaterialText } from "../../workbench/importMaterial.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
@@ -414,7 +415,8 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const material = await store.getMaterial(id);
         const entry = material && material.files.find(item => item.name === name);
         if (!entry) return send(res, 404, { error: "File not found" });
-        const mimeType = audioContentType(entry) ?? videoContentType(entry) ?? (/\.pdf$/i.test(entry.name) || entry.mimeType === "application/pdf" ? "application/pdf" : undefined);
+        const page = fixedPageFormat(entry);
+        const mimeType = audioContentType(entry) ?? videoContentType(entry) ?? (page && { pdf: "application/pdf", cbz: "application/vnd.comicbook+zip", epub: "application/epub+zip" }[page]);
         if (!mimeType) return send(res, 415, { error: "Unsupported file" });
         const bytes = await storage.readBinary(`materials/${id}/files/${entry.name}`);
         const range = req.headers.range;

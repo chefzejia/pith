@@ -16,9 +16,9 @@ export function publicAddress(address: string, family: number): boolean {
 }
 
 export class NodeHttpPort implements HttpPort, PublicHttpPort {
-  async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
+  async requestPublic(spec: HttpRequestSpec, maxBytes: number, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
     if (spec.method !== undefined && spec.method !== "GET") throw new Error("Invalid public request");
-    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal));
+    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal, responseLimit));
   }
   async requestPublicSpeech(spec: HttpRequestSpec): Promise<HttpResponseData> {
     const url = new URL(spec.url);
@@ -26,7 +26,7 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
     if (!authority || authority[1]!.includes("@") || /[?#]/.test(spec.url) || url.protocol !== "https:" || url.username || url.password || spec.method !== "POST") throw new Error("Invalid public speech request");
     return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, 64 * 1024 * 1024, signal));
   }
-  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined): Promise<HttpResponseData> {
+  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
     const url = new URL(spec.url);
     const hostname = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
     const literalFamily = isIP(hostname);
@@ -61,22 +61,28 @@ export class NodeHttpPort implements HttpPort, PublicHttpPort {
             reject(new Error(`Public HTTP request rejected: ${status}`));
             return;
           }
+          const headers: Record<string, string> = {};
+          for (const [key, value] of Object.entries(response.headers)) {
+            if (typeof value === "string") headers[key.toLowerCase()] = value;
+            else if (Array.isArray(value)) headers[key.toLowerCase()] = value.join(", ");
+          }
+          let limit: number;
+          try { limit = Math.min(maxBytes, responseLimit?.(headers) ?? maxBytes); }
+          catch (error) { response.destroy(); reject(error); return; }
+          if (Number(headers["content-length"]) > limit) {
+            response.destroy(); reject(new Error("Public response exceeds limit")); return;
+          }
           const chunks: Uint8Array[] = [];
           let size = 0;
           response.on("data", (chunk: Buffer) => {
             size += chunk.length;
-            if (size > maxBytes) response.destroy(new Error("Public response exceeds limit"));
+            if (size > limit) response.destroy(new Error("Public response exceeds limit"));
             else chunks.push(chunk);
           });
           response.on("error", reject);
           response.on("aborted", () => reject(new Error("Public response aborted")));
           response.on("end", () => {
             const bytes = new Uint8Array(Buffer.concat(chunks));
-            const headers: Record<string, string> = {};
-            for (const [key, value] of Object.entries(response.headers)) {
-              if (typeof value === "string") headers[key.toLowerCase()] = value;
-              else if (Array.isArray(value)) headers[key.toLowerCase()] = value.join(", ");
-            }
             resolve({ status, headers, bytes, text: () => new TextDecoder().decode(bytes) });
           });
         },

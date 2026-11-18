@@ -58,6 +58,33 @@ export function findCueAt(cues: readonly TranscriptCue[], value: number): Transc
   return cues.find(cue => cue.startSec <= value && value < cue.endSec) ?? null;
 }
 
+export async function mediaDuration(media: HTMLMediaElement, signal: AbortSignal): Promise<number | undefined> {
+  if (signal.aborted || media.error) return undefined;
+  if (media.readyState < 1) {
+    await new Promise<void>(resolve => {
+      const deadline = setTimeout(finish, 8000);
+      function finish() {
+        clearTimeout(deadline);
+        media.removeEventListener("loadedmetadata", finish); media.removeEventListener("error", finish);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      }
+      media.addEventListener("loadedmetadata", finish); media.addEventListener("error", finish);
+      signal.addEventListener("abort", finish);
+    });
+  }
+  return !signal.aborted && !media.error && Number.isFinite(media.duration) && media.duration >= 0 ? media.duration : undefined;
+}
+
+export async function probeMediaDuration(doc: Document, bytes: Uint8Array, type: string, signal: AbortSignal): Promise<number | undefined> {
+  if (signal.aborted) return undefined;
+  const media = doc.createElement(type.startsWith("video/") ? "video" : "audio");
+  media.preload = "metadata";
+  const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type }));
+  try { media.src = url; return await mediaDuration(media, signal); }
+  finally { media.removeAttribute("src"); media.load(); URL.revokeObjectURL(url); }
+}
+
 export function sliceLoopRange(cues: readonly TranscriptCue[], startSec: number, endSec: number): readonly TranscriptCue[] {
   if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || startSec < 0 || endSec <= startSec) throw new Error("Invalid loop range");
   return cues.filter(cue => cue.endSec > startSec && cue.startSec < endSec);

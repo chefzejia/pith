@@ -1,5 +1,5 @@
 import { DefaultWorkspaceStore, nonHanLetterRatio, type ToolkitDescriptor, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
-import { ingestExternalUrl } from "./externalIngest.ts";
+import { EXTERNAL_DOCUMENT_COUNT, ingestExternalDocuments, ingestExternalUrl, readExternal } from "./externalIngest.ts";
 import { ToolExecutionFailure, type TurnTool } from "./mcpTools.ts";
 
 export function normalizeToolkits(value: readonly unknown[], toolkits: readonly Pick<ToolkitDescriptor, "id" | "role">[] = []): string[] {
@@ -69,13 +69,25 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
       }
       return { material, slices: bundle.slices ?? [], warnings: bundle.warnings ?? [] };
     } }] : []),
-    ...(http ? [{ name: "pith_ingest_external", description: "Import a public external document or media into the workspace.", inputSchema: schema({ url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
-      keys(input, ["url", "kind", "transcriptMarkdown", "topicId"]);
+    ...(http ? [{ name: "pith_read_external", description: "Read one public web page without importing it. Returns bounded Markdown and public links with a truncation flag. Use it to browse course pages before selecting files.", inputSchema: schema({ url: { ...field, maxLength: 4096 } }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
+      keys(input, ["url"]);
+      return readExternal(text(input, "url", 4096), http, signal);
+    } }, { name: "pith_ingest_external", description: "Import 1 to 20 public web pages or PDFs as one material using title and urls. For media only, use kind: media and one url with an optional transcriptMarkdown.", inputSchema: {
+      ...schema({ title: field, urls: { type: "array", items: { ...field, maxLength: 4096 }, minItems: 1, maxItems: EXTERNAL_DOCUMENT_COUNT }, url: field, kind: { enum: ["article", "discussion", "media"] }, transcriptMarkdown: field, topicId: field }, []),
+      oneOf: [{ required: ["title", "urls"], properties: { kind: { enum: ["article", "discussion"] } }, not: { anyOf: [{ required: ["url"] }, { required: ["transcriptMarkdown"] }] } }, { required: ["kind", "url"], properties: { kind: { const: "media" } }, not: { anyOf: [{ required: ["urls"] }, { required: ["title"] }] } }],
+    }, async execute(input: Readonly<Record<string, unknown>>) {
       const kind = input.kind;
       if (kind !== undefined && kind !== "article" && kind !== "discussion" && kind !== "media") throw new Error("Invalid kind");
+      keys(input, kind === "media" ? ["url", "kind", "transcriptMarkdown", "topicId"] : ["title", "urls", "kind", "topicId"]);
       const topicId = input.topicId === undefined ? undefined : text(input, "topicId", 200);
       if (topicId && !await store.getTopic(topicId)) throw new Error("Topic not found");
-      const bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http, signal);
+      let bundle;
+      if (kind === "media") {
+        bundle = await ingestExternalUrl({ url: text(input, "url", 4096), kind, ...(input.transcriptMarkdown === undefined ? {} : { transcriptMarkdown: text(input, "transcriptMarkdown", 4000000) }) }, http, signal);
+      } else {
+        if (!Array.isArray(input.urls) || input.urls.length < 1 || input.urls.length > EXTERNAL_DOCUMENT_COUNT) throw new Error("Expected 1 to 20 external URLs");
+        bundle = await ingestExternalDocuments({ title: text(input, "title", 200), urls: input.urls.map(url => text({ url }, "url", 4096)), kind }, http, signal);
+      }
       signal?.throwIfAborted();
       const material = await store.importMaterial({ title: bundle.title, kind: bundle.kind, files: bundle.files, aids: await importedAids(bundle.files, reader) });
       if (topicId) await store.attachMaterial(topicId, material.id);
@@ -170,14 +182,14 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
     } finally { creating = false; }
   }, effects(result) { const topic = result as { id: string }; return [{ kind: "topic", topicId: topic.id }]; } });
   for (const tool of original) {
-    if (!["pith_save_note", "pith_write_lesson", "pith_rebase_lesson", "pith_configure_toolkits", "pith_settle_topic", "pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) continue;
+    if (!["pith_save_note", "pith_write_lesson", "pith_rebase_lesson", "pith_configure_toolkits", "pith_settle_topic", "pith_ingest_external", "pith_read_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) continue;
     const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
     const properties = { ...source.properties }; delete properties.topicId;
     const inputSchema = { ...tool.inputSchema, properties, required: (source.required ?? []).filter(name => name !== "topicId") };
-    const write = tool.name !== "pith_search_media";
+    const write = !["pith_read_external", "pith_search_media"].includes(tool.name);
     tools.push({ name: tool.name, description: tool.description, inputSchema, write, async execute(input, signal, beginWrite) {
       if ("topicId" in input) throw new Error("Invalid tool arguments");
-      if (!topicId && !["pith_ingest_external", "pith_search_media", "pith_fetch_media_corpus"].includes(tool.name)) throw new Error("先创建课题");
+      if (!topicId && write && !["pith_ingest_external", "pith_fetch_media_corpus"].includes(tool.name)) throw new Error("先创建课题");
       const guarded = guardToolWrites(storage, signal, beginWrite);
       const currentStore = write ? new DefaultWorkspaceStore(guarded) : store;
       const current = workspaceToolImplementations(currentStore, engine, guarded, http, repository, mediaCorpus, topicId, signal, training, options.reader).find(item => item.name === tool.name)!;
@@ -185,7 +197,7 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
       const topicBefore = tool.name === "pith_settle_topic" && topicId ? await store.getTopic(topicId) : null;
       const historyBefore = tool.name === "pith_settle_topic" && await storage.exists("history") ? new Set((await storage.list("history")).map(item => item.path)) : new Set<string>();
       try {
-        const result = await current.execute({ ...input, ...(tool.name === "pith_search_media" || !topicId ? {} : { topicId }) });
+        const result = await current.execute({ ...input, ...(write && topicId ? { topicId } : {}) });
         if (tool.name === "pith_settle_topic") return { topic: result, observations: (await store.readProfile()).observations.filter(item => !before.some(previous => previous.id === item.id)) };
         return result;
       } catch (cause) {

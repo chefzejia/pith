@@ -22,10 +22,10 @@ export interface DshBundleOptions { readonly storage: WorkspaceStoragePort; read
 
 export class DshPublicHttpPort implements PublicHttpPort {
   async request(spec: HttpRequestSpec): Promise<HttpResponseData> { return this.requestPublic(spec, 4 * 1024 * 1024); }
-  async requestPublic(spec: HttpRequestSpec, maxBytes: number): Promise<HttpResponseData> {
-    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal));
+  async requestPublic(spec: HttpRequestSpec, maxBytes: number, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
+    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal, responseLimit));
   }
-  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined): Promise<HttpResponseData> {
+  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
     if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) throw new Error("Invalid public request");
     const url = new URL(spec.url);
     const addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true });
@@ -36,13 +36,18 @@ export class DshPublicHttpPort implements PublicHttpPort {
       const request = (url.protocol === "https:" ? https.request : http.request)(url, { method: "GET", headers: spec.headers, signal, agent: false, family: selected.family, lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family) }, response => {
         const status = response.statusCode ?? 0;
         if (status < 200 || status >= 300) { request.destroy(); response.destroy(); reject(new Error(`Public HTTP request rejected: ${status}`)); return; }
+        const headers: Record<string, string> = {};
+        for (const [key, value] of Object.entries(response.headers)) if (typeof value === "string") headers[key] = value; else if (Array.isArray(value)) headers[key] = value.join(", ");
+        let limit: number;
+        try { limit = Math.min(maxBytes, responseLimit?.(headers) ?? maxBytes); }
+        catch (error) { response.destroy(); reject(error); return; }
+        if (Number(headers["content-length"]) > limit) { response.destroy(); reject(new Error("Public response exceeds limit")); return; }
         const chunks: Uint8Array[] = []; let size = 0;
-        response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > maxBytes) response.destroy(new Error("Public response exceeds limit")); else chunks.push(chunk); });
+        response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > limit) response.destroy(new Error("Public response exceeds limit")); else chunks.push(chunk); });
         response.on("error", reject);
         response.on("aborted", () => reject(new Error("Public response aborted")));
         response.on("end", () => {
-          const bytes = new Uint8Array(Buffer.concat(chunks)); const headers: Record<string, string> = {};
-          for (const [key, value] of Object.entries(response.headers)) if (typeof value === "string") headers[key] = value; else if (Array.isArray(value)) headers[key] = value.join(", ");
+          const bytes = new Uint8Array(Buffer.concat(chunks));
           resolve({ status, headers, bytes, text: () => new TextDecoder().decode(bytes) });
         });
       });

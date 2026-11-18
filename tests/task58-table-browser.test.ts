@@ -28,7 +28,7 @@ for (const surface of ["article", "guide"] as const) test(`${surface} tables kee
       state.view = new api.PithWorkbenchView(document.getElementById("root"), {
         openFile: async (file: string, source: unknown) => {
           state.opened.push({ file, source });
-          state.view.render({ title: file, currentFile: file, files: [], sections: [], html: Array.from({ length: 150 }, (_, i) => `<pre data-locator="repo:pinned:${file}#L${i + 1}-L${i + 1}">source line ${i + 1}</pre>`).join("") });
+          state.view.render({ title: file, currentFile: file, source, files: [], sections: [], html: Array.from({ length: 150 }, (_, i) => `<pre data-locator="repo:pinned:${file}#L${i + 1}-L${i + 1}">source line ${i + 1}</pre>`).join("") });
         }, openToolkit() {}, selection() {},
         guideData: async () => ({ notes: [], conversation, actions: [], toolkits: [], observations: [] }),
       });

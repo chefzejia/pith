@@ -36,6 +36,11 @@ export class WebWorkbench {
     this.options = options;
     this.guideAvailable = options.guideAvailable;
     const topicId = options.topic.id;
+    const readMaterialBytes = async (id: string, name: string, signal?: AbortSignal) => {
+      const response = await fetch(`/api/materials/${encodeURIComponent(id)}/raw?name=${encodeURIComponent(name)}`, { signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    };
     const toolkits = [shadowingToolkit, feynmanToolkit];
     const streamTurn = async (data: Record<string, unknown>) => {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ topicId, ...data }) });
@@ -113,7 +118,8 @@ export class WebWorkbench {
       prepareInterline: async (units: readonly InterlineViewUnit[], index, mode) => { if (!this.session.material) throw new Error("材料不存在"); return options.request<{ html: string; status: string; error?: string }>("/api/interline", { topicId, materialId: this.session.material.id, file: this.session.file, units, index, mode }); },
       synthesizeSpeech: async (text, signal) => { const response = await postAudio("/api/speech/synthesize", { text }, signal); return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: response.headers.get("content-type") || "audio/wav" }; },
       transcribeAudio: async (bytes, mimeType, signal) => { let binary = ""; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768)); const response = await postAudio("/api/speech/transcribe", { audio: btoa(binary), mimeType }, signal ?? new AbortController().signal); return response.json() as Promise<{ text: string }>; },
-      loadAudio: async name => { if (!this.session.material) throw new Error("材料不存在"); const response = await fetch(`/api/materials/${encodeURIComponent(this.session.material.id)}/raw?name=${encodeURIComponent(name)}`); if (!response.ok) throw new Error(`HTTP ${response.status}`); return new Uint8Array(await response.arrayBuffer()); },
+      loadAudio: async name => { if (!this.session.material) throw new Error("材料不存在"); return readMaterialBytes(this.session.material.id, name); },
+      readCitationFile: readMaterialBytes,
     });
     const fileUrl = (material: Material, file: string) => `/api/materials/file?id=${encodeURIComponent(material.id)}&name=${encodeURIComponent(file)}`;
     this.session = new MaterialSession(options.sessionState, {
@@ -126,9 +132,7 @@ export class WebWorkbench {
         if (material.kind !== "repo") {
           const file = material.files.find(item => item.name === name);
           if (file && (/\.pdf$/i.test(file.name) || file.mimeType === "application/pdf")) {
-            const response = await fetch(`/api/materials/${encodeURIComponent(material.id)}/raw?name=${encodeURIComponent(name)}`);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return renderFile(file, new Uint8Array(await response.arrayBuffer()));
+            return renderFile(file, await readMaterialBytes(material.id, name));
           }
           return options.request<SessionDocument>(fileUrl(material, name));
         }

@@ -102,23 +102,23 @@ test("external ingestion requires pinned transport and imports into a topic", as
     const disk = new NodeWorkspaceStorage(dir); const store = new DefaultWorkspaceStore(disk); await store.ensureScaffold();
     const topic = await store.createTopic({ title: "Topic" , target: "Topic", materialIds: [], toolkits: [] });
     const tool = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_ingest_external")!;
-    const imported = await tool.execute({ url: "https://public.com/post", topicId: topic.id }) as { material: { id: string } };
+    const imported = await tool.execute({ title: "Post", urls: ["https://public.com/post"], topicId: topic.id }) as { material: { id: string } };
     assert.deepEqual((await store.getTopic(topic.id))!.materialIds, [imported.material.id]);
     assert.deepEqual((await store.getTopic(topic.id))!.toolkits, []);
-    const body = await disk.readText(`materials/${imported.material.id}/files/article.md`);
+    const body = await disk.readText(`materials/${imported.material.id}/files/post.md`);
     assert.match(body, /Hello/); assert.doesNotMatch(body, /127\.0\.0\.1|<script>/);
     const chinese = await store.createTopic({ title: "中文课题", toolkits: ["feynman"] , target: "中文课题", materialIds: [] });
     const chineseHttp: PublicHttpPort = { request: async () => { throw new Error("insecure path"); }, requestPublic: async () => response("这是一段中文文章，介绍一个中文主题。", "text/plain") };
     const chineseTool = createDshPluginBundle({ storage: disk, http: chineseHttp }).tools.find(item => item.name === "pith_ingest_external")!;
-    const chineseResult = await chineseTool.execute({ url: "https://public.com/chinese", topicId: chinese.id }) as { material: { id: string } };
-    assert.deepEqual((await store.getTopic(chinese.id))!.toolkits, ["feynman"]); assert.match(await disk.readText(`materials/${chineseResult.material.id}/files/article.md`), /中文文章/);
+    const chineseResult = await chineseTool.execute({ title: "中文文章", urls: ["https://public.com/chinese"], topicId: chinese.id }) as { material: { id: string } };
+    assert.deepEqual((await store.getTopic(chinese.id))!.toolkits, ["feynman"]); assert.match(await disk.readText(`materials/${chineseResult.material.id}/files/chinese.md`), /中文文章/);
     const explicit = await store.createTopic({ title: "Explicit", toolkits: ["feynman"], target: "Explicit", materialIds: [] });
     const configure = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_configure_toolkits")!;
     await assert.rejects(configure.execute({ topicId: explicit.id, toolkits: ["INVALID"] }));
-    await tool.execute({ url: "https://public.com/english", topicId: explicit.id });
+    await tool.execute({ title: "English", urls: ["https://public.com/english"], topicId: explicit.id });
     assert.deepEqual((await store.getTopic(explicit.id))!.toolkits, ["feynman"]);
     assert.equal((await store.getTopic(explicit.id))!.materialIds.length, 1);
-    await assert.rejects(tool.execute({ topicId: explicit.id, url: "http://localhost" }), /not public/);
+    await assert.rejects(tool.execute({ topicId: explicit.id, title: "Private", urls: ["http://localhost"] }), /not public/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -130,7 +130,7 @@ test("external import preserves an explicit same-value toolkit choice made while
     const topic = await store.createTopic({ title: "Race", toolkits: ["feynman"], target: "Race", materialIds: [] });
     const http: PublicHttpPort = { request: async () => { throw new Error("insecure path"); }, requestPublic: async () => { observed(); await held; return response("An English article about learning.", "text/plain"); } };
     const tool = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_ingest_external")!;
-    const importing = tool.execute({ url: "https://public.com/race", topicId: topic.id }); await ready;
+    const importing = tool.execute({ title: "Race", urls: ["https://public.com/race"], topicId: topic.id }); await ready;
     await store.updateTopic(topic.id, { toolkits: ["feynman"] }); release(); await importing;
     const actual = await store.getTopic(topic.id); assert.deepEqual(actual!.toolkits, ["feynman"]); assert.equal(actual!.materialIds.length, 1);
   } finally { release(); await rm(dir, { recursive: true, force: true }); }
@@ -144,7 +144,7 @@ test("external import preserves a concurrent toolkit list change", async () => {
     const topic = await store.createTopic({ title: "List race", toolkits: ["feynman"], target: "List race", materialIds: [] });
     const http: PublicHttpPort = { request: async () => { throw new Error("insecure path"); }, requestPublic: async () => { observed(); await held; return response("An English article about learning.", "text/plain"); } };
     const tool = createDshPluginBundle({ storage: disk, http }).tools.find(item => item.name === "pith_ingest_external")!;
-    const importing = tool.execute({ url: "https://public.com/race", topicId: topic.id }); await ready;
+    const importing = tool.execute({ title: "Race", urls: ["https://public.com/race"], topicId: topic.id }); await ready;
     await store.updateTopic(topic.id, { toolkits: ["shadowing"] }); release(); await importing;
     const actual = await store.getTopic(topic.id); assert.deepEqual(actual!.toolkits, ["shadowing"]); assert.equal(actual!.materialIds.length, 1);
   } finally { release(); await rm(dir, { recursive: true, force: true }); }

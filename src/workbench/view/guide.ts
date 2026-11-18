@@ -17,7 +17,7 @@ export function noteEntries(notes: readonly Note[], material?: MaterialNotes): r
 const noteLabels: Record<Note["kind"], string> = { highlight: "高亮", note: "笔记", practice: "实训" };
 const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 function toolLabel(name: string, preview: string): string {
-  const labels: Record<string, string> = { pith_read_material: "读取", pith_read_lesson: "读取讲义", pith_list_material: "查看材料", pith_write_lesson: "写入讲义", pith_save_note: "记录笔记", pith_settle_topic: "结题", pith_offer_choices: "准备选项", pith_ingest_external: "导入材料", pith_fetch_media_corpus: "导入材料", pith_search_media: "搜索媒体", pith_configure_toolkits: "配置工具" };
+  const labels: Record<string, string> = { pith_read_material: "读取", pith_read_external: "浏览网页", pith_read_lesson: "读取讲义", pith_list_material: "查看材料", pith_write_lesson: "写入讲义", pith_save_note: "记录笔记", pith_settle_topic: "结题", pith_offer_choices: "准备选项", pith_ingest_external: "导入材料", pith_fetch_media_corpus: "导入材料", pith_search_media: "搜索媒体", pith_configure_toolkits: "配置工具" };
   let object = "";
   try { const input: unknown = JSON.parse(preview); if (input && typeof input === "object") { const record = input as Record<string, unknown>; const value = record.fileName ?? record.file ?? record.url; if (typeof value === "string") object = value; } } catch { /* Previews may be truncated. */ }
   return `${labels[name] ?? name}${object ? ` ${object}` : ""}`;

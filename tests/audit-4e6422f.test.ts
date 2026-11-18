@@ -88,7 +88,7 @@ test("stalled external import stops, drains and can be retried without partial i
     const steps: TurnStep[] = [];
     const server = await openTurnTools(new NodeToolServerPort(), createScopedTools({ toolkits: testToolkits, topicId: f.topic.id, store: f.store, storage: f.storage, http, onChoices() {} }), options.signal, (step, index) => { steps[index] = step; options.onStep(step, index); }, () => steps.length);
     try {
-      const response = await fetch(server.endpoint.url, { method: "POST", headers: Object.fromEntries(server.endpoint.headers.map(h => [h.name, h.value])), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "pith_ingest_external", arguments: { url: "https://example.com/entry" } } }) });
+      const response = await fetch(server.endpoint.url, { method: "POST", headers: Object.fromEntries(server.endpoint.headers.map(h => [h.name, h.value])), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "pith_ingest_external", arguments: { title: "Entry", urls: ["https://example.com/entry"] } } }) });
       const result = await response.json();
       return options.signal.aborted ? { status: "stopped" as const } : result.result.isError ? { status: "failed" as const, error: result.result.content[0].text as string } : { status: "completed" as const };
     } finally { await server.drain(); await server.endpoint.close(); }

@@ -126,7 +126,7 @@ test("Agent imports initialize material aids from the same readable sample witho
     await store.updateTopic(topic.id, { toolkits: [] });
     const http = { async request() { throw new Error("unused"); }, async requestPublic() { return { status: 200, headers: { "content-type": "text/markdown" }, bytes: samples[0]!.bytes }; } };
     const external = createScopedTools({ store, storage, topicId: topic.id, toolkits: testToolkits, http, reader, onChoices() {} }).find(tool => tool.name === "pith_ingest_external")!;
-    const result = await external.execute({ url: "https://example.com/document" }) as { material: import("../src/core/index.ts").Material };
+    const result = await external.execute({ title: "Document", urls: ["https://example.com/document"] }) as { material: import("../src/core/index.ts").Material };
     assert.deepEqual(result.material.aids, ["interline"]); assert.deepEqual((await store.getTopic(topic.id))!.toolkits, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
