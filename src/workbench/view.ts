@@ -70,12 +70,11 @@ export interface ObsidianViewActions {
   followUpPractice?(body: string, anchor: SelectionAnchor, instruction: string): Promise<void>;
   mountToolkit?(id: string): Promise<void>;
   toggleToolkit?(id: string, enabled: boolean): Promise<void>;
-  guideVisibilityChanged?(visible: boolean): void;
+  guideVisibilityChanged?(visible: boolean): void | Promise<void>;
   openSettings?(): void;
   importMaterial?(): void;
   checkRepositoryUpdate?(id: string): Promise<string>;
   useRepositoryVersion?(id: string): Promise<void>;
-  adjustLessons?(): Promise<void>;
 }
 
 function sameSource(a: AnchorSource | undefined, b: AnchorSource | undefined): boolean {
@@ -333,7 +332,7 @@ export class PithWorkbenchView {
     this.reader.scrollTo({ left: 0, top: 0, behavior: "instant" });
     if (document.source?.kind === "lesson") {
       const basis = document.files.find(file => file.name === document.currentFile)?.basedOn;
-      this.renderRepositoryCitations((document.materialGroups ?? []).filter(group => basis === undefined || basis.includes(group.id)));
+      this.renderRepositoryCitations((document.materialGroups ?? []).filter(group => group.kind === "repo" && basis?.includes(group.id)));
     }
     this.adaptEpubColors();
     if (this.actions.prepareInterline) this.interline = new InterlineView(this.reader, this.article, this.actions.prepareInterline, change => { if (this.speaking) this.stopSpeech(); preserveInterlinePosition(this.reader, this.article, this.paged, () => { change(); this.markExisting(); }, position => this.applyPageMode(position), captureReaderPosition, proseTextNodes); }, message => this.tip(message), proseTextNodes);
@@ -355,29 +354,23 @@ export class PithWorkbenchView {
   }
 
   private renderRepositoryCitations(groups: NonNullable<ObsidianReaderDocument["materialGroups"]>): void {
-    const sources = new Map<string, { id: string; title: string }[]>();
-    for (const group of groups) if (group.kind === "repo") for (const file of group.files) {
-      const matches = sources.get(file.name) ?? []; matches.push({ id: group.id, title: group.title }); sources.set(file.name, matches);
-    }
-    if (!sources.size) return;
-    const names = [...sources.keys()].sort((a, b) => b.length - a.length).map(name => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_./-])(${names.join("|")}):(\\d+)`, "gu");
+    if (!groups.length) return;
     const walker = this.doc.createTreeWalker(this.article, 4), nodes: Text[] = []; let node: Node | null;
     while ((node = walker.nextNode())) if (!(node.parentElement?.closest("pre,a,button"))) nodes.push(node as Text);
-    for (const text of nodes) {
-      const value = text.data, matches = [...value.matchAll(pattern)]; if (!matches.length) continue;
+    const citations = repositoryCitations(nodes.map(text => text.data), groups);
+    for (const [textIndex, text] of nodes.entries()) {
+      const value = text.data, matches = citations[textIndex]!; if (!matches.length) continue;
       const fragment = this.doc.createDocumentFragment(); let offset = 0;
-      for (const match of matches) {
-        fragment.append(this.doc.createTextNode(value.slice(offset, match.index)));
-        const candidates = sources.get(match[1]!)!, line = Number(match[2]);
-        if (!Number.isSafeInteger(line) || line < 1) { fragment.append(this.doc.createTextNode(match[0])); offset = match.index! + match[0].length; continue; }
-        for (const [index, candidate] of candidates.entries()) {
+      for (const { start, end, path, line, sources } of matches) {
+        fragment.append(this.doc.createTextNode(value.slice(offset, start)));
+        const label = value.slice(start, end);
+        for (const [index, candidate] of sources.entries()) {
           if (index) fragment.append(this.doc.createTextNode(" / "));
           const button = this.doc.createElement("button"); button.type = "button"; button.className = "pith-source-citation";
-          button.dataset.citationPath = match[1]!; button.dataset.citationMaterial = candidate.id; button.dataset.citationLine = String(line);
-          button.textContent = candidates.length === 1 ? match[0] : `${match[0]} (${candidate.title})`; fragment.append(button);
+          button.dataset.citationPath = path; button.dataset.citationMaterial = candidate.id; button.dataset.citationLine = String(line);
+          button.textContent = sources.length === 1 ? label : `${label} (${candidate.title})`; fragment.append(button);
         }
-        offset = match.index! + match[0].length;
+        offset = end;
       }
       fragment.append(this.doc.createTextNode(value.slice(offset))); text.replaceWith(fragment);
     }
@@ -408,12 +401,12 @@ export class PithWorkbenchView {
       button.disabled = !this.guideAvailable;
       button.title = this.guideAvailable ? "" : GUIDE_UNAVAILABLE_REASON;
     }
-    const adjustment = this.navigation.querySelector(".pith-lesson-adjustment");
-    if (!adjustment) return;
-    const button = adjustment.querySelector<HTMLButtonElement>("[data-adjust-lessons]")!, reason = adjustment.querySelector("small")!;
-    const unavailable = this.guideData.readOnly ? "课题已沉淀" : !this.guideAvailable || !this.actions.adjustLessons ? GUIDE_UNAVAILABLE_REASON : this.guideSending ? "向导正在回应上一条消息" : "";
-    button.disabled = Boolean(unavailable);
-    reason.hidden = !unavailable; reason.textContent = unavailable;
+    const unavailable = this.guideData.readOnly ? "课题已沉淀" : !this.guideAvailable || !this.actions.sendGuide ? GUIDE_UNAVAILABLE_REASON : this.guideSending ? "向导正在回应上一条消息" : "";
+    for (const button of this.navigation.querySelectorAll<HTMLButtonElement>("[data-rewrite-lesson]")) {
+      const reason = button.nextElementSibling as HTMLElement;
+      button.disabled = Boolean(unavailable); button.title = unavailable;
+      reason.hidden = !unavailable; reason.textContent = unavailable;
+    }
   }
   private updateReadingAids(): void {
     const controls = this.root.querySelector<HTMLElement>("[data-reading-aids]"); if (!controls) return;
@@ -696,11 +689,14 @@ export class PithWorkbenchView {
       button.disabled = true;
       try { await this.actions.useRepositoryVersion(button.dataset.useVersion); this.tip("已引用新版本，原有讲义与笔记保留"); } catch (error) { button.disabled = false; this.tip(error instanceof Error ? error.message : String(error)); } return;
     }
-    if (button.hasAttribute("data-adjust-lessons")) {
-      if (!button.disabled && this.actions.adjustLessons && this.guideAvailable && !this.guideSending && !this.guideData.readOnly) {
-        this.closeNavigation();
-        await this.guideTurn("按新版本调整", () => this.actions.adjustLessons!()).catch(() => {});
-      }
+    if (button.dataset.rewriteLesson) {
+      const lesson = this.navigationDocument?.files.find(file => file.name === button.dataset.rewriteLesson && file.outdated);
+      if (!lesson || button.disabled || !this.guideAvailable || !this.actions.sendGuide || this.guideSending || this.guideData.readOnly) return;
+      this.closeNavigation(); this.pendingAnchor = undefined; this.guideTab = "chat"; this.setGuideVisible(true); this.renderGuide();
+      const input = this.guide.querySelector<HTMLTextAreaElement>("textarea");
+      if (input) input.value = [`请按新版本重写《${lesson.name}》，只处理这一讲。`, ...lessonVersionDetails(lesson.versions ?? [])].join("\n");
+      await this.actions.guideVisibilityChanged?.(true);
+      this.guide.querySelector<HTMLTextAreaElement>("textarea")?.focus();
       return;
     }
     if (button.dataset.file || button.dataset.guideLesson || button.dataset.guideMaterial || button.dataset.noteId || button.dataset.citationPath || button.dataset.command === "home") {
@@ -893,3 +889,5 @@ export function mountPithWorkbench(root: HTMLElement, actions: ObsidianViewActio
   layout.append(view.guideElement());
   return view;
 }
+import { repositoryCitations } from "../core/repositoryCitations.ts";
+import { lessonVersionDetails } from "./lessonVersions.ts";

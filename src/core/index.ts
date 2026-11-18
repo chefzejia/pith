@@ -6,7 +6,7 @@ export * from "./seams.ts";
 export * from "./store/contract.ts";
 export * from "./store/MutationQueue.ts";
 export * from "./store/frontmatter.ts";
-export * from "./store/WorkspaceStore.ts";
+export { DefaultWorkspaceStore } from "./store/WorkspaceStore.ts";
 export * from "./engine/contract.ts";
 export * from "./engine/AttentionEngine.ts";
 export * from "./pluginrt/schema.ts";

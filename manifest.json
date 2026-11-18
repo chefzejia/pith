@@ -1,7 +1,7 @@
 {
   "id": "pith",
   "name": "Pith",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.5.0",
   "description": "We used all human wisdom to train AI. Pith uses AI's training pipeline to train you.",
   "isDesktopOnly": true

@@ -419,3 +419,7 @@ test("Documentation links in README.md, AGENTS.md, and docs/ resolve cleanly", (
     checkLinksIn(file);
   }
 });
+test("batch lesson adjustment is absent from product source", () => {
+  const forbidden = /\b(?:ADJUST_LESSONS_MESSAGE|adjustLessons)\b/;
+  for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(SRC, file));
+});

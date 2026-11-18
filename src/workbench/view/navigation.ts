@@ -1,8 +1,9 @@
 import type { AnchorSource, ReaderSectionHeading } from "../../core/index.ts";
 import { renderTocTree, type CurriculumItem } from "../../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "../icons.ts";
+import { lessonVersionDetails, type LessonVersions } from "../lessonVersions.ts";
 
-export interface NavigationLesson { readonly name: string; readonly basedOn?: readonly string[]; readonly outdated?: boolean }
+export interface NavigationLesson { readonly name: string; readonly basedOn?: readonly string[]; readonly outdated?: boolean; readonly versions?: LessonVersions[string] }
 export interface NavigationMaterial {
   readonly id: string; readonly title: string; readonly kind?: string; readonly files: readonly { readonly name: string }[];
   readonly externalPath?: string; readonly commitSha?: string; readonly createdAt?: string;
@@ -15,23 +16,28 @@ export function renderNavigation(navigation: HTMLElement, document: { files: rea
   const fileButton = (name: string): void => { const button = doc.createElement("button"); button.textContent = name; button.dataset.file = name; button.setAttribute("aria-current", String(name === document.currentFile)); navigation.append(button); };
   if (document.materialGroups) {
     if (document.files.length || document.curriculum?.length) group("讲义");
-    if (document.files.some(file => file.outdated)) {
-      const action = doc.createElement("div"), button = doc.createElement("button"), reason = doc.createElement("small");
-      action.className = "pith-lesson-adjustment";
-      button.type = "button"; button.dataset.adjustLessons = ""; button.textContent = "按新版本调整";
-      reason.hidden = true;
-      action.append(button, reason); navigation.append(action);
-    }
-    const staleBadge = (button: HTMLElement, name: string) => { if (document.files.find(file => file.name === name)?.outdated) { const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "基于旧版本"; button.append(badge); } };
+    const appendLesson = (row: HTMLButtonElement, name: string) => {
+      navigation.append(row);
+      const lesson = document.files.find(file => file.name === name);
+      if (!lesson?.outdated) return;
+      const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "基于旧版本"; row.append(badge);
+      const status = doc.createElement("div"), rewrite = doc.createElement("button"), reason = doc.createElement("small");
+      status.className = "pith-lesson-version";
+      for (const detail of lessonVersionDetails(lesson.versions ?? [])) {
+        const line = doc.createElement("small"); line.textContent = detail; status.append(line);
+      }
+      rewrite.type = "button"; rewrite.dataset.rewriteLesson = name; rewrite.textContent = "请向导按新版本重写";
+      reason.hidden = true; status.append(rewrite, reason); navigation.append(status);
+    };
     const planned = document.curriculum ?? [];
     for (const item of planned) {
       const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.className = "pith-lesson-title"; title.textContent = item.title; button.append(title);
       if (item.status === "ready") { button.dataset.file = item.fileName; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && item.fileName === document.currentFile)); }
       else { button.dataset.plannedLesson = item.fileName; button.dataset.plannedTitle = item.title; const badge = doc.createElement("span"); badge.className = "pith-lesson-badge"; badge.textContent = "待生成"; button.append(badge); }
-      staleBadge(button, item.fileName); navigation.append(button);
+      appendLesson(button, item.fileName);
     }
     for (const file of document.files.filter(file => !planned.some(item => item.fileName === file.name))) {
-      const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.className = "pith-lesson-title"; title.textContent = file.name; button.append(title); button.dataset.file = file.name; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && file.name === document.currentFile)); staleBadge(button, file.name); navigation.append(button);
+      const button = doc.createElement("button"), title = doc.createElement("span"); button.className = "pith-lesson"; title.className = "pith-lesson-title"; title.textContent = file.name; button.append(title); button.dataset.file = file.name; button.dataset.lesson = ""; button.setAttribute("aria-current", String(document.source?.kind === "lesson" && file.name === document.currentFile)); appendLesson(button, file.name);
     }
     group("材料");
     const repositories = new Map<string, NavigationMaterial[]>();

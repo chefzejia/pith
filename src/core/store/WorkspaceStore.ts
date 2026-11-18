@@ -253,6 +253,13 @@ function fileFields(file: MaterialFileEntry, extra: Record<string, string | numb
     ...(file.locator !== undefined ? { locator: file.locator } : {}), ...(file.lastActiveAt !== undefined ? { lastActiveAt: file.lastActiveAt } : {}) };
 }
 
+const rebase = Symbol("rebaseLesson");
+type ComparedBasis = { readonly markdown: string; readonly from: readonly string[]; readonly to: readonly string[] };
+
+export function rebaseComparedLesson(store: DefaultWorkspaceStore, topicId: string, fileName: string, compared: ComparedBasis): Promise<Topic> {
+  return store[rebase](topicId, fileName, compared);
+}
+
 export class DefaultWorkspaceStore implements WorkspaceStore {
   private readonly queue: MutationQueue;
   private readonly storage: WorkspaceStoragePort;
@@ -502,7 +509,8 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
     }));
     return latestRepositoryIds(materials);
   }
-  rebaseLesson(topicId: string, fileName: string): Promise<Topic> {
+  rebaseLesson(topicId: string, fileName: string): Promise<Topic> { return this[rebase](topicId, fileName); }
+  [rebase](topicId: string, fileName: string, compared?: ComparedBasis): Promise<Topic> {
     return this.queue.run(async () => {
       name(fileName);
       const path = `topics/${name(topicId)}/topic.md`, parsed = parseTopic(await this.storage.readText(path));
@@ -510,7 +518,17 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const entries = parsed.attributes.lessons as Record<string, string | number | boolean | null>[];
       const entry = entries.find(item => item.name === fileName);
       if (!entry || !await this.storage.exists(`topics/${topicId}/lessons/${fileName}`)) throw new Error("Lesson not found");
-      const basis = await this.lessonBasis(parsed.topic);
+      let basis: readonly string[];
+      if (compared) {
+        // The comparison happened outside the write queue; verify its snapshot before writing.
+        const materials = await Promise.all(parsed.topic.materialIds.map(async id => {
+          const material = await this.getMaterial(id); if (!material) throw new Error("Material not found"); return material;
+        }));
+        const from = lessonRepositoryMaterials(parsed.topic.lessons.find(lesson => lesson.name === fileName)!, materials).map(material => material.id);
+        basis = latestRepositoryIds(materials);
+        const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every(id => b.includes(id));
+        if (!same(compared.from, from) || !same(compared.to, basis) || compared.markdown !== await this.storage.readText(`topics/${topicId}/lessons/${fileName}`)) throw new Error("比较期间讲义或仓库版本已变动，未改依据");
+      } else basis = await this.lessonBasis(parsed.topic);
       if (basis.length) entry.basedOn = basis.join(","); else delete entry.basedOn;
       parsed.attributes.updatedAt = new Date().toISOString();
       const ledger = stringifyFrontmatter(parsed.attributes, parsed.body), topic = parseTopic(ledger).topic;

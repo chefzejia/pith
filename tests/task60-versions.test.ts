@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DefaultWorkspaceStore, lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, parseFrontmatter, stringifyFrontmatter } from '../src/core/index.ts';
 import { createScopedTools } from '../src/plugins/guide-acp/tools.ts';
 import { buildScenePrompt } from '../src/plugins/guide-acp/index.ts';
-import { ADJUST_LESSONS_MESSAGE, checkRepositoryUpdate } from '../src/workbench/repositoryIntake.ts';
+import { checkRepositoryUpdate } from '../src/workbench/repositoryIntake.ts';
 import { versionFixture } from './task60-fixture.ts';
 
 const changed = '# Changed\r\n\r\nsrc/changed.ts:1\r\n';
@@ -93,29 +93,6 @@ test('real scoped version tools compare pinned commits, reject foreign scope, ga
   } finally { await f.close(); }
 });
 
-test('only the dedicated adjustment instruction carries the lesson version workflow', async () => {
-  const f = await versionFixture();
-  try {
-    const first = await f.importLocal(), topic = await f.store.createTopic({ title: 'Versions', target: 'Compare versions', materialIds: [first.id], toolkits: [] });
-    await f.store.writeLesson(topic.id, '01.md', changed);
-    await f.advance(); const latest = await f.importLocal(); await f.store.attachMaterial(topic.id, latest.id);
-    const scene = { profileMarkdown: '', topic: (await f.store.getTopic(topic.id))!, materials: [first, latest], userMessage: '按新版本调整' };
-    const workflow = /逐讲|pith_read_lesson|pith_compare_material|pith_write_lesson|pith_rebase_lesson|相对上一版的变化|# 本回合指令/;
-    const intake = buildScenePrompt({ ...scene, topic: null, userMessage: '核对版本' });
-    assert.doesNotMatch(intake, workflow, 'ordinary intake must not carry the adjustment workflow');
-    const ordinary = buildScenePrompt(scene);
-    assert.doesNotMatch(ordinary, workflow, 'ordinary topic turns must not infer adjustment from stale lessons or message text');
-    assert.match(ordinary, /"versionStatus":"基于旧版本"/);
-    const adjustment = buildScenePrompt({ ...scene, instruction: ADJUST_LESSONS_MESSAGE });
-    const [context, instruction] = adjustment.split('\n\n# 本回合指令\n');
-    assert.equal(context, ordinary);
-    assert.match(instruction!, /逐讲读取.*pith_read_lesson.*引用的文件.*pith_compare_material.*带路径.*依据版本.*最新引用版本/);
-    assert.match(instruction!, /仅在需要了解整体变化时才分页.*不通读全部变化/);
-    assert.match(instruction!, /实质变化.*pith_write_lesson.*相对上一版的变化/);
-    assert.match(instruction!, /不受影响.*只调用 pith_rebase_lesson.*保持正文字节不变/);
-    assert.match(instruction!, /最后在回复中列出改了哪些讲、为什么改/);
-  } finally { await f.close(); }
-});
 
 test('basis stamps one latest snapshot per repository and excludes non-repository materials', async () => {
   const f = await versionFixture();

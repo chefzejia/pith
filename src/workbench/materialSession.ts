@@ -2,6 +2,7 @@ import type { MaterialReading } from "./readingState.ts";
 import { lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, type AnchorSource, type Material, type RenderedDocumentView, type Topic } from "../core/index.ts";
 import { parseCurriculumOutline, type CurriculumItem } from "../plugins/stage-reader/pagination.ts";
 import { emptyMaterialHtml } from "./repositoryIntake.ts";
+import type { LessonVersions } from "./lessonVersions.ts";
 import type { ObsidianReaderDocument } from "./view.ts";
 
 export type SessionDocument = Pick<RenderedDocumentView, "html" | "sections"> & { text?: string; format?: RenderedDocumentView["format"]; mediaFile?: string | null };
@@ -11,6 +12,7 @@ export interface SessionState {
   readonly materials: readonly Material[];
   readonly libraryMaterials?: readonly Material[];
   readonly repositoryFiles: Readonly<Record<string, readonly string[]>>;
+  readonly lessonVersions?: LessonVersions;
 }
 export interface MaterialSessionAdapter {
   title: string;
@@ -32,6 +34,7 @@ export class MaterialSession {
   private state: SessionState;
   private generation = 0;
   private disposed = false;
+  private comparisonFailures: LessonVersions = {};
   private readonly adapter: MaterialSessionAdapter;
   constructor(state: SessionState, adapter: MaterialSessionAdapter) { this.state = state; this.adapter = adapter; }
   get material(): Material | undefined { const source = this.source; return source?.kind === "material" ? this.state.materials.find(material => material.id === source.materialId) : undefined; }
@@ -52,7 +55,9 @@ export class MaterialSession {
     });
   }
   private async navigation(): Promise<{ files: ObsidianReaderDocument["files"]; curriculum: readonly CurriculumItem[] | undefined; groups: NonNullable<ObsidianReaderDocument["materialGroups"]> }> {
-    const files = (this.state.topic?.lessons ?? []).map(lesson => ({ name: lesson.name, basedOn: lessonRepositoryMaterials(lesson, this.state.materials).map(material => material.id), outdated: lessonIsOutdated(lesson, this.state.materials) })), outline = await this.adapter.readOutline();
+    const files = (this.state.topic?.lessons ?? []).map(lesson => ({ name: lesson.name, basedOn: lessonRepositoryMaterials(lesson, this.state.materials).map(material => material.id), outdated: lessonIsOutdated(lesson, this.state.materials),
+      versions: (this.state.lessonVersions?.[lesson.name] ?? []).map(version => this.comparisonFailures[lesson.name]?.find(failure => failure.from === version.from && failure.to === version.to && failure.title === version.title) ?? version),
+    })), outline = await this.adapter.readOutline();
     return { files, curriculum: outline === undefined ? undefined : parseCurriculumOutline(outline, files.map(file => file.name)), groups: this.groups() };
   }
   async openFile(name: string, source = this.source): Promise<void> {
@@ -85,9 +90,10 @@ export class MaterialSession {
     if (!first) throw new Error("材料没有可打开的文件");
     await this.openFile(first, { kind: "material", materialId: id });
   }
-  async refresh(): Promise<void> {
+  async refresh(compared?: LessonVersions): Promise<void> {
     const request = this.generation, previous = this.state, next = await this.adapter.loadState();
     if (!this.active() || request !== this.generation) return;
+    if (compared) this.comparisonFailures = Object.fromEntries(Object.entries(compared).map(([name, versions]) => [name, versions.filter(version => version.reason)]));
     this.state = next;
     const navigation = await this.navigation();
     if (!this.active() || request !== this.generation) return;

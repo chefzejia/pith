@@ -14,21 +14,30 @@ export function readerInUse(materials: readonly Material[]): number {
 }
 
 const escape = (text: string): string => text.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-const inline = (text: string): string => {
+type CollectText = (text: string) => void;
+const inline = (text: string, collect?: CollectText, breakLines = false): string => {
   const source = text.replace(/\$(?:\\rightarrow|\\to)\$/g, "→");
   const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^\s)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
-  let result = "", offset = 0;
+  let result = "", offset = 0, plain = "";
+  const addPlain = (value: string) => { result += escape(value); plain += value; };
+  const record = (value: string) => {
+    if (collect && value) for (const part of breakLines ? value.split("\n") : [value]) if (part) collect(part.replace(/\0/g, ""));
+  };
+  const flush = () => { record(plain); plain = ""; };
   for (const match of source.matchAll(pattern)) {
-    result += escape(source.slice(offset, match.index));
-    if (match[1] !== undefined) result += `<code>${escape(match[1])}</code>`;
-    else if (match[2] !== undefined && match[3] !== undefined) {
-      const label = escape(match[2]), url = match[3];
-      result += /^https?:\/\//i.test(url) ? `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
-    } else if (match[4] !== undefined) result += `<strong>${escape(match[4])}</strong>`;
-    else result += `<em>${escape(match[5]!)}</em>`;
+    addPlain(source.slice(offset, match.index));
+    if (match[2] !== undefined && !/^https?:\/\//i.test(match[3]!)) addPlain(match[2]);
+    else {
+      flush();
+      const value = (match[1] ?? match[2] ?? match[4] ?? match[5])!;
+      const label = escape(value), tag = match[1] !== undefined ? "code" : match[4] !== undefined ? "strong" : "em";
+      if (match[2] !== undefined) result += `<a href="${escape(match[3]!)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      else { result += `<${tag}>${label}</${tag}>`; record(value); }
+    }
     offset = match.index + match[0].length;
   }
-  return result + escape(source.slice(offset));
+  addPlain(source.slice(offset)); flush();
+  return breakLines ? result.replace(/\n/g, "<br>") : result;
 };
 
 interface MarkdownBlock extends ProseBlock { kind: "heading" | "quote" | "paragraph" | "list" | "code" | "table" | "meta" | "rule" | "math" | "teaching"; level?: number; display?: string; ordered?: boolean; start?: number; teaching?: TeachingBlockSpec }
@@ -116,7 +125,7 @@ export function markdownSections(markdown: string): ReaderSectionHeading[] {
   return markdownBlocks(markdown).filter(block => block.kind === "heading").map(block => ({ title: block.text, level: block.level!, line: Number(block.locator.slice(10)), locator: block.locator }));
 }
 
-function renderTableHtml(rawTable: string, attrs: string): string {
+function renderTableHtml(rawTable: string, attrs: string, collect?: CollectText): string {
   const rows = rawTable.split(/\r?\n/).filter((line) => line.trim());
   const parseCells = (line: string): string[] =>
     line
@@ -124,14 +133,14 @@ function renderTableHtml(rawTable: string, attrs: string): string {
       .replace(/^\|/, "")
       .replace(/\|$/, "")
       .split("|")
-      .map((cell) => inline(cell.trim()));
+      .map((cell) => inline(cell.trim(), collect));
   if (rows.length < 2) return `<pre ${attrs}><code>${escape(rawTable)}</code></pre>`;
   const headCells = parseCells(rows[0]!);
   const bodyRows = rows.slice(2).map(parseCells);
   return `<div class="pith-table-scroll" tabindex="0" role="region" aria-label="表格，可横向滚动"><table ${attrs}><thead><tr>${headCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
-export function renderMarkdown(markdown: string): string {
+export function renderMarkdown(markdown: string, collect?: CollectText): string {
   const blocks = markdownBlocks(markdown), output: string[] = [], lists: { indent: number; tag: "ol" | "ul" }[] = [];
   const closeList = () => { const list = lists.pop()!; output.push(`</li></${list.tag}>`); };
   for (const block of blocks) {
@@ -143,20 +152,20 @@ export function renderMarkdown(markdown: string): string {
       if (lists.length && lists.at(-1)!.indent === indent && lists.at(-1)!.tag !== tag) closeList();
       if (!lists.length || lists.at(-1)!.indent < indent) { output.push(tag === "ol" && block.start !== 1 ? `<ol start="${block.start}">` : `<${tag}>`); lists.push({ indent, tag }); }
       else output.push("</li>");
-      output.push(`<li ${attrs}>${inline(block.display ?? block.text)}`);
+      output.push(`<li ${attrs}>${inline(block.display ?? block.text, collect)}`);
       continue;
     }
     while (lists.length) closeList();
     const rendered = (() => {
     if (block.kind === "meta") return "";
-    if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title)}</h3><p>${inline(block.teaching.body).replace(/\n/g, "<br>")}</p></section>`;
-    if (block.kind === "table") return renderTableHtml(block.text, attrs);
+    if (block.kind === "teaching" && block.teaching) return `<section class="pith-teaching-block" data-teaching-kind="${block.teaching.kind}" ${attrs}><h3>${inline(block.teaching.title, collect)}</h3><p>${inline(block.teaching.body, collect, true)}</p></section>`;
+    if (block.kind === "table") return renderTableHtml(block.text, attrs, collect);
     if (block.kind === "code") { const depth = block.level ?? 0; return `${"<blockquote>".repeat(depth)}<pre ${attrs}><code>${escape(block.display ?? block.text)}</code></pre>${"</blockquote>".repeat(depth)}`; }
     if (block.kind === "math") return `<pre ${attrs}><code>${escape(block.text)}</code></pre>`;
     if (block.kind === "rule") return `<hr ${attrs}>`;
-    if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text)}</h${block.level}>`;
-    if (block.kind === "quote") { const depth = block.level ?? 1; return `<blockquote ${attrs}>${"<blockquote>".repeat(depth - 1)}${inline(block.display ?? block.text)}${"</blockquote>".repeat(depth - 1)}</blockquote>`; }
-    return `<p ${attrs}>${inline(block.display ?? block.text)}</p>`;
+    if (block.kind === "heading") return `<h${block.level} id="line-${line}" ${attrs}>${inline(block.text, collect)}</h${block.level}>`;
+    if (block.kind === "quote") { const depth = block.level ?? 1; return `<blockquote ${attrs}>${"<blockquote>".repeat(depth - 1)}${inline(block.display ?? block.text, collect)}${"</blockquote>".repeat(depth - 1)}</blockquote>`; }
+    return `<p ${attrs}>${inline(block.display ?? block.text, collect)}</p>`;
     })();
     output.push(rendered);
   }

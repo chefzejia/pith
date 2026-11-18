@@ -1,5 +1,6 @@
 import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
 import { GUIDE_UNAVAILABLE_REASON } from "../../workbench/guideAvailability.ts";
+import { readLessonVersions, readSessionRepositoryFiles, useRepositoryVersion } from "../../workbench/lessonVersions.ts";
 import { trainingToolkits } from "./toolkits.ts";
 import { createFeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -225,6 +226,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (method === "POST") { const data = await body(req), value = data.url; if (value !== null && (typeof value !== "string" || value.length > 500000 || !/^data:image\/png;base64,[a-zA-Z0-9+/=]+$/.test(value))) throw new Error("Invalid thumbnail"); await storage.mkdir("_cache/covers"); await storage.writeText(coverCachePath(material.id), JSON.stringify({ url: value })); return send(res, 200, {}); }
       }
       if (method === "POST" && url.pathname === "/api/materials/attach") { const data = await body(req); const topic = await store.attachMaterial(str(data, "topicId"), str(data, "materialId")); await refresh(); return send(res, 200, topic); }
+      if (method === "POST" && url.pathname === "/api/materials/use-repository-version") { const data = await body(req); const versions = await useRepositoryVersion(store, repository, str(data, "topicId"), str(data, "materialId")); await refresh(); return send(res, 200, versions); }
       if (method === "POST" && url.pathname === "/api/materials/check-update") { const data = await body(req); const result = await checkRepositoryUpdate(store, repository, str(data, "materialId")); await refresh(); return send(res, 200, result); }
       if (method === "POST" && url.pathname === "/api/materials/aids") { const data = await body(req); if (!Array.isArray(data.aids) || !data.aids.every(id => id === "interline") || new Set(data.aids).size !== data.aids.length) throw new Error("Invalid reading aids"); const material = await store.setMaterialAids(str(data, "materialId"), data.aids); await refresh(); return send(res, 200, material); }
       if (method === "POST" && ["/api/reading-locator", "/api/material-open"].includes(url.pathname)) {
@@ -333,14 +335,9 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         const standalone = url.pathname === "/api/material-session";
         const topic = topicId ? await store.getTopic(topicId) : null; if (!standalone && !topic) throw new Error("Topic not found");
         const materials = await Promise.all((standalone ? [url.searchParams.get("materialId") ?? ""] : topic!.materialIds).map(async id => { const material = await store.getMaterial(id); if (!material) throw new Error(`Material not found: ${id}`); return material; }));
-        const repositoryFiles: Record<string, string[]> = {};
-        for (const material of materials) if (material.kind === "repo") {
-          if (!material.externalPath || !material.commitSha) throw new Error("Repository binding missing");
-          const paths: string[] = []; let offset: number | null = 0;
-          while (offset !== null) { const page = await repository.listFiles(material.externalPath, material.commitSha, offset, 1000); paths.push(...page.files); offset = page.nextOffset; }
-          repositoryFiles[material.id] = paths;
-        }
-        return send(res, 200, { topic, materials, libraryMaterials: await store.listMaterials(), repositoryFiles, readings: materialReadings(materials) });
+        const repositoryFiles = await readSessionRepositoryFiles(repository, materials, standalone ? null : topic);
+        const lessonVersions = !standalone && topic ? await readLessonVersions(store, repository, topic, materials, repositoryFiles) : undefined;
+        return send(res, 200, { topic, materials, libraryMaterials: await store.listMaterials(), repositoryFiles, lessonVersions, readings: materialReadings(materials) });
       }
       if (method === "GET" && url.pathname === "/api/topic-lesson") {
         const topicId = url.searchParams.get("topicId"), fileName = url.searchParams.get("name");

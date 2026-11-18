@@ -34,7 +34,7 @@ for (const surface of ["article", "guide"] as const) test(`${surface} tables kee
       });
       document.querySelector(".pith-layout")!.append(state.view.guideElement());
       state.view.setGuideVisible(true);
-      state.view.render({ title: "F1 原始表格", currentFile: "lesson.md", source: { kind: "lesson" }, files: [], sections: [], materialGroups: [{ id: "pinned-repo", title: "deepseek-harness", kind: "repo", files: [{ name: path, mimeType: "text/plain" }] }], html: surface === "article" ? api.renderMarkdown(content) : "<p>相邻舞台正文</p>" });
+      state.view.render({ title: "F1 原始表格", currentFile: "lesson.md", source: { kind: "lesson" }, files: [{ name: "lesson.md", basedOn: ["pinned-repo"] }], sections: [], materialGroups: [{ id: "pinned-repo", title: "deepseek-harness", kind: "repo", files: [{ name: path, mimeType: "text/plain" }] }], html: surface === "article" ? api.renderMarkdown(content) : "<p>相邻舞台正文</p>" });
       await state.view.refreshGuide();
     }, { content, path, surface });
     let scrollingTables = 0;
