@@ -150,14 +150,14 @@
 
 ---
 
-## [Milestone #67] 向导知道你的材料库，并发布 v0.5.0
+## [Milestone #67] 向导知道你的材料库，并发布 v0.4.2
 - **Status**: pending
 - **Verified-Commit**: none
 - **Depends-On**: #66
-- **发布版本**: v0.5.0
+- **发布版本**: v0.4.2
 - **Features**: F-GUIDE-LIBRARY、F-INTAKE-TOPIC、F-INTAKE-REPO、F-INTAKE-LINK、F-LIBRARY
 - **背景**：立项时向导看到的是材料库里每份材料的完整原始 JSON（含文件清单与记录正文，没有上限，[acpSession.ts:446](../src/plugins/guide-acp/acpSession.ts)），不标哪些是这次带来的，也看不到已有课题、引用关系与阅读状态；课题进行中只看得到本课题的材料，也没有办法把库里的材料引用进来。
-- **用户可观测目标**：在首页一次贴入多个仓库路径、链接，不带问题，它们都进入材料库。之后只输入一个问题，向导从材料库里挑出相关的材料建成课题，并说明用了哪几份、为什么；已有进行中或搁置的课题能回答这个问题时，它建议回到那个课题，而不是再建一个。课题进行中，向导能把库里的材料引用进来，目录里随即出现。Obsidian 插件列表里的 Pith 显示 0.5.0。
+- **用户可观测目标**：在首页一次贴入多个仓库路径、链接，不带问题，它们都进入材料库。之后只输入一个问题，向导从材料库里挑出相关的材料建成课题，并说明用了哪几份、为什么；已有进行中或搁置的课题能回答这个问题时，它建议回到那个课题，而不是再建一个。课题进行中，向导能把库里的材料引用进来，目录里随即出现。Obsidian 插件列表里的 Pith 显示 0.4.2。
 - **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent，样本按头部规则 5。
   1. 一次提交里贴入 magpie 与 deepseek-harness 两份副本的路径（各自加引号）和 herdr 的 GitHub 链接，不带问题：三份都进入材料库，没有向导回合。
   2. 只输入问题「deepseek-harness 和 herdr 各自怎么隔离插件」，不带材料：过程里能看到向导查看了材料库，课题引用的是库里的这两份（仓库取最新版本），回复说明了选择理由。
@@ -171,6 +171,36 @@
   1. 删除立项场景里整库原始 JSON 的写法；场景只列这次带来的材料的完整信息，材料库改由 `libraryOverview` 的有界段落给出。
   2. 「哪些课题引用了这份材料」只有 `libraryOverview` 一处实现：首页材料库的现有计算改为调用它，不留第二套。
   3. `pith_attach_material` 调用与界面「添加材料」相同的 `attachMaterial`，不另写引用逻辑；版本切换仍只走「改用」。
-  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.5.0`。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.2`。
 - **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：场景重新写入整库原始 JSON 或去掉上限；首页材料库另算一套引用关系、与 `libraryOverview` 结果不一致；`pith_attach_material` 允许同一仓库的第二个版本；`pith_list_library` 漏掉搁置的课题；分页不封顶 200。
-- **结案**：所列 Features 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.5.0。
+- **结案**：所列 Features 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.2。
+
+---
+
+## [Milestone #68] 课题引用材料改用纯 ID，并发布 v0.4.3
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #67
+- **发布版本**: v0.4.3
+- **Features**: F-INTAKE-TOPIC、F-ADD-MATERIAL、F-UNREADABLE
+- **背景**：`topic.md` 的 `materials` 是 Pith 唯一使用 Obsidian 双链（`[[materials/<id>/material]]`）的地方，同一个文件里讲义的 `basedOn` 和笔记的 `material` 都用纯 ID。双链只在 Obsidian 里有一点用处（节点都叫 `topic`、`material`，图谱没法看），而 Pith 以后可能脱离任何宿主。人类已同意这次已发布格式的破坏性变更（2026-11-19）。
+- **用户可观测目标**：升级到 0.4.3 并重启 Obsidian 后，已有的课题照常打开，引用的材料、讲义、笔记与实训记录都不变；新建课题和添加材料写入纯 ID。Obsidian 插件列表里的 Pith 显示 0.4.3。
+- **Tester 验收**：Web 与 Obsidian 各一次，都在沙盒副本上，不碰真实 Vault。
+  1. 新工作区里立项并添加材料：`topic.md` 的 `materials` 是纯 ID，关掉重开课题一切正常。
+  2. 用 v0.4.2 的构建做出一个工作区（至少三个课题，含多份材料、讲义、笔记和费曼实训记录，再放一个旧格式的无法读取课题），复制一份后跑迁移：先 `--dry-run` 列出计划，再正式迁移；备份文件与原文件逐字节相同；迁移前后 `topic.md` 只有 `materials` 各行不同；用 0.4.3 在两端打开，每个课题的材料、讲义、笔记与记录和迁移前一致；再跑一次迁移不改动任何文件；无法读取的那个课题原样留在「无法读取」。
+  3. 旧插件窗口：在已迁移的副本上运行 v0.4.2 的构建，已迁移的课题显示为无法读取；在其中记笔记失败，文件字节不变。
+  4. 抽查立项、添加材料、版本切换、费曼复述、材料库「被哪些课题引用」没有退化。
+- **不在范围内**：其他字段与文件的格式；Obsidian 关系图谱；读取 Pith 工作区以外的笔记。
+- **Scope**：`src/core/store/**`、`tests/**`、`scripts/migrate-topic-material-ids.mjs`（一次性，用完删除）、`manifest.json`、`package.json`
+- **行为契约**：按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 3.2 落地，暴力重构，不留兼容：
+  1. 写入：建课题与 `attachMaterial` 写纯 ID。读取：只认纯 ID；双链或其他写法的条目让整个课题按无法读取处理，并给出原因，不写兼容解析。
+  2. 一次性脚本 `scripts/migrate-topic-material-ids.mjs <工作区目录> [--dry-run]`：
+     - 只处理 `topics/*/topic.md` 里 `materials` 各项全部是 `[[materials/<id>/material]]` 的文件，把每项改成 `<id>`，其余字节一律不动；其他文件跳过并列出原因。
+     - 改写前，把要改的原文件按相对路径复制到 `~/Library/Application Support/pith/backups/<UTC 时间戳>/`，不放进 Vault，以免进 iCloud 同步和 Obsidian 搜索。
+     - 每个文件先写临时文件再原子替换。
+     - 全部写完后用新版本的读取逻辑逐个读一遍，有任何一个读不出来，就从备份恢复全部已改文件，并以非零退出。
+     - 再跑一次不改动任何文件。
+  3. 发布：在通过验收的提交的干净检出上构建，对默认 Vault 的 `Pith/` 先 `--dry-run`，再正式迁移，然后按 ROLES「发布步骤」安装并核对哈希；备份目录、迁移与跳过的数量写进 `delivery.txt`。不启动、不退出、不重载人类的 Obsidian：迁移到重启之间，旧插件读不到已迁移的课题，写入会失败，但不会改动文件（第 3 步验证）。结案提交删除迁移脚本（[AGENTS.md](../AGENTS.md) 核心约束 3）。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.3`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `[[materials/`。手动破壁各一次后恢复，对应断言须各自变红：读取接受双链写法；迁移改动了 `materials` 以外的字节；迁移不先备份；读回失败时没有恢复；第二次运行改动了文件。
+- **结案**：所列 Features 按 ROLES「功能台账同步」更新，F-UNREADABLE 的已知缺口写明旧格式课题会进「无法读取」。通过后按 ROLES「发布步骤」发布 v0.4.3，并告诉人类重启 Obsidian。
