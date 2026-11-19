@@ -28,7 +28,8 @@
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.4.1 · OCW 链接与课程搜索 | 公网传输每一跳重新校验后跟随重定向，三个宿主共用一份实现；阅读器能读 JSON，向导用 MIT Learn 搜索接口找课程（#66） | 已排期 |
-| v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
+| v0.5.0 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已排期 |
+| v0.6.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
 
@@ -79,6 +80,7 @@
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实单讲重写、旧笔记回旧版、受控失败及离线通过；重写实测耗时数分钟，Web 的稳定讲分支由玩具仓覆盖。 |
+| F-GUIDE-LIBRARY | 向导知道你的材料库：立项时看到材料与课题的状态和关联（被哪些课题引用、读到哪、有没有笔记、仓库是不是最新版本），从库里挑材料、不重复建课题；课题中能把库里的材料引用进来 | 契约 | – / – | 无 | — |
 | F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端真实流程选出 MIT 讲次、解释取舍并完成官方题；独立复验后续遇到 Agent 上游失败/模型未完成，模型选材质量按样本记录；自主视频查找曾耗时并由人类给定时间点继续。选课只能靠模型记住的课程地址（OCW 搜索页由脚本渲染、阅读器不读 JSON），301 重定向也会让浏览与导入失败；由 #66 修复。 |
 | F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端有效、无效、同名 PDF 与媒体暂停定位通过；窄原生栏长文件名完整换行并跳到第 2 页。未覆盖真实公网播放器的外跳播放。 |
 | F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实搜索、读取及出处跳转通过；未导出完整原始 MCP 搜索响应、未穷尽审计模型的四仓结论。 |
@@ -186,6 +188,7 @@
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
 | F-LESSON-VERSION | [task64-lesson-versions.test.ts](../tests/task64-lesson-versions.test.ts)、[task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
+| F-GUIDE-LIBRARY | — |
 | F-SOURCE-COURSES | [task65-external.test.ts](../tests/task65-external.test.ts) |
 | F-LESSON-CITE | [task65-citations-browser.test.ts](../tests/task65-citations-browser.test.ts) |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |

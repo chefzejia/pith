@@ -310,6 +310,42 @@ export interface LearnerProfile {
 ```
 
 ```ts
+// src/core/library.ts — 纯函数，不读写存储
+export interface LibraryMaterialEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: MaterialKind;
+  readonly createdAt: string;
+  /** reading.openedAt, when the material has been opened. */
+  readonly lastOpenedAt?: string;
+  /** Records kept on the material itself, outside any topic. */
+  readonly noteCount: number;
+  /** kind: repo only. source is remoteUrl, else externalPath; latest follows materialVersionGroups. */
+  readonly repository?: { readonly source: string; readonly commit: string; readonly latest: boolean };
+  /** Topics whose materials list links this material. */
+  readonly topics: readonly { readonly id: string; readonly title: string; readonly status: TopicStatus }[];
+}
+export interface LibraryTopicEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly target: string;
+  readonly status: TopicStatus;
+  readonly materialIds: readonly string[];
+  readonly lessonCount: number;
+  /** Notes and practice records whose author is the user. */
+  readonly userRecordCount: number;
+  readonly updatedAt: string;
+}
+export interface LibraryOverview {
+  readonly materials: readonly LibraryMaterialEntry[];
+  readonly topics: readonly LibraryTopicEntry[];
+}
+export function libraryOverview(materials: readonly Material[], topics: readonly Topic[]): LibraryOverview;
+```
+
+`libraryOverview` 是「哪些课题引用了这份材料」的唯一算法，依据是课题 `materials` 列表里的双链（3.2）；首页材料库、场景提示词与向导工具都调用它。材料按最近活动倒序：取 `lastOpenedAt`、`createdAt` 与引用它的课题的 `updatedAt` 中最晚的一个；课题按 `updatedAt` 倒序。
+
+```ts
 // src/core/store/contract.ts
 export interface WorkspaceStore {
   ensureScaffold(): Promise<void>;
