@@ -103,8 +103,8 @@ title: agent 框架怎么划分内核与插件
 target: 能对比四个框架的内核边界，并说出各自把什么留在内核里
 status: exploring
 materials:
-  - "[[materials/material-dsh/material]]"
-  - "[[materials/material-magpie/material]]"
+  - material-dsh
+  - material-magpie
 nextAction: 读《01-内核边界.md》，用费曼复述 dsh 的服务注入
 toolkits:
   - feynman
@@ -137,6 +137,7 @@ updatedAt: "2026-11-12T10:15:00.000Z"
 ```
 
 - `target` 必填且非空。`materials`、`toolkits`、`lessons` 三个列表必须出现，可以为空；`toolkits` 只含训练工具。
+- `materials` 的每一项是材料 ID，与讲义的 `basedOn`、笔记的 `material` 写法一致；不用 Obsidian 双链，Pith 不依赖任何宿主的链接语法。材料 ID 只含小写字母、数字与 `-`，其他写法的条目让整个课题按无法读取处理。
 - 讲义条目的 `basedOn` 是逗号分隔的材料 ID：只列 `kind: repo` 的材料，每个仓库至多一个版本，且都在 `materials` 里；是平铺标量，因为 frontmatter 解析器不支持列表项里嵌套列表。没有仓库材料的课题不写这个字段。缺省 `basedOn` 的讲义视为基于本课题每个仓库最早引用的版本。
 - 记录以 `## [highlight|note|practice] <timestamp>` 开头，以 `<!-- pith-note:v1 -->` 至 `<!-- pith-note:end -->` 定界。每条记录有 `- id` 与 `- author: "user"` 或 `- author: "guide"` 两行。带锚点的记录另有三行：来源（`- material: "<id>"` 或 `- lesson: true`，二者必居其一）、`- file` 与 `- locator`；不带锚点的记录这三行都没有。
 - 实训记录可带 `<!-- pith-note:result -->` 块，内容是一行 JSON：训练工具的结构化结果（费曼复述的要点清单与逐条状态见 [3-toolkits.md](3-toolkits.md)）。
@@ -343,7 +344,7 @@ export interface LibraryOverview {
 export function libraryOverview(materials: readonly Material[], topics: readonly Topic[]): LibraryOverview;
 ```
 
-`libraryOverview` 是「哪些课题引用了这份材料」的唯一算法，依据是课题 `materials` 列表里的双链（3.2）；首页材料库、场景提示词与向导工具都调用它。材料按最近活动倒序：取 `lastOpenedAt`、`createdAt` 与引用它的课题的 `updatedAt` 中最晚的一个；课题按 `updatedAt` 倒序。
+`libraryOverview` 是「哪些课题引用了这份材料」的唯一算法，依据是课题的 `materials` 列表（3.2）；首页材料库、场景提示词与向导工具都调用它。材料按最近活动倒序：取 `lastOpenedAt`、`createdAt` 与引用它的课题的 `updatedAt` 中最晚的一个；课题按 `updatedAt` 倒序。
 
 ```ts
 // src/core/store/contract.ts

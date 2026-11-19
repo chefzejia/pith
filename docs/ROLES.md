@@ -64,7 +64,12 @@
 - **安装**：在通过验收的提交的干净检出上，确认 `manifest.json` 与 `package.json` 的 `version` 等于发布版本（不等时由 Worker 在本里程碑内改好并通过门禁），运行 `npm run install:obsidian`（默认 Vault），核对真实 Vault 插件目录内 `main.js`、`styles.css`、`manifest.json` 的 SHA-256 与 `dist/obsidian/` 一致、目录内其余文件未变。不启动、不退出、不重载人类的 Obsidian，不读取 Vault 内 Pith 工作区的正文。
 - **打标签**：在该提交上打附注标签 `v<版本>`，标签说明写本次相对上一个标签的台账变化：新增或转为已验收的条目、仍待复验的条目、已知缺口。
 - **记录**：提交 SHA、标签与三个哈希记入 `.tmp/evidence/milestone-<ID>/delivery.txt` 并写进该里程碑的验收结果；结案提交同时更新 `docs/FEATURES.md`「发布与版本」里的当前发布版本（`git commit --only docs/TASKS.md docs/FEATURES.md`）。
-- **补丁**：发布后发现、要在下个版本之前修的问题，由 Brain 开补丁里程碑：从标签拉 `release/v<主>.<次>` 分支，在 `.tmp/worktrees/` 下修复并做针对性验收，打补丁标签（如 `v0.1.1`）并安装，再把修复合回 `main`。
+- **版本号**：0.x 阶段，次版本号（`v0.<次>.0`）只给新的能力方向；同一方向里的修复与设计调优（包括带一次性迁移的格式调整）只升修订号（`v0.<次>.<修订>`）。版本号写在里程碑的 `发布版本` 字段，由 Brain 按这条定。
+- **补丁**：修订号版本直接在 `main` 上修复并发布。只有 `main` 上已有不该随这次发布的改动时，才从标签拉 `release/v<主>.<次>` 分支，在 `.tmp/worktrees/` 下修复并做针对性验收，打补丁标签并安装，再把修复合回 `main`。
+
+### 调度板维护
+
+前置还没有全部 `verified` 的 `pending` 里程碑不会被派发，Brain 可以原地修改它，并在提交正文里说明。已经可以派发或正在执行的里程碑，仍然只能标 `superseded (by #M)` 再追加新的。
 
 ### 归档与清理门禁
 
