@@ -122,3 +122,28 @@
 - **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：只读工具写入了材料；多个链接中有一个失败时仍留下材料；视图另写一套出处匹配、与共享函数的结果不一致；越界页码仍可点击跳转。
 - **结案**：F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.0。
 - **结果**：代码提交 `d24393ee31919877635bf1b925c0e97c68c17381`；Web 与 Obsidian 的首轮真实 Agent 均完成选课、三份 PDF 合为一份材料、官方题作答与结题。首轮发现沉淀后选项被隐藏及窄原生栏长出处溢出；修复后同一独立 Tester 在 Web 与真实隔离 Obsidian 实点当前/重开只读选项，并验证长出处完整换行且准确跳到第 2 页。后续真实 Agent 重试出现模型未完成、上游失败及普通 HTTP 301 被 fail-closed 拒绝，均记录为模型样本/预期安全拒绝，不改变安全边界；模型产出质量未作为程序门禁。双端普通 404 批导无残留、只读零写入、旧仓库/费曼/离线/搁置抽查通过；数量/大小边界依赖 Worker 门禁，不做不安全的真实内网或重定向请求。Cleanup PASS。v0.4.0 已安装默认 `ganfan-media`；附注标签 `v0.4.0` 指向本 Verified-Commit。提交、标签及三项 SHA-256：`.tmp/evidence/milestone-65/delivery.txt`；真实双端报告及截图：`.tmp/evidence/milestone-65/tester/`、`.tmp/evidence/milestone-65/tester-recheck-2/`、`.tmp/evidence/milestone-65/tester-recheck-3/`。
+
+---
+
+## [Milestone #66] OCW 链接直接可用：安全跟随重定向、能搜索课程，并发布 v0.4.1
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: —
+- **发布版本**: v0.4.1
+- **Features**: F-GUIDE-INGEST、F-SOURCE-COURSES
+- **背景**：#65 验收第 4 步把「重定向」列为整次导入应当失败的情况，这条是 Brain 写错的。MIT OCW 对不带结尾斜杠的地址和 `http` 地址都返回 301，真实原生回合因此两次失败，却按预期拒绝结案、发布了（`.tmp/evidence/milestone-65/tester-recheck-3/obsidian-progress.md`）。另外，OCW 自己的搜索页靠浏览器脚本渲染，阅读器又不读 JSON，向导只能凭记忆里的课程地址选课。
+- **用户可观测目标**：向导找课程时能搜到 MIT 的课程目录；向导写出的 OCW 地址不带结尾斜杠或用 `http` 时，照样能浏览和导入。Obsidian 插件列表里的 Pith 显示 0.4.1。
+- **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent。
+  1. 不带材料立项，换一个与 #65 不同、需要大学课程才能讲透的问题（例如「操作系统调度为什么要区分 I/O 密集与 CPU 密集的进程」）：过程里先用 `pith_read_external` 读 MIT Learn 搜索接口的 JSON，再浏览课程与讲次页面；导入一份只含相关讲次 PDF 的材料；讲义出处可点到页码；结题优先用官方题。选材与出题质量按 ROLES「程序保证与模型产出分开验收」记录。
+  2. 程序部分，受控与真实各至少一例：`pith_read_external` 读一个不带结尾斜杠的 OCW 课程地址和一个 `http` 地址，都拿到最终页面，页面里的相对链接按最终地址解析；导入一个经过重定向的 PDF 链接，材料来源与文件名取自最终地址。经 Worker 的受控入口：重定向到内网地址、从 `https` 降到 `http`、超过 5 跳，分别以写明那一跳地址的原因失败，不留材料。
+  3. 抽查 v0.4.0 的出处跳转、费曼复述与仓库学习没有退化。
+- **不在范围内**：新功能；为其他网站写专用适配。
+- **Scope**：`src/shells/**`、`src/plugins/guide-acp/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：按 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2「选材」与 2.5「规则」中「公网传输」和 JSON 两条落地。暴力重构，不留兼容：
+  1. 公网传输只留一份实现，Web、Obsidian 与 dsh 共用。删除 `DshPublicHttpPort` 里的副本（它的 IPv6 判断与 Web 的不一样）；媒体下载的重定向循环改用这份实现，只在其上保留下载主机白名单。
+  2. 重定向在传输里跟随，不交给向导重试；结果带最终地址。
+  3. 阅读器读 JSON；导入不收 JSON。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.1`。
+  5. `main` 自 v0.4.0 起只有文档提交，直接在 `main` 上修复与发布，不另拉 release 分支。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里只有一个类实现 `requestPublic`。手动破壁各一次后恢复，对应断言须各自变红：某一跳不重新校验公网地址；允许 `https` 降到 `http`；不限跳数；相对链接按请求地址而不是最终地址解析；阅读器把 JSON 当成不支持的类型。
+- **结案**：F-GUIDE-INGEST、F-SOURCE-COURSES 按 ROLES「功能台账同步」更新。Router 把这次漏判（程序按契约拒绝、挡住了真实主路径，仍按预期拒绝发布）记入 LESSONS。通过后按 ROLES「发布步骤」发布 v0.4.1。
