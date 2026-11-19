@@ -101,8 +101,8 @@
 ---
 
 ## [Milestone #65] 向导用顶尖课程编排讲义，并发布 v0.4.0
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: d24393ee31919877635bf1b925c0e97c68c17381
 - **Depends-On**: #63
 - **发布版本**: v0.4.0
 - **Features**: F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE
@@ -121,3 +121,4 @@
 
 - **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：只读工具写入了材料；多个链接中有一个失败时仍留下材料；视图另写一套出处匹配、与共享函数的结果不一致；越界页码仍可点击跳转。
 - **结案**：F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.0。
+- **结果**：代码提交 `d24393ee31919877635bf1b925c0e97c68c17381`；Web 与 Obsidian 的首轮真实 Agent 均完成选课、三份 PDF 合为一份材料、官方题作答与结题。首轮发现沉淀后选项被隐藏及窄原生栏长出处溢出；修复后同一独立 Tester 在 Web 与真实隔离 Obsidian 实点当前/重开只读选项，并验证长出处完整换行且准确跳到第 2 页。后续真实 Agent 重试出现模型未完成、上游失败及普通 HTTP 301 被 fail-closed 拒绝，均记录为模型样本/预期安全拒绝，不改变安全边界；模型产出质量未作为程序门禁。双端普通 404 批导无残留、只读零写入、旧仓库/费曼/离线/搁置抽查通过；数量/大小边界依赖 Worker 门禁，不做不安全的真实内网或重定向请求。Cleanup PASS。v0.4.0 已安装默认 `ganfan-media`；附注标签 `v0.4.0` 指向本 Verified-Commit。提交、标签及三项 SHA-256：`.tmp/evidence/milestone-65/delivery.txt`；真实双端报告及截图：`.tmp/evidence/milestone-65/tester/`、`.tmp/evidence/milestone-65/tester-recheck-2/`、`.tmp/evidence/milestone-65/tester-recheck-3/`。

@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.3.0（#63 @68c1a0e，已安装默认 ganfan-media Vault；附注标签 `v0.3.0`）。费曼复述不再自动发起向导追问。
+- **当前发布版本**：v0.4.0（#65 @d24393e，已安装默认 ganfan-media Vault；附注标签 `v0.4.0`）。向导按课程选择相关材料，讲义支持 PDF 页码与媒体时间点出处。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
 
@@ -26,7 +26,7 @@
 | 自用 | 装好 v0.1.0 后，用几个真实仓库把 Pith 用起来；遇到的问题交给 Brain 分诊，确认要做的才进 [TASKS.md](TASKS.md) | v0.1.0 已安装，待开始 |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
-| v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已排期 |
+| v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
@@ -78,8 +78,8 @@
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实单讲重写、旧笔记回旧版、受控失败及离线通过；重写实测耗时数分钟，Web 的稳定讲分支由玩具仓覆盖。 |
-| F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 契约 | – / – | 无 | — |
-| F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 契约 | – / – | 无 | — |
+| F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端真实流程选出 MIT 讲次、解释取舍并完成官方题；独立复验后续遇到 Agent 上游失败/模型未完成，模型选材质量按样本记录；自主视频查找曾耗时并由人类给定时间点继续。 |
+| F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端有效、无效、同名 PDF 与媒体暂停定位通过；窄原生栏长文件名完整换行并跳到第 2 页。未覆盖真实公网播放器的外跳播放。 |
 | F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实搜索、读取及出处跳转通过；未导出完整原始 MCP 搜索响应、未穷尽审计模型的四仓结论。 |
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
@@ -88,7 +88,7 @@
 | F-SHELVE | 搁置与恢复课题，不经向导 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 离线搁置、恢复、重开后材料/记录/历史保留；没有扩展后台下一步矩阵 |
 | F-NEXT-ACTION | 今日下一步：后台为进行中的课题生成一个 15 分钟内的行动 | 待复验 | ○ / ○ | #47 @d9a1c73（11-12，仅 Web） | — |
 | F-OFFLINE | 没有向导时：投喂、阅读、记录、搁置照常；立项、课题回合、结题与行间翻译不可用并说明原因 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | F1 已在真实活课题复验：发送与历史动作禁用有原因，草稿引用保留，恢复后真实回合完成；原生当时无 retry/choices 且 quick 收起，这些由 Web 实际历史覆盖；原生未额外观察短英文链接的行间离线说明 |
-| F-GUIDE-INGEST | 向导只读浏览公开网页；把选中的网页与 PDF（一次最多 20 个链接）导入为一份材料，并在课题里引用 | 待复验 | ○ / ○ | #50 @0d3aab3（11-13，仅 Web） | — |
+| F-GUIDE-INGEST | 向导只读浏览公开网页；把选中的网页与 PDF（一次最多 20 个链接）导入为一份材料，并在课题里引用 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端真实导入多份 PDF 为单一材料，普通 404 批次失败不留材料；大小/数量限制由全仓测试与 Worker 破壁覆盖。重定向按 fail-closed 拒绝，本轮没有跟随重定向或请求内网。 |
 | F-MEDIA-CORPUS | 向导搜索并拉取公开音视频与字幕，挂上影子跟读，切片导读写成讲义 | 待复验 | ○ / ○ | #39 @7418a54（11-11，受控下载与转写） | — |
 
 ### 训练工具
@@ -107,7 +107,7 @@
 
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| F-SETTLE | 结题：向导先问一道检验题；至少有一条你写的记录才能结题；写入《核心认知总结》；已沉淀的课题只读 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮一次正常检验/回答/结题与重开只读；只有向导记录时「总结沉淀」快捷动作是否可用，仍未单独实测 |
+| F-SETTLE | 结题：向导先问一道检验题；至少有一条你写的记录才能结题；写入《核心认知总结》；已沉淀的课题只读 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端真实官方题、回答、结题通过；修复后最新结构化下一步在只读课题当前界面和重开后均可见，发送禁用。最近的重试受 Agent 上游/HTTP 301 阻断，模型质量未评估。 |
 | F-PROFILE-OBS | 画像：只在结题时追加「向导的观察」，写前留底，可在对话里撤销；你写的部分不改 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端自由区未变、GUI 撤销观察通过；本轮各一次正常结题与撤销，失败恢复沿用分项受控证据 |
 
 ### 宿主与运行环境
@@ -185,8 +185,8 @@
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
 | F-LESSON-VERSION | [task64-lesson-versions.test.ts](../tests/task64-lesson-versions.test.ts)、[task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
-| F-SOURCE-COURSES | — |
-| F-LESSON-CITE | — |
+| F-SOURCE-COURSES | [task65-external.test.ts](../tests/task65-external.test.ts) |
+| F-LESSON-CITE | [task65-citations-browser.test.ts](../tests/task65-citations-browser.test.ts) |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |
@@ -195,12 +195,12 @@
 | F-SHELVE | [task51-store.test.ts](../tests/task51-store.test.ts) |
 | F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts) |
 | F-OFFLINE | [task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
-| F-GUIDE-INGEST | [wave4-trackA-speech-timeline-ingest.test.ts](../tests/wave4-trackA-speech-timeline-ingest.test.ts)、[audit-4e6422f.test.ts](../tests/audit-4e6422f.test.ts) |
+| F-GUIDE-INGEST | [task65-external.test.ts](../tests/task65-external.test.ts)、[wave4-trackA-speech-timeline-ingest.test.ts](../tests/wave4-trackA-speech-timeline-ingest.test.ts)、[audit-4e6422f.test.ts](../tests/audit-4e6422f.test.ts) |
 | F-MEDIA-CORPUS | [task37-media.test.ts](../tests/task37-media.test.ts)、[task39-browser.test.ts](../tests/task39-browser.test.ts) |
 | F-TOOLKIT-MENU | [toolkit-menu-browser.test.ts](../tests/toolkit-menu-browser.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts) |
 | F-FEYNMAN | [task53-feynman.test.ts](../tests/task53-feynman.test.ts)、[task53-feynman-browser.test.ts](../tests/task53-feynman-browser.test.ts)、[task53-prepare-cancellation.test.ts](../tests/task53-prepare-cancellation.test.ts)、[boundaries.test.ts](../tests/boundaries.test.ts) |
 | F-SHADOWING | [task34-shadowing-browser.test.ts](../tests/task34-shadowing-browser.test.ts)、[task18-shadowing-multilingual.test.ts](../tests/task18-shadowing-multilingual.test.ts) |
-| F-SETTLE | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts) |
+| F-SETTLE | [guide-turn-browser.test.ts](../tests/guide-turn-browser.test.ts)、[task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts) |
 | F-PROFILE-OBS | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[audit11713-recovery.test.ts](../tests/audit11713-recovery.test.ts)、[audit11713-browser.test.ts](../tests/audit11713-browser.test.ts) |
 | F-AGENT | [track1-guide-providers.test.ts](../tests/track1-guide-providers.test.ts)、[task15-acp-settings-browser.test.ts](../tests/task15-acp-settings-browser.test.ts) |
 | F-SANDBOX | [task49-host-boundaries.test.ts](../tests/task49-host-boundaries.test.ts) |
