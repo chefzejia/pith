@@ -127,6 +127,10 @@
 - `[Milestone #66]` Web 点击讲义出处后，第 76 页定位正确，随后异步返回的译文盖住了画布上的原文。检查译文返回后的可读性、正文选区和页码定位。证据：`.tmp/evidence/milestone-66/tester-recheck/web2-official-question.png`。
 - Seen 1× (2026-11-20).
 
+**定版 PDF 的译文不能参与横向页数计算。**
+- `[Milestone #66]` 修复覆盖原文后，方形双栏夹具验证了译文与画布不相交，却漏检满高竖版 PDF 单栏的溢出。真实 Web 译文到达后 `39 / 89` 变成 `40 / 91`，下一次翻页显示的是译文。用竖版 PDF 验证延迟译文、较长译文的可达性、阅读模式切换、相邻页号及缩放后的页数与出处一致。证据：`.tmp/evidence/milestone-66/tester-final/report.md`。
+- Seen 1× (2026-11-20).
+
 **结题只读验收应覆盖写入课题记录的训练入口。**
 - `[Milestone #66]` Web 结题后向导输入框禁用，费曼实训仍能对照并追加课题记录。应从正常入口检查已沉淀课题能否开始实训，并核对结题时尚在途的实训是否会写入。证据：`.tmp/evidence/milestone-66/tester-recheck/report.md`。
 - Seen 1× (2026-11-20).
