@@ -69,7 +69,7 @@ function workspaceToolImplementations(store: WorkspaceStore, engine: AttentionEn
       }
       return { material, slices: bundle.slices ?? [], warnings: bundle.warnings ?? [] };
     } }] : []),
-    ...(http ? [{ name: "pith_read_external", description: "Read one public web page without importing it. Returns bounded Markdown and public links with a truncation flag. Use it to browse course pages before selecting files.", inputSchema: schema({ url: { ...field, maxLength: 4096 } }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
+    ...(http ? [{ name: "pith_read_external", description: "Read one public web page or JSON resource without importing it. Returns bounded formatted text and public links with a truncation flag. Use it to search course catalogs and browse course pages before selecting files.", inputSchema: schema({ url: { ...field, maxLength: 4096 } }, ["url"]), async execute(input: Readonly<Record<string, unknown>>) {
       keys(input, ["url"]);
       return readExternal(text(input, "url", 4096), http, signal);
     } }, { name: "pith_ingest_external", description: "Import 1 to 20 public web pages or PDFs as one material using title and urls. For media only, use kind: media and one url with an optional transcriptMarkdown.", inputSchema: {

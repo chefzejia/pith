@@ -1,15 +1,11 @@
 import { shadowingToolkit } from "../../plugins/toolkit-shadowing/index.ts";
 import { feynmanToolkit } from "../../plugins/toolkit-feynman/index.ts";
-import dns from "node:dns";
-import http from "node:http";
-import https from "node:https";
 import "../../plugins/all.ts";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type HttpRequestSpec, type HttpResponseData, type WorkspaceStoragePort } from "../../core/index.ts";
+import { DefaultAttentionEngine, DefaultWorkspaceStore, type HttpPort, type WorkspaceStoragePort } from "../../core/index.ts";
 import { createScopedTools } from "../../plugins/guide-acp/tools.ts";
-import { isPublicHttpUrl, type PublicHttpPort } from "../../plugins/guide-acp/externalIngest.ts";
-import { withHttpDeadline } from "../../core/host.ts";
 import { markdownSections, renderFile, renderMarkdown } from "../../plugins/stage-reader/index.ts";
 import { NodeRepositoryPort } from "../web/nodeRepository.ts";
+import { NodeHttpPort } from "../web/nodeHttp.ts";
 export { mountPithWorkbench, PithWorkbenchView, renderCompass, workbenchStyles } from "../../workbench/index.ts";
 
 export interface DshTool {
@@ -19,43 +15,6 @@ export interface DshTool {
   execute(input: Readonly<Record<string, unknown>>): Promise<unknown>;
 }
 export interface DshBundleOptions { readonly storage: WorkspaceStoragePort; readonly http?: HttpPort }
-
-export class DshPublicHttpPort implements PublicHttpPort {
-  async request(spec: HttpRequestSpec): Promise<HttpResponseData> { return this.requestPublic(spec, 4 * 1024 * 1024); }
-  async requestPublic(spec: HttpRequestSpec, maxBytes: number, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
-    return withHttpDeadline(spec, signal => this.requestPublicWithSignal(spec, maxBytes, signal, responseLimit));
-  }
-  private async requestPublicWithSignal(spec: HttpRequestSpec, maxBytes: number, signal: AbortSignal | undefined, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
-    if (!isPublicHttpUrl(spec.url) || (spec.method !== undefined && spec.method !== "GET")) throw new Error("Invalid public request");
-    const url = new URL(spec.url);
-    const addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true });
-    if (signal) signal.throwIfAborted();
-    if (!addresses.length || addresses.some(({ address, family }) => family === 4 ? !isPublicHttpUrl(`http://${address}`) : !/^(?:2[0-9a-f]{3}|3[0-9a-f]{3}):/i.test(address) || /^(?:2001|2002|3fff):/i.test(address))) throw new Error("DNS resolved to a non-public address");
-    const selected = addresses[0]!;
-    return new Promise((resolve, reject) => {
-      const request = (url.protocol === "https:" ? https.request : http.request)(url, { method: "GET", headers: spec.headers, signal, agent: false, family: selected.family, lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family) }, response => {
-        const status = response.statusCode ?? 0;
-        if (status < 200 || status >= 300) { request.destroy(); response.destroy(); reject(new Error(`Public HTTP request rejected: ${status}`)); return; }
-        const headers: Record<string, string> = {};
-        for (const [key, value] of Object.entries(response.headers)) if (typeof value === "string") headers[key] = value; else if (Array.isArray(value)) headers[key] = value.join(", ");
-        let limit: number;
-        try { limit = Math.min(maxBytes, responseLimit?.(headers) ?? maxBytes); }
-        catch (error) { response.destroy(); reject(error); return; }
-        if (Number(headers["content-length"]) > limit) { response.destroy(); reject(new Error("Public response exceeds limit")); return; }
-        const chunks: Uint8Array[] = []; let size = 0;
-        response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > limit) response.destroy(new Error("Public response exceeds limit")); else chunks.push(chunk); });
-        response.on("error", reject);
-        response.on("aborted", () => reject(new Error("Public response aborted")));
-        response.on("end", () => {
-          const bytes = new Uint8Array(Buffer.concat(chunks));
-          resolve({ status, headers, bytes, text: () => new TextDecoder().decode(bytes) });
-        });
-      });
-      if (spec.timeoutMs === undefined) request.setTimeout(15000, () => request.destroy(new Error("Public request timed out")));
-      request.on("error", reject); request.end();
-    });
-  }
-}
 
 function string(input: Readonly<Record<string, unknown>>, key: string): string {
   const value = input[key];
@@ -70,7 +29,7 @@ export function createDshPluginBundle(options: DshBundleOptions): { tools: reado
   const tools: DshTool[] = [];
   const reader = { formats: ["markdown", "epub", "pdf", "cbz", "image"] as const, sections: markdownSections, render: renderMarkdown, renderFile };
   const repository = new NodeRepositoryPort();
-  const scoped = (topicId: string) => createScopedTools({ toolkits: [shadowingToolkit, feynmanToolkit], topicId, store, engine, storage: options.storage, http: options.http ?? new DshPublicHttpPort(), repository, reader, onChoices: () => {} });
+  const scoped = (topicId: string) => createScopedTools({ toolkits: [shadowingToolkit, feynmanToolkit], topicId, store, engine, storage: options.storage, http: options.http ?? new NodeHttpPort(), repository, reader, onChoices: () => {} });
   tools.push(...scoped("scope").map(tool => {
     const source = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
     return { name: tool.name, description: tool.description, inputSchema: { ...tool.inputSchema, properties: { ...source.properties, topicId: field }, required: [...(source.required ?? []), "topicId"] }, async execute(input: Readonly<Record<string, unknown>>) {

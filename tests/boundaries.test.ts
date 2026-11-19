@@ -52,6 +52,20 @@ test("shell root contains only the four shell directories", () => {
   assert.ok(entries.every(entry => entry.isDirectory()));
 });
 
+test("all shells share one class implementation of the public GET transport", () => {
+  const implementations: string[] = [];
+  for (const filePath of walkTsFiles(SRC)) {
+    const path = relative(ROOT, filePath).replace(/\\/g, "/");
+    const source = ts.createSourceFile(path, readFileSync(filePath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    function visit(node: ts.Node): void {
+      if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.members.some(member => (ts.isMethodDeclaration(member) || ts.isPropertyDeclaration(member)) && ts.isIdentifier(member.name) && member.name.text === "requestPublic")) implementations.push(path);
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+  }
+  assert.deepEqual(implementations, ["src/shells/web/nodeHttp.ts"]);
+});
+
 test("managed speech uses native multilingual models and ACP never reads dsh private configuration", () => {
   const forbiddenSpeech = /python3|\bpip\b|pypi\.org|vits-piper-en_US|whisper-tiny\.en/i;
   assert.match("python3 -m pip install", forbiddenSpeech);

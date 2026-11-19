@@ -2,9 +2,11 @@ import type { ExternalIngestBundle, ExternalIngestInput, HttpPort, HttpRequestSp
 import { normalizeRepositoryUrl } from "../../core/index.ts";
 import { withHttpDeadline } from "../../core/host.ts";
 
-// The transport resolves and pins only public addresses, rejects redirects, and enforces the byte limit while streaming.
+export type PublicRedirectPolicy = (target: URL) => boolean | void;
+
+// The transport resolves and pins every public redirect hop and enforces the byte limit while streaming.
 export interface PublicHttpPort extends HttpPort {
-  requestPublic(spec: HttpRequestSpec, maxBytes: number, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData>;
+  requestPublic(spec: HttpRequestSpec, maxBytes: number, responseLimit?: (headers: HttpResponseData["headers"]) => number, redirectPolicy?: PublicRedirectPolicy): Promise<HttpResponseData & { readonly finalUrl?: string }>;
 }
 
 export function isPublicHttpUrl(value: string): boolean {
@@ -81,6 +83,7 @@ const responseType = (headers: HttpResponseData["headers"]): string =>
   (Object.entries(headers).find(([key]) => key.toLowerCase() === "content-type")?.[1] ?? "").split(";")[0]!.trim().toLowerCase();
 const isHtml = (type: string): boolean => type === "text/html" || type === "application/xhtml+xml";
 const isWebDocument = (type: string): boolean => isHtml(type) || type === "text/markdown" || type === "text/plain";
+const isJson = (type: string): boolean => type === "application/json" || type.endsWith("+json");
 function safeMarkdown(value: string): string {
   return value.replace(/<[^>]*>/g, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\u0000/g, "").trim();
 }
@@ -91,7 +94,7 @@ function publicUrl(value: string): URL {
   return new URL(value);
 }
 
-async function fetchPublic(url: URL, http: HttpPort | undefined, accept: string, limit: number, signal?: AbortSignal, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData> {
+async function fetchPublic(url: URL, http: HttpPort | undefined, accept: string, limit: number, signal?: AbortSignal, responseLimit?: (headers: HttpResponseData["headers"]) => number): Promise<HttpResponseData & { readonly finalUrl?: string }> {
   if (!http || !("requestPublic" in http) || typeof http.requestPublic !== "function") throw new Error("Safe public HTTP transport unavailable: DNS pinning and redirect protection required");
   const transport = http as PublicHttpPort;
   const spec: HttpRequestSpec = { url: url.href, headers: { Accept: accept, "Accept-Encoding": "identity" }, signal };
@@ -120,19 +123,24 @@ function clipDocument(response: HttpResponseData, fallbackTitle: string, onLink?
 
 export async function readExternal(urlText: string, http: HttpPort, signal?: AbortSignal) {
   const url = publicUrl(urlText);
-  const response = await fetchPublic(url, http, WEB_ACCEPT, WEB_LIMIT, signal);
+  const response = await fetchPublic(url, http, `${WEB_ACCEPT}, application/json, application/*+json`, WEB_LIMIT, signal);
+  const finalUrl = new URL(response.finalUrl ?? url.href);
+  const type = responseType(response.headers);
   const links = new Set<string>();
   let linksTruncated = false;
-  const { title, markdown } = clipDocument(response, url.hostname, href => {
-    if (!href || href.startsWith("#")) return;
-    let target: string;
-    try { target = new URL(href, url).href; } catch { return; }
-    if (!isPublicHttpUrl(target) || links.has(target)) return;
-    if (links.size >= LINK_LIMIT || target.length > URL_LIMIT) { linksTruncated = true; return; }
-    links.add(target);
-  });
+  const document = isJson(type)
+    ? { title: finalUrl.hostname, markdown: JSON.stringify(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response.bytes)), null, 2) }
+    : clipDocument(response, finalUrl.hostname, href => {
+      if (!href || href.startsWith("#")) return;
+      let target: string;
+      try { target = new URL(href, finalUrl).href; } catch { return; }
+      if (!isPublicHttpUrl(target) || links.has(target)) return;
+      if (links.size >= LINK_LIMIT || target.length > URL_LIMIT) { linksTruncated = true; return; }
+      links.add(target);
+    });
+  const { title, markdown } = document;
   const end = /[\uD800-\uDBFF]/.test(markdown[MARKDOWN_LIMIT - 1] ?? "") ? MARKDOWN_LIMIT - 1 : MARKDOWN_LIMIT;
-  return { title, markdown: markdown.slice(0, end), links: [...links], truncated: markdown.length > end || linksTruncated };
+  return { title, finalUrl: finalUrl.href, markdown: markdown.slice(0, end), links: [...links], truncated: markdown.length > end || linksTruncated };
 }
 
 function documentName(url: URL, pdf: boolean, used: Set<string>): string {
@@ -161,7 +169,7 @@ export async function ingestExternalDocuments(input: { title: string; urls: read
   const urls = input.urls.map((value, index) => {
     try { return publicUrl(value); } catch (error) { throw new Error(`Link ${index + 1}: ${(error as Error).message}`, { cause: error }); }
   });
-  const files: ExternalIngestBundle["files"][number][] = [], names = new Set<string>();
+  const files: ExternalIngestBundle["files"][number][] = [], names = new Set<string>(), redirectedSources: string[] = [];
   let received = 0, stored = 0;
   for (const [index, url] of urls.entries()) {
     try {
@@ -174,18 +182,26 @@ export async function ingestExternalDocuments(input: { title: string; urls: read
         throw new Error("Unsupported document type");
       };
       const response = await fetchPublic(url, http, `${WEB_ACCEPT}, application/pdf`, Math.min(PDF_LIMIT, remaining), signal, cap);
+      const finalUrl = publicUrl(response.finalUrl ?? url.href);
       const pdf = responseType(response.headers) === "application/pdf";
-      const markdown = pdf ? undefined : clipDocument(response, url.hostname).markdown;
+      const markdown = pdf ? undefined : clipDocument(response, finalUrl.hostname).markdown;
       if (markdown === "") throw new Error("External document is empty");
       if (pdf && !new TextDecoder().decode(response.bytes.subarray(0, 1024)).includes("%PDF-")) throw new Error("External document is not a PDF");
       const bytes = markdown === undefined ? response.bytes : encoder.encode(markdown);
       received += response.bytes.byteLength;
       stored += bytes.byteLength;
       if (stored > BATCH_LIMIT || (!pdf && bytes.byteLength > WEB_LIMIT)) throw new Error("Clipped documents exceed size limit");
-      files.push({ name: documentName(url, pdf, names), mimeType: pdf ? "application/pdf" : "text/markdown", bytes });
+      const name = documentName(finalUrl, pdf, names);
+      files.push({ name, mimeType: pdf ? "application/pdf" : "text/markdown", bytes });
+      if (finalUrl.href !== url.href) redirectedSources.push(`- ${name}: ${finalUrl.href}`);
     } catch (error) {
       throw new Error(`Link ${index + 1} (${url.hostname}${url.pathname}): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
+  }
+  if (redirectedSources.length) {
+    let name = "sources.md";
+    for (let suffix = 2; names.has(name.toLowerCase()); suffix++) name = `sources-${suffix}.md`;
+    files.push({ name, mimeType: "text/markdown", bytes: encoder.encode(`# Final source URLs\n\n${redirectedSources.join("\n")}\n`) });
   }
   const kind = input.kind ?? "article";
   return { title: input.title, kind, files, warnings: kind === "discussion" ? ["Discussion may be incomplete"] : [] };
@@ -197,8 +213,9 @@ export async function ingestExternalUrl(input: ExternalIngestInput, http: HttpPo
   if (kind !== "article" && kind !== "discussion" && kind !== "media") throw new Error("Invalid external material kind");
   if (input.transcriptMarkdown && (kind !== "media" || encoder.encode(input.transcriptMarkdown).length > 4 * 1024 * 1024)) throw new Error("Invalid transcript");
   const response = await fetchPublic(url, http, kind === "media" ? "audio/*, video/*" : WEB_ACCEPT, kind === "media" ? 64 * MIB : WEB_LIMIT, signal);
+  const finalUrl = new URL(response.finalUrl ?? url.href);
   const type = responseType(response.headers);
-  const title = urlBasename(url).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200) || url.hostname;
+  const title = urlBasename(finalUrl).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200) || finalUrl.hostname;
   if (kind === "media") {
     const extensions: Record<string, string> = { "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/webm": "webm", "video/mp4": "mp4", "video/webm": "webm", "video/ogg": "ogv" };
     const extension = extensions[type];

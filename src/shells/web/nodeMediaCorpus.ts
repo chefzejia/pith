@@ -3,17 +3,17 @@ import dns from "node:dns/promises";
 import { constants } from "node:fs";
 import { access, chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import http from "node:http";
-import https from "node:https";
 import net from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { MediaCorpusBundle, MediaCorpusPort, MediaCorpusSlice, MediaSearchCandidate } from "../../core/index.ts";
 import { isPublicHttpUrl } from "../../plugins/guide-acp/externalIngest.ts";
 import { formatTimestamp, parseTranscript } from "../../plugins/stage-timeline/index.ts";
-import { publicAddress } from "./nodeHttp.ts";
+import { NodeHttpPort, publicAddress } from "./nodeHttp.ts";
 
 const maxFile = 25 * 1024 * 1024;
 const maxBinary = 100 * 1024 * 1024;
+const officialDownloadHosts = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
 
 export function buildMediaCorpusSlices(vttText: string, targetSliceSec = 45): MediaCorpusSlice[] {
   if (!Number.isFinite(targetSliceSec) || targetSliceSec < 25 || targetSliceSec > 60) throw new RangeError("Invalid slice duration");
@@ -81,22 +81,11 @@ async function secureProxy(): Promise<{ url: string; close(): Promise<void> }> {
   return { url: `http://127.0.0.1:${address.port}`, async close() { for (const socket of sockets) socket.destroy(); await new Promise<void>(ok => server.close(() => ok())); } };
 }
 
-async function downloadOfficial(url: string, signal: AbortSignal, redirects = 0): Promise<Uint8Array> {
-  if (redirects > 5) throw new Error("Too many binary redirects");
+async function downloadOfficial(url: string, signal: AbortSignal): Promise<Uint8Array> {
   const target = await validatedUrl(url, signal);
-  if (!["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"].includes(target.hostname)) throw new Error("Untrusted binary download host");
-  const address = await publicHost(target.hostname, signal);
-  return new Promise((resolveDownload, reject) => {
-    const request = https.get(target, { signal, agent: false, family: address.family, lookup: (_host, _opts, cb) => cb(null, address.address, address.family), headers: { "user-agent": "Pith" } }, response => {
-      const status = response.statusCode ?? 0;
-      if (status >= 300 && status < 400 && response.headers.location) { response.resume(); void downloadOfficial(new URL(response.headers.location, target).href, signal, redirects + 1).then(resolveDownload, reject); return; }
-      if (status !== 200) { response.resume(); reject(new Error(`Binary download failed: ${status}`)); return; }
-      const chunks: Buffer[] = []; let size = 0;
-      response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > maxBinary) response.destroy(new Error("Binary exceeds size limit")); else chunks.push(chunk); });
-      response.on("error", reject); response.on("aborted", () => reject(new Error("Binary download aborted"))); response.on("end", () => resolveDownload(new Uint8Array(Buffer.concat(chunks))));
-    });
-    request.on("error", reject);
-  });
+  if (!officialDownloadHosts.has(target.hostname)) throw new Error(`Untrusted binary download host: ${target.hostname}`);
+  const response = await new NodeHttpPort().requestPublic({ url: target.href, signal, headers: { "user-agent": "Pith" } }, maxBinary, undefined, next => officialDownloadHosts.has(next.hostname));
+  return response.bytes;
 }
 
 async function ensureDirectory(path: string): Promise<void> {
