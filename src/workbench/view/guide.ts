@@ -32,7 +32,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
   const shown = guide.querySelector<HTMLElement>(".pith-guide-content"), sameTab = shown?.dataset.guideContent === tab;
   const scrollTop = sameTab ? shown!.scrollTop : 0, follow = !sameTab || shown!.scrollHeight - shown!.clientHeight - scrollTop < 32;
   const open = new Map(Array.from(guide.querySelectorAll<HTMLDetailsElement>("details[data-process]"), node => [node.dataset.process!, { open: node.open, status: node.closest<HTMLElement>("[data-turn-status]")?.dataset.turnStatus }]));
-  const latest = data.conversation.at(-1), choices = sending || data.readOnly ? [] : latest?.choices ?? [];
+  const latest = data.conversation.at(-1), choices = sending ? [] : latest?.choices ?? [];
   const conversation = data.conversation.map(entry => {
     const parts: string[] = [`<div class="pith-guide-user">${escape(entry.user.text)}</div>`];
     let process: typeof entry.steps[number][] = [], group = 0;
@@ -61,7 +61,10 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
     if (entry.status === "running") { const current = [...entry.steps].reverse().find(step => step.kind === "tool" && step.status === "running"); parts.push(`<div class="pith-guide-pending" role="status" data-started="${escape(entry.startedAt)}">${current && current.kind === "tool" ? escape(toolLabel(current.name, current.inputPreview)) : "向导正在回应"} · <span data-guide-elapsed></span></div>`); }
     if (entry.status === "failed") parts.push(`<div class="pith-guide-failure" role="alert">${escape(entry.error ?? "向导请求失败")} ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}" ${actionDisabled}>重新请求</button>`}</div>`);
     if (entry.status === "stopped") parts.push(`<div class="pith-guide-stopped">已停止 ${data.readOnly ? "" : `<button data-guide-retry="${escape(entry.id)}" ${actionDisabled}>重新请求</button>`}</div>`);
-    if (entry === latest) parts.push(...choices.map((choice, index) => `<button class="pith-choice-btn" data-guide-prompt="${escape(choice)}" data-guide-choice ${actionDisabled}><span>${index + 1}.</span> ${escape(choice)}</button>`));
+    if (entry === latest && choices.length) {
+      if (data.readOnly) parts.push(`<div class="pith-guide-next"><strong>下一步</strong><ol>${choices.map(choice => `<li>${escape(choice)}</li>`).join("")}</ol></div>`);
+      else parts.push(...choices.map((choice, index) => `<button class="pith-choice-btn" data-guide-prompt="${escape(choice)}" data-guide-choice ${actionDisabled}><span>${index + 1}.</span> ${escape(choice)}</button>`));
+    }
     return `<section class="pith-guide-turn" data-turn-status="${entry.status}">${parts.join("")}</section>`;
   }).join("");
   const fresh = pending ? data.conversation.slice(pending.from) : [];

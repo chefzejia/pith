@@ -10,6 +10,8 @@ import { manyPagePdf, pdfFixture } from "./task55-pdf-fixture.ts";
 
 export const lesson = "01-course.md";
 const course = "https://courses.example.com";
+const longPdf = "60a95dc31bbc56630c079dcfcc95ec53_MIT6_004s09_lec17.pdf";
+const longCitation = longPdf + "#page=2";
 const valid = ["lecture.pdf#page=2", "lecture.pdf#page=3", "slides.cbz#page=2", "fixed.epub#page=2", "lecture.webm#t=0:02", "lecture.webm#t=1.5"];
 const invalid = ["lecture.pdf#page=4", "missing.pdf#page=1", "lecture.pdf#page=0", "lecture.pdf#page=2.5", "slides.cbz#page=3", "fixed.epub#page=3", "flow.epub#page=1", "lecture.webm#t=9", "lecture.webm#t=0:70", "lecture.webm#t=-1"];
 
@@ -65,7 +67,53 @@ Review ${valid[2]} and ${valid[3]}. Watch ${valid[4]} or ${valid[5]}.
 
 ${invalid.map(text => `- \`${text}\``).join("\n")}
 `);
-  return { topic, one: one.material.id, two: two.material.id, books: books.id, media: media.id };
+  const narrowMaterial = await store.importMaterial({ title: "Memory lecture", kind: "book", files: [
+    { name: longPdf, mimeType: "application/pdf", bytes: pdfFixture("Memory overview", "Two-level page tables") },
+  ] });
+  const narrowTopic = await store.createTopic({ title: "Virtual address translation", target: "How do two-level page tables work?", materialIds: [narrowMaterial.id], toolkits: [] });
+  await store.writeLesson(narrowTopic.id, lesson, `# Virtual address translation
+
+Read the second page:
+
+${longCitation}
+
+The page below this reference explains the two levels.
+`);
+  return { topic, one: one.material.id, two: two.material.id, books: books.id, media: media.id, narrowTopic };
+}
+
+export async function exerciseNarrowCitation(page: any, topicId: string, capture?: (step: string) => Promise<void>) {
+  await page.locator(`.pith-topic-card[data-topic="${topicId}"]`).click();
+  await page.locator(".pith-guide-toggle").click();
+  await page.locator(".pith-guide-content").waitFor();
+  await page.waitForFunction(() => {
+    const width = document.querySelector(".pith-reader")?.clientWidth ?? 0;
+    return width > 0 && width <= 500;
+  });
+  const citation = page.locator(".pith-article").getByRole("button", { name: longCitation, exact: true });
+  await citation.waitFor();
+  const layout = await citation.evaluate((node: HTMLElement) => {
+    const article = node.closest<HTMLElement>(".pith-article")!, reader = node.closest<HTMLElement>(".pith-reader")!;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const lines = Array.from(range.getClientRects());
+    const textBounds = node.parentElement!.getBoundingClientRect(), button = node.getBoundingClientRect();
+    return {
+      width: reader.clientWidth,
+      lines: new Set(lines.map(rect => Math.round(rect.top))).size,
+      overflow: [reader, article, node].map(element => element.scrollWidth - element.clientWidth),
+      textFits: lines.every(rect => rect.left >= textBounds.left - 1 && rect.right <= textBounds.right + 1 && rect.top >= button.top - 1 && rect.bottom <= button.bottom + 1),
+    };
+  });
+  assert.ok(layout.width > 0 && layout.width <= 500, `expected a narrow stage: ${JSON.stringify(layout)}`);
+  assert.ok(layout.lines > 1 && layout.textFits && layout.overflow.every((value: number) => value <= 1), `long citation must wrap without clipping: ${JSON.stringify(layout)}`);
+  await capture?.("narrow-citation");
+  await citation.click();
+  const second = page.locator('.pith-fixed-page[data-locator="page:2"]');
+  await second.getByText("Two-level page tables").waitFor();
+  await page.locator("[data-page-count]").getByText("2 / 2", { exact: true }).waitFor();
+  await capture?.("narrow-pdf-page-2");
+  return layout;
 }
 
 export async function exerciseCitations(page: any, fixture: Awaited<ReturnType<typeof seedCitations>>, evidence?: { directory: string; host: string }) {

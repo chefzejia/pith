@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import type { Server } from "node:http";
 import { DefaultWorkspaceStore } from "../src/core/index.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { nativeWorkbenchFixture } from "./native-workbench-fixture.ts";
-import { seedCitations, exerciseCitations } from "./task65-citation-fixture.ts";
+import { seedCitations, exerciseCitations, exerciseNarrowCitation } from "./task65-citation-fixture.ts";
 import { testSandbox } from "./sandbox.ts";
 
 for (const host of ["Web", "Obsidian"] as const) test(`${host}: S1-imported files use the shared citation rules, page bounds and paused media seek`, { skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH, timeout: 45000 }, async () => {
@@ -28,6 +29,11 @@ for (const host of ["Web", "Obsidian"] as const) test(`${host}: S1-imported file
     } else await nativeWorkbenchFixture(page, root);
     const screenshots = process.env.PITH_TASK65_SCREENSHOTS;
     await exerciseCitations(page, fixture, screenshots && host === "Web" ? { directory: screenshots, host: "web" } : undefined);
+    await page.getByRole("button", { name: "返回首页" }).click();
+    await page.setViewportSize({ width: 800, height: 840 });
+    if (host === "Obsidian") await page.addStyleTag({ content: "body button { display:inline-flex; white-space:nowrap; height:30px; box-shadow:0 0 0 1px gray; }" });
+    await exerciseNarrowCitation(page, fixture.narrowTopic.id, screenshots && host === "Web"
+      ? step => page.screenshot({ path: join(screenshots, `web-${step}.png`) }) : undefined);
   } finally {
     try { await browser?.close(); }
     finally {
