@@ -147,3 +147,30 @@
   5. `main` 自 v0.4.0 起只有文档提交，直接在 `main` 上修复与发布，不另拉 release 分支。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里只有一个类实现 `requestPublic`。手动破壁各一次后恢复，对应断言须各自变红：某一跳不重新校验公网地址；允许 `https` 降到 `http`；不限跳数；相对链接按请求地址而不是最终地址解析；阅读器把 JSON 当成不支持的类型。
 - **结案**：F-GUIDE-INGEST、F-SOURCE-COURSES 按 ROLES「功能台账同步」更新。Router 把这次漏判（程序按契约拒绝、挡住了真实主路径，仍按预期拒绝发布）记入 LESSONS。通过后按 ROLES「发布步骤」发布 v0.4.1。
+
+---
+
+## [Milestone #67] 向导知道你的材料库，并发布 v0.5.0
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #66
+- **发布版本**: v0.5.0
+- **Features**: F-GUIDE-LIBRARY、F-INTAKE-TOPIC、F-INTAKE-REPO、F-INTAKE-LINK、F-LIBRARY
+- **背景**：立项时向导看到的是材料库里每份材料的完整原始 JSON（含文件清单与记录正文，没有上限，[acpSession.ts:446](../src/plugins/guide-acp/acpSession.ts)），不标哪些是这次带来的，也看不到已有课题、引用关系与阅读状态；课题进行中只看得到本课题的材料，也没有办法把库里的材料引用进来。
+- **用户可观测目标**：在首页一次贴入多个仓库路径、链接，不带问题，它们都进入材料库。之后只输入一个问题，向导从材料库里挑出相关的材料建成课题，并说明用了哪几份、为什么；已有进行中或搁置的课题能回答这个问题时，它建议回到那个课题，而不是再建一个。课题进行中，向导能把库里的材料引用进来，目录里随即出现。Obsidian 插件列表里的 Pith 显示 0.5.0。
+- **Tester 验收**：Web 与 Obsidian 各一次，用真实 Agent，样本按头部规则 5。
+  1. 一次提交里贴入 magpie 与 deepseek-harness 两份副本的路径（各自加引号）和 herdr 的 GitHub 链接，不带问题：三份都进入材料库，没有向导回合。
+  2. 只输入问题「deepseek-harness 和 herdr 各自怎么隔离插件」，不带材料：过程里能看到向导查看了材料库，课题引用的是库里的这两份（仓库取最新版本），回复说明了选择理由。
+  3. 先有一个进行中的课题「agent 框架怎么划分内核与插件」，再输入一个与它几乎相同的问题：向导建议回到已有课题。这一步与第 2 步的选材是模型产出，按 ROLES「程序保证与模型产出分开验收」记录。
+  4. 课题进行中问「我的材料库里还有什么能帮上忙」：向导用 `pith_attach_material` 引用一份库里的材料，目录里出现它；让它引用本课题已有仓库的另一个版本时，被拒绝，原因是请在目录里点「改用」。
+  5. 程序部分（受控夹具）：`pith_list_library` 返回的引用关系、课题状态、最近打开时间、记录数与仓库是否最新与磁盘一致；关键词过滤与分页正确；场景里的材料库段落有上限，不含文件清单与记录正文；首页材料库「被哪些课题引用」与工具结果一致。
+  6. 抽查出处跳转、费曼复述、版本切换、离线可用没有退化。
+- **不在范围内**：读取 Pith 工作区以外的 Vault 笔记；改文件命名或磁盘格式；新的界面元素。
+- **Scope**：`src/core/**`、`src/plugins/guide-acp/**`、`src/workbench/**`、`src/shells/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节 `libraryOverview`、[4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) 2.2（场景「材料」「材料库与课题」两段，规则「立项」「选材」「材料库」）与 2.5（`pith_list_library`、`pith_attach_material`）、[5-spatial-ui-and-slots.md](subsystems/5-spatial-ui-and-slots.md) 2.1 与 2.2 落地。暴力重构，不留兼容：
+  1. 删除立项场景里整库原始 JSON 的写法；场景只列这次带来的材料的完整信息，材料库改由 `libraryOverview` 的有界段落给出。
+  2. 「哪些课题引用了这份材料」只有 `libraryOverview` 一处实现：首页材料库的现有计算改为调用它，不留第二套。
+  3. `pith_attach_material` 调用与界面「添加材料」相同的 `attachMaterial`，不另写引用逻辑；版本切换仍只走「改用」。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.5.0`。
+- **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：场景重新写入整库原始 JSON 或去掉上限；首页材料库另算一套引用关系、与 `libraryOverview` 结果不一致；`pith_attach_material` 允许同一仓库的第二个版本；`pith_list_library` 漏掉搁置的课题；分页不封顶 200。
+- **结案**：所列 Features 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.5.0。
