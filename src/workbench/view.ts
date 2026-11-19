@@ -1,5 +1,5 @@
 import type { AnchorSource, ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, Note } from "../core/index.ts";
-import { applyPaginationStyles, captureReaderPosition, navigateReaderTarget, proseTextNodes, readerPageIndex, readingLocator, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, restoreReadingLocator, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, captureReaderPosition, hasPdfPageSlots, navigateReaderTarget, proseTextNodes, readerPageIndex, readingLocator, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, restoreReadingLocator, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
 import { createWorkbenchChrome } from "./view/toolbar.ts";
@@ -314,11 +314,31 @@ export class PithWorkbenchView {
     // The tool menu is a popover: its button toggles it, Escape and a press outside it close it. The interline mode bar and the tool chooser of a clicked passage share the panel and keep their own lifetime.
     const toolkitToggle = required<HTMLButtonElement>("#open-toolkit");
     this.doc.addEventListener("pointerdown", event => { const target = event.target as Node | null; if (this.toolkitMenuOpen() && target && !this.toolkit.contains(target) && !toolkitToggle.contains(target)) this.toolkit.hidden = true; }, options);
-    this.reader.addEventListener("wheel", event => { if (!this.paged || event.ctrlKey || Math.abs(event.deltaY) < 2) return; event.preventDefault(); const direction = this.wheelGate.accept(event.deltaY, this.win.performance.now()); if (direction) this.turnPage(direction); }, { ...options, passive: false });
+    this.reader.addEventListener("wheel", event => {
+      if (!this.paged || event.ctrlKey || Math.abs(event.deltaY) < 2) return;
+      const slot = (event.target as Element | null)?.closest<HTMLElement>(".pith-pdf-slot");
+      if (slot && slot.scrollHeight > slot.clientHeight) return;
+      event.preventDefault();
+      const direction = this.wheelGate.accept(event.deltaY, this.win.performance.now());
+      if (direction) this.turnPage(direction);
+    }, { ...options, passive: false });
     this.reader.addEventListener("scroll", () => { this.updatePageCount(); const restored = this.restoredScrollLeft === this.reader.scrollLeft; this.restoredScrollLeft = null; const layoutCurrent = parseFloat(this.article.style.width) === this.reader.clientWidth && parseFloat(this.article.style.height) === this.reader.clientHeight; if (this.paged && !restored && layoutCurrent) this.readerPosition = captureReaderPosition(this.reader, this.article); if (this.interline) this.interline.activate(); this.scheduleLocator(); }, options);
     root.addEventListener("keydown", event => { const target = event.target as Element | null; const link = target && target.closest<HTMLElement>("a[data-epub-target]"); if (link && this.article.contains(link) && event.key === "Enter") { event.preventDefault(); this.openEpubLink(link); } }, options);
-    this.doc.addEventListener("keydown", event => { const target = event.target as Element | null; if (!this.root.isConnected || !this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return; if (!this.root.contains(target) && (target !== this.doc.body || activeReader.get(this.doc) !== this)) return; const amount = pageDirectionForKey(event.key); if (amount) { event.preventDefault(); this.turnPage(amount); } }, options);
+    this.doc.addEventListener("keydown", event => {
+      const target = event.target as Element | null;
+      if (!this.root.isConnected || !this.paged || !target || typeof target.closest !== "function" || target.closest("input,textarea,select,button,[contenteditable]:not([contenteditable=false]),.pith-guide,.pith-left-drawer") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) return;
+      if (!this.root.contains(target) && (target !== this.doc.body || activeReader.get(this.doc) !== this)) return;
+      const slot = target.closest<HTMLElement>(".pith-pdf-slot");
+      if (slot && slot.scrollHeight > slot.clientHeight && event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const amount = pageDirectionForKey(event.key);
+      if (amount) { event.preventDefault(); this.turnPage(amount); }
+    }, options);
     this.article.addEventListener("mouseup", () => this.showSelection(), options);
+    this.article.addEventListener("scroll", event => {
+      if (!(event.target as HTMLElement).classList.contains("pith-pdf-slot") || this.popover.hidden) return;
+      this.selectionRange = null;
+      this.popover.hidden = true;
+    }, { ...options, capture: true });
     this.article.addEventListener("input", event => {
       const field = this.inlineToolkit?.querySelector<HTMLTextAreaElement>("[data-toolkit-produced]");
       if (!field || event.target !== field || !this.recall) return;
@@ -553,8 +573,37 @@ export class PithWorkbenchView {
     button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具";
     button.setAttribute("aria-label", button.title);
   }
-  turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); this.scheduleLocator(); }
-  private updatePageCount(): void { const counter = this.root.querySelector<HTMLElement>("[data-page-count]"); if (!counter) return; const width = Math.max(1, this.reader.clientWidth); const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)); counter.textContent = `${readerPageIndex(this.reader) + 1} / ${total}`; }
+  turnPage(direction: number): void {
+    if (!this.paged) return;
+    if (this.speechResult) this.stopSpeech();
+    const from = readerPageIndex(this.reader);
+    this.reader.scrollTo({ left: Math.max(0, from + direction) * this.reader.clientWidth, behavior: "instant" });
+    this.readerPosition = captureReaderPosition(this.reader, this.article);
+    const slot = this.readerPosition?.block;
+    if (slot?.classList.contains("pith-pdf-slot") && readerPageIndex(this.reader) !== from) slot.scrollTop = 0;
+    this.updatePageCount();
+    this.scheduleLocator();
+  }
+
+  private updatePageCount(): void {
+    const counter = this.root.querySelector<HTMLElement>("[data-page-count]");
+    if (!counter) return;
+    const width = Math.max(1, this.reader.clientWidth);
+    const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)), index = readerPageIndex(this.reader);
+    counter.textContent = `${index + 1} / ${total}`;
+    if (!hasPdfPageSlots(this.article)) return;
+    const current = this.article.children.item(index) as HTMLElement | null;
+    if (!current?.classList.contains("pith-pdf-slot")) return;
+    const last = this.article.querySelector<HTMLElement>(".pith-pdf-slot[tabindex='0']");
+    if (last === current) return;
+    if (last) {
+      last.tabIndex = -1;
+      this.selectionRange = null;
+      this.popover.hidden = true;
+    }
+    current.tabIndex = 0;
+    if (last && last.contains(this.doc.activeElement)) current.focus({ preventScroll: true });
+  }
   private adaptEpubColors(): void {
     const chapters = this.article.querySelectorAll<HTMLElement>(".pith-epub-chapter[data-epub-chapter]");
     if (!chapters.length) return;
@@ -604,7 +653,35 @@ export class PithWorkbenchView {
   }
   private updateAssetControls(): void { const audio = this.speaking ? this.speechAudio : this.cuePlayer ?? this.recordedPlayer ?? this.assetAudio; if (!audio) return; const cue = this.cueRange; if (!this.speaking && cue && cue.audio === audio && audio.currentTime >= cue.end) { if (cue.loop) audio.currentTime = cue.start; else { this.stopCuePlayback(); audio.currentTime = cue.end; } } const format = (value: number): string => { const n = Number.isFinite(value) ? Math.floor(value) : 0; return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; }; const time = this.assetControls.querySelector<HTMLElement>("[data-media-time]"); if (time) time.textContent = `${format(audio.currentTime)} / ${format(audio.duration)}`; const seek = this.assetControls.querySelector<HTMLInputElement>(".pith-media-seek"); if (seek) { seek.max = String(Number.isFinite(audio.duration) ? audio.duration : 0); seek.value = String(audio.currentTime); } const play = this.assetControls.querySelector<HTMLButtonElement>('[data-media="play"]'); if (play) { play.innerHTML = pithIcon(audio.paused ? "play" : "pause"); play.setAttribute("aria-label", audio.paused ? "播放" : "暂停"); } if (this.speaking || this.cuePlayer || this.recordedPlayer) return; const cues = Array.from(this.article.querySelectorAll<HTMLElement>('.pith-cue[data-locator^="time:"]')); for (let i = 0; i < cues.length; i++) { const item = cues[i]!; const start = Number(item.dataset.locator!.slice(5)), end = item.dataset.endSec !== undefined ? Number(item.dataset.endSec) : cues[i + 1] ? Number(cues[i + 1]!.dataset.locator!.slice(5)) : Infinity; item.classList.toggle("pith-speech-active", audio.currentTime >= start && audio.currentTime < end); } }
 
-  private applyPageMode(position: ReaderPosition | null = null): void { const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches }); this.root.dataset.formFactor = decision.formFactor; this.root.dataset.sheetMode = decision.sheetMode; this.root.dataset.hitTarget = String(decision.hitTargetPx); const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]'); if (double) double.disabled = decision.maxColumns < 2; if (triple) triple.disabled = decision.maxColumns < 3; const controls = this.root.querySelector<HTMLElement>("[data-pages]"); if (controls) controls.hidden = !this.paged; const modes = this.root.querySelector<HTMLElement>("[data-page-modes]"); if (modes) modes.hidden = !this.paged; this.reader.classList.toggle("pith-paged", this.paged); if (this.paged) { applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded); restoreReaderPosition(this.reader, this.article, position); this.restoredScrollLeft = position ? this.reader.scrollLeft : null; this.readerPosition = position ?? captureReaderPosition(this.reader, this.article); this.updatePageCount(); } else { for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height"]) this.article.style.removeProperty(property); this.reader.style.removeProperty("overflow-x"); this.reader.style.removeProperty("overflow-y"); } if (this.interline) this.interline.activate(); }
+  private applyPageMode(position: ReaderPosition | null = null): void {
+    const decision = resolveResponsiveLayout({ width: this.root.clientWidth, height: this.root.clientHeight, readerWidthPx: this.reader.clientWidth, guideOpen: false, preferredColumns: this.pageMode, coarsePointer: typeof this.win.matchMedia === "function" && this.win.matchMedia("(pointer: coarse)").matches });
+    this.root.dataset.formFactor = decision.formFactor;
+    this.root.dataset.sheetMode = decision.sheetMode;
+    this.root.dataset.hitTarget = String(decision.hitTargetPx);
+    const double = this.root.querySelector<HTMLButtonElement>('[data-mode="double"]'), triple = this.root.querySelector<HTMLButtonElement>('[data-mode="triple"]');
+    if (double) double.disabled = decision.maxColumns < 2;
+    if (triple) triple.disabled = decision.maxColumns < 3;
+    const controls = this.root.querySelector<HTMLElement>("[data-pages]"), modes = this.root.querySelector<HTMLElement>("[data-page-modes]");
+    const pdf = this.paged && hasPdfPageSlots(this.article);
+    if (controls) {
+      controls.hidden = !this.paged;
+      controls.toggleAttribute("data-pdf-pagination", pdf);
+    }
+    if (modes) modes.hidden = !this.paged || pdf;
+    this.reader.classList.toggle("pith-paged", this.paged);
+    if (this.paged) {
+      applyPaginationStyles(this.reader, this.article, decision.effectiveColumns === 3 ? "triple" : decision.effectiveColumns === 2 ? "double" : "single", this.mediaLoaded);
+      restoreReaderPosition(this.reader, this.article, position);
+      this.restoredScrollLeft = position ? this.reader.scrollLeft : null;
+      this.readerPosition = position ?? captureReaderPosition(this.reader, this.article);
+      this.updatePageCount();
+    } else {
+      for (const property of ["box-sizing", "width", "height", "padding", "column-width", "column-gap", "column-fill", "--pith-page-height", "--pith-pdf-slot-inset"]) this.article.style.removeProperty(property);
+      this.reader.style.removeProperty("overflow-x");
+      this.reader.style.removeProperty("overflow-y");
+    }
+    this.interline?.activate();
+  }
   private markExisting(): void { for (const mark of this.article.querySelectorAll("mark[data-pith-note]")) mark.replaceWith(...mark.childNodes); this.article.normalize(); for (const { note, owner } of noteEntries(this.guideData.notes, this.materialNotes)) { const anchor = note.anchor; if (note.kind === "practice" || !anchor || anchor.file !== this.currentFile || !sameSource(anchor.source, this.currentSource) || !anchor.quote) continue; const page = /^page:\d+$/.test(anchor.locator) ? Array.from(this.article.querySelectorAll<HTMLElement>(".pith-pdf-text[data-locator]")).find(item => item.dataset.locator === anchor.locator) : undefined; if (/^page:\d+$/.test(anchor.locator) && this.article.querySelector(".pith-pdf-text") && !page) continue; const walker = this.doc.createTreeWalker(page ?? this.article, 4); const nodes: { node: Text; start: number }[] = []; let node: Node | null, text = ""; while ((node = walker.nextNode())) { const part = node as Text; if (part.parentElement && part.parentElement.closest(".pith-interline-subtitle,.pith-inline-toolkit,[data-toolkit-display]")) continue; nodes.push({ node: part, start: text.length }); text += part.data; } const match = matchTextAnchor(text, anchor); if (!match) continue; for (const part of nodes) { const start = Math.max(0, match.startOffset - part.start), end = Math.min(part.node.length, match.endOffset - part.start); if (start >= end) continue; const range = this.doc.createRange(); range.setStart(part.node, start); range.setEnd(part.node, end); const mark = this.doc.createElement("mark"); mark.dataset.pithNote = note.id; mark.dataset.noteOwner = owner; range.surroundContents(mark); } } }
   async refreshGuide(): Promise<void> { if (!this.actions.guideData || this.disposed) return; const generation = ++this.guideGeneration; const data = await this.actions.guideData(); if (this.disposed || generation !== this.guideGeneration) return; const position = this.readerPosition; this.guideData = data; this.setToolkits(data.toolkits); this.renderGuide(); this.markExisting(); if (this.paged && position) { restoreReaderPosition(this.reader, this.article, position); this.readerPosition = captureReaderPosition(this.reader, this.article); } }
   updateGuideTurn(turn: GuideTurn): void { const conversation = [...this.guideData.conversation]; const index = conversation.findIndex(item => item.id === turn.id); if (index < 0) conversation.push(turn); else conversation[index] = turn; this.guideData = { ...this.guideData, conversation }; if (!this.disposed) this.renderGuide(); }

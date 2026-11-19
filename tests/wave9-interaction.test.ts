@@ -68,7 +68,7 @@ test("book page turns are horizontal and articles keep native scrolling", () => 
   const view = Object.create(PithObsidianView.prototype) as { paged: boolean; turnPage(direction: number): void };
   const reader = { clientWidth: 1280, scrollWidth: 5072, scrollLeft: 3792, scrollTo(value: { left: number }) { this.scrollLeft = Math.min(this.scrollWidth - this.clientWidth, value.left); } };
   const counter = { textContent: "" };
-  Object.assign(view, { paged: true, reader, root: { querySelector: () => counter } });
+  Object.assign(view, { paged: true, reader, article: { firstElementChild: null }, root: { querySelector: () => counter } });
   (view as unknown as { updatePageCount(): void }).updatePageCount();
   assert.equal(counter.textContent, "4 / 4");
   assert.equal(readerPageIndex(reader as HTMLElement), 3);

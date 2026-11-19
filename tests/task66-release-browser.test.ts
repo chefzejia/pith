@@ -14,13 +14,15 @@ async function closeServer(server: Awaited<ReturnType<typeof createPithWebServer
   await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
 }
 
-test("late PDF interline leaves the on-canvas original readable at citation page 76", browserOptions, async () => {
+test("late PDF interline stays in its original page slot through paging and resize", browserOptions, async t => {
   const root = await testSandbox("task66-pdf-");
   const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
-  const material = await store.importMaterial({ title: "Controlled PDF", kind: "book", aids: ["interline"], files: [{ name: "book.pdf", mimeType: "application/pdf", bytes: manyPagePdf(76) }] });
+  const total = 89, sourcePage = 39;
+  const material = await store.importMaterial({ title: "Controlled PDF", kind: "book", aids: ["interline"], files: [{ name: "book.pdf", mimeType: "application/pdf", bytes: manyPagePdf(total, true) }] });
   const topic = await store.createTopic({ title: "PDF citation", target: "Find the source", materialIds: [material.id], toolkits: [] });
-  await store.writeLesson(topic.id, "lesson.md", "# Source\n\nbook.pdf#page=76");
-  const translation = "这是第 76 页的译文。原文和译文在页面上分开显示。";
+  await store.writeLesson(topic.id, "lesson.md", "# Source\n\nbook.pdf#page=39");
+  const ending = "End of the translation for source page 39.";
+  const translation = Array.from({ length: 36 }, (_, i) => `Translation paragraph ${i + 1} for source page 39.\n`).join("") + ending;
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
   const server = await createPithWebServer({
@@ -28,67 +30,174 @@ test("late PDF interline leaves the on-canvas original readable at citation page
     guideProvider: { async run() { throw new Error("No guide turn expected"); } },
     interlineTranslator: async ({ segments }) => {
       await ready;
-      return new Map(segments.map(({ locator }) => [locator, locator === "page:76" ? translation : "邻页译文"]));
+      return new Map(segments.map(({ locator }) => [locator, locator === "page:39" ? translation : `Translation for ${locator}`]));
     },
   });
   let browser: any;
   try {
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
     browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: process.env.PITH_TASK66_HEADED !== "1" });
-    const page = await browser.newPage({ viewport: { width: 1180, height: 920 } });
+    const page = await browser.newPage({ viewport: { width: 480, height: 820 } });
     const address = server.address(); assert.ok(address && typeof address !== "string");
     await page.goto(`http://127.0.0.1:${address.port}`);
     await page.locator(`.pith-topic-card[data-topic="${topic.id}"]`).click();
-    await page.getByRole("button", { name: "book.pdf#page=76" }).click();
-    const fixed = page.locator('.pith-fixed-page[data-locator="page:76"]');
-    const image = fixed.locator("img");
-    await image.evaluate((node: HTMLImageElement) => node.decode());
-    await page.locator("[data-page-count]").getByText("76 / 76", { exact: true }).waitFor();
-    await page.locator('[data-command="typography"]').click();
-    await page.locator('[data-mode="double"]').click();
-    await page.locator('[data-command="typography"]').click();
+    await page.getByRole("button", { name: "book.pdf#page=39" }).click();
+    const fixed = page.locator('.pith-fixed-page[data-locator="page:39"]');
+    await fixed.locator("img").evaluate((node: HTMLImageElement) => node.decode());
     const original = fixed.locator(".pith-pdf-text > span").first();
-    const before = await original.boundingBox();
-    assert.ok(before && before.width > 0 && before.height > 0);
     const capture = async (step: string) => {
       const directory = process.env.PITH_TASK66_RELEASE_SCREENSHOTS;
       if (directory) await page.screenshot({ path: join(directory, `web-pdf-${step}.png`) });
     };
+    const assertPage = async (number: number, step: string) => {
+      const geometry = await page.locator(".pith-reader").evaluate((reader: HTMLElement) => {
+        const viewport = reader.getBoundingClientRect();
+        const counter = document.querySelector("[data-page-count]")!;
+        const visible = Array.from(reader.querySelectorAll<HTMLElement>(".pith-fixed-page")).filter(figure => {
+          const rect = figure.getBoundingClientRect();
+          return rect.right > viewport.left + 1 && rect.left < viewport.right - 1;
+        });
+        return {
+          width: reader.clientWidth, extent: reader.scrollWidth, left: reader.scrollLeft,
+          counter: counter.textContent,
+          pages: visible.map(figure => figure.dataset.locator),
+          originals: visible.map(figure => figure.querySelector(".pith-pdf-text")?.textContent),
+        };
+      });
+      t.diagnostic(`${step}: ${JSON.stringify(geometry)}`);
+      assert.equal(geometry.extent, total * geometry.width, "each source PDF page must occupy exactly one horizontal screen");
+      assert.equal(geometry.left, (number - 1) * geometry.width);
+      assert.equal(geometry.counter, `${number} / ${total}`);
+      assert.deepEqual(geometry.pages, [`page:${number}`]);
+      assert.deepEqual(geometry.originals, [`Source page ${number}`]);
+      assert.equal(await page.locator("[data-pages]").evaluate((pager: HTMLElement) => {
+        const header = pager.parentElement!.getBoundingClientRect();
+        return Array.from(pager.children).every(child => {
+          const bounds = child.getBoundingClientRect();
+          return bounds.top >= header.top && bounds.bottom <= header.bottom &&
+            bounds.left >= header.left && bounds.right <= header.right;
+        });
+      }), true, "the counter and both page controls must fit inside the header");
+    };
+    const assertSelectable = async () => {
+      const text = await original.evaluate((node: HTMLElement) => {
+        const range = document.createRange(); range.selectNodeContents(node);
+        const { left, right, top, bottom } = range.getBoundingClientRect();
+        const y = (top + bottom) / 2;
+        return {
+          left, right, y, transparent: getComputedStyle(node).color === "rgba(0, 0, 0, 0)",
+          hit: document.elementFromPoint(left + 1, y) === node,
+          priorSelection: getSelection()?.toString(),
+        };
+      });
+      assert.ok(text.hit && text.transparent && text.right - text.left > 15, JSON.stringify(text));
+      if (text.priorSelection) await page.mouse.click((text.left + text.right) / 2, text.y);
+      await page.mouse.move(text.left + 1, text.y);
+      await page.mouse.down();
+      await page.mouse.move(text.right - 1, text.y, { steps: 12 });
+      await page.mouse.up();
+      assert.equal(await page.evaluate(() => getSelection()?.toString()), "Source page 39", JSON.stringify(text));
+    };
+    const assertBelowOriginal = async () => {
+      const geometry = await fixed.evaluate((slot: HTMLElement) => {
+        const original = slot.querySelector("img")!.getBoundingClientRect();
+        const subtitle = slot.querySelector(":scope > .pith-interline-subtitle")?.getBoundingClientRect();
+        return { originalTop: original.top, originalBottom: original.bottom, subtitleTop: subtitle?.top, slotBottom: slot.getBoundingClientRect().bottom };
+      });
+      assert.ok(geometry.originalBottom > geometry.originalTop &&
+        geometry.subtitleTop >= geometry.originalBottom && geometry.subtitleTop < geometry.slotBottom, JSON.stringify(geometry));
+    };
+    const scrollToEnd = async (width: string, input: "wheel" | "keyboard") => {
+      const measure = await fixed.evaluate((slot: HTMLElement) => ({ excess: slot.scrollHeight - slot.clientHeight, top: slot.scrollTop }));
+      assert.equal(measure.top, 0);
+      assert.ok(measure.excess > 300, JSON.stringify(measure));
+      const bounds = await fixed.boundingBox();
+      assert.ok(bounds);
+      if (input === "keyboard") {
+        await fixed.focus();
+        await page.keyboard.press("PageDown");
+        await page.waitForFunction(() => document.querySelector('.pith-fixed-page[data-locator="page:39"]')!.scrollTop > 100);
+        await page.keyboard.press("End");
+      } else {
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        await page.mouse.wheel(0, measure.excess * 2);
+      }
+      await page.waitForFunction((ending: string) => {
+        const slot = document.querySelector('.pith-fixed-page[data-locator="page:39"]')!;
+        const text = slot.querySelector(":scope > .pith-interline-subtitle")?.firstChild;
+        if (!(text instanceof Text) || slot.scrollTop <= 300 || !text.data.endsWith(ending)) return false;
+        const range = document.createRange();
+        range.setStart(text, text.length - ending.length); range.setEnd(text, text.length);
+        const bounds = range.getBoundingClientRect(), viewport = slot.getBoundingClientRect();
+        return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom && bounds.right <= viewport.right;
+      }, ending);
+      await page.locator(".pith-selection").waitFor({ state: "hidden" });
+      t.diagnostic(`${width}: native ${input}, ${await fixed.evaluate((slot: HTMLElement) => slot.scrollTop)}px scrolled to the last line`);
+      await assertPage(sourcePage, `${width} at translation end`);
+      await capture(`${width}-translation-end`);
+    };
+    const pageButton = (direction: "previous" | "next") => page.locator(`[data-page="${direction}"]`);
+    const turnAdjacent = async (width: string) => {
+      await pageButton("next").click();
+      await assertPage(40, `${width} next`);
+      await pageButton("previous").click();
+      await assertPage(39, `${width} back`);
+      await pageButton("previous").click();
+      await assertPage(38, `${width} previous`);
+      await pageButton("next").click();
+      await assertPage(39, `${width} return`);
+    };
+    await assertPage(sourcePage, "compact before translation");
     assert.equal(await page.locator(".pith-interline-subtitle").count(), 0);
-    await capture("before-translation");
+    await capture("compact-before-translation");
     release();
     const subtitle = page.locator(".pith-interline-subtitle").getByText(translation, { exact: true });
     await subtitle.waitFor();
-    await capture("after-translation");
-    const geometry = await subtitle.evaluate((element: HTMLElement) => {
-      const figure = document.querySelector('.pith-fixed-page[data-locator="page:76"]')!;
-      const page = figure.querySelector("img")!.getBoundingClientRect();
-      const reader = document.querySelector(".pith-reader")!.getBoundingClientRect();
-      const layer = figure.querySelector<HTMLElement>(".pith-pdf-text")!;
-      const source = layer.firstElementChild!;
-      const range = document.createRange(); range.selectNodeContents(source);
-      const text = range.getBoundingClientRect();
-      const intersects = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-      const overlap = Array.from(element.getClientRects()).some(rect => intersects(page, rect));
-      const selected = getSelection()!; selected.removeAllRanges(); selected.addRange(range);
-      const hit = document.elementFromPoint(text.x + text.width / 2, text.y + text.height / 2);
-      return { overlap, originalVisible: intersects(page, reader), selectable: getComputedStyle(layer).userSelect === "text" && layer.contains(hit) && selected.toString() === "Long book", color: getComputedStyle(source).color, width: text.width };
+    await capture("compact-translation-arrived");
+    await assertPage(sourcePage, "compact after translation");
+    await assertBelowOriginal();
+    await assertSelectable();
+    await capture("compact-after-translation");
+    await scrollToEnd("compact", "wheel");
+    await turnAdjacent("compact");
+    await scrollToEnd("compact-before-resize", "wheel");
+    await page.setViewportSize({ width: 1180, height: 920 });
+    await page.waitForFunction(() => {
+      const reader = document.querySelector<HTMLElement>(".pith-reader")!;
+      return reader.clientWidth > 900 && reader.scrollLeft === 38 * reader.clientWidth;
     });
-    assert.equal(geometry.overlap, false, JSON.stringify(geometry));
-    assert.ok(geometry.originalVisible && geometry.selectable && geometry.width > 0, JSON.stringify(geometry));
-    assert.equal(geometry.color, "rgba(0, 0, 0, 0)");
+    await assertPage(sourcePage, "wide resized during translation");
+    assert.ok(await fixed.evaluate((slot: HTMLElement) => slot.scrollTop > 100));
+    await turnAdjacent("wide");
+    await assertBelowOriginal();
+    await assertSelectable();
+    await capture("wide-after-translation");
     const fontSize = (node: HTMLElement) => parseFloat(getComputedStyle(node).fontSize);
     const bilingualSize = await subtitle.evaluate(fontSize);
     await page.locator('[data-command="typography"]').click();
+    assert.equal(await page.locator("[data-page-modes]").isHidden(), true);
     await page.locator('.pith-typography-popover [data-interline-mode="subtitle-primary"]').click();
     const primary = page.locator('.pith-interline-subtitle[data-interline-mode="subtitle-primary"]').getByText(translation, { exact: true });
     await primary.waitFor();
-    assert.equal(await primary.evaluate((node: HTMLElement) => node.closest(".pith-pdf-page") === null), true);
+    assert.equal(await primary.evaluate((node: HTMLElement) => (node.parentElement as HTMLElement).dataset.locator), "page:39");
     assert.ok(await primary.evaluate(fontSize) > bilingualSize, "primary translation must stand out");
-    await capture("translation-primary");
+    await assertPage(sourcePage, "wide translation-primary");
+    await assertBelowOriginal();
+    await page.locator('[data-command="typography"]').click();
+    await capture("wide-translation-primary");
+    await scrollToEnd("wide", "keyboard");
+    await page.locator('[data-command="typography"]').click();
     await page.locator('.pith-typography-popover [data-interline-mode="original"]').click();
     await subtitle.waitFor({ state: "detached" });
-    assert.equal(await original.textContent(), "Long book");
+    await assertPage(sourcePage, "wide original mode");
+    assert.equal(await fixed.evaluate((slot: HTMLElement) => slot.scrollTop), 0);
+    await assertSelectable();
+    await page.setViewportSize({ width: 480, height: 820 });
+    await page.waitForFunction(() => {
+      const reader = document.querySelector<HTMLElement>(".pith-reader")!;
+      return reader.clientWidth < 500 && reader.scrollLeft === 38 * reader.clientWidth;
+    });
+    await assertPage(sourcePage, "compact resized back in original mode");
   } finally {
     release();
     await browser?.close();

@@ -13,7 +13,22 @@ export function pdfFixture(firstText = "Repeated phrase", secondText = "Repeated
   return pdfObjects(objects);
 }
 
-export function manyPagePdf(count: number): Uint8Array {
+export function manyPagePdf(count: number, portrait = false): Uint8Array {
+  if (portrait) {
+    const pages = Array.from({ length: count }, (_, index) => 3 + index * 2), fontId = 3 + count * 2;
+    return pdfObjects([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      `<< /Type /Pages /Kids [${pages.map(id => `${id} 0 R`).join(" ")}] /Count ${count} >>`,
+      ...pages.flatMap((id, index) => {
+        const content = `BT /F1 24 Tf 30 580 Td (Source page ${index + 1}) Tj ET`;
+        return [
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 640] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${id + 1} 0 R >>`,
+          `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+        ];
+      }),
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+  }
   const pages = Array.from({ length: count }, (_, index) => `${index + 3} 0 R`), contentId = count + 3, fontId = count + 4;
   const content = "BT /F1 12 Tf 20 200 Td (Long book) Tj ET";
   return pdfObjects(["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${pages.join(" ")}] /Count ${count} >>`, ...pages.map(() => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`), `<< /Length ${content.length} >>\nstream\n${content}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]);

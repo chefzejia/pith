@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { applyPaginationStyles, computePagination } from "../src/plugins/stage-reader/pagination.ts";
+import { applyPaginationStyles, computePagination, hasPdfPageSlots } from "../src/plugins/stage-reader/pagination.ts";
 import { obsidianStyles } from "../src/shells/obsidian/plugin.ts";
 
 test("real browser keeps delayed figure, caption and following text in separate flow", { skip: !process.env.PITH_PLAYWRIGHT_MODULE || !process.env.PITH_CHROME_PATH }, async () => {
@@ -22,7 +22,7 @@ test("real browser keeps delayed figure, caption and following text in separate 
         const article = 'class="pith-article"';
         const width = mode === "single" ? 656 : 1332;
         await page.setContent(`<style>${obsidianStyles}\nbody{margin:0}.fixture{width:${width}px;height:634px}.fixture .pith-reader{width:100%;height:100%}figure{margin:20px 40px;padding:8px;border:2px solid}figcaption{max-width:180px}</style><div class="fixture pith-view"><div class="${readerClass}"><article ${article}><figure><img src="https://pith.invalid/tall.svg"><figcaption>TEST IMAGE CAPTION with a second line for measurement</figcaption></figure><p>TEXT AFTER IMAGE</p></article></div></div>`, { waitUntil: "domcontentloaded" });
-        await page.evaluate(`window.computePagination=${computePagination.toString()};window.applyPaginationStyles=${applyPaginationStyles.toString()};window.repaginate=()=>window.applyPaginationStyles(document.querySelector('.pith-reader'),document.querySelector('.pith-article'),'${mode}',window.repaginate);window.repaginate()`);
+        await page.evaluate(`window.computePagination=${computePagination.toString()};window.hasPdfPageSlots=${hasPdfPageSlots.toString()};window.applyPaginationStyles=${applyPaginationStyles.toString()};window.repaginate=()=>window.applyPaginationStyles(document.querySelector('.pith-reader'),document.querySelector('.pith-article'),'${mode}',window.repaginate);window.repaginate()`);
         assert.equal(await page.locator("img").evaluate((image: HTMLImageElement) => image.complete), false);
         release();
         await page.locator("img").evaluate((image: HTMLImageElement) => image.decode());

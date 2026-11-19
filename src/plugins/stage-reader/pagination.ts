@@ -44,13 +44,18 @@ export function computePagination(viewportWidth: number, viewportHeight: number,
 
 export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, mode: ColumnMode = "auto", onMediaLoad?: () => void): PaginationMetrics {
   const width = viewport.clientWidth, height = viewport.clientHeight;
+  const pdf = hasPdfPageSlots(body);
+  if (pdf) mode = "single";
   const metrics = computePagination(width, height, width, mode);
   body.style.boxSizing = "border-box";
   body.style.width = `${width}px`;
   body.style.height = `${height}px`;
-  body.style.padding = `${metrics.verticalInsetPx}px ${metrics.horizontalInsetPx}px`;
+  const inset = `${metrics.verticalInsetPx}px ${metrics.horizontalInsetPx}px`;
+  body.style.padding = pdf ? "0" : inset;
+  if (pdf) body.style.setProperty("--pith-pdf-slot-inset", inset);
+  else body.style.removeProperty("--pith-pdf-slot-inset");
   body.style.columnWidth = `${metrics.columnWidthPx}px`;
-  body.style.columnGap = `${metrics.columnGapPx}px`;
+  body.style.columnGap = pdf ? "0px" : `${metrics.columnGapPx}px`;
   body.style.columnFill = "auto";
   body.style.setProperty("--pith-page-height", `${metrics.contentHeightPx}px`);
   const win = body.ownerDocument.defaultView;
@@ -81,10 +86,22 @@ export function applyPaginationStyles(viewport: HTMLElement, body: HTMLElement, 
   viewport.style.setProperty("--pith-page-scroll-extent", `${Math.max(0, result.totalScreens * width - 1)}px`);
   return result;
 }
+
+export function hasPdfPageSlots(article: HTMLElement): boolean {
+  return article.firstElementChild?.classList.contains("pith-pdf-slot") === true;
+}
+
 export type ReaderPosition = { readonly node: Text; readonly offset: number; readonly locator: string; readonly block: HTMLElement; readonly textOffset: number } | { readonly node: Element; readonly locator: string; readonly block: HTMLElement };
 
 export function captureReaderPosition(reader: HTMLElement, article: HTMLElement): ReaderPosition | null {
   const viewport = reader.getBoundingClientRect(), doc = article.ownerDocument;
+  if (hasPdfPageSlots(article)) {
+    for (const block of article.querySelectorAll<HTMLElement>(":scope > .pith-pdf-slot[data-locator]")) {
+      const rect = block.getBoundingClientRect();
+      if (rect.right > viewport.left && rect.left < viewport.right) return { node: block, locator: block.dataset.locator!, block };
+    }
+    return null;
+  }
   const walker = doc.createTreeWalker(article, 5), range = doc.createRange();
   let current: Node | null;
   while ((current = walker.nextNode())) {
@@ -147,7 +164,9 @@ export function restoreReaderPosition(reader: HTMLElement, article: HTMLElement,
 
 export function navigateReaderTarget(reader: HTMLElement, target: HTMLElement, paged: boolean): void {
   if (paged) {
-    const position = reader.scrollLeft + target.getBoundingClientRect().left - reader.getBoundingClientRect().left;
+    const slot = target.closest<HTMLElement>(".pith-pdf-slot");
+    if (slot) slot.scrollTop = 0;
+    const position = reader.scrollLeft + (slot ?? target).getBoundingClientRect().left - reader.getBoundingClientRect().left;
     reader.scrollTo({ left: Math.floor(Math.max(0, position) / Math.max(1, reader.clientWidth)) * reader.clientWidth, behavior: "instant" });
   } else target.scrollIntoView({ block: "start" });
 }

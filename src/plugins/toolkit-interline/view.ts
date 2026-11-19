@@ -34,7 +34,6 @@ export class InterlineView {
   private readonly elements: HTMLElement[];
   private readonly units: InterlineViewUnit[];
   private readonly outer: boolean[];
-  private readonly pageSubtitles = new WeakMap<HTMLElement, Element>();
   private mode: InterlineDisplayMode = "original";
   private version = 0;
   private processingVersion: number | null = null;
@@ -58,16 +57,11 @@ export class InterlineView {
     const template = this.article.ownerDocument.createElement("template"); template.innerHTML = html;
     const rendered = template.content.firstElementChild;
     if (!rendered) throw new Error("行间内容无效");
-    const page = element.matches(".pith-pdf-text") ? element.closest("figure.pith-fixed-page") : null;
+    const page = element.matches(".pith-pdf-text") ? element.closest(".pith-pdf-slot") : null;
     if (page) {
-      // The PDF text layer is an absolute, transparent selection surface over the image.
-      this.pageSubtitles.get(element)?.remove();
-      this.pageSubtitles.delete(element);
+      page.querySelector(":scope > .pith-interline-subtitle")?.remove();
       const subtitle = rendered.querySelector(":scope > .pith-interline-subtitle");
-      if (subtitle) {
-        page.after(subtitle);
-        this.pageSubtitles.set(element, subtitle);
-      }
+      if (subtitle) page.append(subtitle);
       return;
     }
     element.innerHTML = rendered.innerHTML;
@@ -83,10 +77,13 @@ export class InterlineView {
     if (this.disposed || this.mode === "original" || this.processingVersion === this.version) return;
     const viewport = this.reader.getBoundingClientRect();
     const visible: Array<{ index: number; left: number; top: number }> = [];
-    for (let i = 0; i < this.elements.length; i++) for (const rect of Array.from(this.elements[i]!.getClientRects())) {
-      if (rect.right <= viewport.left || rect.left >= viewport.right || rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue;
-      visible.push({ index: i, left: Math.max(rect.left, viewport.left), top: Math.max(rect.top, viewport.top) });
-      break;
+    for (const [index, element] of this.elements.entries()) {
+      const slot = element.matches(".pith-pdf-text") ? element.closest(".pith-pdf-slot") : null;
+      for (const rect of Array.from((slot ?? element).getClientRects())) {
+        if (rect.right <= viewport.left || rect.left >= viewport.right || rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue;
+        visible.push({ index, left: Math.max(rect.left, viewport.left), top: Math.max(rect.top, viewport.top) });
+        break;
+      }
     }
     visible.sort((a, b) => a.left - b.left || a.top - b.top);
     for (const { index } of visible) {

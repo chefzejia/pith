@@ -60,6 +60,11 @@ body.theme-dark .pith-view{--pith-sage:#9bbfa2;--pith-clay:#d88d70}
 @container (max-width:500px){.pith-view .pith-media-deck{padding:8px 6px}.pith-view .pith-media-deck .pith-asset-controls{gap:2px}.pith-view .pith-media-deck [data-media-time]{font-size:11px}.pith-view .pith-media-deck [data-media],.pith-view[data-hit-target="44"] .pith-media-deck [data-media]{min-width:0;min-height:0;height:32px;padding:2px;font-size:11px;line-height:1}}
 .pith-guide{height:100%}.pith-guide[hidden]{display:none}.pith-reader.pith-paged .pith-fixed-page{break-inside:avoid;max-height:var(--pith-page-height);box-sizing:border-box}.pith-reader.pith-paged .pith-fixed-page img{max-height:calc(var(--pith-page-height) - 2em)}
 .pith-reader.pith-paged .pith-article figure{break-inside:avoid;page-break-inside:avoid;max-width:100%}
+.pith-reader.pith-paged .pith-article:has(> .pith-pdf-slot){display:grid;grid-auto-flow:column;grid-auto-columns:100%;grid-template-rows:minmax(0,1fr)}
+.pith-reader.pith-paged .pith-article>.pith-pdf-slot{margin:var(--pith-pdf-slot-inset);min-width:0;min-height:0;overflow:hidden auto;overscroll-behavior:contain;scrollbar-gutter:stable both-edges}
+.pith-pdf-slot>.pith-interline-subtitle{text-align:left;white-space:pre-wrap}
+.pith-view [data-pdf-pagination]:not([hidden]){display:inline-flex;flex:none;align-items:center;white-space:nowrap}
+.pith-view[data-hit-target="44"] .pith-view-header:has([data-pdf-pagination]){height:45px}
 .pith-reader.pith-paged::after{content:"";position:absolute;left:var(--pith-page-scroll-extent,0px);top:0;width:1px;height:1px;pointer-events:none}
 .pith-reader.pith-paged .pith-article :is(img,svg,math){break-inside:avoid;page-break-inside:avoid;max-width:100%;max-height:var(--pith-page-media-height,var(--pith-page-height))!important;width:auto;height:auto;object-fit:contain}
 .pith-guide-toggle[aria-pressed=true]{color:var(--pith-sage)!important;background:color-mix(in srgb,var(--pith-sage) 14%,transparent)}
