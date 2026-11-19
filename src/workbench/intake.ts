@@ -1,6 +1,7 @@
 import { normalizeRepositoryUrl, type GuideTurn, type Material, type Topic, type TurnOptions } from "../core/index.ts";
 import { groupMaterialFiles } from "./importMaterial.ts";
 import { pithIcon } from "./icons.ts";
+import { guideThoughtMarkup } from "./view/guide.ts";
 
 export interface IntakePorts {
   importFiles(files: File[]): Promise<Material>;
@@ -53,18 +54,42 @@ export class IntakeSession {
     for (const group of groupMaterialFiles(files)) await keep(group[0]!, async () => ({ material: await this.ports.importFiles(group) }));
     return [input.goal, ...descriptions].filter(Boolean).join("\n");
   }
-  async ask(text: string, options: TurnOptions): Promise<{ topic: Topic | null; turn: GuideTurn }> {
-    const result = await this.ports.intake({ text, materialIds: [...this.materials.keys()], previous: this.previous }, options);
-    if (!result.topic && result.turn.status === "completed") this.previous.push(result.turn);
-    return result;
+  async ask(text: string, options: TurnOptions, changed?: () => Promise<void>): Promise<{ topic: Topic | null; turn: GuideTurn }> {
+    const observed = new Set<string>();
+    let refresh = Promise.resolve();
+    const observeMaterials = (turn: GuideTurn) => {
+      if (!changed) return;
+      let added = false;
+      for (const step of turn.steps) {
+        if (step.kind !== "tool") continue;
+        for (const effect of step.effects) {
+          if (effect.kind !== "material" || observed.has(effect.materialId)) continue;
+          observed.add(effect.materialId);
+          added = true;
+        }
+      }
+      if (added) refresh = refresh.then(changed).catch(error => console.error("Intake library refresh failed", error));
+    };
+    try {
+      const result = await this.ports.intake({ text, materialIds: [...this.materials.keys()], previous: this.previous }, {
+        ...options,
+        onUpdate: turn => { observeMaterials(turn); options.onUpdate?.(turn); },
+      });
+      observeMaterials(result.turn);
+      if (!result.topic && result.turn.status === "completed") this.previous.push(result.turn);
+      return result;
+    } finally { await refresh; }
   }
 }
 
 export function renderIntakeTurn(root: HTMLElement, turn: GuideTurn): void {
+  const previous = root.dataset.intakeTurn === turn.id ? Array.from(root.children) : [];
+  root.dataset.intakeTurn = turn.id;
   root.replaceChildren();
-  for (const step of turn.steps) {
+  for (const [index, step] of turn.steps.entries()) {
     const row = root.ownerDocument.createElement("div"); row.className = "pith-intake-step";
-    row.textContent = step.kind === "reply" ? step.markdown : step.kind === "thought" ? step.text : `${step.name} · ${step.status === "running" ? "进行中" : step.status === "completed" ? "完成" : "失败"}${step.summary ? ` · ${step.summary}` : ""}`;
+    if (step.kind === "thought") row.innerHTML = guideThoughtMarkup(step.text, Boolean(previous[index]?.querySelector(".pith-guide-thought[open]")));
+    else row.textContent = step.kind === "reply" ? step.markdown : `${step.name} · ${step.status === "running" ? "进行中" : step.status === "completed" ? "完成" : "失败"}${step.summary ? ` · ${step.summary}` : ""}`;
     root.append(row);
   }
 }
@@ -109,7 +134,7 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
         if (!goal) { if (session.previous.length || actions.requireGoal) { status.textContent = actions.requireGoal ? "请输入你想搞懂的问题" : "请回答向导的问题"; return; } await actions.fed([...session.materials.values()]); return; }
         if (!actions.guideAvailable) throw new Error("向导未连接；已导入的材料保留在材料库，请先在设置中连接向导");
         status.textContent = "向导正在立项…";
-        const result = await session.ask(goal, { signal, onUpdate: turn => { if (!disposed) renderIntakeTurn(process, turn); } });
+        const result = await session.ask(goal, { signal, onUpdate: turn => { if (!disposed) renderIntakeTurn(process, turn); } }, actions.changed);
         if (disposed) return;
         renderIntakeTurn(process, result.turn);
         // A topic tool may already have committed before a late interruption; the frozen engine returns that durable topic.

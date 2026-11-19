@@ -16,6 +16,9 @@ export function noteEntries(notes: readonly Note[], material?: MaterialNotes): r
 
 const noteLabels: Record<Note["kind"], string> = { highlight: "高亮", note: "笔记", practice: "实训" };
 const escape = (s: string): string => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+export function guideThoughtMarkup(text: string, expanded = false): string {
+  return `<details class="pith-guide-thought"${expanded ? " open" : ""}><summary>思考</summary><div>${escape(text)}</div></details>`;
+}
 function toolLabel(name: string, preview: string): string {
   const labels: Record<string, string> = { pith_read_material: "读取", pith_read_external: "浏览网页", pith_read_lesson: "读取讲义", pith_list_material: "查看材料", pith_write_lesson: "写入讲义", pith_save_note: "记录笔记", pith_settle_topic: "结题", pith_offer_choices: "准备选项", pith_ingest_external: "导入材料", pith_fetch_media_corpus: "导入材料", pith_search_media: "搜索媒体", pith_configure_toolkits: "配置工具" };
   let object = "";
@@ -40,7 +43,7 @@ export function renderGuide(guide: HTMLElement, data: { notes: readonly Note[]; 
       if (!process.length) return;
       const previousAttempt = process.every(isPreviousAttempt);
       const key = `${entry.id}:${group++}`, previousState = open.get(key), expanded = previousState?.status === entry.status ? previousState.open : entry.status !== "completed";
-      const rows = process.map(step => step.kind === "thought" ? `<details class="pith-guide-thought"><summary>思考</summary><div>${escape(step.text)}</div></details>` : step.kind === "tool" ? `<div class="pith-guide-step" data-step-status="${step.status}">${escape(toolLabel(step.name, step.inputPreview))}${step.summary && step.status === "failed" ? ` · ${escape(step.summary)}` : ""}${step.status === "running" ? " · 进行中" : step.status === "failed" ? " · 失败" : " · 完成"}</div>${step.effects.filter(effect => effect.kind !== "observation").map(effect => effect.kind === "lesson" ? `<button data-guide-lesson="${escape(effect.fileName)}">讲义《${escape(effect.fileName)}》</button>` : effect.kind === "note" ? `<button data-note-id="${escape(effect.noteId)}">笔记</button>` : effect.kind === "material" ? `<button data-guide-material="${escape(effect.materialId)}">材料</button>` : "").join("")}` : "").join("");
+      const rows = process.map(step => step.kind === "thought" ? guideThoughtMarkup(step.text) : step.kind === "tool" ? `<div class="pith-guide-step" data-step-status="${step.status}">${escape(toolLabel(step.name, step.inputPreview))}${step.summary && step.status === "failed" ? ` · ${escape(step.summary)}` : ""}${step.status === "running" ? " · 进行中" : step.status === "failed" ? " · 失败" : " · 完成"}</div>${step.effects.filter(effect => effect.kind !== "observation").map(effect => effect.kind === "lesson" ? `<button data-guide-lesson="${escape(effect.fileName)}">讲义《${escape(effect.fileName)}》</button>` : effect.kind === "note" ? `<button data-note-id="${escape(effect.noteId)}">笔记</button>` : effect.kind === "material" ? `<button data-guide-material="${escape(effect.materialId)}">材料</button>` : "").join("")}` : "").join("");
       const count = process.filter(step => step.kind === "tool").length;
       const failed = process.filter(step => step.kind === "tool" && step.status === "failed").length;
       const running = process.some(step => step.kind === "tool" && step.status === "running");

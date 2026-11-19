@@ -85,7 +85,9 @@ for (const host of ["Web", "Obsidian"]) test(`${host} reuses material records re
     const lessonNote = await duplicate(permanent[0]![1]!.id, { source: { kind: "lesson" }, file, locator: "text:line:4", quote: lessonQuote }, "课题甲讲义笔记");
     const topicNote = await duplicate(permanent[0]![0]!.id, { source: { kind: "material", materialId: materials[0]!.id }, file, locator: `text:offset:${source("材料甲").indexOf(bottom)}`, quote: bottom }, "课题甲底部笔记");
     await page.locator('[data-command="home"]').click();
-    await page.locator(`[data-topic="${topics[0]!.id}"]`).click(); await openNavigationFile(page, materials[0]!.id);
+    await page.locator(`[data-topic="${topics[0]!.id}"]`).click();
+    await page.locator(".pith-article h1").getByText("课题甲讲义", { exact: true }).waitFor();
+    await openNavigationFile(page, materials[0]!.id);
     await page.locator(".pith-article h1").getByText("材料甲", { exact: true }).waitFor(); await openNotes(page);
     assert.ok(await page.locator(".pith-article mark").filter({ hasText: shared }).count(), "existing material highlight vanished inside its topic");
     const topicSection = page.locator('[data-note-section="topic"]'), materialSection = page.locator('[data-note-section="material"]');
@@ -130,7 +132,9 @@ for (const host of ["Web", "Obsidian"]) test(`${host} reuses material records re
     assert.equal((await store.getTopic(topics[0]!.id))!.notes.at(-1)!.anchor!.source.kind, "material");
     await page.locator('[data-guide-tab="chat"]').click(); assert.equal(await page.locator("[data-guide-send]").textContent(), "发送");
     await page.locator('[data-guide-tab="notes"]').click(); assert.equal(await page.locator("[data-guide-send]").textContent(), "保存笔记");
-    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topics[1]!.id}"]`).click(); await openNavigationFile(page, materials[0]!.id); await openNotes(page);
+    await page.locator('[data-command="home"]').click(); await page.locator(`[data-topic="${topics[1]!.id}"]`).click();
+    await page.locator(".pith-article h1").getByText("课题乙讲义", { exact: true }).waitFor();
+    await openNavigationFile(page, materials[0]!.id); await openNotes(page);
     await materialSection.getByRole("heading", { name: "材料笔记 · 材料甲", exact: true }).waitFor();
     assert.equal(await page.locator('[data-guide-tab="notes"]').textContent(), "笔记 0 · 材料 2", "material records are visible even when the new topic has no notes");
     assert.equal((await page.locator(".pith-guide-content").innerText()).includes("课题甲内新增，仍归课题"), false);
