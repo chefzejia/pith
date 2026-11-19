@@ -126,8 +126,8 @@
 ---
 
 ## [Milestone #66] OCW 链接直接可用：安全跟随重定向、能搜索课程，并发布 v0.4.1
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: 9d1ad2b0c48bcbc29cc4fb67ec95987e76fbb472
 - **Depends-On**: —
 - **发布版本**: v0.4.1
 - **Features**: F-GUIDE-INGEST、F-SOURCE-COURSES
@@ -147,6 +147,7 @@
   5. `main` 自 v0.4.0 起只有文档提交，直接在 `main` 上修复与发布，不另拉 release 分支。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里只有一个类实现 `requestPublic`。手动破壁各一次后恢复，对应断言须各自变红：某一跳不重新校验公网地址；允许 `https` 降到 `http`；不限跳数；相对链接按请求地址而不是最终地址解析；阅读器把 JSON 当成不支持的类型。
 - **结案**：F-GUIDE-INGEST、F-SOURCE-COURSES 按 ROLES「功能台账同步」更新。Router 把这次漏判（程序按契约拒绝、挡住了真实主路径，仍按预期拒绝发布）记入 LESSONS。通过后按 ROLES「发布步骤」发布 v0.4.1。
+- **结果**：Web 与隔离 Obsidian 真实向导均完成 MIT Learn 搜索、课程 PDF 导入、页码出处跳转、官方题检验与结题。双端 PDF 翻译稳定在原页下方，结题后可回看且无法再发起复述。普通 OCW 重定向和最终来源有实测，逐跳拒绝与相对链接解析有受控回归。Cleanup PASS。验收与截图：`.tmp/evidence/milestone-66/tester-pdf-slots/report.md`。已从验收提交打附注标签 `v0.4.1`，安装至默认 `ganfan-media` Vault，三个文件的 SHA-256 核对一致，详见 `.tmp/evidence/milestone-66/delivery.txt`。
 
 ---
 
