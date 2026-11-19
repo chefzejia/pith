@@ -413,6 +413,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const path = `topics/${name(topicId)}/topic.md`;
       const { attributes, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
+      if (input.kind === "practice" && topic.status === "settled") throw new Error("已沉淀的课题不可进行实训");
       if (input.anchor?.source.kind === "material" && !topic.materialIds.includes(input.anchor.source.materialId)) throw new Error("Material not in topic");
       if (input.anchor?.source.kind === "lesson" && !topic.lessons.some(lesson => lesson.name === input.anchor!.file)) throw new Error("Lesson not in topic");
       if (input.anchor?.source.kind === "material") {

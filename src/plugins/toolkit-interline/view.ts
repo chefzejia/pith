@@ -34,6 +34,7 @@ export class InterlineView {
   private readonly elements: HTMLElement[];
   private readonly units: InterlineViewUnit[];
   private readonly outer: boolean[];
+  private readonly pageSubtitles = new WeakMap<HTMLElement, Element>();
   private mode: InterlineDisplayMode = "original";
   private version = 0;
   private processingVersion: number | null = null;
@@ -57,6 +58,18 @@ export class InterlineView {
     const template = this.article.ownerDocument.createElement("template"); template.innerHTML = html;
     const rendered = template.content.firstElementChild;
     if (!rendered) throw new Error("行间内容无效");
+    const page = element.matches(".pith-pdf-text") ? element.closest("figure.pith-fixed-page") : null;
+    if (page) {
+      // The PDF text layer is an absolute, transparent selection surface over the image.
+      this.pageSubtitles.get(element)?.remove();
+      this.pageSubtitles.delete(element);
+      const subtitle = rendered.querySelector(":scope > .pith-interline-subtitle");
+      if (subtitle) {
+        page.after(subtitle);
+        this.pageSubtitles.set(element, subtitle);
+      }
+      return;
+    }
     element.innerHTML = rendered.innerHTML;
     const mode = rendered.getAttribute("data-interline-mode"); if (mode === null) element.removeAttribute("data-interline-mode"); else element.setAttribute("data-interline-mode", mode);
   }

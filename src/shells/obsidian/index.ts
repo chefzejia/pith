@@ -563,6 +563,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
     let originatingView: PithObsidianView;
     originatingView = this.controller.createView(this.contentEl, {
       guideAvailable: this.controller.hasGuideProvider(),
+      readOnly: topic.status === "settled",
       importMaterial: topic.status === "settled" ? undefined : () => { this.picker?.dispose(); this.picker = openMaterialPicker(this.contentEl, { ports: this.intakePorts(), library: () => this.controller.store.listMaterials(), referenced: async () => (await this.controller.store.getTopic(topic.id))!.materialIds, attach: async id => { await this.controller.store.attachMaterial(topic.id, id); }, added: async id => { await session.refresh(); await session.openMaterial(id); } }); },
       guideVisibilityChanged: visible => { this.guideByTopic.set(topic.id, visible); return this.workspace ? this.showNativeGuide(visible, originatingView, topic.id).catch(error => this.report(error)) : undefined; },
       home: () => this.onOpen(),

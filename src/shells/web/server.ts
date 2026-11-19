@@ -365,6 +365,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           if (res.destroyed) cancel();
           const data = await body(req), topic = await store.getTopic(str(data, "topicId"));
           if (!topic || !topic.toolkits.includes("feynman")) throw new Error("费曼未挂载");
+          if (topic.status === "settled") return send(res, 409, { error: "已沉淀的课题不可进行实训" });
           const { signal } = controller;
           const source = str(data, "source"), points = await recall.prepare(source, signal);
           signal.throwIfAborted();

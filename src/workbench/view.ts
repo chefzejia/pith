@@ -50,6 +50,7 @@ export interface ObsidianReaderDocument {
 export interface ObsidianViewActions {
   scene?: "material" | "topic";
   guideAvailable?: boolean;
+  readOnly?: boolean;
   startIntake?(): void;
   setMaterialAids?(aids: readonly string[]): Promise<void>;
   saveLocator?(locator: string): Promise<void>;
@@ -260,6 +261,7 @@ export class PithWorkbenchView {
 
   constructor(root: HTMLElement, actions: ObsidianViewActions) {
     this.root = root; this.actions = actions; this.guideAvailable = actions.guideAvailable ?? true; this.guideTab = actions.scene === "material" ? "notes" : "chat"; root.dataset.scene = actions.scene ?? "topic";
+    this.guideData.readOnly = actions.readOnly;
     this.doc = root.ownerDocument;
     const win = this.doc.defaultView;
     if (!win) throw new Error("View requires a window");
@@ -533,7 +535,24 @@ export class PithWorkbenchView {
     if (position) await this.actions.saveLocator(readingLocator(position));
   }
   setToolkitActive(active: boolean): void { this.toolkitActive = active; this.dock.classList.toggle("active", active || this.speaking); }
-  setToolkits(toolkits: readonly string[]): void { this.configuredToolkits = this.actions.scene === "material" ? [] : toolkits.filter(id => id !== "interline"); const previous = this.toolkitId; const slot = toolkitSlot(this.configuredToolkits, previous, Object.fromEntries(this.toolkits.map(item => [item.id, item.label]))); this.mountedToolkits = slot.ids; this.toolkitId = slot.active; if (previous && !slot.ids.includes(previous)) this.closeInlineToolkit(); const button = this.dock.querySelector<HTMLButtonElement>("#open-toolkit"); if (!button) return; button.hidden = this.actions.scene === "material"; button.innerHTML = `${pithIcon("sliders")}<span class="pith-toolkit-label"></span>`; button.querySelector("span")!.textContent = slot.text; button.classList.toggle("pith-toolkit-add", !slot.ids.length); button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具"; button.setAttribute("aria-label", button.title); }
+  setToolkits(toolkits: readonly string[]): void {
+    this.configuredToolkits = this.actions.scene === "material" ? [] : toolkits.filter(id => id !== "interline");
+    const unavailable = this.actions.scene === "material" || this.guideData.readOnly === true;
+    const previous = this.toolkitId;
+    const slot = toolkitSlot(unavailable ? [] : this.configuredToolkits, previous, Object.fromEntries(this.toolkits.map(item => [item.id, item.label])));
+    this.mountedToolkits = slot.ids;
+    this.toolkitId = slot.active;
+    if (previous && !slot.ids.includes(previous)) this.closeInlineToolkit();
+    if (unavailable) this.toolkit.hidden = true;
+    const button = this.dock.querySelector<HTMLButtonElement>("#open-toolkit");
+    if (!button) return;
+    button.hidden = unavailable;
+    button.innerHTML = `${pithIcon("sliders")}<span class="pith-toolkit-label"></span>`;
+    button.querySelector("span")!.textContent = slot.text;
+    button.classList.toggle("pith-toolkit-add", !slot.ids.length);
+    button.title = slot.ids.length ? `打开实训工具：${slot.text}` : "打开实训工具";
+    button.setAttribute("aria-label", button.title);
+  }
   turnPage(direction: number): void { if (!this.paged) return; if (this.speechResult) this.stopSpeech(); this.reader.scrollTo({ left: Math.max(0, readerPageIndex(this.reader) + direction) * this.reader.clientWidth, behavior: "instant" }); this.readerPosition = captureReaderPosition(this.reader, this.article); this.updatePageCount(); this.scheduleLocator(); }
   private updatePageCount(): void { const counter = this.root.querySelector<HTMLElement>("[data-page-count]"); if (!counter) return; const width = Math.max(1, this.reader.clientWidth); const total = Math.max(1, Math.ceil(this.reader.scrollWidth / width)); counter.textContent = `${readerPageIndex(this.reader) + 1} / ${total}`; }
   private adaptEpubColors(): void {
@@ -612,7 +631,7 @@ export class PithWorkbenchView {
     update(); this.guideClock = this.guide.querySelector("[data-started]") ? this.win.setInterval(update, 1000) : undefined;
   }
   openToolkit(toolkits: readonly ToolkitDescriptor[], text?: string, anchor?: SelectionAnchor): void {
-    if (this.actions.scene === "material") return;
+    if (this.actions.scene === "material" || this.guideData.readOnly) return;
     toolkits = toolkits.filter(item => item.role === "training");
     this.toolkits = toolkits;
     const mounted = toolkits.filter(item => this.mountedToolkits.includes(item.id));
@@ -767,6 +786,7 @@ export class PithWorkbenchView {
         prepare: (source, signal) => { if (!this.actions.prepareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.prepareRecall(source, signal); },
         compare: (source, points, produced, signal) => { if (!this.actions.compareRecall) return Promise.reject(new Error("对照服务不可用")); return this.actions.compareRecall(source, points, produced, signal); },
         capture: async (body, anchor, result) => {
+          if (this.guideData.readOnly) throw new Error("已沉淀的课题不可进行实训");
           if (!this.actions.savePractice) throw new Error("实训保存不可用");
           const note = await this.actions.savePractice(body, anchor, result);
           this.consumeRecallDraft(key, recall);

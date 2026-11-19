@@ -119,6 +119,7 @@ test("Obsidian tool chooser and cue require explicit or existing toolkit", async
   const view = Object.create(PithObsidianView.prototype) as FakeView;
   const added: { dataset: Record<string, string>; textContent: string }[] = [];
   const mounted: string[] = [];
+  Object.assign(view, { guideData: { readOnly: false } });
   Object.assign(view, { mountedToolkits: [], toolkitId: "", disposed: false, popover: { hidden: true }, voice: { cancel() {}, clearRecording() {} }, toolkit: { hidden: true, innerHTML: "", append: (item: { dataset: Record<string, string>; textContent: string }) => added.push(item) }, doc: { createElement: () => ({ dataset: {}, textContent: "" }) }, actions: { mountToolkit: async (id: string) => { mounted.push(id); }, openToolkit: () => { throw new Error("cue opened an unmounted toolkit"); } }, root: { contains: () => true }, article: { contains: () => true, querySelectorAll: () => [] }, reader: { getBoundingClientRect: () => ({}) }, setToolkitActive() {}, renderToolkit() {}, tip() {}, refreshGuide: async () => {} });
   const descriptors = [{ id: "shadowing", role: "training", label: "影子跟读" }, { id: "feynman", role: "training", label: "费曼复述" }] as unknown as Parameters<PithObsidianView["openToolkit"]>[0];
   view.openToolkit(descriptors);

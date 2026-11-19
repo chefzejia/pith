@@ -78,6 +78,7 @@ export class WebWorkbench {
     };
     this.view = mountPithWorkbench(options.root, {
       guideAvailable: options.guideAvailable,
+      readOnly: options.topic.status === "settled",
       home: options.home,
       openSettings: options.settings,
       importMaterial: options.topic.status === "settled" ? undefined : options.importMaterial,
