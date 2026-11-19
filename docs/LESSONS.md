@@ -116,7 +116,11 @@
 - Seen 1× (2026-11-13).
 
 **真实导入后同时核对材料库即时视图与持久化结果。**
-- `[Milestone #66]` Obsidian 中两个 `pith_ingest_external` 调用显示完成、隔离工作区有完整材料记录与文件，但主页计数仍显示 0；Tester 未重载确认是否为陈旧视图。验收须对照工具结果、持久化材料和当前/重入后的材料库视图，避免将完成事件当作用户可见成功。证据：`.tmp/evidence/milestone-66/tester/report.md`、`.tmp/evidence/milestone-66/tester/obsidian-sample.md`。
+- `[Milestone #66]` Obsidian 中 `pith_ingest_external` 显示完成且材料已落盘，主页计数仍显示 0；重进 Pith 后才显示 1。验收须对照工具结果、持久化材料和当前/重入后的材料库视图，避免将完成事件当作用户可见成功。证据：`.tmp/evidence/milestone-66/tester-followup/report.md`。
+- Seen 1× (2026-11-19).
+
+**立项过程自检要覆盖真实思考步骤与工具步骤交错。**
+- `[Milestone #66]` 双端真实 Agent 把思考步骤全文直接展开在立项框下方，未遵循工作台的默认折叠显示。用带思考、工具和回复的回合检查默认视图仍能读到进度与回复，并确认展开控件按预期工作。证据：`.tmp/evidence/milestone-66/tester/report.md`。
 - Seen 1× (2026-11-19).
 
 **共享工作台的动态内容须在原生宿主检查尺寸。**
