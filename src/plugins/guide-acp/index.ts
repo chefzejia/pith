@@ -1,4 +1,5 @@
 import {
+  LOCAL_AGENT_IDS,
   libraryOverview,
   materialVersionGroups,
   lessonRepositoryMaterials,
@@ -121,9 +122,9 @@ registerPlugin({
     agentId: {
       type: "string",
       title: "Local Agent CLI",
-      description: "Local ACP agent CLI id (dsh / claude / codex)",
+      description: `Local ACP agent CLI id (${LOCAL_AGENT_IDS.join(" / ")})`,
       default: "",
-      enum: ["", "dsh", "claude", "codex"],
+      enum: ["", ...LOCAL_AGENT_IDS],
     },
     model: {
       type: "string",

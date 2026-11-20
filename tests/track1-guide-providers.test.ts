@@ -210,7 +210,7 @@ function createFakeProcessPort(options: {
   return { port, spawnedSpecs, closedCount: () => closed };
 }
 
-test("Track 1: discoverLocalAgents probes dsh, claude-agent-acp, and codex-acp with TTL cache", async () => {
+test("Track 1: discoverLocalAgents probes dsh, claude-agent-acp, codex-acp, and agy with TTL cache", async () => {
   let probeCalls = 0;
   const { port } = createFakeProcessPort({
     installed: {
@@ -221,15 +221,22 @@ test("Track 1: discoverLocalAgents probes dsh, claude-agent-acp, and codex-acp w
       },
       "claude-agent-acp": {
         path: "/usr/local/bin/claude-agent-acp",
-        version: "0.2.1",
+        version: "0.94.0",
+      },
+      agy: {
+        path: "/usr/local/bin/agy",
+        version: "agy 1.2.0",
+        helpText: "Antigravity Agent Client Protocol (ACP) server",
       },
     },
   });
 
+  const probeHistory: Array<{ execPath: string; args: readonly string[] }> = [];
   const countingPort: AgentProcessPort = {
     ...port,
     async probeExecutable(execPath, args, timeoutMs) {
       probeCalls += 1;
+      probeHistory.push({ execPath, args: [...args] });
       return port.probeExecutable(execPath, args, timeoutMs);
     },
   };
@@ -238,22 +245,37 @@ test("Track 1: discoverLocalAgents probes dsh, claude-agent-acp, and codex-acp w
   const detector = new CachedAgentDetector({ processPort: countingPort }, 30_000, () => clock);
 
   const first = await detector.detect();
-  assert.equal(first.length, 3);
+  assert.equal(first.length, 4);
 
   const dsh = first.find((a) => a.id === "dsh")!;
   assert.equal(dsh.available, true);
   assert.equal(dsh.command, "/opt/homebrew/bin/dsh");
   assert.deepEqual(dsh.args, ["--profile", "acp"]);
   assert.equal(dsh.version, "dsh 0.4.0");
+  assert.equal(dsh.pithToolTitlePrefix, "mcp__pith__");
+  assert.equal(dsh.requiredSafeModes, undefined);
 
   const claude = first.find((a) => a.id === "claude")!;
   assert.equal(claude.available, true);
   assert.equal(claude.command, "/usr/local/bin/claude-agent-acp");
+  assert.equal(claude.pithToolTitlePrefix, "mcp__pith__");
+  assert.deepEqual(claude.requiredSafeModes, ["default"]);
+  const claudeProbes = probeHistory.filter((item) => item.execPath === "/usr/local/bin/claude-agent-acp");
+  assert.deepEqual(claudeProbes.map((item) => item.args), [["--version"]]);
 
   const codex = first.find((a) => a.id === "codex")!;
   assert.equal(codex.available, false);
   assert.equal(codex.command, null);
   assert.match(codex.note, /未找到 codex-acp/);
+
+  const agy = first.find((a) => a.id === "agy")!;
+  assert.equal(agy.available, true);
+  assert.equal(agy.command, "/usr/local/bin/agy");
+  assert.deepEqual(agy.args, ["acp", "--sandbox"]);
+  assert.equal(agy.version, "agy 1.2.0");
+  assert.equal(agy.pithToolTitlePrefix, "Run mcp_pith_");
+  assert.equal(agy.httpMcpWithoutCapability, true);
+  assert.deepEqual(agy.requiredSafeModes, ["default"]);
 
   const callsAfterFirst = probeCalls;
   clock += 5_000;
@@ -263,6 +285,24 @@ test("Track 1: discoverLocalAgents probes dsh, claude-agent-acp, and codex-acp w
   clock += 30_001;
   await detector.detect();
   assert.equal(probeCalls > callsAfterFirst, true, "after TTL expiry should re-probe");
+
+  // Bare claude and bare codex CLIs without ACP adapters must be marked unavailable with install hints
+  const bareOnly = createFakeProcessPort({
+    installed: {
+      claude: { path: "/usr/local/bin/claude", version: "2.1.0 (Claude Code)" },
+      codex: { path: "/usr/local/bin/codex", version: "0.50.0" },
+    },
+  });
+  const bareResult = await discoverLocalAgents({ processPort: bareOnly.port });
+  const bareClaude = bareResult.find((a) => a.id === "claude")!;
+  assert.equal(bareClaude.available, false);
+  assert.equal(bareClaude.command, null);
+  assert.match(bareClaude.note, /裸 claude CLI 不是 ACP 服务/);
+  assert.match(bareClaude.note, /@agentclientprotocol\/claude-agent-acp/);
+  const bareCodex = bareResult.find((a) => a.id === "codex")!;
+  assert.equal(bareCodex.available, false);
+  assert.equal(bareCodex.command, null);
+  assert.match(bareCodex.note, /@agentclientprotocol\/codex-acp/);
 });
 
 test("Track 1: DSH read-only isolation env and ACP JSON-RPC handshake + streaming + choices", async () => {

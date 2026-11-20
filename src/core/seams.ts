@@ -266,8 +266,11 @@ export interface AcpConfigOptionDescriptor {
   readonly options: readonly AcpConfigChoice[];
 }
 
+export const LOCAL_AGENT_IDS = ["dsh", "claude", "codex", "agy"] as const;
+export type LocalAgentId = (typeof LOCAL_AGENT_IDS)[number];
+
 export interface DiscoveredAgentDescriptor {
-  readonly id: "dsh" | "claude" | "codex" | (string & {});
+  readonly id: LocalAgentId | (string & {});
   readonly label: string;
   readonly command: string | null;
   readonly args: readonly string[];
@@ -276,6 +279,8 @@ export interface DiscoveredAgentDescriptor {
   readonly note: string;
   readonly configOptions?: readonly AcpConfigOptionDescriptor[];
   readonly pithToolTitlePrefix?: string;
+  readonly httpMcpWithoutCapability?: boolean;
+  readonly requiredSafeModes?: readonly string[];
 }
 
 export interface AgentPromptService {

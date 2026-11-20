@@ -1,4 +1,4 @@
-import type { AnchorSource, ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, Note } from "../core/index.ts";
+import type { AnchorSource, LocalAgentId, ToolkitDiagnosis, ToolkitStage, ToolkitDescriptor, GuideTurn, GuideQuickAction, InterlineDisplayMode, ReaderSectionHeading, SelectionAnchor, Note } from "../core/index.ts";
 import { applyPaginationStyles, captureReaderPosition, hasPdfPageSlots, navigateReaderTarget, proseTextNodes, readerPageIndex, readingLocator, resolveEpubTarget, resolveReaderLocator, resolveResponsiveLayout, restoreReaderPosition, restoreReadingLocator, updateTocLocation, visibleToolkitTarget, type CurriculumItem, type ReaderPosition } from "../plugins/stage-reader/pagination.ts";
 import { pithIcon } from "./icons.ts";
 import { matchTextAnchor } from "../plugins/stage-reader/textAnchor.ts";
@@ -22,7 +22,7 @@ import { mediaDuration, probeMediaDuration } from "../plugins/stage-timeline/ind
 import { repositoryCitations, type CitationPosition } from "../core/repositoryCitations.ts";
 
 export interface ObsidianAgentConfig {
-  readonly agentId: "" | "dsh" | "claude" | "codex";
+  readonly agentId: "" | LocalAgentId;
   readonly model: string;
   readonly effort: string;
 }

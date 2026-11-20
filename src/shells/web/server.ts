@@ -6,7 +6,7 @@ import { createFeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type ToolkitStage, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
+import { LOCAL_AGENT_IDS, DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, type LocalAgentId, type ToolkitStage, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type InterlineDisplayMode, type InterlineService, type InterlineTranslator, type PluginsConfigFile, type SelectionAnchor, type SpeechTtsService, type SpeechAsrService, type StageTimelineService, type StageReaderService } from "../../core/index.ts";
 import { LocalAcpGuideProvider, buildScenePrompt, normalizeToolkits } from "../../plugins/guide-acp/index.ts";
 import { recoverInterruptedToolSteps } from "../../plugins/guide-acp/turnRecovery.ts";
 import { bootStandaloneShell, type WorkspaceSnapshot } from "./index.ts";
@@ -30,7 +30,9 @@ import { sampleMaterialText } from "../../workbench/importMaterial.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
-interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
+interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | LocalAgentId; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
+const isLocalAgentId = (value: unknown): value is LocalAgentId => typeof value === "string" && (LOCAL_AGENT_IDS as readonly string[]).includes(value);
+const isConfiguredAgentId = (value: unknown): value is "" | LocalAgentId => value === "" || isLocalAgentId(value);
 export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; promptService?: AgentPromptService; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -87,7 +89,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
     const { persona: _legacyPersona, ...rest } = saved as Record<string, unknown>;
     const value = rest as Partial<WebSettings>;
     if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
-    if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && !["", "dsh", "claude", "codex"].includes(value.agentId)) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid web settings");
+    if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && !isConfiguredAgentId(value.agentId)) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid web settings");
     if (value.speechProfiles !== undefined && !validSpeechProfiles(value.speechProfiles)) throw new Error("Invalid speech profiles");
     if (value.speechSettingsVersion !== undefined && value.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
     settings = { ...value, ...(value.speech ? { speech: migrateLegacySpeech(value.speech, value.speechSettingsVersion, value.speechProfiles) } : {}), preset: value.preset, plugins: value.plugins, agentId: value.agentId ?? "", agentConfigured: value.agentConfigured ?? value.agentId !== undefined, model: value.model ?? "", effort: value.effort ?? "" };
@@ -178,7 +180,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (method === "GET" && url.pathname === "/api/agents/options") {
         const guide = runtime.getService<GuideAgentService>("guide.agent"), id = url.searchParams.get("id");
         if (!guide || !guide.probeAgentOptions) return send(res, 503, { error: "Guide service unavailable" });
-        if (!id || !["dsh", "claude", "codex"].includes(id)) return send(res, 400, { error: "Invalid agent" });
+        if (!isLocalAgentId(id)) return send(res, 400, { error: "Invalid agent" });
         return send(res, 200, await guide.probeAgentOptions(id, url.searchParams.get("force") === "true"));
       }
       if (url.pathname === "/api/speech/runtime" && method === "GET") return send(res, 200, await speechRuntime.getState());
@@ -521,9 +523,12 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       }
       if (url.pathname === "/api/settings" && method === "POST") {
         const data = await body(req);
-        if (data.agentId !== undefined && (typeof data.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(data.agentId))) throw new Error("Invalid agentId");
+        if (data.agentId !== undefined && !isConfiguredAgentId(data.agentId)) throw new Error("Invalid agentId");
         if (data.model !== undefined && typeof data.model !== "string") throw new Error("Invalid model");
         if (data.effort !== undefined && typeof data.effort !== "string") throw new Error("Invalid effort");
+        const nextAgentId = data.agentId as WebSettings["agentId"] | undefined;
+        const nextModel = typeof data.model === "string" ? data.model : undefined;
+        const nextEffort = typeof data.effort === "string" ? data.effort : undefined;
         if (data.speech !== undefined && (!data.speech || typeof data.speech !== "object" || Array.isArray(data.speech) || Object.entries(data.speech).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsModel", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl", "asrModel"].includes(key) || typeof value !== "string"))) throw new Error("Invalid speech settings");
         if (data.speechMode !== undefined && (data.speechMode !== "local" && data.speechMode !== "cloud" || data.speech !== undefined)) throw new Error("Invalid speech mode");
         if (data.secrets !== undefined && (!data.secrets || typeof data.secrets !== "object" || Array.isArray(data.secrets) || Object.entries(data.secrets).some(([key, value]) => !["OPENAI_API_KEY", "AZURE_SPEECH_KEY"].includes(key) || typeof value !== "string"))) throw new Error("Invalid secrets");
@@ -532,7 +537,14 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           await loadSettings();
           if (data.speechMode !== undefined) { const next = switchSpeechMode(settings.speech ?? {}, settings.speechProfiles ?? {}, data.speechMode as SpeechMode); settings = { ...settings, speech: next.speech, speechProfiles: next.profiles }; }
           if (data.speech !== undefined || data.speechMode !== undefined) settings = { ...settings, speechSettingsVersion: 1 };
-          settings = { ...settings, ...(data.speech !== undefined ? { speech: data.speech as Record<string, string> } : {}), ...(data.agentId !== undefined ? { agentId: data.agentId as WebSettings["agentId"], agentConfigured: true } : {}), ...(data.model !== undefined ? { model: data.model as string } : {}), ...(data.effort !== undefined ? { effort: data.effort as string } : {}) };
+          const agentChanged = nextAgentId !== undefined && nextAgentId !== settings.agentId;
+          settings = {
+            ...settings,
+            ...(data.speech !== undefined ? { speech: data.speech as Record<string, string> } : {}),
+            ...(nextAgentId !== undefined ? { agentId: nextAgentId, agentConfigured: true } : {}),
+            ...(nextModel !== undefined ? { model: nextModel } : agentChanged ? { model: "" } : {}),
+            ...(nextEffort !== undefined ? { effort: nextEffort } : agentChanged ? { effort: "" } : {}),
+          };
           await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
         });
         await refresh(); processEffects();

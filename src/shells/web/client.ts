@@ -1,5 +1,5 @@
 import { WebWorkbench } from "./workbench.ts";
-import { renderAcpSelect, renderCompass } from "../../workbench/index.ts";
+import { findAcpEffortOption, findAcpModelOption, renderAcpSelect, renderCompass } from "../../workbench/index.ts";
 import { renderSpeechRuntimeSettings } from "../../workbench/speechRuntimeSettings.ts";
 import { renderSpeechVoiceSettings, type VoiceOptions } from "../../workbench/speechVoiceSettings.ts";
 import { pithIcon } from "../../workbench/icons.ts";
@@ -11,10 +11,10 @@ import { openMaterialPicker } from "../../workbench/materialPicker.ts";
 import type { IntakeActions, IntakePorts } from "../../workbench/intake.ts";
 import { readWebMaterial, webReadingSpeech } from "./materials.ts";
 import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
-import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, GuideTurn, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
+import { LOCAL_AGENT_IDS, type AcpConfigOptionDescriptor, type AttentionCompassSnapshot, type DiscoveredAgentDescriptor, type GuideTurn, type LocalAgentId, type ManagedSpeechState, type Material, type PluginStatus, type Topic } from "../../core/index.ts";
 import type { SessionState } from "../../workbench/materialSession.ts";
 
-interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
+interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | LocalAgentId; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
 interface WebState { compass: AttentionCompassSnapshot; materials: readonly Material[]; boardMaterials: readonly BoardMaterial[]; settings: WebSettings; guideConfigured: boolean; plugins: readonly PluginStatus[] }
 const requiredElement = (selector: string): HTMLElement => { const node = Array.from(document.querySelectorAll(selector)).find(item => !item.closest(".pith-article")); if (!(node instanceof HTMLElement)) throw new Error(`Missing ${selector}`); return node; };
 const requiredHost = requiredElement;
@@ -127,10 +127,12 @@ async function openMaterial(id: string): Promise<void> {
   });
   workbench = instance; await instance.open();
 }
-let settingsPending = Promise.resolve(), agentIntent: string | undefined;
+let settingsPending = Promise.resolve(), agentIntent: string | undefined, agentStateRevision = 0;
+let latestAgentState: Pick<WebSettings, "agentId" | "agentConfigured" | "model" | "effort"> | undefined;
 function openSimpleSettings() {
   drawer.hidden = false;
-  drawer.innerHTML = '<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <span class="pith-setting-control"><select id="simple-agent"><option value="">\u79BB\u7EBF</option><option value="dsh">dsh</option><option value="claude">claude</option><option value="codex">codex</option></select><button type="button" id="simple-scan" aria-label="刷新本机 Agent" title="刷新本机 Agent"></button></span></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><div id="simple-cloud-fields"><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></div><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><div id="simple-status" role="status"></div></div>';
+  const agentOptions = LOCAL_AGENT_IDS.map((id) => `<option value="${id}">${id}</option>`).join("");
+  drawer.innerHTML = `<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <span class="pith-setting-control"><select id="simple-agent"><option value="">\u79BB\u7EBF</option>${agentOptions}</select><button type="button" id="simple-scan" aria-label="刷新本机 Agent" title="刷新本机 Agent"></button></span></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><div id="simple-cloud-fields"><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></div><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><div id="simple-status" role="status"></div></div>`;
   const agent = requiredSelect("#simple-agent"), model = requiredSelect("#simple-model"), effort = requiredSelect("#simple-effort"), mode = requiredSelect("#simple-mode"), status = requiredHost("#simple-status"), speech = state.settings.speech || {};
   requiredButton("#simple-scan").innerHTML = pithIcon("rotate-cw");
   if (!state.settings.agentConfigured) {
@@ -158,12 +160,26 @@ function openSimpleSettings() {
     });
     return settingsPending;
   };
-  const save = (fields: Record<string, unknown>) => enqueue(async () => {
-    const result = await api<{ settings: WebSettings }>("/api/settings", fields);
-    state.settings = result.settings;
-    if (fields.agentId !== undefined) await refresh();
-    status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
-  });
+  const save = (fields: Record<string, unknown>) => {
+    const myRevision = agentStateRevision;
+    return enqueue(async () => {
+      try {
+        const result = await api<{ settings: WebSettings }>("/api/settings", fields);
+        state.settings = myRevision !== agentStateRevision && latestAgentState
+          ? { ...result.settings, ...latestAgentState }
+          : result.settings;
+        if (fields.agentId !== undefined) {
+          await refresh();
+          if (myRevision !== agentStateRevision && latestAgentState) {
+            state.settings = { ...state.settings, ...latestAgentState };
+          }
+        }
+        status.textContent = "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58";
+      } finally {
+        if (myRevision === agentStateRevision) latestAgentState = undefined;
+      }
+    });
+  };
   const runtimePanel = requiredHost("#speech-runtime");
   const voiceRoot = document.createElement("div"); voiceRoot.id = "speech-voices"; runtimePanel.after(voiceRoot);
   let voiceRevision = 0; const fieldRevisions = new WeakMap<HTMLInputElement, number>();
@@ -178,28 +194,49 @@ function openSimpleSettings() {
   };
   visibility();
   let probeGeneration = 0;
-  const probe = (force = false) => {
+  const probe = (force = false, snapshot?: { readonly model: string; readonly effort: string }) => {
     const id = agent.value, generation = ++probeGeneration;
     model.disabled = !id || id === "unconfigured";
     effort.disabled = true;
-    renderAcpSelect(model, void 0, state.settings.model);
-    renderAcpSelect(effort, void 0, state.settings.effort);
+    renderAcpSelect(model, void 0, snapshot ? snapshot.model : state.settings.model);
+    renderAcpSelect(effort, void 0, snapshot ? snapshot.effort : state.settings.effort);
     if (model.disabled) return;
     api<readonly AcpConfigOptionDescriptor[]>("/api/agents/options?id=" + encodeURIComponent(id) + (force ? "&force=true" : "")).then((options) => {
       if (generation !== probeGeneration || !agent.isConnected || agent.value !== id) return;
-      renderAcpSelect(model, options.find((item) => item.id === "model"), model.value);
-      renderAcpSelect(effort, options.find((item) => item.id === "reasoning_effort" || item.id === "effort" || item.category === "thought_level"), effort.value);
+      renderAcpSelect(model, findAcpModelOption(options), model.value);
+      renderAcpSelect(effort, findAcpEffortOption(options), effort.value);
       effort.disabled = false;
     }).catch((error) => {
       if (generation === probeGeneration && agent.isConnected) status.textContent = error.message || String(error);
     });
   };
-  model.onchange = () => save({ model: model.value });
-  effort.onchange = () => save({ effort: effort.value });
+  model.onchange = () => {
+    agentStateRevision++;
+    latestAgentState = { agentId: state.settings.agentId, agentConfigured: state.settings.agentConfigured, model: model.value, effort: state.settings.effort };
+    state.settings = { ...state.settings, ...latestAgentState };
+    save({ model: model.value });
+  };
+  effort.onchange = () => {
+    agentStateRevision++;
+    latestAgentState = { agentId: state.settings.agentId, agentConfigured: state.settings.agentConfigured, model: state.settings.model, effort: effort.value };
+    state.settings = { ...state.settings, ...latestAgentState };
+    save({ effort: effort.value });
+  };
   agent.onchange = () => {
-    agentIntent = agent.value;
-    save({ agentId: agent.value });
-    probe();
+    const nextAgentId = agent.value as WebSettings["agentId"];
+    const changed = nextAgentId !== state.settings.agentId;
+    agentIntent = nextAgentId;
+    agentStateRevision++;
+    latestAgentState = {
+      agentId: nextAgentId,
+      agentConfigured: true,
+      model: changed ? "" : state.settings.model,
+      effort: changed ? "" : state.settings.effort,
+    };
+    state.settings = { ...state.settings, ...latestAgentState };
+    const snapshot = changed ? { model: "", effort: "" } : undefined;
+    save(changed ? { agentId: nextAgentId, model: "", effort: "" } : { agentId: nextAgentId });
+    probe(false, snapshot);
   };
   mode.onchange = () => {
     visibility();
@@ -240,12 +277,16 @@ function openSimpleSettings() {
     button.disabled = true;
     button.textContent = "…";
     api<readonly DiscoveredAgentDescriptor[]>("/api/agents?force=true").then((agents) => {
-      const available = ["dsh", "claude", "codex"].map((id) => agents.find((item) => item.id === id && item.available)).find(Boolean);
-      if (agentIntent === void 0 && agent.isConnected && !drawer.hidden && !state.settings.agentConfigured && available) {
-        agent.value = available.id;
-        save({ agentId: available.id });
-        probe();
-      } else if (!available) status.textContent = "\u672A\u53D1\u73B0\u53EF\u7528 Agent";
+      const availableId = LOCAL_AGENT_IDS.find((id) => agents.some((item) => item.id === id && item.available));
+      if (agentIntent === void 0 && agent.isConnected && !drawer.hidden && !state.settings.agentConfigured && availableId) {
+        agent.value = availableId;
+        agentIntent = availableId;
+        agentStateRevision++;
+        latestAgentState = { agentId: availableId, agentConfigured: true, model: "", effort: "" };
+        state.settings = { ...state.settings, ...latestAgentState };
+        save({ agentId: availableId, model: "", effort: "" });
+        probe(false, { model: "", effort: "" });
+      } else if (!availableId) status.textContent = "\u672A\u53D1\u73B0\u53EF\u7528 Agent";
     }).catch((error) => {
       status.textContent = error.message || String(error);
     }).finally(() => {

@@ -1,3 +1,4 @@
+import { LOCAL_AGENT_IDS } from "../../core/index.ts";
 import { libraryOverview } from "../../core/library.ts";
 import type {
   AgentProcessPort,
@@ -339,7 +340,11 @@ export async function runOneShotAcpPrompt(
       },
       clientInfo: { name: "pith-guide-acp", version: "0.1.0" },
     });
-    if (options.mcp && !(initialization && typeof initialization === "object" && (initialization as { agentCapabilities?: { mcpCapabilities?: { http?: boolean } } }).agentCapabilities?.mcpCapabilities?.http === true)) throw new Error("Agent does not support HTTP MCP");
+    const mcpCaps = (initialization && typeof initialization === "object"
+      ? (initialization as { agentCapabilities?: { mcpCapabilities?: { http?: unknown } } }).agentCapabilities?.mcpCapabilities
+      : undefined);
+    const allowsHttpMcp = mcpCaps?.http === true || (mcpCaps === undefined && options.descriptor.httpMcpWithoutCapability === true);
+    if (options.mcp && !allowsHttpMcp) throw new Error("Agent does not support HTTP MCP");
 
     const newSessionResult = (await callRpc("session/new", {
       cwd,
@@ -354,13 +359,34 @@ export async function runOneShotAcpPrompt(
 
     let configOptions = parseAcpConfigOptions(newSessionResult?.configOptions);
     if (options.probeOnly) return { sessionId, text: "", stopReason: "end_turn", configOptions };
-    const modelOption = configOptions.find(option => option.id === "model");
+    const modelOption = configOptions.find(option => option.id === "model" || option.category === "model");
     if (options.model && (!modelOption || modelOption.currentValue !== options.model)) {
       const result = await callRpc("session/set_config_option", { sessionId, configId: modelOption ? modelOption.id : "model", value: options.model });
       if (result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).configOptions)) configOptions = parseAcpConfigOptions((result as Record<string, unknown>).configOptions);
     }
-    const effortOption = configOptions.find(option => option.id === "reasoning_effort" || option.id === "effort" || option.category === "thought_level");
-    if (options.effort && (!effortOption || effortOption.currentValue !== options.effort)) await callRpc("session/set_config_option", { sessionId, configId: effortOption ? effortOption.id : "reasoning_effort", value: options.effort });
+    const effortOption = configOptions.find(option => option.category === "thought_level" || option.id === "reasoning_effort" || option.id === "effort" || option.id === "thought_level");
+    if (options.effort && (!effortOption || effortOption.currentValue !== options.effort)) {
+      const result = await callRpc("session/set_config_option", { sessionId, configId: effortOption ? effortOption.id : "reasoning_effort", value: options.effort });
+      if (result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).configOptions)) configOptions = parseAcpConfigOptions((result as Record<string, unknown>).configOptions);
+    }
+    if (options.descriptor.requiredSafeModes?.length) {
+      const modeOption = configOptions.find(option => option.id === "mode" || option.category === "mode");
+      if (!modeOption) throw new Error(`Agent ${options.descriptor.label} (${options.descriptor.id}) did not report a mode config option`);
+      const targetMode = options.descriptor.requiredSafeModes.find(candidate => modeOption.options.some(choice => choice.value === candidate));
+      if (!targetMode) throw new Error(`Agent ${options.descriptor.label} (${options.descriptor.id}) has no allowed safe mode (${options.descriptor.requiredSafeModes.join(", ")})`);
+      if (modeOption.currentValue !== targetMode) {
+        const result = await callRpc("session/set_config_option", { sessionId, configId: modeOption.id, value: targetMode });
+        const nextOptions = result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).configOptions)
+          ? parseAcpConfigOptions((result as Record<string, unknown>).configOptions)
+          : undefined;
+        if (!nextOptions) throw new Error(`Agent ${options.descriptor.label} (${options.descriptor.id}) did not confirm safe mode "${targetMode}"`);
+        configOptions = nextOptions;
+        const confirmed = configOptions.find(option => option.id === modeOption.id);
+        if (!confirmed || confirmed.currentValue !== targetMode) {
+          throw new Error(`Agent ${options.descriptor.label} (${options.descriptor.id}) failed to lock safe mode "${targetMode}"`);
+        }
+      }
+    }
 
     const promptResult = await callRpc("session/prompt", {
       sessionId,
@@ -426,7 +452,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
   private async resolveAgent() {
     const config = this.options.getAgentConfig();
     if (!config.agentId) {
-      throw new Error("未选择向导 Agent（请在 guide-acp 设置中配置 agentId：dsh / claude / codex）");
+      throw new Error(`未选择向导 Agent（请在 guide-acp 设置中配置 agentId：${LOCAL_AGENT_IDS.join(" / ")}）`);
     }
     const descriptor = await this.options.resolveDescriptor(config.agentId);
     if (!descriptor || !descriptor.available || !descriptor.command) {

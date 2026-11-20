@@ -1,5 +1,13 @@
 import type { AcpConfigOptionDescriptor } from "../core/index.ts";
 
+export function findAcpModelOption(options: readonly AcpConfigOptionDescriptor[]): AcpConfigOptionDescriptor | undefined {
+  return options.find(item => item.id === "model" || item.category === "model");
+}
+
+export function findAcpEffortOption(options: readonly AcpConfigOptionDescriptor[]): AcpConfigOptionDescriptor | undefined {
+  return options.find(item => item.category === "thought_level" || item.id === "reasoning_effort" || item.id === "effort" || item.id === "thought_level");
+}
+
 export function renderAcpSelect(select: HTMLSelectElement, descriptor: AcpConfigOptionDescriptor | undefined, value: string): void {
   const doc = select.ownerDocument;
   select.replaceChildren();

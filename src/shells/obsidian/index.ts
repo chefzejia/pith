@@ -1,7 +1,7 @@
 import { materialReadings, rememberMaterialReading } from "../../workbench/readingState.ts";
 import { GUIDE_UNAVAILABLE_REASON } from "../../workbench/guideAvailability.ts";
 import { toolkitCatalog, trainingToolkits } from "../web/toolkits.ts";
-import { DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AnchorSource, type AgentProcessPort, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type Material, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
+import { LOCAL_AGENT_IDS, DefaultAttentionEngine, DefaultWorkspaceStore, MutationQueue, PluginRuntime, type AnchorSource, type AgentProcessPort, type ToolkitDescriptor, type GuideAgentService, type GuideProvider, type HostPort, type InterlineService, type InterlineTranslator, type Material, type PluginsConfigFile, type SelectionAnchor, type SpeechAsrService, type SpeechTtsService, type StageTimelineService, type StageReaderService, type StorageEntry, type WorkspaceStoragePort, type ImportMaterialInput } from "../../core/index.ts";
 import { lstat, realpath, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -21,7 +21,7 @@ import { agentInterlineTranslator } from "../../plugins/toolkit-interline/index.
 import type { FeynmanContrast } from "../../plugins/toolkit-feynman/index.ts";
 import type { AgentPromptService, GuideTurn, SelectionAnchor as GuideAnchor } from "../../core/index.ts";
 import { InterlineSession, type InterlineUnitInput } from "../../plugins/toolkit-interline/index.ts";
-import { renderAcpSelect } from "../../workbench/acpSettings.ts";
+import { findAcpEffortOption, findAcpModelOption, renderAcpSelect } from "../../workbench/acpSettings.ts";
 import { renderCompass } from "../../workbench/compass.ts";
 import { pithIcon } from "../../workbench/icons.ts";
 import { checkRepositoryUpdate, renderRepositoryText } from "../../workbench/repositoryIntake.ts";
@@ -264,7 +264,7 @@ export class PithObsidianController {
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
       const value = data as { preset?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown; agentTimeoutMs?: unknown };
       if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
-      if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
+      if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || (value.agentId !== "" && !(LOCAL_AGENT_IDS as readonly string[]).includes(value.agentId)))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.agentId = (value.agentId ?? "") as ObsidianAgentConfig["agentId"];
       this.agentConfigured = value.agentConfigured ?? value.agentId !== undefined;
       this.model = (value.model ?? "") as string;
@@ -408,7 +408,7 @@ export class PithObsidianController {
   async detectAgents(force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable"); return guide.detectAgents(force); }
   async probeAgentOptions(id: string, force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.probeAgentOptions) throw new Error("Guide service unavailable"); return guide.probeAgentOptions(id, force); }
   async setAgentConfig(config: ObsidianAgentConfig): Promise<void> {
-    if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string") throw new Error("Invalid agent config");
+    if ((config.agentId !== "" && !(LOCAL_AGENT_IDS as readonly string[]).includes(config.agentId)) || typeof config.model !== "string" || typeof config.effort !== "string") throw new Error("Invalid agent config");
     const previous = this.hasGuideProvider();
     this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort;
     await this.refresh(); await this.save(config);
@@ -655,6 +655,8 @@ export class PithSettingTab extends SettingTabBase {
   private readonly plugin: PithObsidianPlugin;
   private pending = Promise.resolve();
   private agentIntent: ObsidianAgentConfig["agentId"] | undefined;
+  private pendingAgentRevision = 0;
+  private pendingAgentSnapshot: { readonly model: string; readonly effort: string } | undefined;
   constructor(app: ObsidianPluginBase["app"], plugin: PithObsidianPlugin, controller: PithObsidianController) { super(app, plugin); this.plugin = plugin; this.controller = controller; }
   display(): void {
     const root = this.containerEl; root.replaceChildren(); const doc = root.ownerDocument;
@@ -670,17 +672,85 @@ export class PithSettingTab extends SettingTabBase {
     const path = input(root, "Pith 数据目录（相对于 Vault）", this.plugin.getWorkspacePath());
     path.addEventListener("change", () => { const value = path.value; void enqueue(async () => { validateWorkspacePath(value); const changed = await this.plugin.setWorkspacePath(value); status.textContent = changed ? "目录已保存，重载插件后生效" : "设置已保存"; }); });
     const config = this.controller.getAgentConfig();
-    const agent = select([...(this.controller.isAgentConfigured() ? [] : [["unconfigured", "未配置"] as const]), ["", "离线"], ["dsh", "dsh"], ["claude", "claude"], ["codex", "codex"]], this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? config.agentId : "unconfigured"); const agentControls = doc.createElement("span"); agentControls.className = "pith-setting-control"; agentControls.append(agent); row(root, "本机 Agent", agentControls);
+    const agent = select([...(this.controller.isAgentConfigured() ? [] : [["unconfigured", "未配置"] as const]), ["", "离线"], ...LOCAL_AGENT_IDS.map(id => [id, id] as const)], this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? config.agentId : "unconfigured"); const agentControls = doc.createElement("span"); agentControls.className = "pith-setting-control"; agentControls.append(agent); row(root, "本机 Agent", agentControls);
     const unconfigured = agent.querySelector<HTMLOptionElement>('option[value="unconfigured"]'); if (unconfigured) unconfigured.disabled = true;
     const scan = doc.createElement("button"); scan.innerHTML = pithIcon("rotate-cw"); scan.type = "button"; scan.setAttribute("aria-label", "刷新本机 Agent"); scan.title = "刷新本机 Agent"; agentControls.append(scan);
     const model = select([], ""), effort = select([], ""); row(root, "模型（Model）", model); row(root, "推理强度（Effort）", effort);
-    const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId }); status.textContent = "设置已保存"; }); };
+    const saveAgent = (agentId: ObsidianAgentConfig["agentId"], resetOptions: boolean, rev: number) => {
+      void enqueue(async () => {
+        try {
+          const current = this.controller.getAgentConfig();
+          await this.controller.setAgentConfig({
+            agentId,
+            model: resetOptions ? "" : current.model,
+            effort: resetOptions ? "" : current.effort,
+          });
+          status.textContent = "设置已保存";
+        } finally {
+          if (rev === this.pendingAgentRevision) this.pendingAgentSnapshot = undefined;
+        }
+      });
+    };
     let probeGeneration = 0;
-    const probe = (force = false) => { const id = agent.value, generation = ++probeGeneration; model.disabled = !id || id === "unconfigured"; effort.disabled = true; const current = this.controller.getAgentConfig(); renderAcpSelect(model, undefined, current.model); renderAcpSelect(effort, undefined, current.effort); if (model.disabled) return; void this.controller.probeAgentOptions(id, force).then(options => { if (generation !== probeGeneration || !root.contains(agent) || agent.value !== id) return; renderAcpSelect(model, options.find(item => item.id === "model"), model.value); renderAcpSelect(effort, options.find(item => item.id === "reasoning_effort" || item.id === "effort" || item.category === "thought_level"), effort.value); effort.disabled = false; }).catch(error => { if (generation === probeGeneration && root.contains(agent)) status.textContent = error instanceof Error ? error.message : String(error); }); };
-    const saveOption = (name: "model" | "effort", value: string) => { void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), [name]: value }); status.textContent = "设置已保存"; }); };
+    const probe = (force = false, snapshot?: { readonly model: string; readonly effort: string }) => {
+      const id = agent.value, generation = ++probeGeneration;
+      model.disabled = !id || id === "unconfigured";
+      effort.disabled = true;
+      const current = snapshot ?? this.pendingAgentSnapshot ?? this.controller.getAgentConfig();
+      renderAcpSelect(model, undefined, current.model);
+      renderAcpSelect(effort, undefined, current.effort);
+      if (model.disabled) return;
+      void this.controller.probeAgentOptions(id, force).then(options => {
+        if (generation !== probeGeneration || !root.contains(agent) || agent.value !== id) return;
+        renderAcpSelect(model, findAcpModelOption(options), model.value);
+        renderAcpSelect(effort, findAcpEffortOption(options), effort.value);
+        effort.disabled = false;
+      }).catch(error => {
+        if (generation === probeGeneration && root.contains(agent)) status.textContent = error instanceof Error ? error.message : String(error);
+      });
+    };
+    const saveOption = (name: "model" | "effort", value: string) => {
+      const rev = ++this.pendingAgentRevision;
+      const base = this.pendingAgentSnapshot ?? this.controller.getAgentConfig();
+      this.pendingAgentSnapshot = { model: base.model, effort: base.effort, [name]: value };
+      void enqueue(async () => {
+        try {
+          await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), [name]: value });
+          status.textContent = "设置已保存";
+        } finally {
+          if (rev === this.pendingAgentRevision) this.pendingAgentSnapshot = undefined;
+        }
+      });
+    };
     model.addEventListener("change", () => saveOption("model", model.value)); effort.addEventListener("change", () => saveOption("effort", effort.value));
-    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); probe(); });
-    const detect = () => { scan.disabled = true; scan.textContent = "…"; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); probe(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; scan.innerHTML = pithIcon("rotate-cw"); }); }; scan.onclick = () => { detect(); probe(true); };
+    agent.addEventListener("change", () => {
+      const nextAgentId = agent.value as ObsidianAgentConfig["agentId"];
+      const previousAgentId = this.agentIntent !== undefined ? this.agentIntent : this.controller.isAgentConfigured() ? this.controller.getAgentConfig().agentId : "";
+      const agentChanged = nextAgentId !== previousAgentId;
+      this.agentIntent = nextAgentId;
+      const snapshot = agentChanged ? { model: "", effort: "" } : (this.pendingAgentSnapshot ?? { model: model.value, effort: effort.value });
+      const rev = ++this.pendingAgentRevision;
+      this.pendingAgentSnapshot = snapshot;
+      saveAgent(nextAgentId, agentChanged, rev);
+      probe(false, snapshot);
+    });
+    const detect = () => {
+      scan.disabled = true;
+      scan.textContent = "…";
+      void this.controller.detectAgents(true).then(agents => {
+        const availableId = LOCAL_AGENT_IDS.find(id => agents.some(item => item.id === id && item.available));
+        if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && availableId) {
+          agent.value = availableId;
+          this.agentIntent = availableId;
+          const snapshot = { model: "", effort: "" };
+          const rev = ++this.pendingAgentRevision;
+          this.pendingAgentSnapshot = snapshot;
+          saveAgent(availableId, true, rev);
+          probe(false, snapshot);
+        } else if (!availableId) status.textContent = "未发现可用 Agent";
+      }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; scan.innerHTML = pithIcon("rotate-cw"); });
+    };
+    scan.onclick = () => { detect(); probe(true); };
     heading("语音服务"); const speech = this.controller.getSpeechConfig();
     const currentMode = speechMode(speech);
     const mode = select([...(currentMode === "legacy" ? [["legacy", "现有旧配置（保留）"] as const] : []), ["local", "本机语音服务（免配置自动连接）"], ["cloud", "云端语音服务（OpenAI 标准协议）"]], currentMode); row(root, "语音服务模式", mode);

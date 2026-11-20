@@ -284,8 +284,11 @@ test("Obsidian real PithWorkspaceView + PithObsidianView omits feynman-coach and
     assert.equal(afterPractice?.notes[2]?.kind, "practice");
     assert.match(await readFile(join(workspaceDir, "topics", topic.id, "topic.md"), "utf8"), /Action #3: 复核并巩固笔记与复述要点/);
 
-    const effects = JSON.parse(await readFile(join(workspaceDir, "_cache/effects.json"), "utf8")) as EffectRecord[];
-    assert.equal(effects.at(-1)?.status, "completed");
+    await waitFor(
+      async () => JSON.parse(await readFile(join(workspaceDir, "_cache/effects.json"), "utf8")) as EffectRecord[],
+      list => list.at(-1)?.status === "completed",
+      "effect completed in _cache/effects.json",
+    );
 
     const nextActionPrompts = acpPrompts.filter(entry => entry.prompt.includes("15 分钟内可完成的具体下一步行动"));
     assert.equal(nextActionPrompts.length, 3);

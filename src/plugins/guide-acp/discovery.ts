@@ -1,8 +1,8 @@
-import type { AcpConfigOptionDescriptor, AgentProcessPort, DiscoveredAgentDescriptor } from "../../core/index.ts";
+import type { AcpConfigOptionDescriptor, AgentProcessPort, DiscoveredAgentDescriptor, LocalAgentId } from "../../core/index.ts";
 import { runOneShotAcpPrompt } from "./acpSession.ts";
 
 export interface LocalAgentCandidateSpec {
-  readonly id: "dsh" | "claude" | "codex" | (string & {});
+  readonly id: LocalAgentId | (string & {});
   readonly label: string;
   readonly commands: readonly {
     readonly command: string;
@@ -10,6 +10,10 @@ export interface LocalAgentCandidateSpec {
     readonly versionArgs?: readonly string[];
     readonly detectArgs?: readonly string[];
     readonly detectPattern?: RegExp;
+    readonly pithToolTitlePrefix?: string;
+    readonly httpMcpWithoutCapability?: boolean;
+    readonly requiredSafeModes?: readonly string[];
+    readonly nonAcpCli?: boolean;
   }[];
   readonly installHint: string;
 }
@@ -25,6 +29,7 @@ export const BUILTIN_LOCAL_AGENTS: readonly LocalAgentCandidateSpec[] = [
         versionArgs: ["--version"],
         detectArgs: ["--profile", "acp", "--help"],
         detectPattern: /agent client protocol|acp/i,
+        pithToolTitlePrefix: "mcp__pith__",
       },
     ],
     installHint: "请安装 DeepSeek Harness CLI (`dsh`) 并确保支持 `--profile acp`",
@@ -37,11 +42,14 @@ export const BUILTIN_LOCAL_AGENTS: readonly LocalAgentCandidateSpec[] = [
         command: "claude-agent-acp",
         args: [],
         versionArgs: ["--version"],
+        pithToolTitlePrefix: "mcp__pith__",
+        requiredSafeModes: ["default"],
       },
       {
         command: "claude",
         args: [],
         versionArgs: ["--version"],
+        nonAcpCli: true,
       },
     ],
     installHint: "请安装 `@agentclientprotocol/claude-agent-acp` (`npm i -g @agentclientprotocol/claude-agent-acp`)",
@@ -54,14 +62,34 @@ export const BUILTIN_LOCAL_AGENTS: readonly LocalAgentCandidateSpec[] = [
         command: "codex-acp",
         args: [],
         versionArgs: ["--version"],
+        pithToolTitlePrefix: "mcp.pith.",
+        requiredSafeModes: ["read-only"],
       },
       {
         command: "codex",
         args: [],
         versionArgs: ["--version"],
+        nonAcpCli: true,
       },
     ],
     installHint: "请安装 `@agentclientprotocol/codex-acp` (`npm i -g @agentclientprotocol/codex-acp`)",
+  },
+  {
+    id: "agy",
+    label: "Antigravity",
+    commands: [
+      {
+        command: "agy",
+        args: ["acp", "--sandbox"],
+        versionArgs: ["--version"],
+        detectArgs: ["acp", "--help"],
+        detectPattern: /agent client protocol|acp/i,
+        pithToolTitlePrefix: "Run mcp_pith_",
+        httpMcpWithoutCapability: true,
+        requiredSafeModes: ["default"],
+      },
+    ],
+    installHint: "请安装 Antigravity CLI (`agy`) 并确保支持 `agy acp`",
   },
 ];
 
@@ -117,10 +145,17 @@ export async function discoverLocalAgents(
 
         const versionOut = await probeExec(executable, entry.versionArgs ?? ["--version"]);
         if (!versionOut) {
-          lastNote = `${entry.command} 存在，但版本探测失败；不视为可用 ACP endpoint`;
+          lastNote = entry.nonAcpCli
+            ? `已检测到本机 ${entry.command} CLI，但裸 ${entry.command} CLI 不是 ACP 服务；${spec.installHint}`
+            : `${entry.command} 存在，但版本探测失败；不视为可用 ACP endpoint`;
           continue;
         }
         foundVersion = versionOut.split(/\r?\n/)[0]?.trim().slice(0, 200) ?? null;
+
+        if (entry.nonAcpCli) {
+          lastNote = `已检测到本机 ${entry.command} CLI（${foundVersion ?? "unknown"}），但裸 ${entry.command} CLI 不是 ACP 服务；${spec.installHint}`;
+          continue;
+        }
 
         if (entry.detectArgs) {
           const detectOut = await probeExec(executable, entry.detectArgs);
@@ -131,19 +166,6 @@ export async function discoverLocalAgents(
           }
         }
 
-        // For bare `claude` or `codex` without `-acp`, note that the ACP adapter binary is preferred unless it speaks ACP.
-        if (entry.command === "claude" || entry.command === "codex") {
-          return {
-            id: spec.id,
-            label: spec.label,
-            command: executable,
-            args: [...entry.args],
-            version: foundVersion,
-            available: true,
-            note: `已检测到本机 ${entry.command} CLI（${foundVersion ?? "unknown"}）；建议使用 ${entry.command}-agent-acp / ${entry.command}-acp 获得标准 ACP 会话`,
-          };
-        }
-
         return {
           id: spec.id,
           label: spec.label,
@@ -152,7 +174,9 @@ export async function discoverLocalAgents(
           version: foundVersion,
           available: true,
           note: "已检测到 ACP endpoint；连接后由 initialize 证明能力",
-          ...(spec.id === "dsh" ? { pithToolTitlePrefix: "mcp__pith__" } : {}),
+          ...(entry.pithToolTitlePrefix !== undefined ? { pithToolTitlePrefix: entry.pithToolTitlePrefix } : {}),
+          ...(entry.httpMcpWithoutCapability !== undefined ? { httpMcpWithoutCapability: entry.httpMcpWithoutCapability } : {}),
+          ...(entry.requiredSafeModes !== undefined ? { requiredSafeModes: [...entry.requiredSafeModes] } : {}),
         };
       }
 
@@ -182,14 +206,22 @@ export class CachedAgentDetector {
     this.now = now;
   }
 
+  private cloneDescriptors(descriptors: readonly DiscoveredAgentDescriptor[]): DiscoveredAgentDescriptor[] {
+    return descriptors.map((d) => ({
+      ...d,
+      args: [...d.args],
+      ...(d.requiredSafeModes !== undefined ? { requiredSafeModes: [...d.requiredSafeModes] } : {}),
+    }));
+  }
+
   async detect(force = false): Promise<readonly DiscoveredAgentDescriptor[]> {
     const timestamp = this.now();
     if (!force && this.cache && timestamp - this.cache.at < this.ttlMs) {
-      return this.cache.descriptors.map((d) => ({ ...d, args: [...d.args] }));
+      return this.cloneDescriptors(this.cache.descriptors);
     }
     const descriptors = await discoverLocalAgents(this.options);
     this.cache = { at: timestamp, descriptors };
-    return descriptors.map((d) => ({ ...d, args: [...d.args] }));
+    return this.cloneDescriptors(descriptors);
   }
 
   async probeAgentOptions(agentId: string, force = false): Promise<readonly AcpConfigOptionDescriptor[]> {
