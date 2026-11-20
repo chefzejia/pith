@@ -47,18 +47,18 @@
 10. **同一仓库的版本。** `kind: repo` 且 `externalPath` 相同的材料是同一仓库的不同版本，按 `createdAt` 排序，最近导入的是最新版本。导入新版本是新建一份材料，旧版本不变；课题改用新版本是追加引用，旧版本的引用保留（不变量 4），记在旧版本上的笔记照常指向旧代码。
 11. **讲义记下依据的版本。** 每一讲在课题账本里记下写入时本课题每个仓库引用的最新版本（`basedOn`）。讲义里的仓库出处只在这些版本里解析；课题里某个仓库有了比 `basedOn` 更新的版本，这一讲就是「基于旧版本」。课题改用某仓库的新版本时，程序比较这一讲依据的提交与新提交：这一讲引用的文件（[2-stages.md](2-stages.md) 第 2 节）都没有变化的，由程序直接改依据（`rebaseLesson`）；有变化的保持「基于旧版本」，并列出变化的文件。比较失败时不改依据。
 
-内核代码、存储协议与工具接口固定使用中性领域词，界面文案由 [`SurfacePersona`](../../src/core/types.ts) 决定：
+内核代码、存储协议与界面文案统一使用中性领域词，不维护多套隐喻皮肤：
 
-| 概念 | 内核标识 | `sanctuary` 皮肤 | `studio` 皮肤 | 禁止出现的历史词 |
-| :--- | :--- | :--- | :--- | :--- |
-| 工作区根目录 | `Workspace` | 花园 | 工作区 | `Sylva`、`Garden/`、`.gg-*` |
-| 画像 | `Profile`（`ME.md`） | 学习者画像 | 个人基座 | - |
-| 课题 | `Topic` | 课题 | 课题 | `Seed`、`Thread` |
-| 课题状态 | `"exploring" \| "shelved" \| "settled"` | 探索中 / 搁置 / 已沉淀 | 进行中 / 搁置 / 已归档 | - |
-| 材料 | `Material` | 材料 | 材料 | `Source`、`SourceRecord` |
-| 记录 | `Note` & `SelectionAnchor` | 笔记与高亮 | 笔记与锚点 | `Bloom`、`Gap`、`Attempt` |
-| 向导 | `Guide` | 园丁 | 向导 | `GardenerService` |
-| 工具 | `Toolkit`（`ToolkitDescriptor`） | 实训工坊 | 训练工具 | `Dojo`、`dojo-*`、`Echo`、`EchoModal` |
+| 概念 | 内核标识 | 界面用词 | 禁止出现的历史词 |
+| :--- | :--- | :--- | :--- |
+| 工作区根目录 | `Workspace` | 工作区 | `Sylva`、`Garden/`、`.gg-*`、`sanctuary`、`SurfacePersona` |
+| 画像 | `Profile`（`ME.md`） | 学习者画像 | - |
+| 课题 | `Topic` | 课题 | `Seed`、`Thread` |
+| 课题状态 | `"exploring" \| "shelved" \| "settled"` | 探索中 / 搁置 / 已沉淀 | - |
+| 材料 | `Material` | 材料 | `Source`、`SourceRecord` |
+| 记录 | `Note` & `SelectionAnchor` | 笔记与高亮 | `Bloom`、`Gap`、`Attempt` |
+| 向导 | `Guide` | 向导 | `GardenerService` |
+| 工具 | `Toolkit`（`ToolkitDescriptor`） | 训练工具 | `Dojo`、`dojo-*`、`Echo`、`EchoModal` |
 
 ---
 
@@ -211,7 +211,7 @@ readingOpenedAt: "2026-11-14T03:00:00.000Z"
 
 ## 4. 内核契约
 
-以下是冻结的公共形状。实现按此落地，不另行扩展；需要改动时先改本节。这里没有列出的类型（`MaterialFileEntry`、`UnreadableEntry`、`EffectKind`、`EffectRecord`、`EffectHandler` 等）保持源码现状。
+以下是冻结的公共形状。实现按此落地，不另行扩展；需要改动时先改本节。`EffectKind` 仅保留 `"prepare-next-action"`（已移除无处理器的 `curate-topic`、`generate-lesson`、`evaluate-settlement`）；这里没有列出的其余类型（`MaterialFileEntry`、`UnreadableEntry`、`EffectRecord`、`EffectHandler` 等）保持源码现状。
 
 ```ts
 // src/core/types.ts

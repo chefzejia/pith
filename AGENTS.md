@@ -15,7 +15,7 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
    - **插件角色**：`Core` 之外皆插件。舞台（`Stage`）负责渲染文件；工具（`Toolkit`）以原位覆盖层寄生在舞台上，分为挂在材料上的阅读辅助与挂在课题上的训练工具。这个概念只叫 `Toolkit`，不使用 `dojo`。严禁在用户设置面板暴露底层插件开关列表。
    - **格式演进**：代码只读当前格式，不保留旧格式的读取代码或兼容别名。还没发布过的设计有问题就直接改设计并重构；已发布的磁盘格式只做加法（新增可选字段），确需破坏性变更时先由人确认，由发布任务附一次性迁移脚本，先备份再迁移，迁移完删掉脚本。
 4. **标准外部/按需语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件解耦；实时 TTS/ASR 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关（原生零 Python 依赖运行时），严禁回退系统低劣语音 API（`speechSynthesis`）或运行时调 `pip`，不可达时直接 Fail-Closed。
-5. **双环协作**：Brain 只维护契约，并在 [`docs/TASKS.md`](docs/TASKS.md) 追加里程碑；`.git/hooks/post-commit` 唤醒常驻 Router，由它派生 Worker 与 Tester、现场分诊并把漏检模式记入 [`docs/LESSONS.md`](docs/LESSONS.md)。Worker 开工必读 LESSONS，跑通全仓门禁与手动破壁验证（`Broken by hand`），并在业务 Commit Body 记录意图或根因与验证证据；Tester 在 `.gitignore` 专用沙盒（`.dev-vault` / `.tmp`）中模拟真实用户验收。全部规则以 [`docs/ROLES.md`](docs/ROLES.md) 为准。
+5. **双环协作**：Brain 只维护契约，并在 [`docs/TASKS.md`](docs/TASKS.md) 追加里程碑，由其调度独立的 AGY 子 Agent（`pith-worker`、每里程碑全新 `pith-tester` 与条件 `pith-auditor`）执行实现、独立验收与审计，并把漏检模式记入 [`docs/LESSONS.md`](docs/LESSONS.md)（原 Codex `.git/hooks/post-commit` 唤醒已停用为 `post-commit.codex-disabled`）。Worker 开工必读 LESSONS，跑通全仓门禁与手动破壁验证（`Broken by hand`），并在业务 Commit Body 记录意图或根因与验证证据；Tester 在 `.gitignore` 专用沙盒（`.dev-vault` / `.tmp`）中模拟真实用户验收。全部规则以 [`docs/ROLES.md`](docs/ROLES.md) 为准。
 
 ## 修改与验证
 
@@ -37,4 +37,4 @@ npm run web                # 启动独立 Web 桌面壳 (默认 http://127.0.0.1
 - [功能台账](docs/FEATURES.md)：查看各功能的实现与验收状态、已知缺口、里程碑与提议时读取；「提议」不是契约，不据此派任务或实现。
 - [架构总纲](docs/ARCHITECTURE.md) 与 [子系统契约](docs/subsystems/1-core-store-engine.md)：修改四层单向依赖、子系统契约（[`1-core`](docs/subsystems/1-core-store-engine.md) / [`2-stages`](docs/subsystems/2-stages.md) / [`3-toolkits`](docs/subsystems/3-toolkits.md) / [`4-guide-speech-shells`](docs/subsystems/4-guide-speech-shells.md) / [`5-spatial-ui-and-slots`](docs/subsystems/5-spatial-ui-and-slots.md)）、公共接口或数据所有权时读取。`docs/` 描述目标契约；哪些已经落地并通过验收、已知缺口在哪，见功能台账。
 - [经验教训](docs/LESSONS.md)：排查已知失败模式、复盘打回原因或晋升守卫单测时读取。
-- [协作角色](docs/ROLES.md)：执行 Brain / Router / Worker / Tester 双环协作时读取。
+- [协作角色](docs/ROLES.md)：执行 Brain / Worker / Tester / Auditor 协作时读取。

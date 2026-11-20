@@ -10,7 +10,7 @@ Pith 把纯文本领域内核、按需挂载的内置插件、全平台统一工
 
 | 层级（自外向内） | 目录 | 角色与边界 |
 | :--- | :--- | :--- |
-| **1. 宿主薄壳**<br>*(Shells · [`src/shells/`](../src/shells/))* | `obsidian/` · `web/` · `dsh/` · `speech/` | **唯一允许导入 `node:*`、`"obsidian"`、`@deepseek-ai/*` 的外层适配器**。实现 [`HostPort`](../src/core/host.ts)（文件存储、只读 Git 仓库检视、Agent 进程、HTTP、本机工具端点），把统一工作台挂到各宿主容器里。 |
+| **1. 宿主薄壳**<br>*(Shells · [`src/shells/`](../src/shells/))* | `obsidian/` · `web/` · `dsh/` · `speech/` | **唯一允许导入 `node:*`、`"obsidian"`、`@deepseek-ai/*` 的外层适配器**。实现 [`HostPort`](../src/core/host.ts)（文件存储、只读 Git 仓库检视、Agent 进程、HTTP、本机工具端点），把统一工作台挂到各宿主容器里。其中 `obsidian/` 为当前主要知识客户端壳；`web/` 承载共享 Node 宿主适配器、浏览器调试/回归测试壳及未来独立桌面壳/Sidecar 的 WebView 底座（非终端启动的主产品入口）；`dsh/` 保留为 AI 客户端宿主锚点（0.4.x 暂不打包分发） |
 | **2. 统一工作台**<br>*(Workbench · `src/workbench/`)* | 首页、材料阅读、课题内三个场景的唯一一份界面 | **全部宿主壳共用的前端真源**。只导入 `src/core/` 与 `src/plugins/`，只用标准浏览器 DOM API，不导入 `src/shells/`、`node:*`、`"obsidian"` 或 `@deepseek-ai/*`。 |
 | **3. 内置插件**<br>*(Plugins · [`src/plugins/`](../src/plugins/))* | 舞台（`stage-*`）· 工具（`toolkit-*`）· 向导（`guide-acp`）· 语音（`speech-service`） | **插件之间不互相导入**，只在 [`src/plugins/all.ts`](../src/plugins/all.ts) 汇总，经 [`src/core/seams.ts`](../src/core/seams.ts) 的服务协议通信；不导入 `workbench`、`shells` 或任何宿主包。 |
 | **4. 领域内核**<br>*(Core · [`src/core/`](../src/core/))* | `types.ts` · `host.ts` · `seams.ts`<br>`pluginrt/` · `store/` · `engine/` | **零宿主依赖、零 UI 框架依赖**。定义领域实体、纯文本账本协议、注意力引擎与插件运行时。 |

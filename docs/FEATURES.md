@@ -30,8 +30,10 @@
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.4.1 · OCW 链接与课程搜索 | 公网传输每一跳重新校验后跟随重定向，三个宿主共用一份实现；阅读器能读 JSON，向导用 MIT Learn 搜索接口找课程（#66） | 已发布（#66 @9d1ad2b） |
 | v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
-| v0.4.3 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#68） | 已排期 |
-| v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
+| v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69） | 已排期 |
+| v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70） | 已排期 |
+| v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent | 待定义 |
+| v0.5.0 · 语言大类训练 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再按语言大类训练设计抽象（英伦腔为其中典型场景） | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
 

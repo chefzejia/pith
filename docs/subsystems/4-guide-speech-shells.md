@@ -193,9 +193,9 @@ export interface AgentPromptService {
 
 | 宿主壳 | 入口 | 适配职责 |
 | :--- | :--- | :--- |
-| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts) | 把 `Vault.adapter` 映射为 `WorkspaceStoragePort`，注入仓库只读检视、Agent 进程与工具端点，挂载统一工作台视图，接入系统钥匙串 |
-| **独立 Web 桌面壳** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 基于 Node 文件系统与本地 HTTP 服务（默认 `http://127.0.0.1:4173`）挂载同一份工作台；回合进度经服务端推送送到浏览器 |
-| **DSH 宿主壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | 导出统一工作台视图与 [`createDshPluginBundle`](../../src/shells/dsh/index.ts)。后者的工具由 2.5 的同一工厂生成，只多一个必填的 `topicId` 来确定作用域；不另行定义工具 |
+| **Obsidian 插件壳** | [`src/shells/obsidian/index.ts`](../../src/shells/obsidian/index.ts) | 当前主要知识客户端壳：把 `Vault.adapter` 映射为 `WorkspaceStoragePort`，注入仓库只读检视、Agent 进程与工具端点，挂载统一工作台视图，接入系统钥匙串；在启动、更新向导配置及课题写入用户记录后排空到期后台任务（`processDueEffects`） |
+| **Web 调试壳与 Node 底座** | [`src/shells/web/cli.ts`](../../src/shells/web/cli.ts)<br>[`src/shells/web/server.ts`](../../src/shells/web/server.ts) | 承载共享 Node 宿主实现（文件、公网 HTTP、Git、进程、MCP 端点），以及浏览器调试/回归测试壳和未来独立桌面壳/Sidecar 的 WebView 底座（非终端启动的主产品入口）；回合进度经服务端推送送到浏览器 |
+| **DSH 宿主壳** | [`src/shells/dsh/index.ts`](../../src/shells/dsh/index.ts) | 保留为 AI 客户端宿主锚点（0.4.x 暂不打包分发）：导出统一工作台视图与 [`createDshPluginBundle`](../../src/shells/dsh/index.ts)。后者的工具由 2.5 的同一工厂生成，只多一个必填的 `topicId` 来确定作用域；不另行定义工具 |
 
 `ToolServerPort` 的两个实现都在 `src/shells/` 下，监听回环地址上的随机端口。
 
