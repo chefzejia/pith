@@ -315,12 +315,12 @@ test("Obsidian controller triggers prepare-next-action via initialize, setAgentC
       "setAgentConfig draining pending effect",
     );
     assert.equal(afterOnline?.nextAction, "Action #1");
-    assert.equal((await controller.engine.listEffects()).at(-1)?.status, "completed");
+    await waitFor(() => controller.engine.listEffects(), list => list.at(-1)?.status === "completed", "setAgentConfig effect completed");
 
     // Online captureHighlight triggers prepare-next-action
     await controller.captureHighlight(topic.id, "online highlight");
     await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #2", "captureHighlight nextAction");
-    assert.equal((await controller.engine.listEffects()).at(-1)?.status, "completed");
+    await waitFor(() => controller.engine.listEffects(), list => list.at(-1)?.status === "completed", "captureHighlight effect completed");
 
     // Online setPlugins drains queued effect
     await controller.engine.enqueueEffect("prepare-next-action", topic.id, { topicId: topic.id });
@@ -341,7 +341,7 @@ test("Obsidian controller triggers prepare-next-action via initialize, setAgentC
     try {
       await restarted.initialize();
       await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #4", "initialize draining pending effect");
-      assert.equal((await restarted.engine.listEffects()).at(-1)?.status, "completed");
+      await waitFor(() => restarted.engine.listEffects(), list => list.at(-1)?.status === "completed", "initialize effect completed");
     } finally {
       restarted.dispose();
     }
@@ -405,8 +405,7 @@ test("Obsidian controller.dispose() cancels in-flight prepare-next-action, ignor
         "restarted controller draining pending effect",
       );
       assert.equal(updated?.nextAction, "Recovered #2");
-      const completed = await readEffectsFile(root);
-      assert.equal(completed[0]?.status, "completed");
+      await waitFor(() => readEffectsFile(root), list => list[0]?.status === "completed", "restarted controller effect completed");
     } finally {
       restarted.dispose();
     }
@@ -465,7 +464,7 @@ test("Obsidian switching offline via setAgentConfig cancels in-flight prepare-ne
       "draining pending effect after returning online",
     );
     assert.equal(updated?.nextAction, "Online Again #2");
-    assert.equal((await readEffectsFile(root))[0]?.status, "completed");
+    await waitFor(() => readEffectsFile(root), list => list[0]?.status === "completed", "re-enabled online effect completed");
   } finally {
     controller.dispose();
     await rm(root, { recursive: true, force: true });
