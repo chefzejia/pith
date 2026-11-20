@@ -91,6 +91,18 @@ function killProcessGroup(child, signal) {
   }
 }
 
+function isProcessGroupAlive(pgid) {
+  if (!pgid || process.platform === "win32") return false;
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    if (error?.code === "EPERM") return true;
+    throw error;
+  }
+}
+
 const extraArgs = args.filter(arg => !named.includes(arg));
 const testTimeoutMs = positiveMs(process.env.PITH_BROWSER_TEST_TIMEOUT_MS, 90_000, "PITH_BROWSER_TEST_TIMEOUT_MS");
 const fileTimeoutMs = positiveMs(process.env.PITH_BROWSER_FILE_TIMEOUT_MS, 180_000, "PITH_BROWSER_FILE_TIMEOUT_MS");
@@ -104,8 +116,22 @@ let interrupted = false;
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     interrupted = true;
-    if (activeChild) killProcessGroup(activeChild, signal);
-    process.exit(signal === "SIGINT" ? 130 : 143);
+    const exitCode = signal === "SIGINT" ? 130 : 143;
+    if (!activeChild || !activeChild.pid) process.exit(exitCode);
+    const target = activeChild;
+    killProcessGroup(target, signal);
+    if (process.platform === "win32" || !isProcessGroupAlive(target.pid)) process.exit(exitCode);
+    const deadline = Date.now() + 500;
+    const timer = setInterval(() => {
+      if (!isProcessGroupAlive(target.pid)) {
+        clearInterval(timer);
+        process.exit(exitCode);
+      } else if (Date.now() >= deadline) {
+        clearInterval(timer);
+        killProcessGroup(target, "SIGKILL");
+        process.exit(exitCode);
+      }
+    }, 25);
   });
 }
 
@@ -119,32 +145,72 @@ function runFile(file, index) {
       env: { ...process.env, PITH_PLAYWRIGHT_MODULE: playwright.path, PITH_CHROME_PATH: chrome.path },
     });
     activeChild = child;
+    const pgid = child.pid;
     let timedOut = false;
     let settled = false;
-    let forceKillTimer = null;
+    let childExited = false;
+    let exitResult = null;
+    let cleanupTimer = null;
     const finish = result => {
       if (settled) return;
       settled = true;
       clearTimeout(fileTimer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (cleanupTimer) {
+        clearInterval(cleanupTimer);
+        cleanupTimer = null;
+      }
       if (activeChild === child) activeChild = null;
       resolveRun(result);
+    };
+    const buildTimeoutResult = () => exitResult ?? { file, ok: false, timedOut: true, reason: `timed out after ${fileTimeoutMs}ms` };
+    const startProcessGroupCleanup = () => {
+      const graceMs = Math.min(3_000, Math.max(500, Math.floor(fileTimeoutMs / 2)));
+      killProcessGroup(child, "SIGTERM");
+      if (process.platform === "win32") {
+        cleanupTimer = setTimeout(() => {
+          killProcessGroup(child, "SIGKILL");
+          finish(buildTimeoutResult());
+        }, graceMs);
+        return;
+      }
+      const graceDeadline = Date.now() + graceMs;
+      let killDeadline = null;
+      cleanupTimer = setInterval(() => {
+        const groupAlive = isProcessGroupAlive(pgid);
+        if (childExited && !groupAlive) {
+          finish(buildTimeoutResult());
+          return;
+        }
+        const now = Date.now();
+        if (killDeadline === null) {
+          if (now >= graceDeadline) {
+            killProcessGroup(child, "SIGKILL");
+            killDeadline = now + 2_000;
+          }
+          return;
+        }
+        if (!groupAlive || now >= killDeadline) {
+          finish(buildTimeoutResult());
+        }
+      }, 25);
     };
     const fileTimer = setTimeout(() => {
       timedOut = true;
       console.error(`test-browser: ${file} timed out after ${fileTimeoutMs}ms; terminating process group`);
-      killProcessGroup(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => killProcessGroup(child, "SIGKILL"), Math.min(3_000, Math.max(500, Math.floor(fileTimeoutMs / 2))));
-      forceKillTimer.unref();
+      startProcessGroupCleanup();
     }, fileTimeoutMs);
     fileTimer.unref();
     child.on("error", error => {
       console.error(`test-browser: ${file}: ${error.message}`);
-      finish({ file, ok: false, timedOut, reason: error.message });
+      childExited = true;
+      exitResult = { file, ok: false, timedOut, reason: error.message };
+      if (!timedOut) finish(exitResult);
     });
     child.on("exit", (code, signal) => {
+      childExited = true;
       const ok = !timedOut && !signal && code === 0;
-      finish({ file, ok, timedOut, reason: timedOut ? `timed out after ${fileTimeoutMs}ms` : signal ? `signal ${signal}` : `exit ${code ?? 1}` });
+      exitResult = { file, ok, timedOut, reason: timedOut ? `timed out after ${fileTimeoutMs}ms` : signal ? `signal ${signal}` : `exit ${code ?? 1}` };
+      if (!timedOut) finish(exitResult);
     });
   });
 }

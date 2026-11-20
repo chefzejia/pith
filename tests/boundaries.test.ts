@@ -168,6 +168,76 @@ test("the browser test command passes --test-timeout and kills a hanging file th
   }
 });
 
+test("the browser test command SIGKILLs SIGTERM-ignoring grandchildren even after the direct child exits", { timeout: 20000 }, async () => {
+  const launcher = join(ROOT, "scripts/test-browser.mjs");
+  const dir = await testSandbox("browser-runner-grandchild-");
+  const portFile = join(dir, "port.txt");
+  const pidFile = join(dir, "pid.txt");
+  const grandchildScript = join(dir, "grandchild.mjs");
+  const hangingTest = join(dir, "hanging-grandchild.test.ts");
+  try {
+    writeFileSync(grandchildScript, [
+      'import { writeFileSync } from "node:fs";',
+      'import { createServer } from "node:http";',
+      'process.on("SIGTERM", () => {});',
+      `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      'const server = createServer((_req, res) => res.end("alive"));',
+      'server.listen(0, "127.0.0.1", () => {',
+      '  const addr = server.address();',
+      `  if (addr && typeof addr !== "string") writeFileSync(${JSON.stringify(portFile)}, String(addr.port));`,
+      '});',
+      'setInterval(() => {}, 60_000);',
+    ].join("\n"));
+    writeFileSync(hangingTest, [
+      'import { spawn } from "node:child_process";',
+      'import { existsSync } from "node:fs";',
+      'import test from "node:test";',
+      `const grandchildScript = ${JSON.stringify(grandchildScript)};`,
+      `const portFile = ${JSON.stringify(portFile)};`,
+      'test("spawns SIGTERM-ignoring grandchild and hangs past file timeout", async () => {',
+      '  spawn(process.execPath, [grandchildScript], { stdio: "ignore" });',
+      '  while (!existsSync(portFile)) await new Promise(resolve => setTimeout(resolve, 20));',
+      '  await new Promise(() => {});',
+      '});',
+    ].join("\n"));
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PITH_PLAYWRIGHT_MODULE: launcher,
+      PITH_CHROME_PATH: launcher,
+      PITH_BROWSER_TEST_TIMEOUT_MS: "400",
+      PITH_BROWSER_FILE_TIMEOUT_MS: "1800",
+    };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const started = Date.now();
+    const run = spawnSync(process.execPath, [launcher, hangingTest], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 15000,
+      env: childEnv,
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(run.signal, null, `launcher itself timed out instead of terminating the process group: ${run.stderr}`);
+    assert.equal(run.status, 1, `expected non-zero exit for hung file:\n${run.stderr}`);
+    assert.ok(elapsed < 10000, `expected hard timeout under 10s, took ${elapsed}ms`);
+    assert.match(run.stderr, /timed out after 1800ms/);
+    const port = Number(readFileSync(portFile, "utf8").trim());
+    assert.ok(Number.isInteger(port) && port > 0, `expected grandchild server port, got ${port}`);
+    const alive = await new Promise<boolean>(resolveConn => {
+      const socket = createConnection({ host: "127.0.0.1", port }, () => { socket.destroy(); resolveConn(true); });
+      socket.once("error", () => resolveConn(false));
+    });
+    assert.equal(alive, false, "SIGTERM-ignoring grandchild server must be terminated by SIGKILL after grace period");
+  } finally {
+    try {
+      const grandchildPid = Number(readFileSync(pidFile, "utf8").trim());
+      if (Number.isInteger(grandchildPid) && grandchildPid > 0) process.kill(grandchildPid, "SIGKILL");
+    } catch {
+      // Ignore ENOENT/ESRCH when grandchild is already dead or never started.
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 function walkMdFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const full = join(dir, entry.name);
