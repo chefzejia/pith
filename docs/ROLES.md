@@ -1,19 +1,26 @@
-# 双环协作角色契约（Brain · Worker · Tester · Auditor）
+# 单宿主原生多角色协作契约（Brain · Worker · Tester · 异源 Auditor）
 
-角色拆分只看**信息差异**：作者自审会退化为自我确认，所以实现（Worker）、独立验收（Tester）与区间审计（Auditor）必须在各自独立的 AGY 子 Agent 会话中执行。本文件定义 Pith 由 Brain 统筹调度 AGY 子 Agent 执行环的完整协作协议；原 Codex `.git/hooks/post-commit` 自动唤醒已停用（保留为 `.git/hooks/post-commit.codex-disabled`）。
+角色拆分只看**信息差异**：作者上下文里的"我为什么这么写"会让自审退化为自我确认，所以实现（Worker）、独立验收（Tester）与跨模型审校（Auditor）必须在各自独立会话中执行。Pith 采用全局 `multi-agent-collab` 的**拓扑 A（单宿主原生编排）**与 `gpt-auditor` 异源审计流程：AGY 主会话兼任 **Brain + Router**，直接调度隔离的 AGY `Worker` 与每里程碑全新 `Tester`；审计节点优先调用本机只读一次性异源 CLI；原 Codex `.git/hooks/post-commit` 自动唤醒已停用（保留为 `.git/hooks/post-commit.codex-disabled`）。
 
-调度单位是**里程碑**：一条真实用户路径能端到端走通、Tester 一轮就能判定的可观测增量。里程碑内分若干**切片**，切片是 Worker 的工作单位：Scope 重叠或有串行依赖的并成同一个切片，Scope 正交才分开并行；只有一个切片的里程碑直接在区块里写 `Scope`。里程碑编号沿用项目现有序列。
+调度单位是**里程碑**：一条真实用户路径能端到端走通、Tester 一轮就能判定的可观测增量。里程碑内分若干**切片**，切片是 Worker 的工作单位：Scope 重叠或有串行依赖的并成同一个切片，Scope 正交才分开并行（有跨目录上下游先后时标明 `依赖 S1` 按序派发）；只有一个切片的里程碑直接在区块里写 `Scope`。里程碑编号沿用项目现有序列。
 
 | 角色 | 所在环与生命周期 | 职责 | 不做什么 |
 | :--- | :--- | :--- | :--- |
-| **Brain** | 思考环与执行总控，唯一面对人类 | 定义 `docs/PRODUCT.md` 与 `docs/ARCHITECTURE.md` 契约，冻结 `src/core/` 公共接口；在 `docs/TASKS.md` 追加里程碑区块（`pending`，写明 `Scope`、`Features` 与 `Depends-On`）并只提交该文件（`git commit --only docs/TASKS.md`）；要改未完成的里程碑就标 `superseded` 再追加新的；增删 `docs/FEATURES.md` 的条目与提议；派生与协调 Worker、Tester、Auditor、管理 `.tmp/worktrees/`、现场分诊并记 `docs/LESSONS.md`；执行「发布步骤」与「功能台账同步」；处理 `blocked` 与最终审美终审 | 不由自己直接代写产品切片代码（必须经独立 Worker 实现、独立 Tester 验收）；不覆盖或删除已派发的 `pending` 里程碑；不把 diff 塞进调度板 |
-| **Worker** | 执行环，由 Brain 派生的独立子 Agent；从切片派出到所在里程碑结案，之后关闭 | 开工前读 `docs/LESSONS.md`；在主工作树或分配的 Worktree 内实现一个完整切片，跑通下文的默认门禁；UI 改动截图存入 `.tmp/evidence/milestone-<ID>/worker/`（扩展名与真实编码一致：PNG 存 `.png`、JPEG 存 `.jpg`）并亲自看图；回收自建的测试目录与进程，报告里给出清理字段 | 同一工作树同一时刻只有一个 Worker 写；不改 `src/core/` 冻结契约；不写内部 Mock 或脱离真实环境的假 UI 测试；不给自己下验收结论 |
-| **Tester** | 执行环，由 Brain 派生的全新子 Agent；同一里程碑内的返工复验沿用，结案后关闭 | 按下文的默认验收方式模拟真实用户验收整个里程碑，一轮穷尽缺陷，终验截图存入 `.tmp/evidence/milestone-<ID>/tester/`（扩展名与真实编码一致）；里程碑列了 `Features` 时按条目逐行给出结论与未覆盖边界；回收自建的测试 Vault、浏览器配置与进程，出具含清理字段的验收报告 | 不替 Worker 写代码或测试脚本；不拿脚本绿灯当体验验收；不做快照备份、进程扫描等防御性内耗；不分轮挤牙膏 |
-| **Auditor** | 执行环内按条件派生的一次性全新子 Agent，审完即关 | 审查 `docs/LESSONS.md` 首行 `reviewed-through` 之后的提交区间，只报告三类实证：改坏被测代码测试仍通过、`文件:行号` 处的明文禁止写法、违背 `docs/ARCHITECTURE.md` 或 `docs/PRODUCT.md` 的具体条目 | 不复用旧会话上下文；不改业务代码；不提没有实证的主观风格建议 |
+| **Brain（兼 Router）** | 思考环与单宿主总控，唯一面对人类 | 定义 `docs/PRODUCT.md` 与 `docs/ARCHITECTURE.md` 契约，冻结 `src/core/` 公共接口；在 `docs/TASKS.md` 追加里程碑区块（`pending`，写明 `Scope`、`Features` 与 `Depends-On`）并只用 `--only` 提交目标文档；要改未完成的里程碑就标 `superseded` 再追加新的；增删 `docs/FEATURES.md` 条目与提议；派生与协调 Worker、Tester、管理 `.tmp/worktrees/`；**按失效机制**分诊并记入 `docs/LESSONS.md`；驱动并**逐条核实**异源 Auditor 报告；执行「发布步骤」与「功能台账同步」；处理 `blocked` 与最终审美裁定 | 不亲自代写产品切片代码（>5 步或完整切片一律派生独立 Worker）；不覆盖或删除已派发的 `pending` 里程碑；不把 diff 塞进调度板；不盲从审计误报 |
+| **Worker** | 执行环，由 Brain 派生的独立 AGY 子 Agent；从切片派出到所在里程碑结案，之后关闭 | 开工前读 `docs/LESSONS.md`，检查 `git status`（严禁覆盖/回滚他人未提交改动）；在主工作树或分配的 Worktree 内实现一个完整切片，跑通下文的默认门禁与 `Broken by hand`；UI 改动截图存入 `.tmp/evidence/milestone-<ID>/worker/`（扩展名与真实编码一致：PNG 存 `.png`、JPEG 存 `.jpg`）并亲自看图；回收自建的测试目录与进程，报告里给出清理字段 | 同一工作树同一时刻只有一个 Worker 写；不改 `src/core/` 冻结契约；不写内部 Mock、重赋值同名套娃或抠源码假测试；不给自己下验收结论 |
+| **Tester** | 执行环，由 Brain 派生的全新 AGY 子 Agent；同一里程碑内的返工复验沿用，结案后关闭 | 按下文的默认验收方式在隔离沙盒中模拟真实用户验收整个里程碑，一轮穷尽缺陷，终验截图存入 `.tmp/evidence/milestone-<ID>/tester/`（扩展名与真实编码一致）；里程碑列了 `Features` 时按条目逐行给出结论与未覆盖边界；回收自建的测试 Vault、浏览器配置与进程，出具含清理字段的验收报告 | 不替 Worker 写代码或测试脚本；不拿脚本绿灯当体验验收；不做快照备份、进程扫描等防御性内耗；不分轮挤牙膏；不碰用户真实 Vault |
+| **Auditor** | 按条件启动的一次性只读冷会话，审完即关（**优先通过 `gpt-auditor` 调本机只读一次性 Codex CLI**） | 在两个低频高杠杆节点审查：① 重大架构、Schema 或复杂机制定稿前做只读红队反证（`--mode plan`）；② 合并前、发版前、跳过 Tester 的内部重构后或周期里程碑推进后审查 `reviewed-through..HEAD`（`--mode diff`）。强制只读与一次性无痕会话（`--sandbox read-only --ephemeral`，`<= 80KB` diff 内联，默认 `--effort high`，零硬编码型号），只报告四类实证：`[BUG]`（真实缺陷/状态机/并发/Fail-open）、`[WEAK-TEST]`（假测试/改坏不红）、`[ANTI-PATTERN]`（反模式行号）、`[CONTRACT]`（契约背叛）；无实证只输出 `NO_ISSUES` | 不复用任何旧会话上下文；不修改工作区源码；不下放日常 GUI/Web 体验验收（留给原生 `Tester`）；不提没有实证的主观风格建议 |
 
-## 会话生命周期
+## 会话生命周期与模型分层
 
 状态在文件和 Git 里，不在会话里。新 Worker 接不住上一个里程碑的工作，说明代码、Commit Body、契约文档或 `docs/LESSONS.md` 有缺口，补缺口，不靠留着会话。
+
+模型选择按角色梯队动态路由，本契约不硬编码具体模型版本号，并永远服从用户在当前对话的显式指定：
+
+- **Brain**：用户在 AGY 界面选中的旗舰模型；
+- **Worker**：编码实现与完整推理任务使用 `inherit`（或在 `swarm` 下实时读取可用列表匹配高性价比编码旗舰/次旗舰）；纯只读代码库探索（`research`）或大范围检索优先使用 `flash`；
+- **Tester**：使用工具与视觉理解稳定的执行模型（通常 `inherit`），重点保障真实界面截图检查与端到端实测；
+- **Auditor**：通过 `gpt-auditor` 调用与当前主力异源的本机旗舰推理模型，型号遵循 `--model > $AUDIT_MODEL > ~/.codex/config.toml` 默认配置，推理深度遵循 `--effort > $AUDIT_EFFORT > high`。
 
 ## 里程碑状态与前置
 
@@ -31,11 +38,14 @@
 
 1. **取单与派发**：每次取单前重读本文件与 `docs/TASKS.md`；按序取第一个前置已满足的 `pending` 里程碑（取单不改状态、不提交）；被标 `superseded` 就停止派发、清理 Worktree 与分支，转去下一个。Scope 正交的切片可并行，有依赖的按序派。
 2. **验收**：所有切片提交且门禁证据齐备后，里程碑改变了外部可观测表面就派全新 Tester 一轮验收；验收栏写“无”的跳过 Tester，靠 Commit Body 门禁证据与 Auditor 兜底。
-3. **显性问题不出执行环**：实现漏项、交互或排版瑕疵、测试逃逸，以及完成目标所需、切片漏列但不在“不在范围内”或禁区里的同切面支撑文件，直接指明根因方向授权对应 Worker 返工、同一 Tester 复验。每次打回都对比 Worker 自检与 Tester 发现，把漏检模式记入 `docs/LESSONS.md`，`Seen N×` 按缺陷模式计，不按打回次数计；累计 `Seen 3×` 时，能写成测试的令 Worker 固化为 `tests/` 守卫测试，固化后把该条从正文移到文末已晋升列表，需要改契约文档的先升级修订契约。Worker 连续两轮在同一症状上打表层补丁时，暂停介入重判根因。
-4. **升级与阻塞**：需要改动 `src/core/` 冻结接口或契约自相矛盾、需要触碰“不在范围内”或禁区里的文件、需求有业务价值二义性、涉及破坏性操作、同一里程碑连续 3 轮返工未通过时，把精确阻塞证据写回该里程碑区块、状态改为 `blocked`，只提交 `docs/TASKS.md` 并与人类对齐。模型产出的同一症状改了两轮提示词仍失败，同样标 `blocked`（见「程序保证与模型产出分开验收」）。
+3. **显性问题不出执行环与按机制升级**：实现漏项、交互或排版瑕疵、测试逃逸，以及完成目标所需、切片漏列但不在"不在范围内"或禁区里的同切面支撑文件，直接指明根因方向授权对应 Worker 返工、同一 Tester 复验。每次打回都对比 Worker 自检与 Tester 发现，先判定缺陷背后的**失效机制**（哪个隐含假设或模型失效），核对 `docs/LESSONS.md` 正文与文末已晋升列表，再把"为什么没在自检中被拦下"记入 `docs/LESSONS.md`。`Seen N×` 按**机制**计，同机制不同症状合并为一条，不按症状或打回次数计。同一机制在同一里程碑内第二次出现（症状可不同），或已晋升为守卫的机制再次出现，停止表层补丁，改派**机制级修复**：Worker 先把隐含模型写成显式确定性实现，再补覆盖该机制输入维度的矩阵测试（命中已晋升机制时直接扩充原守卫测试，不另建重复 `Seen 1×`），并由同一 Tester 在复验中全量覆盖。某条机制累计 `Seen 3×` 或属严重回归时：能写成测试的固化为覆盖输入维度的 `tests/` 守卫测试并移入文末已晋升列表；需改契约文档的先升级修订契约。
+4. **升级与阻塞**：需要改动 `src/core/` 冻结接口或契约自相矛盾、需要触碰"不在范围内"或禁区里的文件、需求有业务价值二义性、涉及破坏性操作、同一里程碑连续 3 轮返工未通过时，把精确阻塞证据写回该里程碑区块、状态改为 `blocked`，只提交 `docs/TASKS.md` 并与人类对齐。模型产出的同一症状改了两轮提示词仍失败，同样标 `blocked`（见「程序保证与模型产出分开验收」）。
 5. **结案与排空**：结案前重读 `docs/TASKS.md` 确认未被标为 `superseded`，并按「归档与清理门禁」核对清理结果；里程碑写明 `发布版本` 的，先按「发布步骤」发布。只改该区块状态为 `verified` 并填 `Verified-Commit`；列了 `Features` 的，在同一次提交里按「功能台账同步」更新台账并用 `git commit --only docs/TASKS.md docs/FEATURES.md` 提交，否则只提交 `docs/TASKS.md`。每个里程碑结案后立即提交，不跨里程碑攒批。然后关闭该里程碑的 Worker 与 Tester 子 Agent、删除 Worktree。
 6. **Worktree**：同一里程碑内 Scope 正交的切片，或下一个里程碑与当前 Scope 完全正交且 `src/core/` 契约已冻结时，才在 `.tmp/worktrees/m<ID>-s<K>` 开独立 Worktree 并行（复用仓库根的 `node_modules`，同时不超过 2~3 个）；Worker 合入前把验收所需证据导出到主工作树的 `.tmp/evidence/milestone-<ID>/`；合回 `main` 后停止该 Worktree 的自有进程，确认没有未归档证据或需要保留的未提交修改，再删除 Worktree 与分支；启动时清扫孤儿 Worktree。
-7. **周期审计**：队列排空或阶段推进后，自上次审计起已结案不少于 2 个里程碑，或其间有里程碑跳过了 Tester，就派生全新的 Auditor 审查 `docs/LESSONS.md` 首行 `reviewed-through` 之后的区间；有实证则派生新的 Worker 清理，并按第 2 条决定是否派 Tester 复验；按「归档与清理门禁」归档证据并回收审计资源；最后把 `reviewed-through` 更新为最新 `HEAD` 并单独提交（只含 `docs/LESSONS.md`）。
+7. **双节点异源审计与核实闭环**：
+   - **触发**：① 重大架构、Schema 或复杂机制定稿前，由 Brain 主动调用 `gpt-auditor`（`--mode plan`）做只读红队反证；② 合并前、发版前，或里程碑推进后满足任一条件——自 `docs/LESSONS.md` 首行 `reviewed-through` 起已结案不少于 2 个里程碑，或其间有里程碑跳过了 Tester——调用 `gpt-auditor`（`--mode diff --range "<reviewed-through>..HEAD"`）做逆熵审计（不可达/失败/超时/空输出按 Fail-closed 如实报错，绝不伪装通过；条件允许时也可在同门槛下由 `pith-auditor` 只读冷会话对照，不以无头 CLI 替代 GUI `Tester`）。
+   - **核实**：Brain 拿到审计报告后**必须逐条亲自读取对应 `文件:行号`**（必要时现场跑单测或手动破壁复现），明确区分**真问题**与**误报**，绝不盲从。
+   - **清创与推进**：仅对经核实的实证问题当场派生新 Worker 修复（误报只需在总结中写明排除依据），按第 2 条决定是否派 Tester 复验；将原始审计报告归档到 `.tmp/evidence/audit/` 并确认无残留沙盒后，在全部实证问题清零时把 `docs/LESSONS.md` 首行 `reviewed-through` 更新为最新 `HEAD` 并单独提交（`git commit --only docs/LESSONS.md`）。
 
 ## 项目专有规则
 
