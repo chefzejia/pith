@@ -237,8 +237,8 @@
 ---
 
 ## [Milestone #70] 课题引用材料改用纯 ID，并发布 v0.4.4
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: cbef1e008105fbf72f5329aca53039562afaef4a
 - **Depends-On**: #69
 - **发布版本**: v0.4.4
 - **Features**: F-INTAKE-TOPIC、F-ADD-MATERIAL、F-UNREADABLE
@@ -264,3 +264,4 @@
   5. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.4`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `[[materials/`。手动破壁各一次后恢复，对应断言须各自变红：读取接受双链写法；迁移改动了 `materials` 以外的字节；迁移不先备份；读回失败时没有恢复；第二次运行改动了文件。
 - **结案**：所列 Features 按 ROLES「功能台账同步」更新，F-UNREADABLE 的已知缺口写明旧格式课题会进「无法读取」。通过后按 ROLES「发布步骤」发布 v0.4.4，并告诉人类重启 Obsidian。
+- **结果**：Web 与隔离 Obsidian 真实 `dsh` 全 4 步验收通过：新工作区立项/追加材料写入纯 ID 并跨重启可用；以 `v0.4.3` 构建的真实工作区经 `--dry-run`、沙盒外部 `HOME` 逐字节备份、仅 `materials` 行变更的正式迁移及第二次无改动幂等运行后，在 `v0.4.4` 双端完整打开 3 个课题且损坏旧课题原样留在「无法读取（1）」；在已迁移副本运行 `v0.4.3` 旧构建时双端均显示「无法读取（4）」且写入明确失败、原字节未变；版本切换、添加材料、费曼对照与材料库引用计数抽查无退化。Cleanup PASS。报告与 23 张截图：`.tmp/evidence/milestone-70/tester/report.md`。已在验收提交打附注标签 `v0.4.4`，对默认 `ganfan-media/Pith` 先 `--dry-run` 后正式执行迁移（`migrated: 0`、`skipped: 2`，仅两条历史 UUID 课题 `topic-8bdc0803-...` / `topic-981659ae-...` 因 `missing materials list` 跳过，`backupDir: none`），安装到默认 Vault 并核对三件套 SHA-256 一致（`.tmp/evidence/milestone-70/delivery.txt`），随后已删除一次性迁移脚本与专属单测。

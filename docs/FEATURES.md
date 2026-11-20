@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.4.3（#69 @ea4adc9，已安装默认 ganfan-media Vault，附注标签 `v0.4.3`）。移除假皮肤设置与退役费曼追问动作，接通 Obsidian 后台「今日下一步」，修复版本切换后同文件刷新关闭目录抽屉的问题。
+- **当前发布版本**：v0.4.4（#70 @cbef1e0，已安装默认 ganfan-media Vault，附注标签 `v0.4.4`）。课题 `topic.md` 的 `materials` 改用纯材料 ID，并已完成默认 Vault 迁移检查（0 条待迁移，2 条旧 UUID 课题因 `missing materials list` 原样跳过）。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - **版本号**：次版本号只给新的能力方向（如学 GitHub 仓库、英伦腔），同一方向里的修复与设计调优只升修订号，规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
@@ -24,14 +24,14 @@
 | 版本 | 内容 | 状态 |
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
-| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.3 已安装） |
+| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.4 已安装） |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.4.1 · OCW 链接与课程搜索 | 公网传输每一跳重新校验后跟随重定向，三个宿主共用一份实现；阅读器能读 JSON，向导用 MIT Learn 搜索接口找课程（#66） | 已发布（#66 @9d1ad2b） |
 | v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
 | v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69 @ea4adc9） | 已发布（#69 @ea4adc9） |
-| v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70） | 已排期 |
+| v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70 @cbef1e0） | 已发布（#70 @cbef1e0） |
 | v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent | 待定义 |
 | v0.5.0 · 语言大类训练 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再按语言大类训练设计抽象（英伦腔为其中典型场景） | 待定义 |
 
@@ -53,7 +53,7 @@
 | F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 两端真实导入 herdr、t3code 并在课题引用；私有仓未覆盖。 |
 | F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实 magpie 快进、合卡、再次检查和课题改用通过。 |
 | F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 双端卡片与引用关系经过独立验收，完整元数据及分页边界另有受控回归。 |
-| F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两份 #51 旧形状夹具被拒且原字节未变、合法项可用；不是旧应用生成的完整历史库，没有迁移或修复 |
+| F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #70 @cbef1e0（11-20） | 旧双链写法（`[[materials/<id>/material]]`）或旧形状课题均进入「无法读取」、不迁移不修复，且写入失败时不改原字节；双端已实测损坏旧课题与 v0.4.3 旧插件窗口 |
 
 ### 阅读
 
@@ -80,7 +80,7 @@
 
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 真实向导双端用已有材料建课题，Obsidian 样本经一次追问完成首讲与选材解释。创建前停止沿用 #52。 |
+| F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #70 @cbef1e0（11-20） | 真实向导双端干净工作区与迁移后工作区立项均写入纯 ID 并跨重启可用；创建前停止沿用 #52 |
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实单讲重写、旧笔记回旧版、受控失败及离线通过；重写实测耗时数分钟，Web 的稳定讲分支由玩具仓覆盖。 |
@@ -91,7 +91,7 @@
 | F-TURN | 课题对话：过程逐行出现、完成后折叠；能停止、能重新请求；给出选项或快捷动作 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两端运行中停止后一次重新请求通过；工具写入途中停止未真实覆盖，#56 进程故障是受控夹具；provider 的 thinking/英文核对正文保留为 B1 品质边界 |
 | F-ASK-SELECTION | 课题内框选正文「问向导」，带着原文发起一轮 | 契约 | ○ / ○ | 未找到记录 | — |
 | F-TOPIC-NOTES | 课题内的高亮、笔记与向导批注，标明作者，点击跳回原文 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮核对 user 笔记、材料只读记录分区与回跳；guide 总结见结题，两课题隔离沿用 #52 |
-| F-ADD-MATERIAL | 课题内添加材料：从材料库选、选文件、贴链接或仓库路径；只增不减 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮从材料库引用已有仓库材料且保留 ID；课题内文件/链接/路径入口沿用 #52 |
+| F-ADD-MATERIAL | 课题内添加材料：从材料库选、选文件、贴链接或仓库路径；只增不减 | 已验收 | ✓ / ✓ | #70 @cbef1e0（11-20） | 双端经材料库选择、文件上传与向导 `pith_attach_material` 追加引用均写入纯 ID 且只增不减；链接与仓库路径入口沿用 #52 |
 | F-SHELVE | 搁置与恢复课题，不经向导 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 离线搁置、恢复、重开后材料/记录/历史保留；没有扩展后台下一步矩阵 |
 | F-NEXT-ACTION | 今日下一步：后台为进行中的课题生成一个 15 分钟内的行动 | 已验收 | ✓ / ✓ | #69 @ea4adc9（11-20） | 双端真实 `dsh` 记笔记后更新 `nextAction` 并展示于首页，离线保留 `pending` 无报错、重连排空；模型偶发返回 Markdown 符号（样本非阻塞） |
 | F-OFFLINE | 没有向导时：投喂、阅读、记录、搁置照常；立项、课题回合、结题与行间翻译不可用并说明原因 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | F1 已在真实活课题复验：发送与历史动作禁用有原因，草稿引用保留，恢复后真实回合完成；原生当时无 retry/choices 且 quick 收起，这些由 Web 实际历史覆盖；原生未额外观察短英文链接的行间离线说明 |
@@ -175,7 +175,7 @@
 | F-INTAKE-GITHUB | [task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
 | F-REPO-VERSIONS | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
 | F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts)、[task67-library.test.ts](../tests/task67-library.test.ts) |
-| F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts) |
+| F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts)、[store.test.ts](../tests/store.test.ts)、[boundaries.test.ts](../tests/boundaries.test.ts) |
 | F-READ-MD | [track2-reader-speech.test.ts](../tests/track2-reader-speech.test.ts)、[wave2-trackA-plugins.test.ts](../tests/wave2-trackA-plugins.test.ts) |
 | F-READ-EPUB | [core-epub-and-typography.test.ts](../tests/core-epub-and-typography.test.ts)、[wave12-epub-links.test.ts](../tests/wave12-epub-links.test.ts)、[wave13-pagination-browser.test.ts](../tests/wave13-pagination-browser.test.ts)、[audit11713-cover-browser.test.ts](../tests/audit11713-cover-browser.test.ts) |
 | F-READ-PDF | [task55-pdf-node.test.ts](../tests/task55-pdf-node.test.ts)、[task55-pdf-browser.test.ts](../tests/task55-pdf-browser.test.ts)、[task55-resize-browser.test.ts](../tests/task55-resize-browser.test.ts) |
@@ -199,7 +199,7 @@
 | F-TURN | [task49-turns.test.ts](../tests/task49-turns.test.ts)、[task56-acp-recovery.test.ts](../tests/task56-acp-recovery.test.ts)、[task56-recovery-browser.test.ts](../tests/task56-recovery-browser.test.ts)、[task50-guide-browser.test.ts](../tests/task50-guide-browser.test.ts) |
 | F-ASK-SELECTION | [task52-browser.test.ts](../tests/task52-browser.test.ts)、[wave13-reader-behavior-browser.test.ts](../tests/wave13-reader-behavior-browser.test.ts) |
 | F-TOPIC-NOTES | [task51-store.test.ts](../tests/task51-store.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
-| F-ADD-MATERIAL | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts) |
+| F-ADD-MATERIAL | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[store.test.ts](../tests/store.test.ts) |
 | F-SHELVE | [task51-store.test.ts](../tests/task51-store.test.ts) |
 | F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts) |
 | F-OFFLINE | [task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
