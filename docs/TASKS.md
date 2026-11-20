@@ -269,8 +269,8 @@
 ---
 
 ## [Milestone #71] 全面接入本机 ACP Agent（dsh / claude / codex / agy），并发布 v0.4.5
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: ee6f759b005b3c3b6fb4b63b597b6545e2d9ae19
 - **Depends-On**: #70
 - **发布版本**: v0.4.5
 - **Features**: F-AGENT、F-SANDBOX
@@ -292,3 +292,4 @@
   5. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.5`。
 - **Worker 门禁**（默认门禁之外）：覆盖 4-Agent 发现与裸 CLI 不可用、`agy` 能力白名单与显式 `http: false` 拒绝、`requiredSafeModes` 缺失/高权限定态/设置被拒 Fail-Closed、三种标题前缀精确匹配与近似伪造标题拒绝、Web/Obsidian 延迟保存与延迟探测竞态的边界单测与浏览器回归（禁内部 Mock），并做 5 项手动破壁先红后绿：`agy` 显式 `http: false` 放行；缺少安全 `mode` 仍发 `session/prompt`；`codex`/`agy` 工具标题匹配失灵；Obsidian `PithSettingTab` 跨 Agent 未同步清零（延迟保存竞态用例变红）；Web 跨 Agent 切换未清 `model`/`effort`。
 - **结案**：Tester 通过后跑 `gpt-auditor --mode diff --range "1d4afdd..HEAD"`（无已核实缺陷方可通过），按 ROLES「发布步骤」安装 `v0.4.5` 到默认 `ganfan-media` Vault 并打标签，按 ROLES「功能台账同步」更新 `F-AGENT` 与 `F-SANDBOX`（如实写明各 Agent 实测情况与 `claude` 未登录边界及 macOS 沙盒局限），并提示人类重启 Obsidian。
+- **结果**：产品切片提交 `9bb183d` + `66c699c`（修复首轮独立验收发现的 `CachedAgentDetector` 并发探测竞争与 4s 超时，详见 `docs/LESSONS.md` `dfaa116`），测试防挂死与进程组回收加固提交 `9e23053`、`1526522`、`ee6f759`（与 `66c699c` 产品代码及 `dist/obsidian/` 字节一致）。全量门禁通过（`npm run typecheck`、`npm test` 461 pass、`npm run test:browser` 63/63 文件通过）。独立 Tester 第 2 轮复验 `Verdict: PASS`、`Cleanup: PASS`（`.tmp/evidence/milestone-71/tester/report.md` 及 37 张核验 PNG）；发版前异源审计 `gpt-auditor --mode diff` 经 3 轮清创收口（`1d4afdd..66c699c` P2=2 排除 1 误报、修 1 项 -> `66c699c..1526522` P2=1 修 1 项 -> `1526522..ee6f759` `NO_ISSUES`，归档 `.tmp/evidence/audit/m71-gpt-audit*.md`）。已安装 `v0.4.5` 至默认 `ganfan-media` Vault 并核对三文件 SHA-256（`main.js` `606744283c01291a2ce9d7b5aa5a758be93d8b4c362294e3b60ec9f6c4b39b8b`，`styles.css` `34383d53a43efff497e43dc2b2d8aceaeccadf31ad358e31b0dae54ea48b24e3`，`manifest.json` `c843efb4e4b3c8e132fd4192317109aa14e448427a58c15d817b3e2b4a207d60`），在 `ee6f759b005b3c3b6fb4b63b597b6545e2d9ae19` 打附注标签 `v0.4.5`（`c22744a89cd79c959f4448bc5a6e3531a411a6c6`），交接记录见 `.tmp/evidence/milestone-71/delivery.txt`。

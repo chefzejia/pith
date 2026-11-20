@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.4.4（#70 @cbef1e0，已安装默认 ganfan-media Vault，附注标签 `v0.4.4`）。课题 `topic.md` 的 `materials` 改用纯材料 ID，并已完成默认 Vault 迁移检查（0 条待迁移，2 条旧 UUID 课题因 `missing materials list` 原样跳过）。
+- **当前发布版本**：v0.4.5（#71 @ee6f759，已安装默认 ganfan-media Vault，附注标签 `v0.4.5`）。全面接入 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent，补齐 Fail-Closed 安全模式锁、跨 Agent 同步清零与并发探测单飞去重。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - **版本号**：次版本号只给新的能力方向（如学 GitHub 仓库、英伦腔），同一方向里的修复与设计调优只升修订号，规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
@@ -24,7 +24,7 @@
 | 版本 | 内容 | 状态 |
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
-| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.4 已安装） |
+| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.5 已安装） |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
@@ -32,7 +32,7 @@
 | v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
 | v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69 @ea4adc9） | 已发布（#69 @ea4adc9） |
 | v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70 @cbef1e0） | 已发布（#70 @cbef1e0） |
-| v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent，修复 Fail-Open 与跨 Agent 选项残留（#71） | 已排期 |
+| v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent，修复 Fail-Open 与跨 Agent 选项残留（#71 @ee6f759） | 已发布（#71 @ee6f759） |
 | v0.5.0 · 语言大类训练 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再按语言大类训练设计抽象（英伦腔为其中典型场景） | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
@@ -123,8 +123,8 @@
 
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| F-AGENT | 在设置里选本机 Agent 当向导 | 已验收 | ✓ / ✓ | #56 @d8f5d4e（11-14） | 只登记了 dsh，claude 和 codex 选中后报不可用；切换模型与推理强度最近在 #26（11-09）验过 |
-| F-SANDBOX | 向导只能经 Pith 工具改动工作区和绑定仓库，自带的写工具被拒 | 待复验 | ○ / ○ | #54 @0751ce1（11-16，仅工具失败观察） | G8 两端真实直接写工具失败、marker 字节未变，但 bash 后端不可用，未证明 OS 沙盒阻断；宿主系统沙盒仅 macOS 实现，仍待复验 |
+| F-AGENT | 在设置里选本机 Agent 当向导 | 已验收 | ✓ / ✓ | #71 @ee6f759（11-21） | 双端已实测 `dsh`/`claude`/`codex`/`agy` 发现、选项探测、跨 Agent 同步清零、同 Agent 保留 `effort` 与 `agy`/`codex`/`dsh` 真实工具回合；本机 `claude-agent-acp` 未登录（仅测得发现、选项探测与回合快速 Fail-Closed 报 `Authentication required`）；跨 `PluginRuntime.reconcile()` 连续快切时检测器尚不跨实例共享缓存 |
+| F-SANDBOX | 向导只能经 Pith 工具改动工作区和绑定仓库，自带的写工具被拒 | 已验收 | ✓ / ✓ | #71 @ee6f759（11-21） | 双端实测 `agy`（`--sandbox`）、`codex`（`read-only`）与 `dsh`（`read-only`+权限门）直接写工作区与绑定仓库哨兵文件被阻断且 SHA-256 未变；`claude` 未登录未测写文件回合；宿主系统沙盒仅 macOS（`sandbox-exec`）实现 |
 | F-HOST-DSH | DSH 宿主壳：导出共享工作台与向导工具包 | 契约 | – / – | 未找到记录 | 没有打包成 DSH 插件，用户还不能在 DSH 里使用；只有单测覆盖工具包 |
 
 ## 提议（不是契约）
@@ -210,6 +210,6 @@
 | F-SHADOWING | [task34-shadowing-browser.test.ts](../tests/task34-shadowing-browser.test.ts)、[task18-shadowing-multilingual.test.ts](../tests/task18-shadowing-multilingual.test.ts) |
 | F-SETTLE | [guide-turn-browser.test.ts](../tests/guide-turn-browser.test.ts)、[task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts) |
 | F-PROFILE-OBS | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[audit11713-recovery.test.ts](../tests/audit11713-recovery.test.ts)、[audit11713-browser.test.ts](../tests/audit11713-browser.test.ts) |
-| F-AGENT | [track1-guide-providers.test.ts](../tests/track1-guide-providers.test.ts)、[task15-acp-settings-browser.test.ts](../tests/task15-acp-settings-browser.test.ts) |
-| F-SANDBOX | [task49-host-boundaries.test.ts](../tests/task49-host-boundaries.test.ts) |
+| F-AGENT | [track1-guide-providers.test.ts](../tests/track1-guide-providers.test.ts)、[task15-acp-settings-browser.test.ts](../tests/task15-acp-settings-browser.test.ts)、[milestone71-agents.test.ts](../tests/milestone71-agents.test.ts)、[milestone71-browser.test.ts](../tests/milestone71-browser.test.ts) |
+| F-SANDBOX | [task49-host-boundaries.test.ts](../tests/task49-host-boundaries.test.ts)、[milestone71-agents.test.ts](../tests/milestone71-agents.test.ts) |
 | F-HOST-DSH | [plugins-and-shells.test.ts](../tests/plugins-and-shells.test.ts)、[wave3-track2-guide-tools.test.ts](../tests/wave3-track2-guide-tools.test.ts) |
