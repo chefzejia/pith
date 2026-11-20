@@ -26,7 +26,7 @@ export class DefaultAttentionEngine implements AttentionEngine {
   private readonly store: WorkspaceStore;
   private readonly storage: WorkspaceStoragePort;
   private readonly queue: MutationQueue;
-  private readonly handlers = new Map<EffectKind, EffectHandler>();
+  private readonly handlers = new Map<EffectKind, { readonly handler: EffectHandler; readonly controller: AbortController }>();
   private readonly provider: (() => GuideProvider | undefined) | undefined;
 
   constructor(store: WorkspaceStore, storage: WorkspaceStoragePort, provider?: () => GuideProvider | undefined) {
@@ -182,10 +182,19 @@ export class DefaultAttentionEngine implements AttentionEngine {
   }
   listEffects(): Promise<readonly EffectRecord[]> { return this.queue.run(() => this.readArray<EffectRecord>("_cache/effects.json")); }
   registerEffectHandler(kind: EffectKind, handler: EffectHandler): () => void {
-    this.handlers.set(kind, handler);
-    return () => { if (this.handlers.get(kind) === handler) this.handlers.delete(kind); };
+    const previous = this.handlers.get(kind);
+    if (previous) previous.controller.abort(new Error("Effect handler replaced"));
+    const entry = { handler, controller: new AbortController() };
+    this.handlers.set(kind, entry);
+    return () => {
+      if (this.handlers.get(kind) === entry) {
+        this.handlers.delete(kind);
+        entry.controller.abort(new Error("Effect handler unregistered"));
+      }
+    };
   }
-  async processDueEffects(): Promise<number> {
+  async processDueEffects(signal?: AbortSignal): Promise<number> {
+    if (signal?.aborted) return 0;
     await this.queue.run(async () => {
       const identity = this.storage.mutationIdentity ?? this.storage;
       if (recovered.has(identity)) return;
@@ -197,29 +206,40 @@ export class DefaultAttentionEngine implements AttentionEngine {
     });
     let processed = 0;
     while (true) {
+      if (signal?.aborted) return processed;
       const claim = await this.queue.run(async () => {
+        if (signal?.aborted) return null;
         const effects = await this.readArray<EffectRecord>("_cache/effects.json");
         const index = effects.findIndex(effect => effect.status === "pending" && effect.dueAt <= new Date().toISOString() && this.handlers.has(effect.kind)
           && !effects.some(other => other !== effect && other.kind === effect.kind && other.key === effect.key && other.status === "running"));
         if (index < 0) return null;
-        const record = effects[index]!;
-        const handler = this.handlers.get(record.kind)!;
-        effects[index] = { ...record, status: "running", attempts: record.attempts + 1, updatedAt: new Date().toISOString() };
+        const entry = this.handlers.get(effects[index]!.kind)!;
+        if (entry.controller.signal.aborted) return null;
+        const record: EffectRecord = { ...effects[index]!, status: "running", attempts: effects[index]!.attempts + 1, updatedAt: new Date().toISOString() };
+        effects[index] = record;
         await this.writeArray("_cache/effects.json", effects);
-        return { record, handler };
+        return { record, handler: entry.handler, controller: entry.controller };
       });
       if (!claim) return processed;
+      const runSignal = signal ? AbortSignal.any([signal, claim.controller.signal]) : claim.controller.signal;
       let error: string | undefined;
-      try { await claim.handler(claim.record.payload, new AbortController().signal); }
+      try { await claim.handler(claim.record.payload, runSignal); }
       catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
       await this.queue.run(async () => {
         const effects = await this.readArray<EffectRecord>("_cache/effects.json");
         const index = effects.findIndex(effect => effect.kind === claim.record.kind && effect.key === claim.record.key && effect.status === "running");
         if (index < 0) throw new Error("Claimed effect is missing");
-        effects[index] = { ...effects[index]!, status: error === undefined ? "completed" : "failed", lastError: error, updatedAt: new Date().toISOString() };
+        const record = effects[index]!;
+        if (error !== undefined && runSignal.aborted) {
+          effects[index] = { ...record, status: "pending", attempts: Math.max(0, record.attempts - 1), updatedAt: new Date().toISOString() };
+        } else {
+          effects[index] = { ...record, status: error === undefined ? "completed" : "failed", lastError: error, updatedAt: new Date().toISOString() };
+        }
         await this.writeArray("_cache/effects.json", effects);
       });
+      if (error !== undefined && runSignal.aborted) return processed;
       processed++;
+      if (signal?.aborted) return processed;
     }
   }
 }

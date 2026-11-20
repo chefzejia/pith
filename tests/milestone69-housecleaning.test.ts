@@ -6,13 +6,12 @@ import {
   DefaultWorkspaceStore,
   type AgentProcessPort,
   type AgentStdioHandle,
-  type Note,
+  type EffectRecord,
   type Topic,
 } from "../src/core/index.ts";
 import { quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 import { feynmanToolkit } from "../src/plugins/toolkit-feynman/index.ts";
-import { PithObsidianController, PithSettingTab, PithWorkspaceView } from "../src/shells/obsidian/index.ts";
-import type { ObsidianViewActions } from "../src/shells/obsidian/plugin.ts";
+import { PithObsidianController, PithSettingTab } from "../src/shells/obsidian/index.ts";
 import { createPithWebServer } from "../src/shells/web/server.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
 import { testSandbox } from "./sandbox.ts";
@@ -49,41 +48,154 @@ class StubSettingElement {
   }
 }
 
-function createFakeAcpPort(nextActionReply: (prompt: string, spawnIndex: number) => string): {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(ok => { resolve = ok; });
+  return { promise, resolve };
+}
+
+async function within<T>(promise: Promise<T>, message: string, ms = 2000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out: ${message}`)), ms); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+interface ControlledAcpHandle {
+  readonly spawnIndex: number;
+  readonly promptEntered: Promise<string>;
+  readonly closeEntered: Promise<void>;
+  readonly closed: () => boolean;
+  readonly closeCount: () => number;
+  readonly sawCancel: () => boolean;
+  readonly readAborted: () => boolean;
+  releasePrompt: (replyText?: string) => void;
+  releaseClose: () => void;
+}
+
+function createControlledAcpPort(options: {
+  installed?: boolean;
+  reply?: (prompt: string, spawnIndex: number) => string;
+} = {}): {
   port: AgentProcessPort;
   spawns: () => number;
   prompts: string[];
+  handles: ControlledAcpHandle[];
+  setMode: (mode: { holdPrompt?: boolean; holdClose?: boolean }) => void;
+  waitForNextHandle: () => Promise<ControlledAcpHandle>;
 } {
+  const installed = options.installed ?? true;
+  const replyFor = options.reply ?? ((_prompt, spawnIndex) => `Action #${spawnIndex}`);
   let spawnCount = 0;
+  let holdPrompt = false;
+  let holdClose = false;
   const prompts: string[] = [];
+  const handles: ControlledAcpHandle[] = [];
+  const handleWaiters: Array<(handle: ControlledAcpHandle) => void> = [];
+
   const port: AgentProcessPort = {
-    findExecutable: async command => command === "dsh" ? "/sandbox/dsh" : null,
-    probeExecutable: async (_path, args) => args.includes("--help") ? "Agent Client Protocol (ACP)" : "dsh 1.0.0",
+    findExecutable: async command => (installed && command === "dsh" ? "/sandbox/dsh" : null),
+    probeExecutable: async (_path, args) => (installed ? (args.includes("--help") ? "Agent Client Protocol (ACP)" : "dsh 1.0.0") : null),
     async spawnStdio(): Promise<AgentStdioHandle> {
       const spawnIndex = ++spawnCount;
       const listeners = new Set<(line: string) => void>();
+      const promptGate = deferred<string>();
+      const closeEnteredGate = deferred<void>();
+      const closeFinishGate = deferred<void>();
+      const holdThisClose = holdClose;
+      const holdThisPrompt = holdPrompt;
+      let isClosed = false;
+      let closeCalls = 0;
+      let cancelSeen = false;
+      let pendingReadAborted = false;
+      let pendingPrompt: { id: number | string; text: string } | null = null;
+
+      const emit = (payload: unknown) => {
+        const encoded = JSON.stringify(payload);
+        for (const listener of [...listeners]) listener(encoded);
+      };
+
+      const controllerHandle: ControlledAcpHandle = {
+        spawnIndex,
+        promptEntered: promptGate.promise,
+        closeEntered: closeEnteredGate.promise,
+        closed: () => isClosed,
+        closeCount: () => closeCalls,
+        sawCancel: () => cancelSeen,
+        readAborted: () => pendingReadAborted,
+        releasePrompt(replyText?: string) {
+          if (!pendingPrompt) return;
+          const { id, text } = pendingPrompt;
+          pendingPrompt = null;
+          emit({ jsonrpc: "2.0", id, result: { text: replyText ?? replyFor(text, spawnIndex), stopReason: "end_turn" } });
+        },
+        releaseClose() {
+          closeFinishGate.resolve();
+        },
+      };
+      handles.push(controllerHandle);
+      const waiter = handleWaiters.shift();
+      if (waiter) waiter(controllerHandle);
+
       const handle: AgentStdioHandle & { cwd: string } = {
         cwd: "/sandbox",
-        onLine(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        onLine(listener) {
+          listeners.add(listener);
+          return () => { listeners.delete(listener); };
+        },
         writeLine(line) {
-          const message = JSON.parse(line) as { id?: number; method: string; params?: { prompt?: { text: string }[] } };
+          const message = JSON.parse(line) as { id?: number | string; method: string; params?: { prompt?: { text: string }[] } };
+          if (message.method === "session/cancel") cancelSeen = true;
           if (message.id === undefined) return;
-          let result: unknown = {};
-          if (message.method === "initialize") result = { agentCapabilities: { mcpCapabilities: { http: true } } };
-          else if (message.method === "session/new") result = { sessionId: `sess-${spawnIndex}` };
-          else if (message.method === "session/prompt") {
+          if (message.method === "initialize") {
+            emit({ jsonrpc: "2.0", id: message.id, result: { agentCapabilities: { mcpCapabilities: { http: true } } } });
+            return;
+          }
+          if (message.method === "session/new") {
+            emit({ jsonrpc: "2.0", id: message.id, result: { sessionId: `sess-${spawnIndex}` } });
+            return;
+          }
+          if (message.method === "session/prompt") {
             const text = message.params?.prompt?.[0]?.text ?? "";
             prompts.push(text);
-            result = { text: nextActionReply(text, spawnIndex), stopReason: "end_turn" };
+            promptGate.resolve(text);
+            if (holdThisPrompt) {
+              pendingPrompt = { id: message.id, text };
+              return;
+            }
+            emit({ jsonrpc: "2.0", id: message.id, result: { text: replyFor(text, spawnIndex), stopReason: "end_turn" } });
+            return;
           }
-          for (const listener of listeners) listener(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          emit({ jsonrpc: "2.0", id: message.id, result: {} });
         },
-        async close() {},
+        async close() {
+          isClosed = true;
+          closeCalls++;
+          if (pendingPrompt) pendingReadAborted = true;
+          closeEnteredGate.resolve();
+          if (holdThisClose) await closeFinishGate.promise;
+        },
       };
       return handle;
     },
   };
-  return { port, spawns: () => spawnCount, prompts };
+
+  return {
+    port,
+    spawns: () => spawnCount,
+    prompts,
+    handles,
+    setMode(mode) {
+      if (mode.holdPrompt !== undefined) holdPrompt = mode.holdPrompt;
+      if (mode.holdClose !== undefined) holdClose = mode.holdClose;
+    },
+    waitForNextHandle: () => new Promise<ControlledAcpHandle>(resolve => { handleWaiters.push(resolve); }),
+  };
 }
 
 async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean, message: string): Promise<T> {
@@ -96,54 +208,8 @@ async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean,
   throw new Error(`Timed out: ${message}`);
 }
 
-function createStubWorkspace(controller: PithObsidianController): {
-  workspace: PithWorkspaceView;
-  actions: () => ObsidianViewActions;
-} {
-  let captured: ObsidianViewActions | undefined;
-  const createView = controller.createView.bind(controller);
-  controller.createView = (_root, actions) => {
-    captured = actions;
-    return {
-      setGuideAvailable() {},
-      setGuideVisible() {},
-      setToolkits() {},
-      updateMaterialNavigation() {},
-      render() {},
-      refreshGuide: async () => {},
-      dispose() {},
-      guideElement: () => ({} as never),
-      focusQuotedGuide() {},
-      quoteSelection() {},
-      showLessonLoading() {},
-      guideTurn: async () => {},
-      updateGuideTurn() {},
-    } as never;
-  };
-  const workspace = Object.create(PithWorkspaceView.prototype) as PithWorkspaceView;
-  Object.assign(workspace, {
-    generation: 0,
-    homeRequest: 0,
-    guideRequest: 0,
-    guideDesiredVisible: false,
-    guideOpening: null,
-    guideOpeningLeaf: null,
-    view: null,
-    contentEl: {},
-    controller,
-    host: (controller as unknown as { host: unknown }).host,
-    guideByTopic: controller.guideVisibility,
-    report(error: unknown) { throw error; },
-  });
-  // Keep reference to createView so controller remains valid for typecheck without warnings
-  void createView;
-  return {
-    workspace,
-    actions: () => {
-      assert.ok(captured, "expected PithWorkspaceView to create a view");
-      return captured;
-    },
-  };
+async function readEffectsFile(dir: string): Promise<EffectRecord[]> {
+  return JSON.parse(await readFile(join(dir, "_cache/effects.json"), "utf8")) as EffectRecord[];
 }
 
 test("legacy web-settings.json with persona loads cleanly and omits persona when saved in both Obsidian and Web", async () => {
@@ -164,8 +230,9 @@ test("legacy web-settings.json with persona loads cleanly and omits persona when
   await writeFile(join(obsidianDir, "_cache/web-settings.json"), JSON.stringify(legacySettings, null, 2));
   await writeFile(join(webDir, "_cache/web-settings.json"), JSON.stringify({ ...legacySettings, persona: "studio" }, null, 2));
 
-  const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(obsidianDir) });
-  const server = await createPithWebServer({ workspaceDir: webDir });
+  const offlineAgent = createControlledAcpPort({ installed: false });
+  const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(obsidianDir), process: offlineAgent.port });
+  const server = await createPithWebServer({ workspaceDir: webDir, processPort: offlineAgent.port });
   try {
     await controller.initialize();
     assert.deepEqual(controller.getAgentConfig(), { agentId: "", model: "", effort: "" });
@@ -173,12 +240,12 @@ test("legacy web-settings.json with persona loads cleanly and omits persona when
     assert.equal("setPersona" in controller, false);
     assert.equal("getPersona" in controller, false);
 
-    // Obsidian settings UI has no «术语风格» row
+    // Obsidian settings UI has no «术语风格» row (using HostPort.process boundary without overriding controller methods)
     const tab = new PithSettingTab({} as never, { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false } as never, controller);
     const rootEl = new StubSettingElement();
     tab.containerEl = rootEl as never;
-    controller.detectAgents = async () => [];
     tab.display();
+    await waitFor(async () => rootEl.children.at(-1)?.textContent ?? "", status => status === "未发现可用 Agent", "settings tab agent detection");
     assert.equal(rootEl.children.some(node => node.textContent.includes("术语风格")), false);
 
     // Saving any setting in Obsidian omits legacy persona
@@ -211,12 +278,13 @@ test("legacy web-settings.json with persona loads cleanly and omits persona when
     assert.equal(webSaved.model, "web-model");
   } finally {
     controller.dispose();
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("Obsidian controller and workspace view trigger prepare-next-action on capture when online and stay pending offline", async () => {
+test("Obsidian controller triggers prepare-next-action via initialize, setAgentConfig, setPlugins, and captureHighlight", async () => {
   const root = await testSandbox("m69-obsidian-next-action-");
   const storage = new NodeWorkspaceStorage(root);
   const store = new DefaultWorkspaceStore(storage);
@@ -224,21 +292,14 @@ test("Obsidian controller and workspace view trigger prepare-next-action on capt
   const topic = await store.createTopic({ title: "Obsidian Next Action", target: "Verify F-NEXT-ACTION wiring", materialIds: [], toolkits: ["feynman"] });
   await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nSome lesson prose.");
 
-  const agent = createFakeAcpPort((_prompt, index) => `Action #${index}`);
+  const agent = createControlledAcpPort({ reply: (_prompt, index) => `Action #${index}` });
   const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
   try {
     await controller.initialize();
-    const { workspace, actions } = createStubWorkspace(controller);
-    await (workspace as unknown as { openTopic(id: string): Promise<void> }).openTopic(topic.id);
 
-    // Offline captures: highlight, selection, note, practice -> leave pending without error or agent spawn
+    // Offline captureHighlight leaves effect pending without spawning an agent
     await controller.captureHighlight(topic.id, "offline highlight");
-    actions().selection("highlight", "offline selection", "text:offset:0");
-    await waitFor(() => store.getTopic(topic.id), item => (item?.notes.length ?? 0) >= 2, "offline selection capture");
-    await actions().sendGuide!("offline note", undefined, true);
-    await actions().savePractice!("offline practice", undefined, { toolkit: "feynman", passage: "p1", points: [] });
     await new Promise<void>(resolve => setTimeout(resolve, 50));
-
     assert.equal(agent.spawns(), 0);
     assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
     const offlineEffects = await controller.engine.listEffects();
@@ -246,7 +307,7 @@ test("Obsidian controller and workspace view trigger prepare-next-action on capt
     assert.equal(offlineEffects[0]?.kind, "prepare-next-action");
     assert.equal(offlineEffects[0]?.status, "pending");
 
-    // Switching to online drains the pending effect
+    // setAgentConfig to online drains the pending effect
     await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
     const afterOnline = await waitFor(
       () => store.getTopic(topic.id),
@@ -261,27 +322,10 @@ test("Obsidian controller and workspace view trigger prepare-next-action on capt
     await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #2", "captureHighlight nextAction");
     assert.equal((await controller.engine.listEffects()).at(-1)?.status, "completed");
 
-    // Online selection highlight triggers prepare-next-action
-    actions().selection("highlight", "online selection", "text:offset:1");
-    await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #3", "view selection nextAction");
-
-    // Online sendGuide (saveAsNote) triggers prepare-next-action
-    await actions().sendGuide!("online user note", undefined, true);
-    await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #4", "view sendGuide note nextAction");
-
-    // Online savePractice triggers prepare-next-action
-    const savedPractice: Note = await actions().savePractice!("online practice", undefined, { toolkit: "feynman", passage: "p2", points: [] });
-    assert.equal(savedPractice.kind, "practice");
-    await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #5", "view savePractice nextAction");
-
     // Online setPlugins drains queued effect
     await controller.engine.enqueueEffect("prepare-next-action", topic.id, { topicId: topic.id });
     await controller.setPlugins({ preset: "all", plugins: {} });
-    await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #6", "setPlugins draining effect");
-
-    // guideData actions with feynman mounted excludes retired feynman-coach
-    const guide = await actions().guideData!();
-    assert.equal(guide.actions.some(item => item.id === "feynman-coach" || item.label.includes("费曼深水区追问")), false);
+    await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #3", "setPlugins draining effect");
 
     // Disposed controller does not trigger any further background effects
     const spawnsBeforeDispose = agent.spawns();
@@ -292,17 +336,238 @@ test("Obsidian controller and workspace view trigger prepare-next-action on capt
     assert.equal(agent.spawns(), spawnsBeforeDispose);
     assert.equal((await controller.engine.listEffects()).at(-1)?.status, "pending");
 
-    // Re-initializing a new controller with existing pending effect drains it at startup
+    // Re-initializing a new controller on the same NodeWorkspaceStorage drains it at startup
     const restarted = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
     try {
       await restarted.initialize();
-      await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #7", "initialize draining pending effect");
+      await waitFor(() => store.getTopic(topic.id), item => item?.nextAction === "Action #4", "initialize draining pending effect");
       assert.equal((await restarted.engine.listEffects()).at(-1)?.status, "completed");
     } finally {
       restarted.dispose();
     }
   } finally {
     controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian controller.dispose() cancels in-flight prepare-next-action, ignores late replies, keeps pending, and drains on restart", async () => {
+  const root = await testSandbox("m69-obsidian-dispose-inflight-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Dispose In-Flight", target: "Cancel background prompt on dispose", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: (_prompt, index) => `Recovered #${index}` });
+  const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  try {
+    await controller.initialize();
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true });
+    const nextHandle = agent.waitForNextHandle();
+    await controller.captureHighlight(topic.id, "trigger while online");
+    const activeHandle = await within(nextHandle, "next ACP handle on dispose test");
+    await within(activeHandle.promptEntered, "session/prompt entered on dispose test");
+
+    // Dispose while ACP session/prompt is still suspended
+    controller.dispose();
+    await within(activeHandle.closeEntered, "handle.close() called on controller.dispose()");
+    assert.equal(activeHandle.closed(), true);
+    assert.equal(activeHandle.readAborted(), true);
+
+    const afterDisposeEffects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "pending",
+      "effect reset to pending after dispose",
+    );
+    assert.equal(afterDisposeEffects[0]?.attempts, 0);
+    assert.equal(afterDisposeEffects[0]?.lastError, undefined);
+
+    // Releasing late ACP reply must never write nextAction or mark completed
+    activeHandle.releasePrompt("LATE REPLY AFTER DISPOSE");
+    await new Promise<void>(resolve => setTimeout(resolve, 60));
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+    const persisted = await readEffectsFile(root);
+    assert.equal(persisted.length, 1);
+    assert.equal(persisted[0]?.status, "pending");
+    assert.equal(persisted[0]?.attempts, 0);
+
+    // Re-initializing a fresh controller on the same NodeWorkspaceStorage drains the pending effect
+    agent.setMode({ holdPrompt: false });
+    const restarted = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+    try {
+      await restarted.initialize();
+      const updated = await waitFor(
+        () => store.getTopic(topic.id),
+        item => item?.nextAction === "Recovered #2",
+        "restarted controller draining pending effect",
+      );
+      assert.equal(updated?.nextAction, "Recovered #2");
+      const completed = await readEffectsFile(root);
+      assert.equal(completed[0]?.status, "completed");
+    } finally {
+      restarted.dispose();
+    }
+  } finally {
+    controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian switching offline via setAgentConfig cancels in-flight prepare-next-action, ignores late replies, and drains when re-enabled", async () => {
+  const root = await testSandbox("m69-obsidian-offline-inflight-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Offline In-Flight", target: "Cancel background prompt on offline switch", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: (_prompt, index) => `Online Again #${index}` });
+  const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  try {
+    await controller.initialize();
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true });
+    const nextHandle = agent.waitForNextHandle();
+    await controller.captureHighlight(topic.id, "trigger before offline");
+    const activeHandle = await within(nextHandle, "next ACP handle on offline test");
+    await within(activeHandle.promptEntered, "session/prompt entered on offline test");
+
+    // Switch offline while ACP prompt is in flight
+    await controller.setAgentConfig({ agentId: "", model: "", effort: "" });
+    await within(activeHandle.closeEntered, "handle.close() called on setAgentConfig offline switch");
+    assert.equal(activeHandle.closed(), true);
+    assert.equal(activeHandle.readAborted(), true);
+
+    const afterOfflineEffects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "pending",
+      "effect reset to pending after switching offline",
+    );
+    assert.equal(afterOfflineEffects[0]?.attempts, 0);
+    assert.equal(afterOfflineEffects[0]?.lastError, undefined);
+
+    // Late ACP reply after going offline must not write nextAction
+    activeHandle.releasePrompt("LATE REPLY AFTER OFFLINE");
+    await new Promise<void>(resolve => setTimeout(resolve, 60));
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+    assert.equal((await readEffectsFile(root))[0]?.status, "pending");
+
+    // Re-enabling agent drains the pending effect
+    agent.setMode({ holdPrompt: false });
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+    const updated = await waitFor(
+      () => store.getTopic(topic.id),
+      item => item?.nextAction === "Online Again #2",
+      "draining pending effect after returning online",
+    );
+    assert.equal(updated?.nextAction, "Online Again #2");
+    assert.equal((await readEffectsFile(root))[0]?.status, "completed");
+  } finally {
+    controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian abort during handle.close() after prompt reply refuses to write nextAction to topic.md", async () => {
+  const root = await testSandbox("m69-obsidian-close-race-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Close Race", target: "Guard updateTopic against late abort", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: () => "SHOULD NOT WRITE ON ABORT" });
+  const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  try {
+    await controller.initialize();
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: false, holdClose: true });
+    const nextHandle = agent.waitForNextHandle();
+    await controller.captureHighlight(topic.id, "trigger close race");
+    const activeHandle = await within(nextHandle, "next ACP handle on close race test");
+    await within(activeHandle.closeEntered, "handle.close() entered on close race test");
+
+    // Prompt already returned its text, and runOneShotAcpPrompt is awaiting handle.close(); dispose now
+    controller.dispose();
+    activeHandle.releaseClose();
+
+    const effects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "pending",
+      "effect reset to pending when aborted during close",
+    );
+    assert.equal(effects[0]?.attempts, 0);
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+  } finally {
+    controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Web server.close() cancels in-flight prepare-next-action and rejects late ACP reply", async () => {
+  const root = await testSandbox("m69-web-close-inflight-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Web Close In-Flight", target: "Cancel background prompt on server close", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: () => "LATE WEB ACTION" });
+  const server = await createPithWebServer({ workspaceDir: root, processPort: agent.port });
+  let closed = false;
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const settingsRes = await fetch(`${base}/api/settings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentId: "dsh" }),
+    });
+    assert.equal(settingsRes.status, 200);
+
+    agent.setMode({ holdPrompt: true });
+    const nextHandle = agent.waitForNextHandle();
+    const noteRes = await fetch(`${base}/api/notes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ topicId: topic.id, kind: "note", body: "note triggering web effect" }),
+    });
+    assert.equal(noteRes.status, 201);
+
+    const activeHandle = await within(nextHandle, "next ACP handle on web close test");
+    await within(activeHandle.promptEntered, "session/prompt entered on web close test");
+
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    closed = true;
+
+    await within(activeHandle.closeEntered, "handle.close() called on Web server.close()");
+    assert.equal(activeHandle.closed(), true);
+    assert.equal(activeHandle.readAborted(), true);
+
+    const afterCloseEffects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "pending",
+      "web effect reset to pending on server close",
+    );
+    assert.equal(afterCloseEffects[0]?.attempts, 0);
+    assert.equal(afterCloseEffects[0]?.lastError, undefined);
+
+    activeHandle.releasePrompt("LATE REPLY AFTER SERVER CLOSE");
+    await new Promise<void>(resolve => setTimeout(resolve, 60));
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+    assert.equal((await readEffectsFile(root))[0]?.status, "pending");
+  } finally {
+    if (!closed) {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -325,7 +590,7 @@ test("feynman mounted quick actions omit feynman-coach across core and Web actio
   assert.equal(coreActions.some(action => action.id === "feynman-coach"), false);
   assert.deepEqual(coreActions.map(action => action.id), ["orient", "quiz"]);
 
-  const agent = createFakeAcpPort(() => "Action");
+  const agent = createControlledAcpPort({ reply: () => "Action" });
   const server = await createPithWebServer({ workspaceDir: root, processPort: agent.port });
   try {
     const address = server.address();
@@ -340,6 +605,7 @@ test("feynman mounted quick actions omit feynman-coach across core and Web actio
     assert.equal(actions.some(action => action.id === "feynman-coach" || action.label.includes("费曼深水区追问")), false);
     assert.deepEqual(actions.map(action => action.id), ["orient", "quiz"]);
   } finally {
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await rm(root, { recursive: true, force: true });
   }

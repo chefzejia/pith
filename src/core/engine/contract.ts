@@ -107,5 +107,5 @@ export interface AttentionEngine {
   enqueueEffect(kind: EffectKind, key: string, payload: Readonly<Record<string, unknown>>): Promise<EffectRecord>;
   listEffects(): Promise<readonly EffectRecord[]>;
   registerEffectHandler(kind: EffectKind, handler: EffectHandler): () => void;
-  processDueEffects(): Promise<number>;
+  processDueEffects(signal?: AbortSignal): Promise<number>;
 }

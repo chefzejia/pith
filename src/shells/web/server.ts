@@ -117,8 +117,23 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   const guideTurns = new Map<string, AbortController>();
   const guideAvailable = (): boolean => Boolean(options.guideProvider || settings.agentId) && runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active");
   const interlineTranslator = options.interlineTranslator ?? agentInterlineTranslator({ prompt: async (text, options) => { const service = runtime.getService<AgentPromptService>("guide.prompt"); if (!service) throw new Error("向导 Agent 不可用"); return service.prompt(text, options); } });
+  const lifecycle = new AbortController();
+  let processingEffects = false;
+  let effectsPending = false;
   const processEffects = (): void => {
-    if (options.guideProvider || settings.agentId) void engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
+    if (lifecycle.signal.aborted || !(options.guideProvider || settings.agentId)) return;
+    if (processingEffects) { effectsPending = true; return; }
+    processingEffects = true;
+    void (async () => {
+      try {
+        do {
+          effectsPending = false;
+          if (lifecycle.signal.aborted || !(options.guideProvider || settings.agentId)) break;
+          await engine.processDueEffects(lifecycle.signal);
+        } while (effectsPending && !lifecycle.signal.aborted && (options.guideProvider || settings.agentId));
+      } catch (error) { console.error("Effect processing failed:", error); }
+      finally { processingEffects = false; }
+    })();
   };
   async function refresh(): Promise<void> {
     snapshot.known = false;
@@ -543,7 +558,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       return send(res, 400, { error: error instanceof Error ? error.message : "Request failed" });
     }
   });
-  server.on("close", () => runtime.stop());
+  server.on("close", () => { lifecycle.abort(new Error("Server closed")); runtime.stop(); });
   server.on("close", () => { if (speechRuntime.stop) void speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(options.port ?? 0, "127.0.0.1", () => { server.off("error", reject); resolve(); }); });
   return server;

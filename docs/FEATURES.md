@@ -201,7 +201,7 @@
 | F-TOPIC-NOTES | [task51-store.test.ts](../tests/task51-store.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-ADD-MATERIAL | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[store.test.ts](../tests/store.test.ts) |
 | F-SHELVE | [task51-store.test.ts](../tests/task51-store.test.ts) |
-| F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts) |
+| F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts)、[milestone69-browser.test.ts](../tests/milestone69-browser.test.ts) |
 | F-OFFLINE | [task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
 | F-GUIDE-INGEST | [task65-external.test.ts](../tests/task65-external.test.ts)、[task66-external.test.ts](../tests/task66-external.test.ts)、[wave4-trackA-speech-timeline-ingest.test.ts](../tests/wave4-trackA-speech-timeline-ingest.test.ts)、[audit-4e6422f.test.ts](../tests/audit-4e6422f.test.ts) |
 | F-MEDIA-CORPUS | [task37-media.test.ts](../tests/task37-media.test.ts)、[task39-browser.test.ts](../tests/task39-browser.test.ts) |

@@ -223,6 +223,9 @@ export class PithObsidianController {
   private readonly views = new Set<PithObsidianView>();
   private readonly guideAvailabilityListeners = new Set<(available: boolean) => void>();
   private readonly guideTurns = new Map<string, AbortController>();
+  private readonly lifecycle = new AbortController();
+  private processingEffects = false;
+  private effectsPending = false;
 
   async runGuide(topicId: string, input: { text: string; anchor?: GuideAnchor } | { turnId: string }, onUpdate?: (turn: GuideTurn) => void): Promise<GuideTurn> {
     if (!this.hasGuideProvider()) throw new Error(GUIDE_UNAVAILABLE_REASON);
@@ -295,7 +298,25 @@ export class PithObsidianController {
     }
   }
   processEffects(): void {
-    if (!this.disposed && this.hasGuideProvider()) void this.engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
+    if (this.disposed || this.lifecycle.signal.aborted || !this.hasGuideProvider()) return;
+    if (this.processingEffects) {
+      this.effectsPending = true;
+      return;
+    }
+    this.processingEffects = true;
+    void (async () => {
+      try {
+        do {
+          this.effectsPending = false;
+          if (this.disposed || this.lifecycle.signal.aborted || !this.hasGuideProvider()) break;
+          await this.engine.processDueEffects(this.lifecycle.signal);
+        } while (this.effectsPending && !this.disposed && !this.lifecycle.signal.aborted && this.hasGuideProvider());
+      } catch (error) {
+        console.error("Effect processing failed:", error);
+      } finally {
+        this.processingEffects = false;
+      }
+    })();
   }
   private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }): Promise<void> {
     await MutationQueue.forStorage(this.host.storage).run(async () => {
@@ -413,7 +434,7 @@ export class PithObsidianController {
     return view;
   }
   releaseView(view: PithObsidianView): void { if (this.views.delete(view)) view.dispose(); }
-  dispose(): void { this.disposed = true; for (const view of this.views) view.dispose(); this.views.clear(); this.guideAvailabilityListeners.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
+  dispose(): void { this.disposed = true; this.lifecycle.abort(new Error("Controller disposed")); for (const view of this.views) view.dispose(); this.views.clear(); this.guideAvailabilityListeners.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
 }
 
 const PITH_VIEW_TYPE = "pith-reader";
