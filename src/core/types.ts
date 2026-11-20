@@ -111,35 +111,3 @@ export interface LearnerProfile {
   readonly markdown: string;
   readonly observations: readonly ProfileObservation[];
 }
-
-/**
- * Surface persona dictionary: decouples user-facing metaphor ("园丁/花园" vs "向导/工作区")
- * from the metaphor-free core domain.
- */
-export interface SurfacePersona {
-  readonly id: string;
-  readonly workspaceLabel: string;
-  readonly guideLabel: string;
-  readonly topicLabel: string;
-  readonly exploringLabel: string;
-  readonly settledLabel: string;
-}
-
-export const DEFAULT_PERSONAS: Readonly<Record<string, SurfacePersona>> = {
-  sanctuary: {
-    id: "sanctuary",
-    workspaceLabel: "花园",
-    guideLabel: "园丁",
-    topicLabel: "课题",
-    exploringLabel: "探索中",
-    settledLabel: "已沉淀",
-  },
-  studio: {
-    id: "studio",
-    workspaceLabel: "工作区",
-    guideLabel: "向导",
-    topicLabel: "课题",
-    exploringLabel: "进行中",
-    settledLabel: "已归档",
-  },
-};

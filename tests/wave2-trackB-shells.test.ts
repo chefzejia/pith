@@ -44,13 +44,15 @@ test("shell settings connect ACP chat and effects, persist, and preserve injecte
     const post = async (path: string, data: unknown) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
     const html = await (await fetch(base)).text();
     const script = await (await fetch(base + "/app.js")).text();
-    for (const id of ["simple-agent", "simple-scan", "simple-persona"]) assert.ok(script.includes(`id="${id}"`), id);
+    for (const id of ["simple-agent", "simple-scan"]) assert.ok(script.includes(`id="${id}"`), id);
+    assert.equal(script.includes("simple-persona"), false);
+    assert.equal(script.includes("术语风格"), false);
     assert.doesNotMatch(html, /data-plugin=|id="preset"/);
     const agents = await (await fetch(base + "/api/agents?force=true")).json() as { id: string; available: boolean; version: string }[];
     assert.equal(agents.find(agent => agent.id === "dsh")?.version, "dsh 1.2.3");
     assert.equal(agents.find(agent => agent.id === "claude")?.available, false);
     assert.equal((await post("/api/settings", { agentId: "invalid" })).status, 400);
-    const config = { agentId: "dsh", model: "test-model", effort: "high", persona: "studio" };
+    const config = { agentId: "dsh", model: "test-model", effort: "high" };
     assert.equal((await post("/api/settings", config)).status, 200);
     const saved = JSON.parse(await readFile(join(dir, "_cache/web-settings.json"), "utf8"));
     for (const [key, value] of Object.entries(config)) assert.equal(saved[key], value);
@@ -99,13 +101,10 @@ test("Obsidian detects and persists agent configuration and reloads the guide", 
   try {
     await controller.initialize();
     assert.equal((await controller.detectAgents(true)).find(agent => agent.id === "dsh")?.available, true);
-    await controller.setAgentConfig({ agentId: "dsh", model: "m", effort: "high", persona: "studio" });
+    await controller.setAgentConfig({ agentId: "dsh", model: "m", effort: "high" });
     const guide = controller.runtime.getService<GuideAgentService>("guide.agent"); assert.ok(guide);
-    assert.deepEqual(guide.persona, (await import("../src/core/index.ts")).DEFAULT_PERSONAS.studio);
     const saved = JSON.parse(await storage.readText("_cache/web-settings.json"));
-    assert.deepEqual([saved.agentId, saved.model, saved.effort, saved.persona], ["dsh", "m", "high", "studio"]);
-    await controller.setPersona("sanctuary");
-    const updated = JSON.parse(await storage.readText("_cache/web-settings.json"));
-    assert.equal(updated.agentId, "dsh"); assert.equal(updated.persona, "sanctuary");
+    assert.deepEqual([saved.agentId, saved.model, saved.effort], ["dsh", "m", "high"]);
+    assert.equal("persona" in saved, false);
   } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
 });

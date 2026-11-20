@@ -10,17 +10,14 @@ function topic(toolkits: string[]): Topic {
   return { id: "t", title: "Mechanisms", target: "Explain", status: "exploring", materialIds: [], lessons: [], toolkits, notes: [], createdAt: "today", updatedAt: "today" };
 }
 
-test("Feynman scaffold decomposes, preserves, masks concepts, and prompts blind recall", () => {
+test("Feynman scaffold only prompts blind recall and rejects retired stages", () => {
   assert.deepEqual(feynmanToolkit.stages, ["blind-produce"]);
+  assert.deepEqual(feynmanToolkit.quickActions, []);
   const text = "因为缓存降低延迟；所以 `SQLite WAL` supports durable writes.\n如果索引失效，查询变慢。";
-  assert.equal(transformCue(text, "listen-decompose"), "1. 因为缓存降低延迟；\n2. 所以 `SQLite WAL` supports durable writes.\n3. 如果索引失效，查询变慢。");
-  assert.equal(transformCue(text, "guided-follow"), text);
-  const cloze = transformCue(text, "scaffold-cloze");
-  assert.equal(cloze, "因为[___]；所以 [___] [___] [___] [___].\n如果[___]，[___]。");
-  assert.equal(transformCue("the cache and database", "scaffold-cloze"), "the [___] and [___]");
   assert.equal(transformCue(text, "blind-produce"), "【合上原文】请用自己的话向初学者解释这段机制的核心因果链与边界条件：");
-  assert.equal(transformCue(" \n；", "listen-decompose"), "");
-  assert.throws(() => transformCue(text, "invalid" as never), /Invalid scaffold stage/);
+  for (const stage of ["listen-decompose", "guided-follow", "scaffold-cloze", "invalid"] as const) {
+    assert.throws(() => transformCue(text, stage as never), /Invalid scaffold stage/);
+  }
 });
 
 test("Only shadowing diagnoses", () => {
@@ -57,8 +54,8 @@ test("registered Feynman plugin is kept active by injected topic usage and promo
 test("Guide merges only mounted toolkit actions and defaults to both toolkit descriptions", () => {
   const current = topic(["feynman", "shadowing"]);
   const actions = quickActionsForTopic(current, [feynmanToolkit, shadowingToolkit]);
-  assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "feynman-coach", "shadowing-coach"]);
-  assert.deepEqual(actions[1], feynmanToolkit.quickActions[0]);
+  assert.deepEqual(actions.map(action => action.id), ["plan-curriculum", "shadowing-coach"]);
+  assert.deepEqual(quickActionsForTopic(topic(["feynman"]), [feynmanToolkit]).map(action => action.id), ["plan-curriculum"]);
   assert.deepEqual(quickActionsForTopic(topic([]), [feynmanToolkit]).map(action => action.id), ["plan-curriculum"]);
   const prompt = buildScenePrompt({ profileMarkdown: "", topic: current, materials: [], userMessage: "Explain", availableToolkits: [shadowingToolkit, feynmanToolkit] });
   assert.match(prompt, /影子跟读/);

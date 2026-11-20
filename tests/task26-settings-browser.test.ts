@@ -50,7 +50,7 @@ test("Obsidian settings render the same protected runtime states", { timeout: 60
     await page.evaluate(() => {
       const fixture: any = (window as any).fixture = { speech: { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }, runtime: { supported: true, status: "failed", note: "existing failure" } };
       const controller = {
-        getAgentConfig: () => ({ agentId: "", persona: "studio", model: "", effort: "" }), isAgentConfigured: () => true,
+        getAgentConfig: () => ({ agentId: "", model: "", effort: "" }), isAgentConfigured: () => true,
         detectAgents: async () => [], probeAgentOptions: async () => [], getSpeechConfig: () => fixture.speech,
         setSpeechMode: async (mode: string) => { fixture.speech = mode === "cloud" ? { ttsProvider: "openai", asrProvider: "openai-whisper" } : { ttsProvider: "kokoro-local", asrProvider: "whisper-local" }; },
         speechRuntimeState: async () => fixture.runtime,

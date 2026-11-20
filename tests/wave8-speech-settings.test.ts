@@ -142,7 +142,7 @@ test("Obsidian preserves effort when changing model", async () => {
   const controller = new PithObsidianController({ id: "obsidian", storage: new NodeWorkspaceStorage(dir) });
   try {
     await controller.initialize();
-    await controller.setAgentConfig({ agentId: "dsh", model: "alpha", effort: "low", persona: "studio" });
+    await controller.setAgentConfig({ agentId: "dsh", model: "alpha", effort: "low" });
     controller.detectAgents = async () => [{ id: "dsh", available: true } as Awaited<ReturnType<typeof controller.detectAgents>>[number]];
     let selectedProbe!: () => void; const probed = new Promise<void>(resolve => { selectedProbe = resolve; });
     controller.probeAgentOptions = async () => { selectedProbe(); return [{ id: "model", name: "Model", type: "select", currentValue: "alpha", options: [{ value: "alpha", name: "Alpha" }, { value: "beta", name: "Beta" }] }, { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }] }]; };
@@ -217,8 +217,8 @@ test("Obsidian settings serialize offline intent across rebuilt panels and delay
     let release!: () => void, entered!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { entered = resolve; });
-    const setPersona = controller.setPersona.bind(controller);
-    controller.setPersona = async value => { entered(); await gate; await setPersona(value); };
+    const setSpeechMode = controller.setSpeechMode.bind(controller);
+    controller.setSpeechMode = async value => { entered(); await gate; await setSpeechMode(value); };
     let offlineDone!: () => void, releaseDsh!: () => void, dshDone!: () => void, dshCalls = 0;
     const offlineSaved = new Promise<void>(resolve => { offlineDone = resolve; });
     const dshGate = new Promise<void>(resolve => { releaseDsh = resolve; });
@@ -230,7 +230,7 @@ test("Obsidian settings serialize offline intent across rebuilt panels and delay
     const tab = new PithSettingTab({} as never, { getWorkspacePath: () => "Pith", setWorkspacePath: async () => false } as never, controller);
     const root = new Element(); tab.containerEl = root as never; tab.display();
     const field = (label: string) => { const node = root.children.find(item => item.textContent === label)!.children[0]!; return label === "本机 Agent" ? node.children[0]! : node; };
-    field("术语风格").value = "studio"; field("术语风格").onchange!(); await started;
+    field("语音服务模式").value = "cloud"; field("语音服务模式").onchange!(); await started;
     field("本机 Agent").value = ""; field("本机 Agent").onchange!();
     tab.display();
     const scan = root.children.find(node => node.textContent === "本机 Agent")!.children[0]!.children[1]!;

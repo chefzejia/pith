@@ -142,7 +142,7 @@ for (const shell of ["web", "obsidian"] as const) test(`${shell} settings drive 
       await page.exposeFunction("task28State", () => runtime.getState());
       await page.exposeFunction("task28Action", (action: "install" | "ensureRunning" | "stop" | "remove") => runtime[action]());
       await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
-      await page.evaluate(() => { const controller = { getAgentConfig: () => ({ agentId: "", persona: "studio", model: "", effort: "" }), isAgentConfigured: () => true, detectAgents: async () => [], probeAgentOptions: async () => [], getSpeechConfig: () => ({ ttsProvider: "kokoro-local", asrProvider: "whisper-local" }), speechRuntimeState: () => (window as any).task28State(), speechRuntimeAction: (action: string) => (window as any).task28Action(action) }; (window as any).tab = new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller); (window as any).tab.display(); });
+      await page.evaluate(() => { const controller = { getAgentConfig: () => ({ agentId: "", model: "", effort: "" }), isAgentConfigured: () => true, detectAgents: async () => [], probeAgentOptions: async () => [], getSpeechConfig: () => ({ ttsProvider: "kokoro-local", asrProvider: "whisper-local" }), speechRuntimeState: () => (window as any).task28State(), speechRuntimeAction: (action: string) => (window as any).task28Action(action) }; (window as any).tab = new (window as any).NativePith.PithSettingTab({}, { getWorkspacePath: () => "Pith" }, controller); (window as any).tab.display(); });
     }
     await page.getByRole("button", { name: "安装引擎" }).click();
     const progress = page.getByRole("progressbar", { name: "安装进度" });

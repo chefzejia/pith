@@ -457,3 +457,19 @@ test("source has no retired toolkit follow-up or instruction channel", () => {
     visit(file);
   }
 });
+
+test("source contains no fake surface persona symbols or UI controls", () => {
+  const forbidden = /SurfacePersona|DEFAULT_PERSONAS|simple-persona|setPersona|getPersona|术语风格/;
+  for (const sample of ["SurfacePersona", "DEFAULT_PERSONAS", "simple-persona", "setPersona", "getPersona", "术语风格"]) {
+    assert.match(sample, forbidden);
+  }
+  for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(SRC, file));
+});
+
+test("source contains no retired Feynman coach or zombie EffectKind names", () => {
+  const forbidden = /feynman-coach|费曼深水区追问|curate-topic|generate-lesson|evaluate-settlement/;
+  for (const sample of ["feynman-coach", "费曼深水区追问", "curate-topic", "generate-lesson", "evaluate-settlement"]) {
+    assert.match(sample, forbidden);
+  }
+  for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(SRC, file));
+});

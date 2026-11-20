@@ -210,7 +210,7 @@ export class PithObsidianController {
   private readonly interlineTranslator: InterlineTranslator | undefined;
   private readonly injectedGuide: boolean;
   private config: PluginsConfigFile = { preset: "all" };
-  private persona: "sanctuary" | "studio" = "sanctuary";
+  private disposed = false;
   private agentId: ObsidianAgentConfig["agentId"] = "";
   private agentConfigured = false;
   private model = "";
@@ -259,10 +259,9 @@ export class PithObsidianController {
     if (await this.host.storage.exists("_cache/web-settings.json")) {
       const data: unknown = JSON.parse(await this.host.storage.readText("_cache/web-settings.json"));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid settings");
-      const value = data as { preset?: unknown; persona?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown; agentTimeoutMs?: unknown };
+      const value = data as { preset?: unknown; plugins?: unknown; agentId?: unknown; agentConfigured?: unknown; model?: unknown; effort?: unknown; speech?: unknown; speechProfiles?: unknown; speechSettingsVersion?: unknown; agentTimeoutMs?: unknown };
       if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
-      if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
-      this.persona = value.persona;
+      if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && (typeof value.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(value.agentId))) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid settings");
       this.agentId = (value.agentId ?? "") as ObsidianAgentConfig["agentId"];
       this.agentConfigured = value.agentConfigured ?? value.agentId !== undefined;
       this.model = (value.model ?? "") as string;
@@ -274,6 +273,7 @@ export class PithObsidianController {
       this.config = { preset: value.preset, plugins: value.plugins as NonNullable<PluginsConfigFile["plugins"]> };
     }
     await this.refresh();
+    this.processEffects();
   }
   trainingToolkits(): readonly ToolkitDescriptor[] { return trainingToolkits; }
   hasGuideProvider(): boolean { return (this.injectedGuide || Boolean(this.agentId && this.host.process)) && this.runtime.statuses().some(plugin => plugin.id === "guide-acp" && plugin.state === "active"); }
@@ -289,10 +289,13 @@ export class PithObsidianController {
     this.topics = null; this.materials = null;
     try { [this.topics, this.materials] = await Promise.all([this.store.listTopics(), this.store.listMaterials()]); }
     finally {
-      const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona, ...(this.agentTimeoutSetting === undefined ? {} : { timeoutMs: this.agentTimeoutSetting }) };
+      const guideConfig = { agentId: this.agentId, model: this.model, effort: this.effort, ...(this.agentTimeoutSetting === undefined ? {} : { timeoutMs: this.agentTimeoutSetting }) };
       const config: PluginsConfigFile = { ...this.config, plugins: { ...this.config.plugins, "speech-service": { ...this.config.plugins?.["speech-service"], config: this.speechConfig }, "guide-acp": { ...this.config.plugins?.["guide-acp"], config: guideConfig } } };
       this.runtime.reconcile(config);
     }
+  }
+  processEffects(): void {
+    if (!this.disposed && this.hasGuideProvider()) void this.engine.processDueEffects().catch(error => console.error("Effect processing failed:", error));
   }
   private async save(fields: Partial<ObsidianAgentConfig> & { preset?: PluginsConfigFile["preset"]; plugins?: PluginsConfigFile["plugins"]; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1 }): Promise<void> {
     await MutationQueue.forStorage(this.host.storage).run(async () => {
@@ -300,7 +303,9 @@ export class PithObsidianController {
       const path = "_cache/web-settings.json";
       const saved: unknown = await this.host.storage.exists(path) ? JSON.parse(await this.host.storage.readText(path)) : {};
       if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid settings");
-      await this.host.storage.writeText(path, `${JSON.stringify({ preset: "all", persona: "sanctuary", plugins: {}, agentId: "", model: "", effort: "", ...saved, ...fields, agentConfigured: this.agentConfigured }, null, 2)}\n`);
+      const { persona: _legacyPersona, ...rest } = saved as Record<string, unknown>;
+      const { persona: _fieldPersona, ...cleanFields } = fields as Record<string, unknown>;
+      await this.host.storage.writeText(path, `${JSON.stringify({ preset: "all", plugins: {}, agentId: "", model: "", effort: "", ...rest, ...cleanFields, agentConfigured: this.agentConfigured }, null, 2)}\n`);
     });
   }
   async openCompass() { await this.refresh(); return this.engine.compass(); }
@@ -374,24 +379,28 @@ export class PithObsidianController {
     const reader = this.runtime.getService<StageReaderService>("stage.reader"); if (!reader || !reader.renderFile) throw new Error("阅读器不可用");
     return reader.renderFile(isSourceTextFile(file.name) ? { ...file, mimeType: "text/plain" } : file, bytes);
   }
-  async captureHighlight(topicId: string, body: string, anchor?: SelectionAnchor) { return this.engine.capture({ owner: { topicId }, kind: "highlight", body, anchor }); }
-  async setPersona(persona: "sanctuary" | "studio"): Promise<void> { this.persona = persona; await this.refresh(); await this.save({ persona }); }
+  async captureHighlight(topicId: string, body: string, anchor?: SelectionAnchor) {
+    const note = await this.engine.capture({ owner: { topicId }, kind: "highlight", body, anchor });
+    this.processEffects();
+    return note;
+  }
   async detectAgents(force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.detectAgents) throw new Error("Guide service unavailable"); return guide.detectAgents(force); }
   async probeAgentOptions(id: string, force = false) { const guide = this.runtime.getService<GuideAgentService>("guide.agent"); if (!guide || !guide.probeAgentOptions) throw new Error("Guide service unavailable"); return guide.probeAgentOptions(id, force); }
   async setAgentConfig(config: ObsidianAgentConfig): Promise<void> {
-    if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string" || (config.persona !== "sanctuary" && config.persona !== "studio")) throw new Error("Invalid agent config");
+    if (!["", "dsh", "claude", "codex"].includes(config.agentId) || typeof config.model !== "string" || typeof config.effort !== "string") throw new Error("Invalid agent config");
     const previous = this.hasGuideProvider();
-    this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort; this.persona = config.persona;
+    this.agentId = config.agentId; this.agentConfigured = true; this.model = config.model; this.effort = config.effort;
     await this.refresh(); await this.save(config);
     if (previous !== this.hasGuideProvider()) await this.updateGuideAvailability();
+    this.processEffects();
   }
   async setPlugins(config: PluginsConfigFile): Promise<void> {
     const previous = this.hasGuideProvider(); this.config = config; await this.refresh();
     await this.save({ preset: config.preset ?? "all", plugins: config.plugins ?? {} });
     if (previous !== this.hasGuideProvider()) await this.updateGuideAvailability();
+    this.processEffects();
   }
-  getPersona(): "sanctuary" | "studio" { return this.persona; }
-  getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort, persona: this.persona }; }
+  getAgentConfig(): ObsidianAgentConfig { return { agentId: this.agentId, model: this.model, effort: this.effort }; }
   isAgentConfigured(): boolean { return this.agentConfigured; }
   getSpeechConfig(): Record<string, string> { return { ...this.speechConfig }; }
   async speechRuntimeState() { return this.host.speechRuntime ? this.host.speechRuntime.getState() : { supported: false, status: "not-installed" as const, note: "无法确认 Vault 路径，本机语音不可用" }; }
@@ -404,7 +413,7 @@ export class PithObsidianController {
     return view;
   }
   releaseView(view: PithObsidianView): void { if (this.views.delete(view)) view.dispose(); }
-  dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); this.guideAvailabilityListeners.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
+  dispose(): void { this.disposed = true; for (const view of this.views) view.dispose(); this.views.clear(); this.guideAvailabilityListeners.clear(); this.runtime.stop(); if (this.host.speechRuntime && this.host.speechRuntime.stop) void this.host.speechRuntime.stop().catch(error => console.error("Speech runtime stop failed:", error)); }
 }
 
 const PITH_VIEW_TYPE = "pith-reader";
@@ -583,17 +592,17 @@ export class PithWorkspaceView extends obsidian.ItemView {
       prepareInterline: async (units, index, mode) => { const current = await this.controller.store.getTopic(topic.id), material = session.material, currentFile = session.file; if (!material || !current || !current.materialIds.includes(material.id) || !(await this.controller.store.getMaterial(material.id))?.aids.includes("interline")) throw new Error("行间未挂载"); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); const signature = JSON.stringify([material.id, units]); if (!interlineSession || interlineSession.file !== currentFile || interlineSession.signature !== signature) interlineSession = { file: currentFile, signature, session: this.controller.createInterlineSession(material.id, currentFile, units) }; return interlineSession.session.render(index, mode); },
       synthesizeSpeech: async (text, signal) => { const tts = this.controller.runtime.getService<SpeechTtsService>("speech.tts"); if (!tts || !tts.synthesizeSpeech) throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS"); try { return await tts.synthesizeSpeech(text, signal); } catch (error) { throw new Error("未连接可用的语音服务，请先启动本地语音服务或在设置中配置云端 TTS", { cause: error }); } },
       openToolkit: (text, locator) => { if (this.view) this.view.openToolkit(toolkits(), text, text === undefined || !session.source ? undefined : { source: session.source, file: session.file, locator: locator || "text:offset:0", quote: text }); },
-      selection: (action, text, locator) => { if (!session.source) throw new Error("文件来源不存在"); const anchor = { source: session.source, file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.capture({ owner: { topicId: topic.id }, kind: action, body: text, anchor }).then(async () => { if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
+      selection: (action, text, locator) => { if (!session.source) throw new Error("文件来源不存在"); const anchor = { source: session.source, file: session.file, locator: locator || "text:offset:0", quote: text }; if (action === "ask" || action === "note") { if (this.view) this.view.quoteSelection(anchor, action === "ask" ? "chat" : "notes"); return; } void this.controller.engine.capture({ owner: { topicId: topic.id }, kind: action, body: text, anchor }).then(async () => { this.controller.processEffects(); if (this.view) await this.view.refreshGuide(); }).catch(error => this.report(error)); },
       guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: (await this.controller.engine.getConversation(topic.id)).map(recoverInterruptedToolSteps), observations: await topicObservations(this.controller.store, topic.id), actions: this.controller.hasGuideProvider() && guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, toolkits()) : [], readOnly: updated.status === "settled" }; },
       undoObservation: id => undoTopicObservation(this.controller.store, this.controller.engine, topic.id, id),
       openMaterial: async id => { await session.refresh(); await session.openMaterial(id); },
-      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); return; } await runGuide({ text, anchor }); await session.refresh(); },
+      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); this.controller.processEffects(); return; } await runGuide({ text, anchor }); await session.refresh(); },
       checkRepositoryUpdate: async id => { const result = await this.controller.checkRepositoryUpdate(id); await session.refresh(); return result.added ? `已导入 @${result.material.commitSha?.slice(0, 7)}` : "已是最新版本"; },
       useRepositoryVersion: async id => { await session.refresh(await this.controller.useRepositoryVersion(topic.id, id)); },
       stopGuide: async () => { this.controller.stopGuide(topic.id); },
       retryGuide: async turnId => { await runGuide({ turnId }); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const selected = current.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(selected, this.controller.trainingToolkits()) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
-      savePractice: (body, anchor, result) => this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }),
+      savePractice: async (body, anchor, result) => { const note = await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }); this.controller.processEffects(); return note; },
       prepareRecall: async (source, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!this.controller.hasGuideProvider() || !service) throw new Error("向导未连接，费曼对照不可用"); return service.prepare(source, signal); },
       compareRecall: async (source, points, produced, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!this.controller.hasGuideProvider() || !service) throw new Error("向导未连接，费曼对照不可用"); return service.compare(source, points, produced, signal); },
       mountToolkit: async id => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); if (!current) throw new Error("课题不存在"); const present = current.toolkits.includes(id); const updated = present ? current : await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits([...current.toolkits, id], toolkits()) }); if (generation !== this.generation || this.view !== originatingView) throw new Error("课题已切换"); originatingView.setToolkits(updated.toolkits); },
@@ -644,13 +653,12 @@ export class PithSettingTab extends SettingTabBase {
     const unconfigured = agent.querySelector<HTMLOptionElement>('option[value="unconfigured"]'); if (unconfigured) unconfigured.disabled = true;
     const scan = doc.createElement("button"); scan.innerHTML = pithIcon("rotate-cw"); scan.type = "button"; scan.setAttribute("aria-label", "刷新本机 Agent"); scan.title = "刷新本机 Agent"; agentControls.append(scan);
     const model = select([], ""), effort = select([], ""); row(root, "模型（Model）", model); row(root, "推理强度（Effort）", effort);
-    const persona = select([["sanctuary", "花园 / 园丁"], ["studio", "工作区 / 向导"]], config.persona); row(root, "术语风格", persona);
-    const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"], value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId, persona: value }); status.textContent = "设置已保存"; }); };
+    const saveAgent = () => { const agentId = agent.value as ObsidianAgentConfig["agentId"]; void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), agentId }); status.textContent = "设置已保存"; }); };
     let probeGeneration = 0;
     const probe = (force = false) => { const id = agent.value, generation = ++probeGeneration; model.disabled = !id || id === "unconfigured"; effort.disabled = true; const current = this.controller.getAgentConfig(); renderAcpSelect(model, undefined, current.model); renderAcpSelect(effort, undefined, current.effort); if (model.disabled) return; void this.controller.probeAgentOptions(id, force).then(options => { if (generation !== probeGeneration || !root.contains(agent) || agent.value !== id) return; renderAcpSelect(model, options.find(item => item.id === "model"), model.value); renderAcpSelect(effort, options.find(item => item.id === "reasoning_effort" || item.id === "effort" || item.category === "thought_level"), effort.value); effort.disabled = false; }).catch(error => { if (generation === probeGeneration && root.contains(agent)) status.textContent = error instanceof Error ? error.message : String(error); }); };
     const saveOption = (name: "model" | "effort", value: string) => { void enqueue(async () => { await this.controller.setAgentConfig({ ...this.controller.getAgentConfig(), [name]: value }); status.textContent = "设置已保存"; }); };
     model.addEventListener("change", () => saveOption("model", model.value)); effort.addEventListener("change", () => saveOption("effort", effort.value));
-    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); probe(); }); persona.addEventListener("change", () => { const value = persona.value as ObsidianAgentConfig["persona"]; void enqueue(async () => { await this.controller.setPersona(value); status.textContent = "设置已保存"; }); });
+    agent.addEventListener("change", () => { this.agentIntent = agent.value as ObsidianAgentConfig["agentId"]; saveAgent(); probe(); });
     const detect = () => { scan.disabled = true; scan.textContent = "…"; void this.controller.detectAgents(true).then(agents => { const available = ["dsh", "claude", "codex"].map(id => agents.find(item => item.id === id && item.available)).find(Boolean); if (this.agentIntent === undefined && root.contains(agent) && !this.controller.isAgentConfigured() && available) { agent.value = available.id; saveAgent(); probe(); } else if (!available) status.textContent = "未发现可用 Agent"; }).catch(error => { status.textContent = String(error); }).finally(() => { scan.disabled = false; scan.innerHTML = pithIcon("rotate-cw"); }); }; scan.onclick = () => { detect(); probe(true); };
     heading("语音服务"); const speech = this.controller.getSpeechConfig();
     const currentMode = speechMode(speech);

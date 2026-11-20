@@ -120,10 +120,6 @@ test("Web, Obsidian adapter and DSH tools share a temporary workspace", async ()
     assert.equal(tools.some(item => item.name === "pith_update_profile"), false);
     assert.equal(tools.some(item => item.name === "pith_remember"), false);
     assert.equal((await controller.openCompass()).exploring[0]?.id, topicId);
-    await controller.setPersona("studio");
-    assert.equal(controller.getPersona(), "studio");
-    const switched = await (await fetch(base + "/api/state")).json() as { settings: { persona: string } };
-    assert.equal(switched.settings.persona, "studio");
     await controller.setPlugins({ preset: "essentials", plugins: { "toolkit-shadowing": { enabled: false } } });
     assert.equal(controller.runtime.statuses().find(item => item.id === "toolkit-shadowing")?.state, "active");
   } finally {

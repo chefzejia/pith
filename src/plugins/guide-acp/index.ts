@@ -1,5 +1,4 @@
 import {
-  DEFAULT_PERSONAS,
   libraryOverview,
   materialVersionGroups,
   lessonRepositoryMaterials,
@@ -119,13 +118,6 @@ registerPlugin({
   name: "Guide Collaborator (ACP/MCP)",
   description: "Sessionless attention & curriculum collaborator grounded in ME.md and Topic ledgers",
   settings: {
-    persona: {
-      type: "string",
-      title: "Surface persona",
-      description: "User-facing metaphor for workspace and AI collaborator",
-      default: "sanctuary",
-      enum: ["sanctuary", "studio"],
-    },
     agentId: {
       type: "string",
       title: "Local Agent CLI",
@@ -155,8 +147,6 @@ registerPlugin({
     },
   },
   apply(ctx) {
-    const personaId = String(ctx.config["persona"] ?? "sanctuary");
-    const persona = DEFAULT_PERSONAS[personaId] ?? DEFAULT_PERSONAS["sanctuary"]!;
     const timeout = ctx.config["timeoutMs"];
     if (typeof timeout !== "number") throw new Error("Invalid guide timeout");
     const agentId = String(ctx.config["agentId"] ?? "");
@@ -169,7 +159,6 @@ registerPlugin({
     const detector = new CachedAgentDetector({ processPort: host?.process });
 
     const service: GuideAgentService = {
-      persona,
       timeoutMs: timeout,
       actions: ["解释这段内容", "给我一个例子", "检验我的理解"],
       detectAgents: (force?: boolean) => detector.detect(force),

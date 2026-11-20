@@ -109,8 +109,8 @@ test("Obsidian translation uses persisted timeout and preserves it across settin
     const path = join(dir, "Pith/_cache/web-settings.json"); await mkdir(join(dir, "Pith/_cache"), { recursive: true }); await writeFile(path, savedSettings(settings));
     const controller = new PithObsidianController(createObsidianHostPort(adapter, "Pith", agent.port, adapter));
     try {
-      await controller.initialize(); await controller.setPersona("studio");
-      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.persona, "studio");
+      await controller.initialize(); await controller.setAgentConfig({ ...controller.getAgentConfig(), effort: "high" });
+      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.effort, "high"); assert.equal("persona" in saved, false);
       const result = await afterEveryDeadline(t, agent, () => controller.createInterlineSession("material", "a.md", units).render(0, "bilingual"));
       assert.ok(!(result instanceof Error)); assert.equal(result.status, "failed"); assert.match(result.error ?? "", new RegExp(`session/prompt timed out after ${expected}ms`));
     } finally { controller.dispose(); await rm(dir, { recursive: true, force: true }); }
@@ -136,8 +136,8 @@ test("Web translation uses persisted timeout and preserves it across settings ch
     const path = join(dir, "_cache/web-settings.json"); await writeFile(path, savedSettings(settings));
     const server: Server = await createPithWebServer({ workspaceDir: dir, processPort: agent.port }), address = server.address(); assert.ok(address && typeof address !== "string");
     try {
-      assert.equal((await post(address.port, "/api/settings", { persona: "studio" })).status, 200);
-      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.persona, "studio");
+      assert.equal((await post(address.port, "/api/settings", { effort: "high" })).status, 200);
+      const saved = JSON.parse(await readFile(path, "utf8")); assert.equal(saved.effort, "high"); assert.equal("persona" in saved, false);
       const result = await afterEveryDeadline(t, agent, () => post(address.port, "/api/interline", { topicId: topic.id, materialId: material.id, file: "a.md", mode: "bilingual", index: 0, units }));
       assert.ok(!(result instanceof Error)); assert.equal(result.status, 200); assert.equal(result.body.status, "failed"); assert.match(String(result.body.error), new RegExp(`session/prompt timed out after ${expected}ms`));
     } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); }

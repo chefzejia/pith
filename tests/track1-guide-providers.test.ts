@@ -408,7 +408,6 @@ test("Track 1: guide-acp plugin auto-wires LocalAcpGuideProvider into AttentionE
       "guide-acp": {
         enabled: true,
         config: {
-          persona: "studio",
           agentId: "dsh",
           timeoutMs: 15000,
         },
@@ -449,7 +448,7 @@ test("background next action rejects tool output without changing learner eviden
     });
   } });
   const runtime = new PluginRuntime(builtinRegistry.list(), { host: { id: "memory", storage, process: port }, store, engine, window: {} });
-  runtime.reconcile({ preset: "all", plugins: { "guide-acp": { enabled: true, config: { persona: "studio", agentId: "dsh", model: "fixture-model", effort: "high", timeoutMs: 15000 } } } });
+  runtime.reconcile({ preset: "all", plugins: { "guide-acp": { enabled: true, config: { agentId: "dsh", model: "fixture-model", effort: "high", timeoutMs: 15000 } } } });
   const tool = (name: string, args: Record<string, unknown>) => `\`\`\`pith-tool\n${JSON.stringify({ name, arguments: args })}\n\`\`\``;
   const examples = [
     `15 分钟微实验。\n${tool("pith_save_note", { topicId: topic.id, body: "15 分钟微实验记录：测试时被迫触碰磁盘。" })}`,

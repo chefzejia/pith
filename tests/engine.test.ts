@@ -39,15 +39,15 @@ test("a running effect retains a later same-key effect and records failures", as
   try {
     const storage = new NodeWorkspaceStorage(dir); const store = new DefaultWorkspaceStore(storage);
     const engine = new DefaultAttentionEngine(store, storage);
-    await engine.enqueueEffect("curate-topic", "t", { revision: 1 });
+    await engine.enqueueEffect("prepare-next-action", "t", { revision: 1 });
     let started!: () => void; let release!: () => void;
     const entered = new Promise<void>(resolve => { started = resolve; });
     const gate = new Promise<void>(resolve => { release = resolve; });
     const calls: unknown[] = [];
-    engine.registerEffectHandler("curate-topic", async payload => { calls.push(payload.revision); if (payload.revision === 1) { started(); await gate; } else throw new Error("offline"); });
+    engine.registerEffectHandler("prepare-next-action", async payload => { calls.push(payload.revision); if (payload.revision === 1) { started(); await gate; } else throw new Error("offline"); });
     const processing = engine.processDueEffects();
     await entered;
-    await engine.enqueueEffect("curate-topic", "t", { revision: 2 });
+    await engine.enqueueEffect("prepare-next-action", "t", { revision: 2 });
     release();
     assert.equal(await processing, 2);
     assert.deepEqual(calls, [1, 2]);

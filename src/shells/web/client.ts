@@ -14,7 +14,7 @@ import type { BoardMaterial } from "../../workbench/boardMaterials.ts";
 import type { AcpConfigOptionDescriptor, AttentionCompassSnapshot, DiscoveredAgentDescriptor, GuideTurn, ManagedSpeechState, Material, PluginStatus, Topic } from "../../core/index.ts";
 import type { SessionState } from "../../workbench/materialSession.ts";
 
-interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
+interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string> }
 interface WebState { compass: AttentionCompassSnapshot; materials: readonly Material[]; boardMaterials: readonly BoardMaterial[]; settings: WebSettings; guideConfigured: boolean; plugins: readonly PluginStatus[] }
 const requiredElement = (selector: string): HTMLElement => { const node = Array.from(document.querySelectorAll(selector)).find(item => !item.closest(".pith-article")); if (!(node instanceof HTMLElement)) throw new Error(`Missing ${selector}`); return node; };
 const requiredHost = requiredElement;
@@ -130,8 +130,8 @@ async function openMaterial(id: string): Promise<void> {
 let settingsPending = Promise.resolve(), agentIntent: string | undefined;
 function openSimpleSettings() {
   drawer.hidden = false;
-  drawer.innerHTML = '<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <span class="pith-setting-control"><select id="simple-agent"><option value="">\u79BB\u7EBF</option><option value="dsh">dsh</option><option value="claude">claude</option><option value="codex">codex</option></select><button type="button" id="simple-scan" aria-label="刷新本机 Agent" title="刷新本机 Agent"></button></span></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><label>\u672F\u8BED\u98CE\u683C <select id="simple-persona"><option value="sanctuary">\u82B1\u56ED / \u56ED\u4E01</option><option value="studio">\u5DE5\u4F5C\u533A / \u5411\u5BFC</option></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><div id="simple-cloud-fields"><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></div><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><div id="simple-status" role="status"></div></div>';
-  const agent = requiredSelect("#simple-agent"), model = requiredSelect("#simple-model"), effort = requiredSelect("#simple-effort"), persona = requiredSelect("#simple-persona"), mode = requiredSelect("#simple-mode"), status = requiredHost("#simple-status"), speech = state.settings.speech || {};
+  drawer.innerHTML = '<button class="button" id="close-drawer">\u5173\u95ED</button><h2>\u5411\u5BFC Agent \u4E0E\u5DE5\u4F5C\u533A</h2><div class="form"><label>\u672C\u673A Agent <span class="pith-setting-control"><select id="simple-agent"><option value="">\u79BB\u7EBF</option><option value="dsh">dsh</option><option value="claude">claude</option><option value="codex">codex</option></select><button type="button" id="simple-scan" aria-label="刷新本机 Agent" title="刷新本机 Agent"></button></span></label><label>\u6A21\u578B\uFF08Model\uFF09 <select id="simple-model"></select></label><label>\u63A8\u7406\u5F3A\u5EA6\uFF08Effort\uFF09 <select id="simple-effort"></select></label><h2>\u8BED\u97F3\u670D\u52A1</h2><label>\u8BED\u97F3\u670D\u52A1\u6A21\u5F0F <select id="simple-mode"><option value="local">\u672C\u673A\u8BED\u97F3\uFF08\u81EA\u52A8\u8FDE\u63A5\uFF09</option><option value="cloud">\u4E91\u7AEF\u8BED\u97F3\uFF08OpenAI \u517C\u5BB9\uFF09</option></select></label><div id="speech-runtime"></div><label id="simple-key-row">API Key <input id="simple-key" type="password" autocomplete="new-password"></label><div id="simple-cloud-fields"><label>TTS \u7AEF\u70B9 URL <input data-speech-field="ttsEndpoint"></label><label>TTS \u6A21\u578B <input data-speech-field="ttsModel"></label><label>\u97F3\u8272 <input data-speech-field="ttsVoice"></label><label>ASR \u7AEF\u70B9 URL <input data-speech-field="asrLoopbackUrl"></label><label>ASR \u6A21\u578B <input data-speech-field="asrModel"></label></div><button type="button" id="simple-health">\u68C0\u6D4B\u8FDE\u63A5</button><div id="simple-status" role="status"></div></div>';
+  const agent = requiredSelect("#simple-agent"), model = requiredSelect("#simple-model"), effort = requiredSelect("#simple-effort"), mode = requiredSelect("#simple-mode"), status = requiredHost("#simple-status"), speech = state.settings.speech || {};
   requiredButton("#simple-scan").innerHTML = pithIcon("rotate-cw");
   if (!state.settings.agentConfigured) {
     const option = document.createElement("option");
@@ -141,7 +141,6 @@ function openSimpleSettings() {
     agent.prepend(option);
   }
   agent.value = agentIntent !== void 0 ? agentIntent : state.settings.agentConfigured ? state.settings.agentId : "unconfigured";
-  persona.value = state.settings.persona;
   const currentMode = speechMode(speech);
   if (currentMode === "legacy") {
     const option = document.createElement("option");
@@ -202,7 +201,6 @@ function openSimpleSettings() {
     save({ agentId: agent.value });
     probe();
   };
-  persona.onchange = () => save({ persona: persona.value });
   mode.onchange = () => {
     visibility();
     const selected = mode.value;

@@ -14,7 +14,6 @@ import type {
   Material,
   MaterialFileEntry,
   SelectionAnchor,
-  SurfacePersona,
   Topic,
 } from "./types.ts";
 
@@ -327,7 +326,6 @@ export interface ExternalIngestBundle {
 }
 
 export interface GuideAgentService {
-  readonly persona: SurfacePersona;
   readonly timeoutMs: number;
   readonly actions: readonly string[];
   detectAgents?(force?: boolean): Promise<readonly DiscoveredAgentDescriptor[]>;

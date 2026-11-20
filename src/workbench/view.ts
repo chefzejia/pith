@@ -25,7 +25,6 @@ export interface ObsidianAgentConfig {
   readonly agentId: "" | "dsh" | "claude" | "codex";
   readonly model: string;
   readonly effort: string;
-  readonly persona: "sanctuary" | "studio";
 }
 
 

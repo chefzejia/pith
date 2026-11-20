@@ -41,8 +41,9 @@ test("web shell serves course, records notes and honors plugin in-use locks", as
     assert.equal(chat.status, 503);
     assert.match((await chat.json() as { error: string }).error, /向导未连接/);
     assert.equal((await get(`/api/chat?topicId=${topic.id}`)).length, 0);
-    const settings = await post("/api/plugins", { preset: "essentials", persona: "studio" });
-    assert.equal(settings.settings.persona, "studio");
+    const settings = await post("/api/plugins", { preset: "essentials" });
+    assert.equal(settings.settings.preset, "essentials");
+    assert.equal("persona" in settings.settings, false);
     const locked = await post("/api/plugins", { id: "stage-reader", enabled: false });
     assert.equal(locked.plugins.find((p: any) => p.id === "stage-reader").source, "in-use");
     await store.updateTopic(topic.id, { toolkits: ["shadowing"] });

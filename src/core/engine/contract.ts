@@ -1,14 +1,12 @@
 /**
  * Pith Attention Engine & Durable Effects Queue Contract (`src/core/engine/`).
  *
- * Inspired by `dsh-superagent` (`001-domain.md` & `007-architecture.md`):
  * 1. Sessionless by design: callers interact with durable `Topic` entities and
- *    synchronous/fast commands (`recordSelection`, `askGuide`, `settleTopic`,
- *    `enqueueEffect`), never blocking on raw LLM sessions.
- * 2. Coalescing durable Effects queue: background tasks (`curate-topic`,
- *    `prepare-next-action`, `generate-lesson`, `transcribe-media`) are keyed by
- *    `(kind, key)`. Enqueuing the same waiting key replaces its payload in place
- *    without duplicating LLM calls.
+ *    synchronous/fast commands (`capture`, `intake`, `runTurn`, `enqueueEffect`),
+ *    never blocking on raw LLM sessions.
+ * 2. Coalescing durable Effects queue: background tasks (`prepare-next-action`)
+ *    are keyed by `(kind, key)`. Enqueuing the same waiting key replaces its
+ *    payload in place without duplicating LLM calls.
  * 3. Graceful offline degradation: when no Guide provider (`guide.agent`) is
  *    mounted or configured, all manual reading, highlighting, note-taking, and
  *    stage operations succeed immediately while queued AI effects remain safely
@@ -17,11 +15,7 @@
 
 import type { Material, Note, NoteKind, SelectionAnchor, Topic, UnreadableEntry } from "../types.ts";
 
-export type EffectKind =
-  | "curate-topic"
-  | "prepare-next-action"
-  | "generate-lesson"
-  | "evaluate-settlement";
+export type EffectKind = "prepare-next-action";
 
 export type EffectStatus = "pending" | "running" | "failed" | "completed";
 

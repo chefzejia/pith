@@ -30,7 +30,7 @@ import { sampleMaterialText } from "../../workbench/importMaterial.ts";
 import { NodeManagedSpeechRuntime } from "../speech/speechRuntime.ts";
 import type { AgentProcessPort, AgentPromptService, HttpPort, ManagedSpeechRuntimePort } from "../../core/index.ts";
 
-interface WebSettings { preset: "essentials" | "all"; persona: "sanctuary" | "studio"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
+interface WebSettings { preset: "essentials" | "all"; plugins: Record<string, { enabled: boolean }>; agentId: "" | "dsh" | "claude" | "codex"; agentConfigured?: boolean; model: string; effort: string; speech?: Record<string, string>; speechProfiles?: SpeechProfiles; speechSettingsVersion?: 1; agentTimeoutMs?: unknown }
 export interface PithWebServerOptions { workspaceDir: string; port?: number; guideProvider?: GuideProvider; promptService?: AgentPromptService; interlineTranslator?: InterlineTranslator; speechRuntime?: ManagedSpeechRuntimePort; http?: HttpPort; processPort?: AgentProcessPort }
 
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -79,20 +79,21 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
   let localProvider: GuideProvider | undefined;
   const engine = new DefaultAttentionEngine(store, storage, () => options.guideProvider ?? (settings.agentId ? localProvider : undefined));
   const snapshot: WorkspaceSnapshot = { topics: [], materials: [], known: false };
-  let settings: WebSettings = { preset: "all", persona: "sanctuary", plugins: {}, agentId: "", agentConfigured: false, model: "", effort: "" };
+  let settings: WebSettings = { preset: "all", plugins: {}, agentId: "", agentConfigured: false, model: "", effort: "" };
   async function loadSettings(): Promise<void> {
     if (!await storage.exists("_cache/web-settings.json")) return;
     const saved: unknown = JSON.parse(await storage.readText("_cache/web-settings.json"));
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid web settings");
-    const value = saved as Partial<WebSettings>;
+    const { persona: _legacyPersona, ...rest } = saved as Record<string, unknown>;
+    const value = rest as Partial<WebSettings>;
     if (value.agentConfigured !== undefined && typeof value.agentConfigured !== "boolean") throw new Error("Invalid agent configuration state");
-    if ((value.preset !== "all" && value.preset !== "essentials") || (value.persona !== "sanctuary" && value.persona !== "studio") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && !["", "dsh", "claude", "codex"].includes(value.agentId)) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid web settings");
+    if ((value.preset !== "all" && value.preset !== "essentials") || !value.plugins || typeof value.plugins !== "object" || Array.isArray(value.plugins) || (value.agentId !== undefined && !["", "dsh", "claude", "codex"].includes(value.agentId)) || (value.model !== undefined && typeof value.model !== "string") || (value.effort !== undefined && typeof value.effort !== "string")) throw new Error("Invalid web settings");
     if (value.speechProfiles !== undefined && !validSpeechProfiles(value.speechProfiles)) throw new Error("Invalid speech profiles");
     if (value.speechSettingsVersion !== undefined && value.speechSettingsVersion !== 1) throw new Error("Invalid speech settings version");
-    settings = { ...value, ...(value.speech ? { speech: migrateLegacySpeech(value.speech, value.speechSettingsVersion, value.speechProfiles) } : {}), preset: value.preset, persona: value.persona, plugins: value.plugins, agentId: value.agentId ?? "", agentConfigured: value.agentConfigured ?? value.agentId !== undefined, model: value.model ?? "", effort: value.effort ?? "" };
+    settings = { ...value, ...(value.speech ? { speech: migrateLegacySpeech(value.speech, value.speechSettingsVersion, value.speechProfiles) } : {}), preset: value.preset, plugins: value.plugins, agentId: value.agentId ?? "", agentConfigured: value.agentConfigured ?? value.agentId !== undefined, model: value.model ?? "", effort: value.effort ?? "" };
   }
   await loadSettings();
-  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, persona: settings.persona, ...(settings.agentTimeoutMs === undefined ? {} : { timeoutMs: settings.agentTimeoutMs }) } } } });
+  const config = (): PluginsConfigFile => ({ preset: settings.preset, plugins: { ...settings.plugins, "speech-service": { ...settings.plugins["speech-service"], config: settings.speech ?? {} }, "guide-acp": { ...settings.plugins["guide-acp"], config: { agentId: settings.agentId, model: settings.model, effort: settings.effort, ...(settings.agentTimeoutMs === undefined ? {} : { timeoutMs: settings.agentTimeoutMs }) } } } });
   const processPort = options.processPort ?? new NodeAgentProcessPort({ workspaceRoot: options.workspaceDir });
   const repository = new NodeRepositoryPort();
   const http = options.http ?? new NodeHttpPort();
@@ -508,7 +509,6 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
         if (data.agentId !== undefined && (typeof data.agentId !== "string" || !["", "dsh", "claude", "codex"].includes(data.agentId))) throw new Error("Invalid agentId");
         if (data.model !== undefined && typeof data.model !== "string") throw new Error("Invalid model");
         if (data.effort !== undefined && typeof data.effort !== "string") throw new Error("Invalid effort");
-        if (data.persona !== undefined && data.persona !== "sanctuary" && data.persona !== "studio") throw new Error("Invalid persona");
         if (data.speech !== undefined && (!data.speech || typeof data.speech !== "object" || Array.isArray(data.speech) || Object.entries(data.speech).some(([key, value]) => !["ttsProvider", "ttsEndpoint", "ttsModel", "ttsVoice", "azureRegion", "asrProvider", "asrLoopbackUrl", "asrModel"].includes(key) || typeof value !== "string"))) throw new Error("Invalid speech settings");
         if (data.speechMode !== undefined && (data.speechMode !== "local" && data.speechMode !== "cloud" || data.speech !== undefined)) throw new Error("Invalid speech mode");
         if (data.secrets !== undefined && (!data.secrets || typeof data.secrets !== "object" || Array.isArray(data.secrets) || Object.entries(data.secrets).some(([key, value]) => !["OPENAI_API_KEY", "AZURE_SPEECH_KEY"].includes(key) || typeof value !== "string"))) throw new Error("Invalid secrets");
@@ -517,7 +517,7 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
           await loadSettings();
           if (data.speechMode !== undefined) { const next = switchSpeechMode(settings.speech ?? {}, settings.speechProfiles ?? {}, data.speechMode as SpeechMode); settings = { ...settings, speech: next.speech, speechProfiles: next.profiles }; }
           if (data.speech !== undefined || data.speechMode !== undefined) settings = { ...settings, speechSettingsVersion: 1 };
-          settings = { ...settings, ...(data.speech !== undefined ? { speech: data.speech as Record<string, string> } : {}), ...(data.agentId !== undefined ? { agentId: data.agentId as WebSettings["agentId"], agentConfigured: true } : {}), ...(data.model !== undefined ? { model: data.model as string } : {}), ...(data.effort !== undefined ? { effort: data.effort as string } : {}), ...(data.persona !== undefined ? { persona: data.persona as WebSettings["persona"] } : {}) };
+          settings = { ...settings, ...(data.speech !== undefined ? { speech: data.speech as Record<string, string> } : {}), ...(data.agentId !== undefined ? { agentId: data.agentId as WebSettings["agentId"], agentConfigured: true } : {}), ...(data.model !== undefined ? { model: data.model as string } : {}), ...(data.effort !== undefined ? { effort: data.effort as string } : {}) };
           await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
         });
         await refresh(); processEffects();
@@ -526,7 +526,6 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
       if (url.pathname === "/api/plugins" && method === "POST") {
         const data = await body(req);
         if (data.preset !== undefined && data.preset !== "all" && data.preset !== "essentials") throw new Error("Invalid preset");
-        if (data.persona !== undefined && data.persona !== "sanctuary" && data.persona !== "studio") throw new Error("Invalid persona");
         await MutationQueue.forStorage(storage).run(async () => {
           await loadSettings();
           if (data.id !== undefined) {
@@ -535,7 +534,6 @@ export async function createPithWebServer(options: PithWebServerOptions): Promis
             settings.plugins[id] = { enabled: data.enabled };
           }
           if (data.preset === "all" || data.preset === "essentials") settings.preset = data.preset;
-          if (data.persona === "sanctuary" || data.persona === "studio") settings.persona = data.persona;
           await storage.writeText("_cache/web-settings.json", `${JSON.stringify(settings, null, 2)}\n`);
         });
         await refresh(); return send(res, 200, { settings, plugins: runtime.statuses() });

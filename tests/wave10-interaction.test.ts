@@ -42,7 +42,7 @@ test("settings save secrets only through encrypted storage and report saved heal
   const storage = { getSecret: (id: string) => values.get(id) ?? null, setSecret: (id: string, value: string) => { values.set(id, value); }, isEncryptionAvailable: () => true };
   const plugin = { app: { secretStorage: storage }, saveSpeechSecret: (value: string) => { saveObsidianSecret(storage, "OPENAI_API_KEY", value); return "encrypted"; }, getWorkspacePath: () => "Pith", setWorkspacePath: async () => false };
   const controller = {
-    getAgentConfig: () => ({ agentId: "", persona: "sanctuary" }), isAgentConfigured: () => true, getSpeechConfig: () => ({}),
+    getAgentConfig: () => ({ agentId: "", model: "", effort: "" }), isAgentConfigured: () => true, getSpeechConfig: () => ({}),
     detectAgents: async () => [],
     speechRuntimeState: async () => ({ supported: false, status: "not-installed", note: "unsupported" }),
     setAgentConfig: async (config: unknown) => { writes.push(config); }, setSpeechConfig: async (config: unknown) => { writes.push(config); },
