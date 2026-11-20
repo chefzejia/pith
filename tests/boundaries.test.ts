@@ -473,3 +473,19 @@ test("source contains no retired Feynman coach or zombie EffectKind names", () =
   }
   for (const file of walkTsFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(SRC, file));
 });
+
+function walkAllFiles(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) results.push(...walkAllFiles(full));
+    else if (entry.isFile()) results.push(full);
+  }
+  return results;
+}
+
+test("topic material references never use Obsidian double links", () => {
+  const forbidden = /\[\[materials\//;
+  assert.match("[[materials/material-1/material]]", forbidden);
+  for (const file of walkAllFiles(SRC)) assert.doesNotMatch(readFileSync(file, "utf8"), forbidden, relative(ROOT, file));
+});

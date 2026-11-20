@@ -64,7 +64,9 @@ test("serializes concurrent mutations across adapters sharing an identity", asyn
   const [notes] = await Promise.all([Promise.all(noteRequests), other.updateTopic(created.id, { title: "Updated", toolkits: ["feynman"] })]);
   const topic = await store.getTopic(created.id); assert.ok(topic);
   assert.equal(topic.title, "Updated"); assert.deepEqual(topic.materialIds, [material.id]); assert.deepEqual(topic.notes, notes.map(note => ({ ...note, result: undefined })));
-  assert.match(await storage.readText(`topics/${created.id}/topic.md`), new RegExp(`materials/${material.id}/material`));
+  const topicMarkdown = await storage.readText(`topics/${created.id}/topic.md`);
+  assert.deepEqual(parseFrontmatter(topicMarkdown).attributes.materials, [material.id]);
+  assert.doesNotMatch(topicMarkdown, /\[\[materials\//);
   await assert.rejects(store.updateTopic(created.id, { title: "" }));
   assert.equal((await other.updateTopic(created.id, { title: "Recovered" })).title, "Recovered");
 });
@@ -119,4 +121,61 @@ test("round-trips controlled frontmatter and preserves Markdown bodies", () => {
   assert.deepEqual(parseFrontmatter(stringifyFrontmatter(doc, "\n# Body\n")), { attributes: doc, body: "\n# Body\n" });
   assert.deepEqual(parseFrontmatter("---\ntoolkits: [shadowing, 'a,b']\n---\n").attributes.toolkits, ["shadowing", "a,b"]);
   assert.throws(() => parseFrontmatter("---\ntype: a\ntype: b\n---\n"));
+  for (const materials of [[], ["material-20261120-alpha"], ["material-20261120-alpha", "material-20261120-beta"]]) {
+    const serialized = stringifyFrontmatter({ type: "pith-topic", materials }, "\n");
+    assert.deepEqual(parseFrontmatter(serialized).attributes.materials, materials);
+  }
+});
+
+test("topics write plain material IDs and isolate legacy double-links or invalid IDs without mutating bytes", async () => {
+  const storage = new MemoryStorage(), store = new DefaultWorkspaceStore(storage);
+  const first = await store.importMaterial({ title: "First", kind: "article", files: [{ name: "a.md", bytes: new TextEncoder().encode("a") }] });
+  const second = await store.importMaterial({ title: "Second", kind: "article", files: [{ name: "b.md", bytes: new TextEncoder().encode("b") }] });
+  const topic = await store.createTopic({ title: "Plain IDs", target: "Read", materialIds: [first.id], toolkits: [] });
+  assert.deepEqual(parseFrontmatter(await storage.readText(`topics/${topic.id}/topic.md`)).attributes.materials, [first.id]);
+  const attached = await store.attachMaterial(topic.id, second.id);
+  assert.deepEqual(attached.materialIds, [first.id, second.id]);
+  const attachedRaw = await storage.readText(`topics/${topic.id}/topic.md`);
+  assert.deepEqual(parseFrontmatter(attachedRaw).attributes.materials, [first.id, second.id]);
+  assert.doesNotMatch(attachedRaw, /\[\[materials\//);
+
+  for (const badId of ["Material-1", "material_1", `[[materials/${first.id}/material]]`, "../escape", "", "-leading", "trailing-", "double--dash"]) {
+    await assert.rejects(store.createTopic({ title: "Bad", target: "Learn", materialIds: [badId], toolkits: [] }), /Invalid material ID/);
+    await assert.rejects(store.attachMaterial(topic.id, badId), /Invalid material ID/);
+  }
+  await assert.rejects(store.createTopic({ title: "Dup", target: "Learn", materialIds: [first.id, first.id], toolkits: [] }), /Duplicate material ID/);
+
+  const legacyCases = [
+    { id: "topic-legacy-link", materials: [`[[materials/${first.id}/material]]`], error: /Invalid material ID/ },
+    { id: "topic-bad-case", materials: ["Material-Alpha"], error: /Invalid material ID/ },
+    { id: "topic-bad-underscore", materials: ["material_alpha"], error: /Invalid material ID/ },
+    { id: "topic-bad-dup", materials: [first.id, first.id], error: /Duplicate material ID/ },
+  ];
+  for (const entry of legacyCases) {
+    const raw = stringifyFrontmatter({
+      type: "pith-topic", id: entry.id, title: entry.id, target: "Learn", status: "exploring",
+      materials: entry.materials, toolkits: [], lessons: [], createdAt: "2026-11-20T00:00:00.000Z", updatedAt: "2026-11-20T00:00:00.000Z",
+    }, "\n");
+    await storage.mkdir("topics");
+    await storage.mkdir(`topics/${entry.id}`);
+    await storage.writeText(`topics/${entry.id}/topic.md`, raw);
+    await assert.rejects(store.getTopic(entry.id), entry.error);
+    await assert.rejects(store.updateTopic(entry.id, { title: "Changed" }), entry.error);
+    await assert.rejects(store.attachMaterial(entry.id, second.id), entry.error);
+    await assert.rejects(store.appendTopicNote(entry.id, { kind: "note", author: "user", body: "x" }), entry.error);
+    await assert.rejects(store.writeLesson(entry.id, "01.md", "# x"), entry.error);
+    await assert.rejects(store.rebaseLesson(entry.id, "01.md"), entry.error);
+    await assert.rejects(store.updateLessonLocator(entry.id, "01.md", "text:line:0"), entry.error);
+    await assert.rejects(store.addObservation({ text: "obs", topicId: entry.id }), entry.error);
+    assert.equal(await storage.readText(`topics/${entry.id}/topic.md`), raw);
+  }
+  const readableIds = (await store.listTopics()).map(item => item.id);
+  assert.deepEqual(readableIds, [topic.id]);
+  const unreadable = await store.listUnreadable();
+  for (const entry of legacyCases) {
+    const found = unreadable.find(item => item.id === entry.id);
+    assert.ok(found, `expected ${entry.id} in unreadable`);
+    assert.equal(found.path, `topics/${entry.id}/topic.md`);
+    assert.match(found.error, entry.error);
+  }
 });

@@ -54,8 +54,15 @@ function readableId(prefix: string, title: string, date: Date): string {
   return `${prefix}-${day}-${!nonLatin && slug ? slug : hash.toString(36).padStart(7, "0")}`;
 }
 
+const plainMaterialIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 function name(value: string): string {
   if (!value || value === "." || value === ".." || /[/\\\0]/.test(value)) throw new Error("Invalid path component");
+  return value;
+}
+
+function plainMaterialId(value: unknown): string {
+  if (typeof value !== "string" || !plainMaterialIdPattern.test(value)) throw new Error("Invalid material ID");
   return value;
 }
 
@@ -151,12 +158,8 @@ function parseTopic(markdown: string): { topic: Topic; attributes: Frontmatter; 
   if (status !== "exploring" && status !== "shelved" && status !== "settled") throw new Error("Invalid topic status");
   if (!Array.isArray(a.toolkits) || !a.toolkits.every(item => typeof item === "string")) throw new Error("Invalid toolkits");
   if (!Array.isArray(a.materials)) throw new Error("Invalid materials");
-  const materialIds = a.materials.map(item => {
-    const id = typeof item === "string" ? /^\[\[materials\/([^/]+)\/material\]\]$/.exec(item)?.[1] : undefined;
-    if (!id) throw new Error("Invalid material link");
-    return name(id);
-  });
-  if (new Set(materialIds).size !== materialIds.length) throw new Error("Duplicate material link");
+  const materialIds = a.materials.map(plainMaterialId);
+  if (new Set(materialIds).size !== materialIds.length) throw new Error("Duplicate material ID");
   if (!Array.isArray(a.lessons)) throw new Error("Invalid lessons");
   const lessons = a.lessons.map(item => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invalid lesson");
@@ -370,8 +373,9 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       const path = `topics/${id}/topic.md`;
       if (await this.storage.exists(path)) throw new Error("Topic already exists");
       const now = new Date().toISOString();
-      for (const materialId of input.materialIds) if (!await this.getMaterial(materialId)) throw new Error("Material not found");
-      const a: Frontmatter = { type: "pith-topic", id, title: input.title, target: input.target, status: "exploring", materials: input.materialIds.map(materialId => `[[materials/${name(materialId)}/material]]`), toolkits: [...input.toolkits], lessons: [], createdAt: now, updatedAt: now };
+      const materialIds = input.materialIds.map(plainMaterialId);
+      for (const materialId of materialIds) if (!await this.getMaterial(materialId)) throw new Error("Material not found");
+      const a: Frontmatter = { type: "pith-topic", id, title: input.title, target: input.target, status: "exploring", materials: materialIds, toolkits: [...input.toolkits], lessons: [], createdAt: now, updatedAt: now };
       if (input.nextAction !== undefined) a.nextAction = input.nextAction;
       const markdown = stringifyFrontmatter(a, "\n");
       const topic = parseTopic(markdown).topic;
@@ -397,11 +401,12 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
   }
   attachMaterial(topicId: string, materialId: string): Promise<Topic> {
     return this.queue.run(async () => {
-      if (!await this.getMaterial(materialId)) throw new Error("Material not found");
+      const validId = plainMaterialId(materialId);
+      if (!await this.getMaterial(validId)) throw new Error("Material not found");
       const path = `topics/${name(topicId)}/topic.md`, { attributes, body, topic } = parseTopic(await this.storage.readText(path));
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
-      if (topic.materialIds.includes(materialId)) return topic;
-      attributes.materials = [...topic.materialIds, name(materialId)].map(id => `[[materials/${id}/material]]`);
+      if (topic.materialIds.includes(validId)) return topic;
+      attributes.materials = [...topic.materialIds, validId];
       attributes.updatedAt = new Date().toISOString();
       const markdown = stringifyFrontmatter(attributes, body), updated = parseTopic(markdown).topic;
       await this.storage.writeText(path, markdown);
