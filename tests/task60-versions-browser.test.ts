@@ -137,7 +137,10 @@ test('Web single-lesson rewrite drafts first, then sends one ordinary user messa
     await page.goto(`http://127.0.0.1:${address.port}`);
     await page.locator(`[data-topic="${topic.id}"]`).first().click();
     await page.locator('.pith-article h1').getByText('变化讲义', { exact: true }).waitFor();
-    await page.locator('.pith-nav-toggle').click(); await page.locator(`[data-use-version="${second.id}"]`).click();
+    await page.locator('.pith-nav-toggle').click();
+    await page.locator('.pith-article h1').evaluate((el: HTMLElement) => { el.dataset.beforeRefresh = '1'; });
+    await page.locator(`[data-use-version="${second.id}"]`).click();
+    await page.waitForFunction(() => !document.querySelector('[data-use-version]') && !document.querySelector('.pith-article h1')?.hasAttribute('data-before-refresh'));
     const rewrite = page.locator(rewriteSelector);
     await rewrite.click();
     assert.deepEqual(requests, [], 'rewrite must not send before user confirmation');

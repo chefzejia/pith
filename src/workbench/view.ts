@@ -353,6 +353,7 @@ export class PithWorkbenchView {
     this.voice.cancel();
     if (this.interline) this.interline.dispose(); this.interline = null; this.interlineMode = "original";
     this.readerPosition = null;
+    const previousFile = this.currentFile, previousSource = this.currentSource;
     this.currentFile = document.currentFile;
     this.currentSource = document.source;
     const previousMaterialNotes = this.materialNotes;
@@ -379,7 +380,7 @@ export class PithWorkbenchView {
     }, message => this.tip(message), proseTextNodes);
     this.navigationDocument = document;
     this.renderNavigation(document);
-    this.closeNavigation();
+    if (previousFile !== document.currentFile || JSON.stringify(previousSource) !== JSON.stringify(document.source)) this.closeNavigation();
     if (this.materialNotes || previousMaterialNotes) this.renderGuide();
     this.markExisting(); this.applyPageMode();
     this.updateReadingAids();
