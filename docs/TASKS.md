@@ -211,8 +211,8 @@
 ---
 
 ## [Milestone #69] 打扫屋子：清理假皮肤与退役残留、接通 Obsidian 下一步，并发布 v0.4.3
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: ea4adc9cd41cc1463801ae19a897f73bf2b1ffda
 - **Depends-On**: #67
 - **发布版本**: v0.4.3
 - **Features**: F-NEXT-ACTION、F-FEYNMAN、F-TOOLKIT-MENU
@@ -232,6 +232,7 @@
   4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.3`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 增加两条守卫：`src/` 中不含 `SurfacePersona`、`DEFAULT_PERSONAS`、`simple-persona`、`setPersona`、`getPersona`、`术语风格`；`src/` 中不含 `feynman-coach`、`费曼深水区追问`、`curate-topic`、`generate-lesson`、`evaluate-settlement`。手动破壁各一次后恢复，对应断言须各自变红：读取旧含 `persona` 设置报错；保存设置仍保留 `persona`；Obsidian 写入笔记未触发 `processDueEffects`；`quickActionsForTopic` 仍返回 `feynman-coach`。
 - **结案**：所列 Features 按 ROLES「功能台账同步」更新（`F-NEXT-ACTION` 独立验收通过后升为 `已验收` `✓ / ✓`）。通过后按 ROLES「发布步骤」发布 v0.4.3。
+- **结果**：Web 与隔离 Obsidian 真实 `dsh` 全项通过：预置含 `"persona": "sanctuary"` 的旧设置文件正常加载、无「术语风格」控件且保存后剥离 `persona`；挂载 `feynman` 无 `feynman-coach` / «费曼深水区追问»，复述对照正常且零自动回合；双方壳记用户笔记均经 `prepare-next-action` 更新 `nextAction` 并展示在首页「下一步 · 15 分钟」，离线记笔记保留 `pending` 无报错、重连后排空；顺带修复同文件刷新强关目录抽屉并在 `改用` 后双端复验通过。Cleanup PASS。报告与截图：`.tmp/evidence/milestone-69/tester/report.md`。已从验收提交打附注标签 `v0.4.3` 并安装到默认 `ganfan-media` Vault，三个文件的 SHA-256 核对一致，详见 `.tmp/evidence/milestone-69/delivery.txt`。
 
 ---
 

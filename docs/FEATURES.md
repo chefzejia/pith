@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.4.2（#67 @c7c344e，已安装默认 ganfan-media Vault，附注标签 `v0.4.2`）。首页可一次导入多份材料，向导可选用已有材料并在课题中引用。
+- **当前发布版本**：v0.4.3（#69 @ea4adc9，已安装默认 ganfan-media Vault，附注标签 `v0.4.3`）。移除假皮肤设置与退役费曼追问动作，接通 Obsidian 后台「今日下一步」，修复版本切换后同文件刷新关闭目录抽屉的问题。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - **版本号**：次版本号只给新的能力方向（如学 GitHub 仓库、英伦腔），同一方向里的修复与设计调优只升修订号，规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
@@ -24,13 +24,13 @@
 | 版本 | 内容 | 状态 |
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
-| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.2 已安装） |
+| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.3 已安装） |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.4.1 · OCW 链接与课程搜索 | 公网传输每一跳重新校验后跟随重定向，三个宿主共用一份实现；阅读器能读 JSON，向导用 MIT Learn 搜索接口找课程（#66） | 已发布（#66 @9d1ad2b） |
 | v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
-| v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69） | 已排期 |
+| v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69 @ea4adc9） | 已发布（#69 @ea4adc9） |
 | v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70） | 已排期 |
 | v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent | 待定义 |
 | v0.5.0 · 语言大类训练 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再按语言大类训练设计抽象（英伦腔为其中典型场景） | 待定义 |
@@ -93,7 +93,7 @@
 | F-TOPIC-NOTES | 课题内的高亮、笔记与向导批注，标明作者，点击跳回原文 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮核对 user 笔记、材料只读记录分区与回跳；guide 总结见结题，两课题隔离沿用 #52 |
 | F-ADD-MATERIAL | 课题内添加材料：从材料库选、选文件、贴链接或仓库路径；只增不减 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮从材料库引用已有仓库材料且保留 ID；课题内文件/链接/路径入口沿用 #52 |
 | F-SHELVE | 搁置与恢复课题，不经向导 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 离线搁置、恢复、重开后材料/记录/历史保留；没有扩展后台下一步矩阵 |
-| F-NEXT-ACTION | 今日下一步：后台为进行中的课题生成一个 15 分钟内的行动 | 待复验 | ○ / ○ | #47 @d9a1c73（11-12，仅 Web） | — |
+| F-NEXT-ACTION | 今日下一步：后台为进行中的课题生成一个 15 分钟内的行动 | 已验收 | ✓ / ✓ | #69 @ea4adc9（11-20） | 双端真实 `dsh` 记笔记后更新 `nextAction` 并展示于首页，离线保留 `pending` 无报错、重连排空；模型偶发返回 Markdown 符号（样本非阻塞） |
 | F-OFFLINE | 没有向导时：投喂、阅读、记录、搁置照常；立项、课题回合、结题与行间翻译不可用并说明原因 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | F1 已在真实活课题复验：发送与历史动作禁用有原因，草稿引用保留，恢复后真实回合完成；原生当时无 retry/choices 且 quick 收起，这些由 Web 实际历史覆盖；原生未额外观察短英文链接的行间离线说明 |
 | F-GUIDE-INGEST | 向导只读浏览公开网页；把选中的网页与 PDF（一次最多 20 个链接）导入为一份材料，并在课题里引用 | 已验收 | ✓ / ✓ | #66 @9d1ad2b（11-20） | 普通 OCW 重定向、最终来源和 JSON 搜索读取有实测，最终地址相对链接、改名与拒绝边界由受控测试覆盖。 |
 | F-MEDIA-CORPUS | 向导搜索并拉取公开音视频与字幕，挂上影子跟读，切片导读写成讲义 | 待复验 | ○ / ○ | #39 @7418a54（11-11，受控下载与转写） | — |
@@ -104,8 +104,8 @@
 
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| F-TOOLKIT-MENU | 在顶栏开关训练工具；向导也可以按目标增删 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮使用费曼入口；工具增删沿用 #52，仅 Web 实际增删，原生只核对菜单内容 |
-| F-FEYNMAN | 费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态 | 已验收 | ✓ / ✓ | #63 @68c1a0e（11-19） | 双端真实复练、离线保存及取消通过；写入失败和在线故障重试只由受控回归覆盖。 |
+| F-TOOLKIT-MENU | 在顶栏开关训练工具；向导也可以按目标增删 | 已验收 | ✓ / ✓ | #69 @ea4adc9（11-20） | 双端核对顶栏挂载及向导快捷动作不再含 `feynman-coach`；Obsidian 窄右侧栏快捷动作偶发右侧轻度裁切；工具增删沿用 #52 |
+| F-FEYNMAN | 费曼复述：遮住原文复述，逐条对照原文；看完原文可以再复述一次，变化的条目标出上一次的状态 | 已验收 | ✓ / ✓ | #69 @ea4adc9（11-20） | 双端真实遮罩、复述对照与零自动回合通过；「再复述一次」与离线/重开覆盖沿用 #63 |
 | F-SHADOWING | 影子跟读：四阶练习、录音转写、漏词标在原句上 | 待复验 | ○ / ○ | #46 @6c7ea68（11-12，受控音频与转写） | #46 用的是静音音频和合成的麦克风输入 |
 
 ### 结题与画像
@@ -201,12 +201,12 @@
 | F-TOPIC-NOTES | [task51-store.test.ts](../tests/task51-store.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-ADD-MATERIAL | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts) |
 | F-SHELVE | [task51-store.test.ts](../tests/task51-store.test.ts) |
-| F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts) |
+| F-NEXT-ACTION | [engine.test.ts](../tests/engine.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts) |
 | F-OFFLINE | [task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
 | F-GUIDE-INGEST | [task65-external.test.ts](../tests/task65-external.test.ts)、[task66-external.test.ts](../tests/task66-external.test.ts)、[wave4-trackA-speech-timeline-ingest.test.ts](../tests/wave4-trackA-speech-timeline-ingest.test.ts)、[audit-4e6422f.test.ts](../tests/audit-4e6422f.test.ts) |
 | F-MEDIA-CORPUS | [task37-media.test.ts](../tests/task37-media.test.ts)、[task39-browser.test.ts](../tests/task39-browser.test.ts) |
-| F-TOOLKIT-MENU | [toolkit-menu-browser.test.ts](../tests/toolkit-menu-browser.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts) |
-| F-FEYNMAN | [task53-feynman.test.ts](../tests/task53-feynman.test.ts)、[task53-feynman-browser.test.ts](../tests/task53-feynman-browser.test.ts)、[task53-prepare-cancellation.test.ts](../tests/task53-prepare-cancellation.test.ts)、[boundaries.test.ts](../tests/boundaries.test.ts) |
+| F-TOOLKIT-MENU | [toolkit-menu-browser.test.ts](../tests/toolkit-menu-browser.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts) |
+| F-FEYNMAN | [task53-feynman.test.ts](../tests/task53-feynman.test.ts)、[task53-feynman-browser.test.ts](../tests/task53-feynman-browser.test.ts)、[task53-prepare-cancellation.test.ts](../tests/task53-prepare-cancellation.test.ts)、[boundaries.test.ts](../tests/boundaries.test.ts)、[milestone69-housecleaning.test.ts](../tests/milestone69-housecleaning.test.ts) |
 | F-SHADOWING | [task34-shadowing-browser.test.ts](../tests/task34-shadowing-browser.test.ts)、[task18-shadowing-multilingual.test.ts](../tests/task18-shadowing-multilingual.test.ts) |
 | F-SETTLE | [guide-turn-browser.test.ts](../tests/guide-turn-browser.test.ts)、[task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts) |
 | F-PROFILE-OBS | [task19-settlement.test.ts](../tests/task19-settlement.test.ts)、[audit11713-recovery.test.ts](../tests/audit11713-recovery.test.ts)、[audit11713-browser.test.ts](../tests/audit11713-browser.test.ts) |
