@@ -1,5 +1,5 @@
 import type { MaterialReading } from "./readingState.ts";
-import { lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, type AnchorSource, type Material, type RenderedDocumentView, type Topic } from "../core/index.ts";
+import { lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, type AnchorSource, type GuideTurn, type Material, type RenderedDocumentView, type Topic } from "../core/index.ts";
 import { parseCurriculumOutline, type CurriculumItem } from "../plugins/stage-reader/pagination.ts";
 import { emptyMaterialHtml } from "./repositoryIntake.ts";
 import type { LessonVersions } from "./lessonVersions.ts";
@@ -102,6 +102,20 @@ export class MaterialSession {
     else if (this.source?.kind === "lesson" && next.topic?.lessons.some(lesson => lesson.name === this.file) &&
       (JSON.stringify(previous.topic?.materialIds) !== JSON.stringify(next.topic.materialIds) ||
         JSON.stringify(previous.topic?.lessons.find(lesson => lesson.name === this.file)) !== JSON.stringify(next.topic.lessons.find(lesson => lesson.name === this.file)))) await this.openFile(this.file, this.source);
+  }
+  async followGuideAttachments<T>(run: (observe: (turn: GuideTurn) => void) => Promise<T>, onUpdate: (turn: GuideTurn) => void, report: (error: unknown) => void): Promise<T> {
+    let observed = 0, refresh = Promise.resolve();
+    try {
+      return await run(turn => {
+        onUpdate(turn);
+        const attachments = turn.steps.filter(step => step.kind === "tool" && step.name === "pith_attach_material" && step.status === "completed" && step.effects.some(effect => effect.kind === "topic")).length;
+        if (attachments <= observed) return;
+        observed = attachments;
+        refresh = refresh.then(() => this.active() ? this.refresh() : undefined).catch(report);
+      });
+    } finally {
+      await refresh;
+    }
   }
   async generateLesson(name: string, title: string): Promise<void> {
     const request = ++this.generation, previous = this.file, source = this.source;

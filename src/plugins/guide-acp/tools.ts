@@ -1,4 +1,4 @@
-import { DefaultWorkspaceStore, nonHanLetterRatio, type ToolkitDescriptor, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
+import { DefaultWorkspaceStore, libraryOverview, nonHanLetterRatio, type ToolkitDescriptor, type StageReaderService, type AttentionEngine, type GuideMcpToolSpec, type HttpPort, type MediaCorpusPort, type RepositoryPort, type SelectionAnchor, type WorkspaceStoragePort, type WorkspaceStore } from "../../core/index.ts";
 import { EXTERNAL_DOCUMENT_COUNT, ingestExternalDocuments, ingestExternalUrl, readExternal } from "./externalIngest.ts";
 import { ToolExecutionFailure, type TurnTool } from "./mcpTools.ts";
 
@@ -238,6 +238,61 @@ export function createScopedTools(options: { topicId?: string; materialIds?: rea
   };
   const checkKeys = (input: Readonly<Record<string, unknown>>, allowed: readonly string[]) => { if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("Invalid tool arguments"); };
   const number = (input: Readonly<Record<string, unknown>>, key: string) => { const value = input[key]; if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) throw new Error(`Invalid ${key}`); return value as number | undefined; };
+  tools.push({
+    name: "pith_list_library",
+    description: "List workspace materials and topics with reference counts, activity, and repository versions. Optional case-insensitive keyword matches material titles and topic titles or targets. Offset and limit apply separately to each list.",
+    inputSchema: schema({ keyword: field, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200, default: 50 } }, []),
+    write: false,
+    async execute(input, signal) {
+      keys(input, ["keyword", "offset", "limit"]);
+      const keyword = input.keyword === undefined ? "" : text(input, "keyword", 500).toLowerCase();
+      const offset = number(input, "offset") ?? 0;
+      const requested = number(input, "limit") ?? 50;
+      if (requested < 1) throw new Error("Invalid limit");
+      const end = offset + Math.min(requested, 200);
+      const [materials, topics] = await Promise.all([store.listMaterials(), store.listTopics()]);
+      signal?.throwIfAborted();
+      const overview = libraryOverview(materials, topics);
+      const matches = (value: string) => value.toLowerCase().includes(keyword);
+      const matchingMaterials = overview.materials.filter(material => matches(material.title));
+      const matchingTopics = overview.topics.filter(topic => matches(topic.title) || matches(topic.target));
+      const materialTotal = matchingMaterials.length, topicTotal = matchingTopics.length;
+      const truncated = end < Math.max(materialTotal, topicTotal);
+      return {
+        materials: matchingMaterials.slice(offset, end),
+        topics: matchingTopics.slice(offset, end),
+        materialTotal, topicTotal, truncated,
+        ...(truncated ? { nextOffset: end } : {}),
+      };
+    },
+  });
+  tools.push({
+    name: "pith_attach_material",
+    description: "Reference an existing library material in this topic. In intake, first create a topic. To change a repository version already referenced, ask the user to use 改用 in the contents.",
+    inputSchema: schema({ materialId: field }, ["materialId"]),
+    write: true,
+    async execute(input, signal, beginWrite) {
+      keys(input, ["materialId"]);
+      const activeTopicId = topicId;
+      if (!activeTopicId) throw new Error("先创建课题");
+      const materialId = text(input, "materialId", 200);
+      const [material, topic] = await Promise.all([store.getMaterial(materialId), store.getTopic(activeTopicId)]);
+      if (!material) throw new Error("Material not found");
+      if (!topic) throw new Error("Topic not found");
+      if (topic.status === "settled") throw new Error("已沉淀的课题不可添加材料");
+      if (topic.materialIds.includes(materialId)) throw new Error("本课题已引用这份材料");
+      if (material.kind === "repo" && material.externalPath) {
+        const referenced = await Promise.all(topic.materialIds.map(id => store.getMaterial(id)));
+        if (referenced.some(item => item?.kind === "repo" && item.externalPath === material.externalPath)) {
+          throw new Error("同一仓库的新版本请在目录里点「改用」");
+        }
+      }
+      signal?.throwIfAborted();
+      const updated = await new DefaultWorkspaceStore(guardToolWrites(storage, signal, beginWrite)).attachMaterial(activeTopicId, materialId);
+      return { topicId: updated.id, materialId };
+    },
+    effects(result) { return [{ kind: "topic", topicId: (result as { topicId: string }).topicId }]; },
+  });
   if (options.topicId) tools.push({ name: "pith_compare_material", description: "Compare two referenced versions of the same repository. Supply path for a bounded patch; otherwise page change metadata. Start with paths cited in each lesson.", inputSchema: schema({ fromMaterialId: field, toMaterialId: field, path: field, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 1000, default: 200 }, maxLines: { type: "integer", minimum: 1, maximum: 2000, default: 400 } }, ["fromMaterialId", "toMaterialId"]), write: false, async execute(input) {
     checkKeys(input, ["fromMaterialId", "toMaterialId", "path", "offset", "limit", "maxLines"]);
     const from = await scopedMaterial({ materialId: input.fromMaterialId }), to = await scopedMaterial({ materialId: input.toMaterialId });

@@ -57,7 +57,8 @@ for (const host of ["web", "obsidian"] as const) {
         assert.equal(await count.textContent(), String(index + 1));
         assert.equal(await input.evaluate((node: HTMLInputElement, original: HTMLElement) => node === original, originalInput), true);
         assert.equal(await input.inputValue(), exit === "completed" ? "" : exit);
-        assert.equal(await statusLine.textContent(), exit === "completed" ? "请补充目标后再次提交" : exit === "failed" ? intakeFailure : "已停止");
+        assert.equal(await statusLine.textContent(), exit === "completed" ? "" : exit === "failed" ? intakeFailure : "已停止");
+        if (exit === "completed") assert.equal(await input.getAttribute("placeholder"), "继续提问…");
         assert.equal(await thoughtBody.isVisible(), exit !== "completed");
         if (exit === "completed") {
           assert.equal(await page.getByText(intakeReply, { exact: true }).isVisible(), true);

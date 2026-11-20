@@ -28,6 +28,7 @@ test("intake groups same stems and language sidecars, retaining unrelated origin
   const comic = await prepareMaterialImport([files[4]!]); assert.equal(comic.kind, "book"); assert.deepEqual(comic.files[0]!.bytes, new TextEncoder().encode("这是中文阅读材料"));
   assert.deepEqual(splitIntakeText('比较两个仓库 "/repo with spaces" "~/other" https://example.com/post'), { goal: "比较两个仓库", repositories: ["/repo with spaces", "~/other"], urls: ["https://example.com/post"] });
   assert.deepEqual(splitIntakeText("/repo with spaces 理解事件机制"), { goal: "", repositories: ["/repo with spaces 理解事件机制"], urls: [] });
+  assert.deepEqual(splitIntakeText(String.raw`"C:\Project One" "D:\Project Two" https://github.com/fixture/repository`), { goal: "", repositories: [String.raw`C:\Project One`, String.raw`D:\Project Two`, "https://github.com/fixture/repository"], urls: [] });
   assert.deepEqual([interlineToolkit.role, shadowingToolkit.role, feynmanToolkit.role], ["aid", "training", "training"]);
 });
 

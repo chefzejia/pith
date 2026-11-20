@@ -1,4 +1,5 @@
 import type { WorkspaceStoragePort } from "../host.ts";
+import { libraryOverview } from "../library.ts";
 import type { WorkspaceStore } from "../store/contract.ts";
 import { MutationQueue } from "../store/MutationQueue.ts";
 import { retryReceipts } from "./retryRecovery.ts";
@@ -50,7 +51,8 @@ export class DefaultAttentionEngine implements AttentionEngine {
     const exploring = topics.filter(topic => topic.status === "exploring");
     const shelved = topics.filter(topic => topic.status === "shelved");
     const settled = topics.filter(topic => topic.status === "settled");
-    const library = materials.map(material => ({ material, topicIds: topics.filter(topic => topic.materialIds.includes(material.id)).map(topic => topic.id) }));
+    const topicIdsByMaterial = new Map(libraryOverview(materials, topics).materials.map(entry => [entry.id, entry.topics.map(topic => topic.id)]));
+    const library = materials.map(material => ({ material, topicIds: topicIdsByMaterial.get(material.id)! }));
     const focus = exploring.find(topic => Boolean(topic.nextAction));
     return { exploring, shelved, settled, library, unreadable, focusRecommendation: focus && focus.nextAction ? { topicId: focus.id, title: focus.title, nextAction: focus.nextAction } : null,
       pendingEffectsCount: effects.filter(effect => effect.status === "pending" || effect.status === "running").length };

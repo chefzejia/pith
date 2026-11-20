@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 import { NodeRepositoryPort } from "../src/shells/web/nodeRepository.ts";
 
 const run = promisify(execFile);
-export async function remoteFixture() {
-  const base = resolve(".tmp/runtime/task-59"); await mkdir(base, { recursive: true });
+export async function remoteFixture(base = resolve(".tmp/runtime/task-59")) {
+  await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "test-")), home = join(root, "home"), source = join(root, "source"), remote = join(root, "remote.git"), repositories = join(root, "repositories");
   await mkdir(home); await mkdir(source);
   const previous = { ...process.env };

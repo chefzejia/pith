@@ -1,3 +1,4 @@
+import { libraryOverview } from "../../core/library.ts";
 import type {
   AgentProcessPort,
   AgentProcessSpawnSpec,
@@ -10,6 +11,7 @@ import type {
   TurnStep,
   HttpPort,
   MediaCorpusPort,
+  LibraryOverview,
   RepositoryPort,
   ToolkitDescriptor,
   Material,
@@ -411,7 +413,7 @@ export interface LocalAcpGuideProviderOptions {
     readonly userMessage: string;
     readonly conversation?: readonly GuideHistoryTurn[];
     readonly anchor?: SelectionAnchor;
-  }) => string;
+  }, library: LibraryOverview) => string;
 }
 
 export class LocalAcpGuideProvider implements GuideProvider {
@@ -442,14 +444,21 @@ export class LocalAcpGuideProvider implements GuideProvider {
       const { config, descriptor } = await this.resolveAgent();
       const topic = input.scope.kind === "topic" ? await this.options.store.getTopic(input.scope.topicId) : null;
       if (input.scope.kind === "topic" && !topic) throw new Error("Topic not found");
-      const profile = await this.options.store.readProfile();
-      const materials = topic ? (await Promise.all(topic.materialIds.map(id => this.options.store.getMaterial(id)))).filter((material): material is Material => material !== null) : await this.options.store.listMaterials();
+      const [profile, libraryMaterials, libraryTopics] = await Promise.all([
+        this.options.store.readProfile(), this.options.store.listMaterials(), this.options.store.listTopics(),
+      ]);
+      const materialsById = new Map(libraryMaterials.map(material => [material.id, material]));
+      const idsInScope = input.scope.kind === "intake" ? input.scope.materialIds : topic!.materialIds;
+      const materials = [...new Set(idsInScope)].flatMap(id => {
+        const material = materialsById.get(id);
+        return material ? [material] : [];
+      });
       const prompt = this.options.buildScenePrompt({
         profileMarkdown: profile.markdown, topic, materials,
         availableToolkits: this.options.getToolkits?.().filter(toolkit => toolkit.role === "training"),
         userMessage: input.text, conversation: selectConversationHistory(input.history),
         anchor: input.anchor,
-      });
+      }, libraryOverview(libraryMaterials, libraryTopics));
       let count = 0;
       const nextIndex = () => count++;
       const publish = (step: TurnStep, index: number) => { steps[index] = step; options.onStep(step, index); };
@@ -495,7 +504,7 @@ export class LocalAcpGuideProvider implements GuideProvider {
       };
       const result = await runOneShotAcpPrompt(prompt, {
         descriptor, processPort: this.options.processPort, cwd: config.cwd,
-        readOnlyPaths: [...(config.readOnlyPaths ?? []), ...materials.flatMap(material => material.externalPath ? [material.externalPath] : [])],
+        readOnlyPaths: [...new Set([...(config.readOnlyPaths ?? []), ...libraryMaterials.flatMap(material => material.externalPath ? [material.externalPath] : [])])],
         model: config.model, effort: config.effort, timeoutMs: config.timeoutMs,
         mcp: { url: endpoint.endpoint.url, headers: endpoint.endpoint.headers, toolNames: tools.map(tool => tool.name), onUpdate: update },
       }, options.signal);

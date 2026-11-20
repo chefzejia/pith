@@ -22,14 +22,15 @@ export interface IntakeActions {
 
 export function splitIntakeText(text: string): { goal: string; repositories: string[]; urls: string[] } {
   const repositories: string[] = [], urls: string[] = [];
-  let goal = text.trim().replace(/"((?:[^"\\]|\\["\\])+)"/g, (match, path: string) => {
+  let goal = text.trim().replace(/"((?:[^"\\]|\\.)+)"/g, (match, path: string) => {
     const decoded = path.replace(/\\(["\\])/g, "$1");
     if (!/^(?:\/|~\/|[a-z]:[\\/])/i.test(decoded)) return match;
     repositories.push(decoded); return " ";
   });
+  goal = goal.replace(/(?:https?:\/\/|git@github\.com:)\S+/gi, url => { if (normalizeRepositoryUrl(url)) repositories.push(url); else if (/^https?:/i.test(url)) urls.push(url); else return url; return " "; }).trim();
   // The repository port resolves a bare path (including spaces) and its trailing goal.
-  if (/^(?:\/|~\/|[a-z]:[\\/])/i.test(goal.trim())) { repositories.push(goal.trim()); goal = ""; }
-  goal = goal.replace(/(?:https?:\/\/|git@github\.com:)\S+/gi, url => { if (normalizeRepositoryUrl(url)) repositories.push(url); else if (/^https?:/i.test(url)) urls.push(url); else return url; return " "; }).replace(/\s+/g, " ").trim();
+  if (/^(?:\/|~\/|[a-z]:[\\/])/i.test(goal)) { repositories.push(goal); goal = ""; }
+  goal = goal.replace(/\s+/g, " ");
   return { goal, repositories: [...new Set(repositories)], urls: [...new Set(urls)] };
 }
 
@@ -131,7 +132,7 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
         const goal = await session.prepare(original, selected, async () => { if (actions.changed) await actions.changed(); }, signal, message => { if (!disposed) status.textContent = message; });
         selected = []; resolvedGoal = { input: original, text: goal };
         if (signal.aborted) throw new Error("已停止；已导入的材料保留在材料库");
-        if (!goal) { if (session.previous.length || actions.requireGoal) { status.textContent = actions.requireGoal ? "请输入你想搞懂的问题" : "请回答向导的问题"; return; } await actions.fed([...session.materials.values()]); return; }
+        if (!goal) { if (session.previous.length || actions.requireGoal) { status.textContent = "请输入你想搞懂的问题"; return; } await actions.fed([...session.materials.values()]); return; }
         if (!actions.guideAvailable) throw new Error("向导未连接；已导入的材料保留在材料库，请先在设置中连接向导");
         status.textContent = "向导正在立项…";
         const result = await session.ask(goal, { signal, onUpdate: turn => { if (!disposed) renderIntakeTurn(process, turn); } }, actions.changed);
@@ -140,7 +141,7 @@ export function mountIntake(root: HTMLElement, actions: IntakeActions, placehold
         // A topic tool may already have committed before a late interruption; the frozen engine returns that durable topic.
         if (result.topic) { await actions.topic(result.topic); return; }
         if (result.turn.status !== "completed") throw new Error(result.turn.error || (result.turn.status === "stopped" ? "已停止" : "立项失败"));
-        selected = []; input.value = ""; input.placeholder = "回答向导的问题…"; status.textContent = "请补充目标后再次提交";
+        selected = []; input.value = ""; input.placeholder = "继续提问…"; status.textContent = "";
       } catch (error) { if (!disposed) { input.value = original; status.textContent = signal.aborted ? "已停止" : error instanceof Error ? error.message : String(error); } }
       finally { controller = undefined; if (!disposed) { input.disabled = add.disabled = false; submit.disabled = false; submit.innerHTML = pithIcon("arrow-up"); submit.setAttribute("aria-label", "提交"); showChips(); update(true); } }
     })();

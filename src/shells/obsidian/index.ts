@@ -561,6 +561,8 @@ export class PithWorkspaceView extends obsidian.ItemView {
     await this.releaseReaderView();
     if (generation !== this.generation) return;
     let originatingView: PithObsidianView;
+    const runGuide = (input: Parameters<PithObsidianController["runGuide"]>[1]) =>
+      session.followGuideAttachments(observe => this.controller.runGuide(topic.id, input, observe), turn => originatingView.updateGuideTurn(turn), error => this.report(error));
     originatingView = this.controller.createView(this.contentEl, {
       guideAvailable: this.controller.hasGuideProvider(),
       readOnly: topic.status === "settled",
@@ -585,11 +587,11 @@ export class PithWorkspaceView extends obsidian.ItemView {
       guideData: async () => { await this.controller.openCompass(); const updated = await this.controller.store.getTopic(topic.id); if (!updated) throw new Error("课题不存在"); const guide = this.controller.runtime.getService<GuideAgentService>("guide.agent"); return { notes: updated.notes, toolkits: updated.toolkits, conversation: (await this.controller.engine.getConversation(topic.id)).map(recoverInterruptedToolSteps), observations: await topicObservations(this.controller.store, topic.id), actions: this.controller.hasGuideProvider() && guide && guide.quickActionsForTopic ? guide.quickActionsForTopic(updated, toolkits()) : [], readOnly: updated.status === "settled" }; },
       undoObservation: id => undoTopicObservation(this.controller.store, this.controller.engine, topic.id, id),
       openMaterial: async id => { await session.refresh(); await session.openMaterial(id); },
-      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); return; } await this.controller.runGuide(topic.id, { text, anchor }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
+      sendGuide: async (text, anchor, saveAsNote) => { if (saveAsNote) { await this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "note", body: text, anchor }); return; } await runGuide({ text, anchor }); await session.refresh(); },
       checkRepositoryUpdate: async id => { const result = await this.controller.checkRepositoryUpdate(id); await session.refresh(); return result.added ? `已导入 @${result.material.commitSha?.slice(0, 7)}` : "已是最新版本"; },
       useRepositoryVersion: async id => { await session.refresh(await this.controller.useRepositoryVersion(topic.id, id)); },
       stopGuide: async () => { this.controller.stopGuide(topic.id); },
-      retryGuide: async turnId => { await this.controller.runGuide(topic.id, { turnId }, turn => originatingView.updateGuideTurn(turn)); await session.refresh(); },
+      retryGuide: async turnId => { await runGuide({ turnId }); await session.refresh(); },
       toggleToolkit: async (id, enabled) => { normalizeToolkits([id], toolkits()); const current = await this.controller.store.getTopic(topic.id); if (!current || generation !== this.generation) throw new Error("课题已切换"); const selected = current.toolkits.filter(item => item !== id); if (enabled) selected.push(id); const updated = await this.controller.store.updateTopic(topic.id, { toolkits: normalizeToolkits(selected, this.controller.trainingToolkits()) }); if (generation === this.generation) originatingView.setToolkits(updated.toolkits); },
       savePractice: (body, anchor, result) => this.controller.engine.capture({ owner: { topicId: topic.id }, kind: "practice", body, anchor, result }),
       prepareRecall: async (source, signal) => { const service = this.controller.runtime.getService<FeynmanContrast>("feynman.contrast"); if (!this.controller.hasGuideProvider() || !service) throw new Error("向导未连接，费曼对照不可用"); return service.prepare(source, signal); },
@@ -604,7 +606,7 @@ export class PithWorkspaceView extends obsidian.ItemView {
       readOutline: async () => { const updated = await this.controller.store.getTopic(topic.id); return updated?.lessons.some(lesson => lesson.name === "00-课程大纲.md") ? this.controller.store.readLesson(topic.id, "00-课程大纲.md") : undefined; },
       render: document => originatingView.render(document), updateNavigation: (files, curriculum, groups) => originatingView.updateMaterialNavigation(files, curriculum, groups),
       beforeLesson: async title => { originatingView.showLessonLoading(title); originatingView.setGuideVisible(true); this.guideByTopic.set(topic.id, true); if (this.workspace) await this.showNativeGuide(true, originatingView, topic.id); },
-      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await originatingView.guideTurn(text, () => this.controller.runGuide(topic.id, { text }, turn => originatingView.updateGuideTurn(turn))); },
+      sendLesson: async (name, title) => { const text = `请按照《00-课程大纲.md》的规划，结合我的学习者画像与源码/材料依据，撰写《${name}》（${title}）的完整讲义并调用 pith_write_lesson 保存。`; await originatingView.guideTurn(text, () => runGuide({ text })); },
       afterLesson: () => originatingView.refreshGuide(), afterOpen: async () => { if (session.material) await this.controller.rememberReading(session.material.id, session.file); await originatingView.refreshGuide(); },
     });
     const guideVisible = this.guideByTopic.get(topic.id) ?? false;

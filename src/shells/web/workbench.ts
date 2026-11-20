@@ -42,7 +42,7 @@ export class WebWorkbench {
       return new Uint8Array(await response.arrayBuffer());
     };
     const toolkits = [shadowingToolkit, feynmanToolkit];
-    const streamTurn = async (data: Record<string, unknown>) => {
+    const streamTurn = (data: Record<string, unknown>) => this.session.followGuideAttachments(async observe => {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ topicId, ...data }) });
       if (!response.ok) {
         const payload: unknown = await response.json().catch(() => null);
@@ -60,13 +60,13 @@ export class WebWorkbench {
           if (!dataLine) continue;
           const value: unknown = JSON.parse(dataLine.slice(6));
           if (event.startsWith("event: error")) throw new Error(String(value));
-          latest = value as GuideTurn; this.view.updateGuideTurn(latest);
+          latest = value as GuideTurn; observe(latest);
         }
         if (chunk.done) break;
       }
       if (!latest || latest.status === "running") throw new Error("向导响应中断");
       return latest;
-    };
+    }, turn => this.view.updateGuideTurn(turn), options.report);
     this.streamTurn = streamTurn;
     const postAudio = async (path: string, data: unknown, signal: AbortSignal): Promise<Response> => {
       const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data), signal });

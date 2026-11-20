@@ -2,11 +2,23 @@ import { execFile, spawn } from "node:child_process";
 import { constants, existsSync } from "node:fs";
 import { access, mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { AgentProcessPort, AgentProcessSpawnSpec, AgentStdioHandle } from "../../core/index.ts";
 
 const execFileAsync = promisify(execFile);
+
+async function readOnlySourcePath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    // Archived repositories can be offline. Keep their path in the deny rule.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !isAbsolute(path)) throw error;
+    const parent = dirname(path);
+    if (parent === path) throw error;
+    return join(await readOnlySourcePath(parent), basename(path));
+  }
+}
 
 export function defaultAgentSearchPaths(): readonly string[] {
   return [
@@ -118,12 +130,15 @@ export class NodeAgentProcessPort implements AgentProcessPort {
     let command = spec.command;
     let args = [...(spec.args ?? [])];
     const tempSandboxCwd = await mkdtemp(join(tmpdir(), "pith-guide-"));
-    const readOnlyPaths = [...(this.workspaceRoot ? [this.workspaceRoot] : []), ...(spec.readOnlyPaths ?? [])];
+    const readOnlyPaths = spec.readOnlyPaths ?? [];
 
-    try { if (readOnlyPaths.length > 0 && process.platform === "darwin") {
+    try { if ((this.workspaceRoot || readOnlyPaths.length > 0) && process.platform === "darwin") {
       if (!existsSync("/usr/bin/sandbox-exec")) throw new Error("macOS sandbox-exec unavailable");
       const resolvedPaths = [
-        ...new Set(await Promise.all(readOnlyPaths.map((p) => realpath(p)))),
+        ...new Set(await Promise.all([
+          ...(this.workspaceRoot ? [realpath(this.workspaceRoot)] : []),
+          ...readOnlyPaths.map(readOnlySourcePath),
+        ])),
       ];
       if (resolvedPaths.some((p) => /[\u0000-\u001f\u007f]/u.test(p))) {
         throw new Error("Unsafe path in readOnlyPaths for sandbox-exec");
