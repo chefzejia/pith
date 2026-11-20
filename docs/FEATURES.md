@@ -32,7 +32,7 @@
 | v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
 | v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69 @ea4adc9） | 已发布（#69 @ea4adc9） |
 | v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70 @cbef1e0） | 已发布（#70 @cbef1e0） |
-| v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent | 待定义 |
+| v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent，修复 Fail-Open 与跨 Agent 选项残留（#71） | 已排期 |
 | v0.5.0 · 语言大类训练 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再按语言大类训练设计抽象（英伦腔为其中典型场景） | 待定义 |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。

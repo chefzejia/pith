@@ -265,3 +265,30 @@
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `[[materials/`。手动破壁各一次后恢复，对应断言须各自变红：读取接受双链写法；迁移改动了 `materials` 以外的字节；迁移不先备份；读回失败时没有恢复；第二次运行改动了文件。
 - **结案**：所列 Features 按 ROLES「功能台账同步」更新，F-UNREADABLE 的已知缺口写明旧格式课题会进「无法读取」。通过后按 ROLES「发布步骤」发布 v0.4.4，并告诉人类重启 Obsidian。
 - **结果**：Web 与隔离 Obsidian 真实 `dsh` 全 4 步验收通过：新工作区立项/追加材料写入纯 ID 并跨重启可用；以 `v0.4.3` 构建的真实工作区经 `--dry-run`、沙盒外部 `HOME` 逐字节备份、仅 `materials` 行变更的正式迁移及第二次无改动幂等运行后，在 `v0.4.4` 双端完整打开 3 个课题且损坏旧课题原样留在「无法读取（1）」；在已迁移副本运行 `v0.4.3` 旧构建时双端均显示「无法读取（4）」且写入明确失败、原字节未变；版本切换、添加材料、费曼对照与材料库引用计数抽查无退化。Cleanup PASS。报告与 23 张截图：`.tmp/evidence/milestone-70/tester/report.md`。已在验收提交打附注标签 `v0.4.4`，对默认 `ganfan-media/Pith` 先 `--dry-run` 后正式执行迁移（`migrated: 0`、`skipped: 2`，仅两条历史 UUID 课题 `topic-8bdc0803-...` / `topic-981659ae-...` 因 `missing materials list` 跳过，`backupDir: none`），安装到默认 Vault 并核对三件套 SHA-256 一致（`.tmp/evidence/milestone-70/delivery.txt`），随后已删除一次性迁移脚本与专属单测。
+
+---
+
+## [Milestone #71] 全面接入本机 ACP Agent（dsh / claude / codex / agy），并发布 v0.4.5
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #70
+- **发布版本**: v0.4.5
+- **Features**: F-AGENT、F-SANDBOX
+- **背景**：当前设置界面与发现器只实际登记了 `dsh` 一种工具标题格式，`claude` / `codex` 未完成协议适配且缺口停留在早期占位，`agy acp` 尚未接入。经本机四端实测与动工前 `gpt-auditor --mode plan` 红队反证，四个适配器在 CLI 探测、`mcpCapabilities.http` 声明、工具标题前缀、`session/request_permission`、`mode` 安全模式收敛与 `thought_level` 配置项 ID 上各不相同；必须一次性做实协议适配、Fail-Closed 安全模式锁与跨 Agent 同步复位。
+- **用户可观测目标**：在 Web 与 Obsidian 设置面板的「本机 Agent」下拉框中可选 `dsh`、`claude`、`codex`、`agy` 四个适配器，刷新探测可用状态并加载各 Agent 真实的模型与推理强度列表；切换不同 Agent 时旧的模型与推理强度立即清空、不会串扰保留；挂载在线向导并用 `agy`、`codex`、`dsh` 在双端真实立项/调用 Pith 工具与触发沙盒/权限拦截（`claude` 若本机未登录，探测与选项读取可用且发起回合 Fail-Closed 清晰提示 `Authentication required` 不卡死）。Obsidian 插件列表里的 Pith 显示 `0.4.5`。
+- **Tester 验收**：Web 与隔离 Obsidian 各一次，运行在沙盒工作区与 `.dev-vault` 隔离配置，不碰真实 Vault（保留本机 Agent 认证目录 `DSH_HOME=/Users/zejiawu/.dsh`、~/.codex、~/.gemini）。
+  1. Obsidian 插件列表显示 `Pith 0.4.5`；Web 与 Obsidian 设置面板「本机 Agent」下拉均完整列出 `离线`、`dsh`、`claude`、`codex`、`agy`。
+  2. **真实 `agy`（`agy acp --sandbox`）**：选中 `agy` 并探测真实模型与 `thought_level`（选 `low`），在双方壳执行真实立项/课题回合调用 Pith MCP 工具（如 `pith_create_topic` / `pith_save_note`），确认工具调用无重复步骤卡、写入纯材料 ID；要求 `agy` 直接修改工作区/绑定仓库哨兵文件时，确认被权限拦截或系统沙盒阻断且哨兵文件字节未变（`F-SANDBOX`）。
+  3. **真实 `codex`（`codex-acp`）**：从 `agy` 切换到 `codex`，确认界面与落盘设置中上一 Agent 的模型/强度立刻清空；探测真实模型与 `reasoning_effort`（选 `low`），执行真实回合调用 Pith 工具（`mcp.pith.<tool>`）无重复步骤且哨兵文件直接写入被拒、字节未变。
+  4. **真实 `dsh`（`dsh --profile acp`）**：从 `codex` 切换到 `dsh`，确认旧模型/强度清空；探测选项并执行真实回合调用 Pith 工具，确认哨兵文件直接写入被拒、字节未变。
+  5. **真实 `claude`（`claude-agent-acp`）**：确认发现状态为可用（`0.94.0`，不卡死）且双方设置页能真实探测列出 `claude` 的模型与 `effort` 选项；发起一次测试回合，确认本机未认证时快速 Fail-Closed 报出 `Authentication required`（不卡死、不崩溃；若本机已登录则跑通工具回合与哨兵拒绝）。
+- **不在范围内**：`0.5.0` 语言训练抽象、单独独立桌面进程架构改造、`PluginRuntime` UI 开关。
+- **Scope**：`src/core/seams.ts`、`src/core/index.ts`、`src/plugins/guide-acp/**`、`src/workbench/view.ts`、`src/shells/web/**`、`src/shells/obsidian/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：按 [4-guide-speech-shells.md](subsystems/4-guide-speech-shells.md) §2、§2.1、§2.3、§2.4 落地：
+  1. 单一事实源 `LOCAL_AGENT_IDS = ["dsh", "claude", "codex", "agy"] as const` 与 `LocalAgentId` 放在 `src/core/seams.ts` 并从 `src/core/index.ts` 导出；`DiscoveredAgentDescriptor` 增加可选 `httpMcpWithoutCapability?: boolean` 与 `requiredSafeModes?: readonly string[]`。
+  2. `discovery.ts` 在命令表内逐项声明 `pithToolTitlePrefix`、`httpMcpWithoutCapability`、`requiredSafeModes`（取消 `spec.id === "dsh"` 特判）：`dsh`（`mcp__pith__`，无 `requiredSafeModes`）；`claude` 主选 `claude-agent-acp`（仅 `--version`，禁传 `--help`，`mcp__pith__`，`requiredSafeModes: ["default"]`）；`codex` 主选 `codex-acp`（`mcp.pith.`，`requiredSafeModes: ["read-only"]`）；`agy`（`agy acp --sandbox`，`Run mcp_pith_`，`httpMcpWithoutCapability: true`，`requiredSafeModes: ["default"]`）。仅有裸 `claude` / `codex` CLI 时一律返回 `available: false` 并给出安装包提示。
+  3. `acpSession.ts`：HTTP MCP 能力门控仅在 `mcpCaps?.http === true || (mcpCaps === undefined && descriptor.httpMcpWithoutCapability === true)` 时放行（显式 `http: false` 或未登记豁免的缺失声明一律 Fail-Closed）；在 `!probeOnly` 回合按先 `model`、再 `effort`（匹配 `category === "thought_level" || id === "reasoning_effort" || id === "effort" || id === "thought_level"`）、**最后**严格校验并设置 `requiredSafeModes`（缺失 `mode` 项、无安全值或设置返回值未确认 `currentValue === targetMode` 时在 `session/prompt` 前立即抛错终止，绝不 Fail-Open）；`createGuidePermissionGate` 与步骤去重继续严格精确匹配 `${pithToolTitlePrefix}${toolName}`，其余工具调用全部 `reject_once`。
+  4. 跨 Agent 切换同步防串扰：Web `POST /api/settings`、`web/client.ts` 与 Obsidian `PithSettingTab` 在切换不同 `agentId` 时，必须**同步**将 UI 控件、临时意图/状态快照与落盘 `model`、`effort` 清零（即使异步保存晚于 `probeAgentOptions` 返回也不能经 `renderAcpSelect` 保留旧 Agent 的选项）；同 Agent 内切换 `model` 仍保留 `effort`。
+  5. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.5`。
+- **Worker 门禁**（默认门禁之外）：覆盖 4-Agent 发现与裸 CLI 不可用、`agy` 能力白名单与显式 `http: false` 拒绝、`requiredSafeModes` 缺失/高权限定态/设置被拒 Fail-Closed、三种标题前缀精确匹配与近似伪造标题拒绝、Web/Obsidian 延迟保存与延迟探测竞态的边界单测与浏览器回归（禁内部 Mock），并做 5 项手动破壁先红后绿：`agy` 显式 `http: false` 放行；缺少安全 `mode` 仍发 `session/prompt`；`codex`/`agy` 工具标题匹配失灵；Obsidian `PithSettingTab` 跨 Agent 未同步清零（延迟保存竞态用例变红）；Web 跨 Agent 切换未清 `model`/`effort`。
+- **结案**：Tester 通过后跑 `gpt-auditor --mode diff --range "1d4afdd..HEAD"`（无已核实缺陷方可通过），按 ROLES「发布步骤」安装 `v0.4.5` 到默认 `ganfan-media` Vault 并打标签，按 ROLES「功能台账同步」更新 `F-AGENT` 与 `F-SANDBOX`（如实写明各 Agent 实测情况与 `claude` 未登录边界及 macOS 沙盒局限），并提示人类重启 Obsidian。

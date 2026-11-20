@@ -12,7 +12,7 @@
 
 ## 2. 向导（`guide-acp`）
 
-向导是本机的 ACP Agent（dsh、claude、codex）。Pith 与它之间只有两条标准通道：
+向导是本机的 ACP Agent（`dsh`、`claude`、`codex`、`agy`，统一常量 [`LOCAL_AGENT_IDS`](../../src/core/seams.ts)）。Pith 与它之间只有两条标准通道：
 
 ```text
 Pith（guide-acp 插件）                       本机 Agent 进程
@@ -38,10 +38,16 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 
 **启动前的检查**（不满足即以 `failed` 结算并说明原因）：
 
-- 设置里选了 Agent，且可执行文件可用。
+- 设置里选了 Agent，且可执行文件可用（其中 `claude` 仅认可 `@agentclientprotocol/claude-agent-acp`、`codex` 仅认可 `@agentclientprotocol/codex-acp`；仅有裸 `claude` / `codex` CLI 时标为不可用，`claude-agent-acp` 只传 `--version` 而禁止传 `--help`）。
 - 宿主提供了 `process` 与 `toolServer`。
-- `initialize` 的回应声明了 `mcpCapabilities.http`。
-- 这个 Agent 登记了工具标题的形状（2.3）。目前只有 dsh 登记；claude 与 codex 的适配器都声明支持 HTTP 方式，但没有实测过工具调用、标题与权限，登记之前报不可用。
+- `initialize` 的回应声明了 `mcpCapabilities.http === true`；仅当 [`discovery.ts`](../../src/plugins/guide-acp/discovery.ts) 显式登记了 `httpMcpWithoutCapability: true`（当前仅 `agy`）且 `mcpCapabilities` 缺省时才允许继续（若显式返回 `mcpCapabilities.http === false` 仍一律 Fail-Closed 拒绝）。
+- 这个 Agent 登记了工具标题的形状（2.3）。四个内置本机 Agent 均已登记：
+  - `dsh`（`--profile acp`）：`pithToolTitlePrefix: "mcp__pith__"`
+  - `claude`（`claude-agent-acp`）：`pithToolTitlePrefix: "mcp__pith__"`，`requiredSafeModes: ["default"]`
+  - `codex`（`codex-acp`）：`pithToolTitlePrefix: "mcp.pith."`，`requiredSafeModes: ["read-only"]`
+  - `agy`（`agy acp --sandbox`）：`pithToolTitlePrefix: "Run mcp_pith_"`，`httpMcpWithoutCapability: true`，`requiredSafeModes: ["default"]`
+- 在非 `probeOnly` 回合配置完 `model`（匹配 `id === "model" || category === "model"`）与思考深度（匹配 `category === "thought_level" || id === "reasoning_effort" || id === "effort" || id === "thought_level"`）之后、发送 `session/prompt` 之前：若该 Agent 声明了 `requiredSafeModes`，必须确认会话的 `mode` 配置项存在且包含列表内安全模式，必要时通过 `session/set_config_option` 切换并从返回值确认已落到该安全模式，否则立即中止并失败（Fail-Closed）。
+- 跨 Agent 切换（Web 设置、Obsidian 设置、`POST /api/settings`）必须同步清空上一个 Agent 遗留的 `model` 与 `effort` 选择（包括异步保存尚未落盘时的同步 UI 控件与探测快照），避免旧值跨 Agent 残留；同一 Agent 内切换 `model` 时保持 `effort` 不变。
 
 ### 2.2 场景提示词
 
@@ -88,7 +94,7 @@ Agent 会话每个回合用完即毁。跨回合的连续性来自场景提示�
 
 Pith 工具有没有被调用、结果是什么，以工具端点为准，不以 Agent 发来的更新为准。Agent 的 `tool_call` 更新只用于两件事：不重复显示 Pith 工具的步骤，以及回答权限请求（2.4）。
 
-一条更新算作 Pith 工具，当且仅当它的标题与该 Agent 登记的形状完全相等。形状登记在 Agent 描述里（[`discovery.ts`](../../src/plugins/guide-acp/discovery.ts)），dsh 的是 `mcp__pith__<工具名>`，其中 `<工具名>` 必须是本回合提供的工具之一。不做后缀或包含匹配。
+一条更新算作 Pith 工具，当且仅当它的标题与该 Agent 登记的形状完全相等（`${pithToolTitlePrefix}${toolName}`）。形状登记在 Agent 描述里（[`discovery.ts`](../../src/plugins/guide-acp/discovery.ts)）：`dsh` 与 `claude` 为 `mcp__pith__<工具名>`，`codex` 为 `mcp.pith.<工具名>`，`agy` 为 `Run mcp_pith_<工具名>`，其中 `<工具名>` 必须是本回合提供的工具之一。不做后缀、子串或大小写宽松匹配。
 
 ### 2.4 权限与只读
 
@@ -98,8 +104,8 @@ Pith 工具有没有被调用、结果是什么，以工具端点为准，不以
 | :--- | :--- | :--- |
 | **工具端点** | Pith 工具的全部写入。只监听回环地址，只接受带本回合随机令牌的请求，回合结束即关闭；每个工具执行前校验作用域：`materialId` 必须属于本课题引用的材料（立项作用域下是材料库里的材料），文件名与路径按 [1-core-store-engine.md](1-core-store-engine.md) 的规则校验 | 这是 Pith 工具唯一的安全边界。实测 dsh 在只读模式下对 MCP 工具直接放行，不发权限请求 |
 | **宿主沙盒** | Agent 进程及其子进程对文件的直接写入。宿主以系统沙盒启动 Agent，禁止写入工作区根目录与本回合涉及的绑定仓库路径。工作区根目录由宿主的进程端口自己加入（插件不知道它的绝对路径），绑定仓库路径由插件经 `readOnlyPaths` 传入。工作目录是宿主为本回合新建的临时目录，回合结束即删除 | 目前只有 macOS 有实现；其他系统上这一层不存在 |
-| **只读启动** | dsh 自带的写文件与执行命令工具：进程以只读权限模式启动（[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)），首次写入被它自己的沙盒拒绝 | 不拦 MCP 工具；模型可以申请提权，由下一层拒绝 |
-| **权限请求** | 对 `session/request_permission`：请求所指的调用是 Pith 工具（按 2.3 的规则，依据此前收到的、带同一 `toolCallId` 的 `tool_call` 更新）时选择一次性允许；其余一律选择一次性拒绝，包括没收到过对应更新的 | 实测 dsh 在只读模式下不为 MCP 工具发权限请求，所以对 dsh 这一层的实际作用是拒绝自带工具的提权 |
+| **只读启动** | `dsh` 以只读权限环境变量启动（`DSH_PERMISSION_MODE=read-only`，[`buildReadOnlyAgentEnv`](../../src/plugins/guide-acp/acpSession.ts)）；`agy` 以 `agy acp --sandbox` 启动；`codex`、`claude`、`agy` 在 `session/new` 后强制确认并锁定 `requiredSafeModes`（`codex` 为 `read-only`，`claude`/`agy` 为 `default`，Fail-Closed） | 不拦已注册的 MCP 工具；模型若申请内置读写/命令工具，由下一层拒绝 |
+| **权限请求** | 对 `session/request_permission`：请求所指的调用是 Pith 工具（按 2.3 的规则，依据此前收到的、带同一 `toolCallId` 的 `tool_call` 更新）时选择一次性允许（`allow_once`）；其余一律选择一次性拒绝（`reject_once`），包括没收到过对应更新的 | 实测 `dsh` 在只读模式下不为 MCP 工具发权限请求，`codex` 与 `agy`（及 `claude` `default` 模式）会对工具发出 `session/request_permission` |
 
 用户自己在 Agent 里配置的其他 MCP 服务不在 Pith 的控制之内：它们运行在 Agent 进程之外时，宿主沙盒也管不到。Pith 不声称能约束它们。
 
