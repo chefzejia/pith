@@ -1,6 +1,6 @@
 # Pith · 里程碑调度板
 
-> 协议以 [ROLES.md](ROLES.md) 为准，Router 每次取单前重读。状态：`pending` · `verified` · `blocked` · `superseded`；先后只看 `Depends-On`。
+> 协议以 [ROLES.md](ROLES.md) 为准，Brain 调度独立 AGY 子 Agent 执行；执行前重读对应里程碑区块。状态：`pending` · `verified` · `blocked` · `superseded`；先后只看 `Depends-On`。
 >
 > 各里程碑共用的规则：
 > 1. 目标契约在 `docs/`，实现与验收状态在 [FEATURES.md](FEATURES.md)。`Features` 字段列出推进或动到的条目，结案按 ROLES「功能台账同步」更新。
@@ -180,7 +180,8 @@
 ---
 
 ## [Milestone #68] 课题引用材料改用纯 ID，并发布 v0.4.3
-- **Status**: pending
+- **Status**: superseded (by #70)
+- **取代原因**: 先打扫屋子（#69，v0.4.3），再执行课题引用材料纯 ID 迁移（#70，v0.4.4），之后接入全部本机 ACP Agent（v0.4.5）。
 - **Verified-Commit**: none
 - **Depends-On**: #67
 - **发布版本**: v0.4.3
@@ -206,3 +207,59 @@
   4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.3`。
 - **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `[[materials/`。手动破壁各一次后恢复，对应断言须各自变红：读取接受双链写法；迁移改动了 `materials` 以外的字节；迁移不先备份；读回失败时没有恢复；第二次运行改动了文件。
 - **结案**：所列 Features 按 ROLES「功能台账同步」更新，F-UNREADABLE 的已知缺口写明旧格式课题会进「无法读取」。通过后按 ROLES「发布步骤」发布 v0.4.3，并告诉人类重启 Obsidian。
+
+---
+
+## [Milestone #69] 打扫屋子：清理假皮肤与退役残留、接通 Obsidian 下一步，并发布 v0.4.3
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #67
+- **发布版本**: v0.4.3
+- **Features**: F-NEXT-ACTION、F-FEYNMAN、F-TOOLKIT-MENU
+- **背景**：`SurfacePersona`（花园/园丁 vs 工作区/向导）在工作台并未被消费，设置里的「术语风格」是无效假开关；#63 退役费曼追问后 `feynman-coach` 快捷动作与 `transformCue` 死分支仍残留；Obsidian 壳未接通 `processDueEffects()` 导致 `F-NEXT-ACTION` 在真实 Vault 中悬空，且 `EffectKind` 仍留着 3 个无处理器的僵尸枚举。
+- **用户可观测目标**：Web 与 Obsidian 设置面板不再有无效的「术语风格」下拉框，且升级加载已有带 `persona` 字段的设置文件不报错；在课题里写下用户笔记后，Web 与 Obsidian 都能由真实向导在后台更新 `nextAction` 并在首页「下一步 · 15 分钟」显示；挂载 `feynman` 时向导栏不再出现退役的「费曼深水区追问」。Obsidian 插件列表里的 Pith 显示 0.4.3。
+- **Tester 验收**：Web 与隔离 Obsidian 各一次，用真实 `dsh` Agent。
+  1. 预置带 `"persona": "sanctuary"` 的旧 `_cache/web-settings.json`：两端设置页正常打开、不报错，没有「术语风格」下拉框；改任意设置保存后，落盘 JSON 不再含 `persona`；Obsidian 插件列表显示 `0.4.3`。
+  2. 挂载 `feynman` 的进行中课题：向导栏无「费曼深水区追问」快捷动作；执行一次费曼复述并对照，仍不自动发起向导回合。
+  3. 进行中课题记一条用户笔记（在向导在线时）：验证 `_cache/effects.json` 中 `prepare-next-action` 变为 `completed`，`topic.md` 更新 `nextAction`，返回首页「下一步 · 15 分钟」展示更新后的行动；切到离线后再记笔记，不报错且不发起后台调用。
+  4. 抽查立项、材料库引用与结题没有退化。
+- **不在范围内**：`PluginRuntime` 插件机制与 `src/shells/dsh/`（均保留）；接入 `claude` / `codex` / `agy`（另开里程碑）；纯 ID 迁移（#70）。
+- **Scope**：`src/core/**`、`src/plugins/guide-acp/**`、`src/plugins/toolkit-feynman/**`、`src/workbench/**`、`src/shells/obsidian/**`、`src/shells/web/**`、`tests/**`、`manifest.json`、`package.json`
+- **行为契约**：
+  1. 移除 `SurfacePersona`、`DEFAULT_PERSONAS`、`GuideAgentService.persona`、设置中的 `persona`（及「术语风格」UI、Web `/api/settings` 与 `/api/plugins` 的 `persona` 读写、Obsidian `setPersona`/`getPersona`）。读取既有 `_cache/web-settings.json` 时忽略多余的 `persona` 键不报错；保存时不再写回 `persona`。
+  2. 清理 `src/plugins/toolkit-feynman/index.ts`：`feynmanToolkit.quickActions` 置为空数组 `[]`；`transformCue` 仅保留 `"blind-produce"` 分支（其余抛 `Invalid scaffold stage`），移除未使用的分词正则与词表。
+  3. 接通 Obsidian `F-NEXT-ACTION` 并清理 `EffectKind`：`src/core/engine/contract.ts` 中 `EffectKind` 仅保留 `"prepare-next-action"`；`PithObsidianController` 在 `initialize()`、`setAgentConfig()`、`setPlugins()`、`captureHighlight()` 及 `PithWorkspaceView` 写入用户笔记/实训后排空到期后台任务（`processDueEffects()`），并在 `dispose()` 中标记已销毁以停止后续触发；离线时保持不执行、不报错。
+  4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.3`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 增加两条守卫：`src/` 中不含 `SurfacePersona`、`DEFAULT_PERSONAS`、`simple-persona`、`setPersona`、`getPersona`、`术语风格`；`src/` 中不含 `feynman-coach`、`费曼深水区追问`、`curate-topic`、`generate-lesson`、`evaluate-settlement`。手动破壁各一次后恢复，对应断言须各自变红：读取旧含 `persona` 设置报错；保存设置仍保留 `persona`；Obsidian 写入笔记未触发 `processDueEffects`；`quickActionsForTopic` 仍返回 `feynman-coach`。
+- **结案**：所列 Features 按 ROLES「功能台账同步」更新（`F-NEXT-ACTION` 独立验收通过后升为 `已验收` `✓ / ✓`）。通过后按 ROLES「发布步骤」发布 v0.4.3。
+
+---
+
+## [Milestone #70] 课题引用材料改用纯 ID，并发布 v0.4.4
+- **Status**: pending
+- **Verified-Commit**: none
+- **Depends-On**: #69
+- **发布版本**: v0.4.4
+- **Features**: F-INTAKE-TOPIC、F-ADD-MATERIAL、F-UNREADABLE
+- **背景**：取代 #68（版本号顺延至 v0.4.4）。`topic.md` 的 `materials` 是 Pith 唯一使用 Obsidian 双链（`[[materials/<id>/material]]`）的地方，同一个文件里讲义的 `basedOn` 和笔记的 `material` 都用纯 ID。双链只在 Obsidian 里有一点用处（节点都叫 `topic`、`material`，图谱没法看），而 Pith 以后可能脱离任何宿主。人类已同意这次已发布格式的破坏性变更（2026-11-19）。
+- **用户可观测目标**：升级到 0.4.4 并重启 Obsidian 后，已有的课题照常打开，引用的材料、讲义、笔记与实训记录都不变；新建课题和添加材料写入纯 ID。Obsidian 插件列表里的 Pith 显示 0.4.4。
+- **Tester 验收**：Web 与 Obsidian 各一次，都在沙盒副本上，不碰真实 Vault。
+  1. 新工作区里立项并添加材料：`topic.md` 的 `materials` 是纯 ID，关掉重开课题一切正常。
+  2. 用 v0.4.3 的构建做出一个工作区（至少三个课题，含多份材料、讲义、笔记和费曼实训记录，再放一个旧格式的无法读取课题），复制一份后跑迁移：先 `--dry-run` 列出计划，再正式迁移；备份文件与原文件逐字节相同；迁移前后 `topic.md` 只有 `materials` 各行不同；用 0.4.4 在两端打开，每个课题的材料、讲义、笔记与记录和迁移前一致；再跑一次迁移不改动任何文件；无法读取的那个课题原样留在「无法读取」。
+  3. 旧插件窗口：在已迁移的副本上运行 v0.4.3 的构建，已迁移的课题显示为无法读取；在其中记笔记失败，文件字节不变。
+  4. 抽查立项、添加材料、版本切换、费曼复述、材料库「被哪些课题引用」没有退化。
+- **不在范围内**：其他字段与文件的格式；Obsidian 关系图谱；读取 Pith 工作区以外的笔记。
+- **Scope**：`src/core/store/**`、`tests/**`、`scripts/migrate-topic-material-ids.mjs`（一次性，用完删除）、`manifest.json`、`package.json`
+- **行为契约**：按 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 3.2 落地，暴力重构，不留兼容：
+  1. 写入：建课题与 `attachMaterial` 写纯 ID。读取：只认纯 ID（`/^[a-z0-9]+(?:-[a-z0-9]+)*$/`）；双链或其他写法的条目让整个课题按无法读取处理，并给出原因，不写兼容解析。
+  2. 一次性脚本 `scripts/migrate-topic-material-ids.mjs <工作区目录> [--dry-run]`：
+     - 只处理 `topics/*/topic.md` 里 `materials` 各项全部是 `[[materials/<id>/material]]`（且 `<id>` 满足纯 ID 规则）的文件，把每项改成 `<id>`，其余字节一律不动；其他文件跳过并列出原因。
+     - 改写前，把要改的原文件按相对路径复制到 `~/Library/Application Support/pith/backups/<UTC 时间戳>/`，不放进 Vault，以免进 iCloud 同步和 Obsidian 搜索。
+     - 每个文件先写临时文件再原子替换。
+     - 全部写完后用新版本的读取逻辑逐个读一遍，有任何一个读不出来，就从备份恢复全部已改文件，并以非零退出。
+     - 再跑一次不改动任何文件。
+  3. 迁移脚本单测放在独立文件 `tests/migrate-topic-material-ids.test.ts`，在结案删除迁移脚本时一并删除，避免残留在仓库里报红。
+  4. 发布：在通过验收的提交的干净检出上构建，对默认 Vault 的 `Pith/` 先 `--dry-run`，再正式迁移，然后按 ROLES「发布步骤」安装并核对哈希；备份目录、迁移与跳过的数量写进 `delivery.txt`。不启动、不退出、不重载人类的 Obsidian：迁移到重启之间，旧插件读不到已迁移的课题，写入会失败，但不会改动文件（第 3 步验证）。结案提交删除迁移脚本与专属单测并重跑 `typecheck` + `test`（[AGENTS.md](../AGENTS.md) 核心约束 3）。
+  5. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.4`。
+- **Worker 门禁**（默认门禁之外）：`tests/boundaries.test.ts` 加一条守卫：`src/` 里不出现 `[[materials/`。手动破壁各一次后恢复，对应断言须各自变红：读取接受双链写法；迁移改动了 `materials` 以外的字节；迁移不先备份；读回失败时没有恢复；第二次运行改动了文件。
+- **结案**：所列 Features 按 ROLES「功能台账同步」更新，F-UNREADABLE 的已知缺口写明旧格式课题会进「无法读取」。通过后按 ROLES「发布步骤」发布 v0.4.4，并告诉人类重启 Obsidian。
