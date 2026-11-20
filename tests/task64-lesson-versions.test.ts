@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { lessonIsOutdated, lessonRepositoryMaterials, topicMaterials } from '../src/core/index.ts';
 import { repositoryCitations } from '../src/core/repositoryCitations.ts';
 import { rebaseComparedLesson } from '../src/core/store/WorkspaceStore.ts';
-import { useRepositoryVersion } from '../src/workbench/lessonVersions.ts';
+import { readLessonVersions, readSessionRepositoryFiles, useRepositoryVersion } from '../src/workbench/lessonVersions.ts';
 import { versionFixture } from './task60-fixture.ts';
 
 test('citation matching preserves exact path boundaries, line numbers and ambiguous sources', () => {
@@ -15,6 +16,23 @@ test('citation matching preserves exact path boundaries, line numbers and ambigu
   assert.deepEqual(matches!.map(match => [text.slice(match.start, match.end), match.line, match.sources.map(source => source.id)]), [
     ['src/file.ts:7', 7, ['a', 'b']], ['dir with space/m[ain].ts:8', 8, ['a']],
   ]);
+});
+
+test('task67 unrelated attachment leaves stamped versions current and comparison details empty', async () => {
+  const f = await versionFixture();
+  try {
+    const first = await f.importLocal(), second = await f.importDistinct('second-basis');
+    const topic = await f.store.createTopic({ title: 'Versions', target: 'Compare', materialIds: [first.id, second.id], toolkits: [] });
+    await f.store.writeLesson(topic.id, '01.md', 'src/stable.ts:1');
+    const other = await f.importDistinct('unrelated');
+    const attached = await f.store.attachMaterial(topic.id, other.id);
+    const materials = topicMaterials(attached, await f.store.listMaterials()), lesson = attached.lessons[0]!;
+    assert.deepEqual(lessonRepositoryMaterials(lesson, materials).map(material => material.id), [first.id, second.id]);
+    assert.equal(lessonIsOutdated(lesson, materials), false, 'new repository must not mark a stamped lesson stale');
+    const files = await readSessionRepositoryFiles(f.repository, materials, attached);
+    assert.deepEqual(await readLessonVersions(f.store, f.repository, attached, materials, files), {});
+    assert.equal(await f.store.readLesson(topic.id, '01.md'), 'src/stable.ts:1');
+  } finally { await f.close(); }
 });
 
 test('using a new version keeps modified, deleted and renamed citations; prose and inline code follow the rendered rules', async () => {
@@ -30,6 +48,34 @@ test('using a new version keeps modified, deleted and renamed citations; prose a
     assert.deepEqual(after.lessons.map(lesson => lesson.basedOn), [[old.id], [latest.id]], 'changed citations must not advance');
     assert.deepEqual(result['01-changed.md']?.[0]?.paths, ['src/changed.ts', 'src/rename.ts', 'src/deleted.ts']);
     assert.equal(result['02-stable.md'], undefined);
+    assert.equal(await f.store.readLesson(topic.id, '02-stable.md'), stable);
+  } finally { await f.close(); }
+});
+
+test('task67 same-repository update after unrelated attachment rebases only unchanged citations within each lesson basis', async () => {
+  const f = await versionFixture();
+  try {
+    const old = await f.importLocal(), companion = await f.importDistinct('companion-basis');
+    const topic = await f.store.createTopic({ title: 'Versions', target: 'Compare', materialIds: [old.id, companion.id], toolkits: [] });
+    const changed = 'src/changed.ts:1', stable = 'src/stable.ts:1\r\n';
+    await f.store.writeLesson(topic.id, '01-changed.md', changed);
+    await f.store.writeLesson(topic.id, '02-stable.md', stable);
+    const other = await f.importDistinct('unrelated');
+    await f.store.attachMaterial(topic.id, other.id);
+    await f.advance();
+    const latest = await f.importLocal();
+    const comparisons = await useRepositoryVersion(f.store, f.repository, topic.id, latest.id);
+    const updated = (await f.store.getTopic(topic.id))!;
+    assert.deepEqual(updated.materialIds, [old.id, companion.id, other.id, latest.id]);
+    assert.deepEqual(updated.lessons.map(lesson => lesson.basedOn), [[old.id, companion.id], [latest.id, companion.id]]);
+    assert.deepEqual({ ...comparisons }, {
+      '01-changed.md': [{ title: old.title, from: old.commitSha, to: latest.commitSha, paths: ['src/changed.ts'] }],
+    });
+    const materials = topicMaterials(updated, await f.store.listMaterials());
+    assert.deepEqual(updated.lessons.map(lesson => lessonIsOutdated(lesson, materials)), [true, false]);
+    const files = await readSessionRepositoryFiles(f.repository, materials, updated);
+    assert.deepEqual(await readLessonVersions(f.store, f.repository, updated, materials, files), { ...comparisons });
+    assert.equal(await f.store.readLesson(topic.id, '01-changed.md'), changed);
     assert.equal(await f.store.readLesson(topic.id, '02-stable.md'), stable);
   } finally { await f.close(); }
 });

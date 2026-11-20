@@ -3,7 +3,7 @@ import type { LearnerProfile, Material, MaterialFileEntry, MaterialKind, Materia
 import type { AppendNoteInput, CreateTopicInput, ImportMaterialInput, UpdateTopicPatch, WorkspaceStore } from "./contract.ts";
 import { MutationQueue } from "./MutationQueue.ts";
 import { normalizeRepositoryUrl } from "../repositoryUrl.ts";
-import { latestRepositoryIds, lessonRepositoryMaterials } from "../repositoryVersions.ts";
+import { latestRepositoryIds, lessonRepositoryMaterials, lessonRepositoryVersionPairs } from "../repositoryVersions.ts";
 import { parseFrontmatter, stringifyFrontmatter, type Frontmatter } from "./frontmatter.ts";
 
 const notePattern = /^## \[(highlight|note|practice)\] ([^\n]+)\n<!-- pith-note:v1 -->\n([\s\S]*?)<!-- pith-note:end -->/gm;
@@ -525,9 +525,10 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
         const materials = await Promise.all(parsed.topic.materialIds.map(async id => {
           const material = await this.getMaterial(id); if (!material) throw new Error("Material not found"); return material;
         }));
-        const from = lessonRepositoryMaterials(parsed.topic.lessons.find(lesson => lesson.name === fileName)!, materials).map(material => material.id);
-        basis = latestRepositoryIds(materials);
-        const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every(id => b.includes(id));
+        const pairs = lessonRepositoryVersionPairs(parsed.topic.lessons.find(lesson => lesson.name === fileName)!, materials);
+        const from = pairs.map(pair => pair.from.id);
+        basis = pairs.map(pair => pair.to.id);
+        const same = (reported: readonly string[], expected: readonly string[]) => reported.length === expected.length && expected.every(id => reported.includes(id));
         if (!same(compared.from, from) || !same(compared.to, basis) || compared.markdown !== await this.storage.readText(`topics/${topicId}/lessons/${fileName}`)) throw new Error("比较期间讲义或仓库版本已变动，未改依据");
       } else basis = await this.lessonBasis(parsed.topic);
       if (basis.length) entry.basedOn = basis.join(","); else delete entry.basedOn;

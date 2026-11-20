@@ -1,6 +1,6 @@
 export * from "./types.ts";
 export * from "./repositoryUrl.ts";
-export * from "./repositoryVersions.ts";
+export { latestRepositoryIds, lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, topicMaterials } from "./repositoryVersions.ts";
 export * from "./library.ts";
 export * from "./host.ts";
 export * from "./seams.ts";

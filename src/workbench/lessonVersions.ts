@@ -1,5 +1,6 @@
-import { lessonIsOutdated, lessonRepositoryMaterials, materialVersionGroups, type DefaultWorkspaceStore, type LessonEntry, type Material, type RepositoryPort, type Topic } from "../core/index.ts";
+import { lessonIsOutdated, materialVersionGroups, type DefaultWorkspaceStore, type LessonEntry, type Material, type RepositoryPort, type Topic } from "../core/index.ts";
 import { repositoryCitations } from "../core/repositoryCitations.ts";
+import { lessonRepositoryVersionPairs } from "../core/repositoryVersions.ts";
 import { rebaseComparedLesson } from "../core/store/WorkspaceStore.ts";
 import { renderMarkdown } from "../plugins/stage-reader/index.ts";
 
@@ -45,7 +46,7 @@ export async function readSessionRepositoryFiles(repository: RepositoryPort | un
 }
 
 async function assessLessons(store: LessonStore, repository: RepositoryPort | undefined, topic: Topic, materials: readonly Material[], repositoryFiles?: Readonly<Record<string, readonly string[]>>) {
-  const latest = latestRepositories(materials), files = new Map<string, Promise<readonly string[]>>(), diffs = new Map<string, Promise<ReadonlySet<string>>>();
+  const files = new Map<string, Promise<readonly string[]>>(), diffs = new Map<string, Promise<ReadonlySet<string>>>();
   const listFiles = (material: Material) => {
     if (repositoryFiles) {
       const known = repositoryFiles[material.id];
@@ -78,13 +79,13 @@ async function assessLessons(store: LessonStore, repository: RepositoryPort | un
   };
 
   async function assess(lesson: LessonEntry) {
-    const basis = lessonRepositoryMaterials(lesson, materials);
-    const pairs = latest.map(to => ({ to, from: basis.find(from => from.externalPath === to.externalPath) })).filter(({ from, to }) => from?.id !== to.id);
-    if (!pairs.length) return null;
+    const basis = lessonRepositoryVersionPairs(lesson, materials);
+    const changedPairs = basis.filter(({ from, to }) => from.id !== to.id);
+    if (!changedPairs.length) return null;
     const references = async () => {
       const markdown = await store.readLesson(topic.id, lesson.name), texts: string[] = [];
       renderMarkdown(markdown, text => texts.push(text));
-      const sources = await Promise.all(basis.map(async material => ({ id: material.id, files: (await listFiles(material)).map(name => ({ name })) })));
+      const sources = await Promise.all(basis.map(async ({ from }) => ({ id: from.id, files: (await listFiles(from)).map(name => ({ name })) })));
       const cited = new Map<string, Set<string>>();
       for (const matches of repositoryCitations(texts, sources)) for (const match of matches) for (const source of match.sources) {
         const paths = cited.get(source.id) ?? new Set<string>(); paths.add(match.path); cited.set(source.id, paths);
@@ -93,10 +94,10 @@ async function assessLessons(store: LessonStore, repository: RepositoryPort | un
     };
     const evidence = await references().then(value => ({ value }), () => ({ value: undefined }));
     const comparisons: VersionComparison[] = [];
-    for (const { from, to } of pairs) {
-      const version = { title: to.title, from: from?.commitSha, to: to.commitSha!, paths: [] };
-      if (!from || !evidence.value) {
-        comparisons.push({ ...version, reason: from ? "比较失败：无法读取讲义或旧版本文件清单" : "比较失败：缺少旧版本依据" });
+    for (const { from, to } of changedPairs) {
+      const version = { title: to.title, from: from.commitSha, to: to.commitSha!, paths: [] };
+      if (!evidence.value) {
+        comparisons.push({ ...version, reason: "比较失败：无法读取讲义或旧版本文件清单" });
         continue;
       }
       try {
@@ -107,7 +108,7 @@ async function assessLessons(store: LessonStore, repository: RepositoryPort | un
         comparisons.push({ ...version, reason: "比较失败：无法读取两个提交之间的文件变化，已保留旧依据" });
       }
     }
-    return { name: lesson.name, comparisons, markdown: evidence.value?.markdown, from: basis.map(material => material.id), to: latest.map(material => material.id) };
+    return { name: lesson.name, comparisons, markdown: evidence.value?.markdown, from: basis.map(({ from }) => from.id), to: basis.map(({ to }) => to.id) };
   }
 
   const assessments = [];

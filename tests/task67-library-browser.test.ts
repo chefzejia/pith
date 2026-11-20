@@ -74,7 +74,8 @@ test("task67 Web feeds two paths and a remote together, starts from the library,
     await input.fill(question);
     await submit.click();
     await page.getByText(reason, { exact: true }).waitFor();
-    assert.equal((await store.getTopic(topicId))?.materialIds.length, 2);
+    const beforeAttachment = (await store.getTopic(topicId))!;
+    assert.equal(beforeAttachment.materialIds.length, 2);
     const conversation = JSON.parse(await storage.readText("topics/" + topicId + "/conversation.json"));
     assert.ok(conversation[0].steps.some((step: { name?: string; status?: string }) => step.name === "pith_list_library" && step.status === "completed"));
     const message = page.getByRole("textbox", { name: "消息" });
@@ -82,7 +83,13 @@ test("task67 Web feeds two paths and a remote together, starts from the library,
     await page.getByRole("button", { name: "发送", exact: true }).click();
     await page.locator(".pith-nav-toggle").click();
     await page.locator(".pith-repository-group h3").getByText("Kernel repository", { exact: true }).waitFor();
-    assert.ok((await store.getTopic(topicId))?.materialIds.includes(attachedId));
+    const afterAttachment = (await store.getTopic(topicId))!;
+    assert.ok(afterAttachment.materialIds.includes(attachedId));
+    assert.deepEqual(afterAttachment.lessons.map(lesson => lesson.basedOn), beforeAttachment.lessons.map(lesson => lesson.basedOn));
+    const contents = page.locator(".pith-left-drawer");
+    assert.equal(await contents.getByText("基于旧版本", { exact: true }).count(), 0, "live attachment must not mark a stamped lesson stale");
+    assert.equal(await contents.getByText("缺少旧版本依据", { exact: false }).count(), 0);
+    assert.equal(await contents.locator("[data-rewrite-lesson]").count(), 0);
     assert.equal(await page.locator("[data-guide-stop]").isVisible(), true);
     if (captures) await page.screenshot({ path: join(captures, "web-attached-in-contents.png"), type: "png" });
     complete();

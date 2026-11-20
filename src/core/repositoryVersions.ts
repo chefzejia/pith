@@ -28,9 +28,17 @@ export function lessonRepositoryMaterials(lesson: LessonEntry, materials: readon
   });
 }
 
+export function lessonRepositoryVersionPairs(lesson: LessonEntry, materials: readonly Material[]): { from: Material; to: Material }[] {
+  const basis = lessonRepositoryMaterials(lesson, materials);
+  const latestByPath = new Map<string | undefined, Material>();
+  for (const { latest } of materialVersionGroups(materials)) {
+    if (latest.kind === "repo") latestByPath.set(latest.externalPath, latest);
+  }
+  return basis.map(from => ({ from, to: latestByPath.get(from.externalPath)! }));
+}
+
 export function lessonIsOutdated(lesson: LessonEntry, materials: readonly Material[]): boolean {
-  const basis = new Set(lessonRepositoryMaterials(lesson, materials).map(material => material.id));
-  return latestRepositoryIds(materials).some(id => !basis.has(id));
+  return lessonRepositoryVersionPairs(lesson, materials).some(({ from, to }) => from.id !== to.id);
 }
 
 export function topicMaterials(topic: Topic, materials: readonly Material[]): Material[] {

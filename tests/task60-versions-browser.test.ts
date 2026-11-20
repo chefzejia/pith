@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
+import { join } from 'node:path';
 import { createPithWebServer } from '../src/shells/web/server.ts';
 import { parseFrontmatter, stringifyFrontmatter, type GuideProvider } from '../src/core/index.ts';
 import { versionFixture } from './task60-fixture.ts';
@@ -24,7 +25,8 @@ for (const host of ['Web', 'Obsidian'] as const) test(`${host} groups repository
   const f = await versionFixture(); let browser: any, server: Server | undefined, page: any;
   try {
     const { first, topic, note } = await seed(f); const secondSha = await f.advance();
-    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: true });
+    const captures = process.env.PITH_TASK67_REBASE_SCREENSHOT_DIR;
+    const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launch({ executablePath: process.env.PITH_CHROME_PATH, headless: !captures });
     page = await browser.newPage({ viewport: { width: 1024, height: 800 } }); page.setDefaultTimeout(8000);
     if (host === 'Web') { server = await createPithWebServer({ workspaceDir: f.workspace }); const address = server.address(); assert.ok(address && typeof address !== 'string'); await page.goto(`http://127.0.0.1:${address.port}`); }
     else await nativeWorkbenchFixture(page, f.workspace);
@@ -38,7 +40,22 @@ for (const host of ['Web', 'Obsidian'] as const) test(`${host} groups repository
     await page.locator('[data-material]').click(); await page.locator('.pith-article').getByText('export const added = 4;', { exact: true }).waitFor();
     await page.locator('.pith-nav-toggle').click(); await page.locator(`[data-material-id="${second.id}"][data-file="src/changed.ts"]`).click();
     await page.locator('.pith-article').getByText('export const value = "new";', { exact: true }).waitFor();
+    const other = await f.importDistinct('Distinct repository');
     await page.locator('[data-command=home]').click(); await page.locator(`[data-topic="${topic.id}"]`).first().click();
+    await page.locator('.pith-source-citation').first().waitFor();
+    await page.getByRole('button', { name: '导入材料', exact: true }).click();
+    const picker = page.getByRole('region', { name: '添加材料' });
+    await picker.getByRole('button', { name: other.title, exact: true }).click();
+    await picker.getByText('材料已入库并引用', { exact: true }).waitFor();
+    await picker.getByRole('button', { name: '关闭添加材料' }).click();
+    await page.locator('.pith-nav-toggle').click();
+    const contents = page.locator('.pith-left-drawer');
+    await contents.getByRole('heading', { name: other.title, exact: true }).waitFor();
+    assert.equal(await contents.locator('.pith-lesson-badge').count(), 0, 'a distinct attachment must not mark either stamped lesson stale');
+    assert.equal(await contents.locator('.pith-lesson-version, [data-rewrite-lesson]').count(), 0);
+    assert.deepEqual((await f.store.getTopic(topic.id))!.lessons.map(lesson => lesson.basedOn), [[first.id], [first.id]]);
+    if (captures) await page.screenshot({ path: join(captures, `${host.toLowerCase()}-distinct-attachment.png`), type: 'png' });
+    await contents.locator('[data-file="01-changed.md"][data-lesson]').click();
     await page.locator('.pith-source-citation').first().waitFor();
     await page.locator('.pith-nav-toggle').click(); await page.locator(`[data-use-version="${second.id}"]`).click();
     await page.waitForFunction(() => !document.querySelector('[data-use-version]'));
@@ -50,11 +67,12 @@ for (const host of ['Web', 'Obsidian'] as const) test(`${host} groups repository
     assert.equal(await page.locator('.pith-left-drawer .pith-lesson-badge').filter({ hasText: '基于旧版本' }).count(), 1);
     assert.match(await page.locator('.pith-old-version summary').innerText(), /1 讲依据/);
     assert.equal(await page.locator('.pith-old-version').getAttribute('open'), null);
-    assert.deepEqual((await f.store.getTopic(topic.id))!.materialIds, [first.id, second.id]);
+    assert.deepEqual((await f.store.getTopic(topic.id))!.materialIds, [first.id, other.id, second.id]);
     // The same path has different committed bytes; unrebased citations must still target v1 only.
     assert.equal(await page.locator('[data-citation-path="src/changed.ts"]').count(), 1, 'a path suffix is not a second citation');
     assert.equal(await page.locator('[data-citation-path="src/changed.ts"]').getAttribute('data-citation-material'), first.id);
     assert.equal(await page.locator('[data-citation-path="src/added.ts"]').count(), 0, 'absent in basis stays plain text');
+    if (captures) await page.screenshot({ path: join(captures, `${host.toLowerCase()}-same-repository-update.png`), type: 'png' });
     await page.keyboard.press('Escape'); await page.locator('.pith-left-drawer').waitFor({ state: 'hidden' });
     await page.locator('[data-citation-path="src/changed.ts"]').click();
     await page.locator('.pith-article').getByText('export const value = "old";', { exact: true }).waitFor();

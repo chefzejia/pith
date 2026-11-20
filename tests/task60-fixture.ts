@@ -8,7 +8,7 @@ import { NodeRepositoryPort } from '../src/shells/web/nodeRepository.ts';
 
 const run = promisify(execFile);
 export async function versionFixture() {
-  const base = resolve('.tmp/runtime/task-60'); await mkdir(base, { recursive: true });
+  const base = process.env.PITH_TEST_SANDBOX_ROOT ?? resolve('.tmp/runtime/task-60'); await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, 'test-')), source = join(root, 'source'), home = join(root, 'home'), workspace = join(root, 'workspace'), remote = join(root, 'remote.git');
   const previous = { ...process.env };
   for (const key of Object.keys(process.env)) if (key.startsWith('GIT_')) delete process.env[key];
@@ -30,6 +30,15 @@ export async function versionFixture() {
     const storage = new NodeWorkspaceStorage(workspace), store = new DefaultWorkspaceStore(storage), repository = new NodeRepositoryPort();
     await store.ensureScaffold();
     const importLocal = async () => store.importMaterial({ ...(await repository.inspectRepository(source)), kind: 'repo', files: [] });
+    const importDistinct = async (title: string) => {
+      const directory = join(root, title);
+      await mkdir(directory);
+      await git('-C', directory, 'init', '-q', '-b', 'main');
+      await writeFile(join(directory, 'README.md'), '# ' + title + '\n');
+      await git('-C', directory, 'add', 'README.md');
+      await git('-C', directory, 'commit', '-qm', 'initial');
+      return store.importMaterial({ ...(await repository.inspectRepository(directory)), kind: 'repo', files: [] });
+    };
     const advance = async () => {
       await writeFile(join(source, 'src/changed.ts'), 'export const value = "new";\n');
       await writeFile(join(source, 'src/added.ts'), 'export const added = 4;\n');
@@ -38,6 +47,6 @@ export async function versionFixture() {
       await git('-C', source, 'add', '.'); await git('-C', source, 'commit', '-qm', 'v2');
       return git('-C', source, 'rev-parse', 'HEAD');
     };
-    return { root, source, home, workspace, remote, url, first, git, close, storage, store, repository, importLocal, advance, read: (path: string) => readFile(path, 'utf8') };
+    return { root, source, home, workspace, remote, url, first, git, close, storage, store, repository, importLocal, importDistinct, advance, read: (path: string) => readFile(path, 'utf8') };
   } catch (error) { await close(); throw error; }
 }
