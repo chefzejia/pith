@@ -22,6 +22,7 @@ async function waitForSettled(
   waiters: readonly { readonly settled: Promise<void>; readonly handlerSignal: AbortSignal }[],
   signal?: AbortSignal,
 ): Promise<void> {
+  if (waiters.length === 0) return;
   const signals = new Set<AbortSignal>(waiters.map(waiter => waiter.handlerSignal));
   if (signal) signals.add(signal);
   for (const item of signals) {
@@ -37,7 +38,7 @@ async function waitForSettled(
       }
     });
     await Promise.race([
-      Promise.all(waiters.map(waiter => waiter.settled)).then(() => undefined),
+      ...waiters.map(waiter => waiter.settled),
       aborted,
     ]);
   } finally {

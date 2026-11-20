@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  DefaultAttentionEngine,
   DefaultWorkspaceStore,
   parseFrontmatter,
   type AgentProcessPort,
@@ -898,6 +899,121 @@ test("Waiting Obsidian controller exits immediately when disposed or aborted whi
     controller1.dispose();
     controller2?.dispose();
     controller3?.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Successor DefaultAttentionEngine wakes as soon as any aborted claim settles without blocking on another topic key", async () => {
+  const root = await testSandbox("m69-dual-key-handover-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topicA = await store.createTopic({ title: "Dual Key A", target: "Drain A before B settles", materialIds: [], toolkits: ["feynman"] });
+  const topicB = await store.createTopic({ title: "Dual Key B", target: "Drain B after B settles", materialIds: [], toolkits: ["feynman"] });
+
+  const engineA = new DefaultAttentionEngine(store, storage);
+  const engineB = new DefaultAttentionEngine(store, storage);
+  const successor = new DefaultAttentionEngine(store, storage);
+
+  const enteredA = deferred<string>();
+  const enteredB = deferred<string>();
+  const abortedA = deferred<void>();
+  const abortedB = deferred<void>();
+  const releaseA = deferred<void>();
+  const releaseB = deferred<void>();
+
+  const waitAbort = (signal: AbortSignal) => new Promise<void>(resolve => {
+    if (signal.aborted) { resolve(); return; }
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+
+  const unregisterA = engineA.registerEffectHandler("prepare-next-action", async (payload, runSignal) => {
+    enteredA.resolve(String(payload.topicId));
+    await waitAbort(runSignal);
+    abortedA.resolve();
+    await releaseA.promise;
+    throw runSignal.reason ?? new Error("Handler A aborted");
+  });
+  const unregisterB = engineB.registerEffectHandler("prepare-next-action", async (payload, runSignal) => {
+    enteredB.resolve(String(payload.topicId));
+    await waitAbort(runSignal);
+    abortedB.resolve();
+    await releaseB.promise;
+    throw runSignal.reason ?? new Error("Handler B aborted");
+  });
+
+  const executedBySuccessor: string[] = [];
+  const unregisterSuccessor = successor.registerEffectHandler("prepare-next-action", async payload => {
+    executedBySuccessor.push(String(payload.topicId));
+  });
+
+  let runA: Promise<number> | undefined;
+  let runB: Promise<number> | undefined;
+  let successorRun: Promise<number> | undefined;
+  try {
+    await engineA.enqueueEffect("prepare-next-action", topicA.id, { topicId: topicA.id });
+    await engineB.enqueueEffect("prepare-next-action", topicB.id, { topicId: topicB.id });
+
+    runA = engineA.processDueEffects();
+    assert.equal(await within(enteredA.promise, "engineA claimed topicA"), topicA.id);
+
+    runB = engineB.processDueEffects();
+    assert.equal(await within(enteredB.promise, "engineB claimed topicB"), topicB.id);
+
+    // Abort both handlers simultaneously while keeping both exits suspended
+    unregisterA();
+    unregisterB();
+    await within(abortedA.promise, "handlerA observed abort");
+    await within(abortedB.promise, "handlerB observed abort");
+
+    const runningEffects = await readEffectsFile(root);
+    assert.equal(runningEffects.find(item => item.key === topicA.id)?.status, "running");
+    assert.equal(runningEffects.find(item => item.key === topicB.id)?.status, "running");
+
+    // Start successor processDueEffects while both A and B are aborted but still running
+    successorRun = successor.processDueEffects();
+    await successor.listEffects();
+    await successor.listEffects();
+    assert.deepEqual(executedBySuccessor, []);
+
+    // Release ONLY A's retreating handler while B's exit remains suspended
+    releaseA.resolve();
+    assert.equal(await within(runA, "engineA exits after A settles"), 0);
+
+    const beforeReleaseB = await waitFor(
+      () => readEffectsFile(root),
+      list => list.find(item => item.key === topicA.id)?.status === "completed",
+      "topicA completed by successor before topicB settles",
+    );
+    assert.deepEqual(executedBySuccessor, [topicA.id]);
+    const effectAWhileBHeld = beforeReleaseB.find(item => item.key === topicA.id);
+    const effectBWhileBHeld = beforeReleaseB.find(item => item.key === topicB.id);
+    assert.equal(effectAWhileBHeld?.status, "completed");
+    assert.equal(effectAWhileBHeld?.attempts, 1);
+    assert.equal(effectAWhileBHeld?.lastError, undefined);
+    assert.equal(effectBWhileBHeld?.status, "running");
+
+    // Now release B's retreating handler and verify B is subsequently executed and completed
+    releaseB.resolve();
+    assert.equal(await within(runB, "engineB exits after B settles"), 0);
+    assert.equal(await within(successorRun, "successor drains both A and B"), 2);
+    assert.deepEqual(executedBySuccessor, [topicA.id, topicB.id]);
+
+    const finalEffects = await readEffectsFile(root);
+    assert.equal(finalEffects.length, 2);
+    for (const key of [topicA.id, topicB.id]) {
+      const record = finalEffects.find(item => item.key === key);
+      assert.equal(record?.status, "completed");
+      assert.equal(record?.attempts, 1);
+      assert.equal(record?.lastError, undefined);
+    }
+  } finally {
+    unregisterA();
+    unregisterB();
+    unregisterSuccessor();
+    releaseA.resolve();
+    releaseB.resolve();
+    await Promise.allSettled([runA, runB, successorRun].filter((item): item is Promise<number> => item !== undefined));
     await rm(root, { recursive: true, force: true });
   }
 });
