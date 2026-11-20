@@ -223,7 +223,7 @@ registerPlugin({
         const nextAction = reply.trim();
         if (!nextAction) throw new Error("Guide returned an empty next action");
         signal.throwIfAborted();
-        await store.updateTopic(topic.id, { nextAction });
+        await store.updateTopic(topic.id, { nextAction }, { signal });
       });
       ctx.onDispose(dispose);
     }

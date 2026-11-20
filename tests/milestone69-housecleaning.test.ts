@@ -4,10 +4,12 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   DefaultWorkspaceStore,
+  parseFrontmatter,
   type AgentProcessPort,
   type AgentStdioHandle,
   type EffectRecord,
   type Topic,
+  type WorkspaceStoragePort,
 } from "../src/core/index.ts";
 import { quickActionsForTopic } from "../src/plugins/guide-acp/index.ts";
 import { feynmanToolkit } from "../src/plugins/toolkit-feynman/index.ts";
@@ -80,6 +82,8 @@ interface ControlledAcpHandle {
 
 function createControlledAcpPort(options: {
   installed?: boolean;
+  holdPrompt?: boolean;
+  holdClose?: boolean;
   reply?: (prompt: string, spawnIndex: number) => string;
 } = {}): {
   port: AgentProcessPort;
@@ -92,8 +96,8 @@ function createControlledAcpPort(options: {
   const installed = options.installed ?? true;
   const replyFor = options.reply ?? ((_prompt, spawnIndex) => `Action #${spawnIndex}`);
   let spawnCount = 0;
-  let holdPrompt = false;
-  let holdClose = false;
+  let holdPrompt = options.holdPrompt ?? false;
+  let holdClose = options.holdClose ?? false;
   const prompts: string[] = [];
   const handles: ControlledAcpHandle[] = [];
   const handleWaiters: Array<(handle: ControlledAcpHandle) => void> = [];
@@ -606,6 +610,294 @@ test("feynman mounted quick actions omit feynman-coach across core and Web actio
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian abort while updateTopic is awaiting readText or queued refuses to write nextAction and resets effect to pending", async () => {
+  const root = await testSandbox("m69-obsidian-updatetopic-abort-");
+  const baseStorage = new NodeWorkspaceStorage(root);
+  let armTopicReadPause = false;
+  const topicReadEntered = deferred<void>();
+  const topicReadGate = deferred<void>();
+  const storage: WorkspaceStoragePort = {
+    mutationIdentity: baseStorage.mutationIdentity,
+    exists: path => baseStorage.exists(path),
+    readText: async path => {
+      if (armTopicReadPause && /^topics\/[^/]+\/topic\.md$/.test(path)) {
+        armTopicReadPause = false;
+        topicReadEntered.resolve();
+        await topicReadGate.promise;
+      }
+      return baseStorage.readText(path);
+    },
+    readBinary: path => baseStorage.readBinary(path),
+    writeText: (path, data) => baseStorage.writeText(path, data),
+    createText: (path, data) => baseStorage.createText(path, data),
+    writeBinary: (path, data) => baseStorage.writeBinary(path, data),
+    createBinary: (path, data) => baseStorage.createBinary(path, data),
+    copy: (from, to) => baseStorage.copy(from, to),
+    processText: (path, update) => baseStorage.processText(path, update),
+    mkdir: path => baseStorage.mkdir(path),
+    list: path => baseStorage.list(path),
+  };
+
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Read Abort Race", target: "Guard updateTopic during readText", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: () => "SHOULD NOT WRITE DURING READ PAUSE" });
+  const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  try {
+    await controller.initialize();
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true });
+    const nextHandle = agent.waitForNextHandle();
+    await controller.captureHighlight(topic.id, "trigger updateTopic readText abort");
+    const activeHandle = await within(nextHandle, "next ACP handle on updateTopic read abort test");
+    await within(activeHandle.promptEntered, "session/prompt entered on updateTopic read abort test");
+
+    // Store.getTopic already ran before promptEntered; arm readText pause for store.updateTopic
+    armTopicReadPause = true;
+    activeHandle.releasePrompt("SHOULD NOT WRITE DURING READ PAUSE");
+    await within(topicReadEntered.promise, "updateTopic readText(topic.md) entered");
+
+    // Dispose controller while updateTopic is paused inside storage.readText(), then resume readText
+    controller.dispose();
+    topicReadGate.resolve();
+
+    const effects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status !== "running",
+      "effect settled when aborted during updateTopic readText",
+    );
+    assert.equal(effects[0]?.status, "pending");
+    assert.equal(effects[0]?.attempts, 0);
+    assert.equal(effects[0]?.lastError, undefined);
+    const topicDiskRaw = await readFile(join(root, "topics", topic.id, "topic.md"), "utf8");
+    assert.equal(parseFrontmatter(topicDiskRaw).attributes.nextAction, undefined);
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+  } finally {
+    topicReadGate.resolve();
+    controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian abort while updateTopic is waiting in MutationQueue skips readText/writeText and resets effect to pending", async () => {
+  const root = await testSandbox("m69-obsidian-updatetopic-queue-abort-");
+  const baseStorage = new NodeWorkspaceStorage(root);
+  let armLessonWritePause = false;
+  let topicReadsDuringQueueAbort = 0;
+  let trackTopicReads = false;
+  const lessonWriteEntered = deferred<void>();
+  const lessonWriteGate = deferred<void>();
+  const storage: WorkspaceStoragePort = {
+    mutationIdentity: baseStorage.mutationIdentity,
+    exists: path => baseStorage.exists(path),
+    readText: async path => {
+      if (trackTopicReads && /^topics\/[^/]+\/topic\.md$/.test(path)) topicReadsDuringQueueAbort++;
+      return baseStorage.readText(path);
+    },
+    readBinary: path => baseStorage.readBinary(path),
+    writeText: async (path, data) => {
+      if (armLessonWritePause && /\/lessons\//.test(path)) {
+        armLessonWritePause = false;
+        lessonWriteEntered.resolve();
+        await lessonWriteGate.promise;
+      }
+      return baseStorage.writeText(path, data);
+    },
+    createText: (path, data) => baseStorage.createText(path, data),
+    writeBinary: (path, data) => baseStorage.writeBinary(path, data),
+    createBinary: (path, data) => baseStorage.createBinary(path, data),
+    copy: (from, to) => baseStorage.copy(from, to),
+    processText: (path, update) => baseStorage.processText(path, update),
+    mkdir: path => baseStorage.mkdir(path),
+    list: path => baseStorage.list(path),
+  };
+
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Queue Abort Race", target: "Guard updateTopic while queued", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ reply: () => "SHOULD NOT WRITE FROM QUEUE" });
+  const controller = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  try {
+    await controller.initialize();
+    await controller.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true });
+    const nextHandle = agent.waitForNextHandle();
+    await controller.captureHighlight(topic.id, "trigger updateTopic queue abort");
+    const activeHandle = await within(nextHandle, "next ACP handle on updateTopic queue abort test");
+    await within(activeHandle.promptEntered, "session/prompt entered on updateTopic queue abort test");
+
+    // Hold MutationQueue on an unrelated lesson write before ACP returns
+    armLessonWritePause = true;
+    const blockingWrite = store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nUpdated.");
+    await within(lessonWriteEntered.promise, "blocking write entered MutationQueue");
+
+    trackTopicReads = true;
+    activeHandle.releasePrompt("SHOULD NOT WRITE FROM QUEUE");
+    await within(activeHandle.closeEntered, "ACP prompt returned and closed while updateTopic queued behind blockingWrite");
+
+    // Yield briefly so store.updateTopic is queued behind blockingWrite on MutationQueue, then dispose before releasing queue
+    await new Promise<void>(resolve => setTimeout(resolve, 20));
+    controller.dispose();
+    lessonWriteGate.resolve();
+    await blockingWrite;
+
+    const effects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status !== "running",
+      "effect settled when aborted while updateTopic waited in queue",
+    );
+    assert.equal(effects[0]?.status, "pending");
+    assert.equal(topicReadsDuringQueueAbort, 0);
+    assert.equal(effects[0]?.attempts, 0);
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+  } finally {
+    lessonWriteGate.resolve();
+    controller.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Obsidian new controller on shared storage waits for disposing controller's handle.close() and drains pending effect", async () => {
+  const root = await testSandbox("m69-obsidian-handover-close-race-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Handover Close Race", target: "Drain pending effect after predecessor settles", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ holdClose: true, reply: (_prompt, index) => `Handover #${index}` });
+  const controller1 = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  let controller2: PithObsidianController | undefined;
+  let firstHandle: ControlledAcpHandle | undefined;
+  try {
+    await controller1.initialize();
+    await controller1.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true, holdClose: true });
+    const firstHandlePromise = agent.waitForNextHandle();
+    await controller1.captureHighlight(topic.id, "trigger handover race");
+    firstHandle = await within(firstHandlePromise, "first ACP handle on handover test");
+    await within(firstHandle.promptEntered, "first session/prompt entered on handover test");
+
+    // Dispose controller1 while ACP prompt is suspended; handle.close() stays held
+    controller1.dispose();
+    await within(firstHandle.closeEntered, "first handle.close() entered on controller1.dispose()");
+    assert.equal(firstHandle.closed(), true);
+
+    // Immediately initialize controller2 on the same shared storage BEFORE releasing firstHandle.close()
+    agent.setMode({ holdPrompt: false, holdClose: false });
+    controller2 = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+    await controller2.initialize();
+
+    // Ensure controller2's background processDueEffects scan ran while effects.json was still running
+    await controller2.engine.listEffects();
+    await controller2.engine.listEffects();
+    assert.equal(agent.spawns(), 1);
+    assert.equal((await readEffectsFile(root))[0]?.status, "running");
+
+    // Release controller1's handle.close() and verify controller2 drains automatically with no extra trigger
+    firstHandle.releaseClose();
+    const updated = await waitFor(
+      () => store.getTopic(topic.id),
+      item => item?.nextAction === "Handover #2",
+      "controller2 automatically draining effect after controller1 handle.close() releases",
+    );
+    assert.equal(updated?.nextAction, "Handover #2");
+    assert.equal(agent.spawns(), 2);
+    const effects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "completed",
+      "handover effect completed",
+    );
+    assert.equal(effects[0]?.attempts, 1);
+    assert.equal(effects[0]?.lastError, undefined);
+  } finally {
+    firstHandle?.releaseClose();
+    controller1.dispose();
+    controller2?.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Waiting Obsidian controller exits immediately when disposed or aborted while predecessor handle.close() is still held", async () => {
+  const root = await testSandbox("m69-obsidian-waiter-dispose-");
+  const storage = new NodeWorkspaceStorage(root);
+  const store = new DefaultWorkspaceStore(storage);
+  await store.ensureScaffold();
+  const topic = await store.createTopic({ title: "Waiter Dispose", target: "Waiter exits cleanly on dispose", materialIds: [], toolkits: ["feynman"] });
+  await store.writeLesson(topic.id, "01-intro.md", "# Intro\n\nProse.");
+
+  const agent = createControlledAcpPort({ holdClose: true, reply: (_prompt, index) => `Recovered #${index}` });
+  const controller1 = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+  let controller2: PithObsidianController | undefined;
+  let controller3: PithObsidianController | undefined;
+  let firstHandle: ControlledAcpHandle | undefined;
+  try {
+    await controller1.initialize();
+    await controller1.setAgentConfig({ agentId: "dsh", model: "", effort: "" });
+
+    agent.setMode({ holdPrompt: true, holdClose: true });
+    const firstHandlePromise = agent.waitForNextHandle();
+    await controller1.captureHighlight(topic.id, "trigger waiter dispose test");
+    firstHandle = await within(firstHandlePromise, "first ACP handle on waiter dispose test");
+    await within(firstHandle.promptEntered, "first session/prompt entered on waiter dispose test");
+
+    controller1.dispose();
+    await within(firstHandle.closeEntered, "first handle.close() entered on controller1.dispose()");
+
+    agent.setMode({ holdPrompt: false, holdClose: false });
+    controller2 = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+    await controller2.initialize();
+
+    const waiterPromise = controller2.engine.processDueEffects();
+    await controller2.engine.listEffects();
+    await controller2.engine.listEffects();
+    assert.equal(agent.spawns(), 1);
+    assert.equal((await readEffectsFile(root))[0]?.status, "running");
+
+    // Disposing controller2 while waiting must resolve immediately via handlerSignal without waiting on firstHandle.close()
+    controller2.dispose();
+    const processedByDisposedWaiter = await within(waiterPromise, "waiting processDueEffects exits on controller2.dispose()", 500);
+    assert.equal(processedByDisposedWaiter, 0);
+    assert.equal(agent.spawns(), 1);
+
+    // Aborting an explicit AbortSignal while waiting must also unblock immediately
+    controller3 = new PithObsidianController({ id: "obsidian", storage, process: agent.port });
+    await controller3.initialize();
+    const externalAbort = new AbortController();
+    const signalledWaiter = controller3.engine.processDueEffects(externalAbort.signal);
+    await controller3.engine.listEffects();
+    await controller3.engine.listEffects();
+    externalAbort.abort(new Error("Caller aborted wait"));
+    const processedByAbortedSignal = await within(signalledWaiter, "waiting processDueEffects exits on external signal abort", 500);
+    assert.equal(processedByAbortedSignal, 0);
+
+    // Disposing controller3 before releasing firstHandle leaves effect cleanly pending after firstHandle.close() completes
+    controller3.dispose();
+    firstHandle.releaseClose();
+    const effects = await waitFor(
+      () => readEffectsFile(root),
+      list => list.length === 1 && list[0]?.status === "pending",
+      "effect reset to pending after releasing firstHandle.close()",
+    );
+    assert.equal(effects[0]?.attempts, 0);
+    assert.equal((await store.getTopic(topic.id))?.nextAction, undefined);
+    assert.equal(agent.spawns(), 1);
+  } finally {
+    firstHandle?.releaseClose();
+    controller1.dispose();
+    controller2?.dispose();
+    controller3?.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });

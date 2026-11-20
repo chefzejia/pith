@@ -77,7 +77,7 @@ export interface WorkspaceStore {
   listTopics(): Promise<readonly Topic[]>;
   getTopic(topicId: string): Promise<Topic | null>;
   createTopic(input: CreateTopicInput): Promise<Topic>;
-  updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic>;
+  updateTopic(topicId: string, patch: UpdateTopicPatch, options?: { readonly signal?: AbortSignal }): Promise<Topic>;
   attachMaterial(topicId: string, materialId: string): Promise<Topic>;
   appendTopicNote(topicId: string, note: AppendNoteInput): Promise<Note>;
   writeLesson(topicId: string, fileName: string, markdown: string): Promise<Topic>;

@@ -384,10 +384,14 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       return topic;
     });
   }
-  updateTopic(topicId: string, patch: UpdateTopicPatch): Promise<Topic> {
+  async updateTopic(topicId: string, patch: UpdateTopicPatch, options?: { readonly signal?: AbortSignal }): Promise<Topic> {
+    options?.signal?.throwIfAborted();
     return this.queue.run(async () => {
+      options?.signal?.throwIfAborted();
       const path = `topics/${name(topicId)}/topic.md`;
-      const { attributes: a, body, topic } = parseTopic(await this.storage.readText(path));
+      const raw = await this.storage.readText(path);
+      options?.signal?.throwIfAborted();
+      const { attributes: a, body, topic } = parseTopic(raw);
       if (topic.id !== topicId) throw new Error("Topic id does not match path");
       if (patch.status !== undefined && patch.status !== topic.status && !(topic.status === "exploring" && (patch.status === "shelved" || patch.status === "settled")) && !(topic.status === "shelved" && patch.status === "exploring")) throw new Error("Invalid topic status transition");
       for (const key of ["title", "target", "status", "nextAction"] as const) if (patch[key] !== undefined) a[key] = patch[key]!;
@@ -395,6 +399,7 @@ export class DefaultWorkspaceStore implements WorkspaceStore {
       a.updatedAt = new Date().toISOString();
       const markdown = stringifyFrontmatter(a, body);
       const updated = parseTopic(markdown).topic;
+      options?.signal?.throwIfAborted();
       await this.storage.writeText(path, markdown);
       return updated;
     });

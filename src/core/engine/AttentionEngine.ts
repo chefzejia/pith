@@ -9,6 +9,42 @@ const recovered = new WeakSet<object>();
 
 const runningTopics = new WeakMap<object, Set<string>>();
 
+interface ActiveClaim {
+  readonly kind: EffectKind;
+  readonly key: string;
+  readonly runSignal: AbortSignal;
+  readonly settled: Promise<void>;
+}
+
+const activeClaims = new WeakMap<object, Set<ActiveClaim>>();
+
+async function waitForSettled(
+  waiters: readonly { readonly settled: Promise<void>; readonly handlerSignal: AbortSignal }[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const signals = new Set<AbortSignal>(waiters.map(waiter => waiter.handlerSignal));
+  if (signal) signals.add(signal);
+  for (const item of signals) {
+    if (item.aborted) return;
+  }
+  const cleanups: Array<() => void> = [];
+  try {
+    const aborted = new Promise<void>(resolve => {
+      const onAbort = () => resolve();
+      for (const item of signals) {
+        item.addEventListener("abort", onAbort, { once: true });
+        cleanups.push(() => item.removeEventListener("abort", onAbort));
+      }
+    });
+    await Promise.race([
+      Promise.all(waiters.map(waiter => waiter.settled)).then(() => undefined),
+      aborted,
+    ]);
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
+}
+
 function component(value: string): string {
   if (!value || value === "." || value === ".." || /[/\\\0]/.test(value)) throw new Error("Invalid topic id");
   return value;
@@ -195,8 +231,8 @@ export class DefaultAttentionEngine implements AttentionEngine {
   }
   async processDueEffects(signal?: AbortSignal): Promise<number> {
     if (signal?.aborted) return 0;
+    const identity = this.storage.mutationIdentity ?? this.storage;
     await this.queue.run(async () => {
-      const identity = this.storage.mutationIdentity ?? this.storage;
       if (recovered.has(identity)) return;
       const effects = await this.readArray<EffectRecord>("_cache/effects.json");
       if (effects.some(effect => effect.status === "running")) {
@@ -207,37 +243,82 @@ export class DefaultAttentionEngine implements AttentionEngine {
     let processed = 0;
     while (true) {
       if (signal?.aborted) return processed;
-      const claim = await this.queue.run(async () => {
-        if (signal?.aborted) return null;
+      type Step =
+        | { readonly kind: "done" }
+        | { readonly kind: "wait"; readonly waiters: readonly { readonly settled: Promise<void>; readonly handlerSignal: AbortSignal }[] }
+        | { readonly kind: "claimed"; readonly record: EffectRecord; readonly handler: EffectHandler; readonly runSignal: AbortSignal; readonly active: ActiveClaim; readonly resolveSettled: () => void };
+
+      const step: Step = await this.queue.run(async () => {
+        if (signal?.aborted) return { kind: "done" };
         const effects = await this.readArray<EffectRecord>("_cache/effects.json");
-        const index = effects.findIndex(effect => effect.status === "pending" && effect.dueAt <= new Date().toISOString() && this.handlers.has(effect.kind)
-          && !effects.some(other => other !== effect && other.kind === effect.kind && other.key === effect.key && other.status === "running"));
-        if (index < 0) return null;
-        const entry = this.handlers.get(effects[index]!.kind)!;
-        if (entry.controller.signal.aborted) return null;
-        const record: EffectRecord = { ...effects[index]!, status: "running", attempts: effects[index]!.attempts + 1, updatedAt: new Date().toISOString() };
-        effects[index] = record;
-        await this.writeArray("_cache/effects.json", effects);
-        return { record, handler: entry.handler, controller: entry.controller };
-      });
-      if (!claim) return processed;
-      const runSignal = signal ? AbortSignal.any([signal, claim.controller.signal]) : claim.controller.signal;
-      let error: string | undefined;
-      try { await claim.handler(claim.record.payload, runSignal); }
-      catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
-      await this.queue.run(async () => {
-        const effects = await this.readArray<EffectRecord>("_cache/effects.json");
-        const index = effects.findIndex(effect => effect.kind === claim.record.kind && effect.key === claim.record.key && effect.status === "running");
-        if (index < 0) throw new Error("Claimed effect is missing");
-        const record = effects[index]!;
-        if (error !== undefined && runSignal.aborted) {
-          effects[index] = { ...record, status: "pending", attempts: Math.max(0, record.attempts - 1), updatedAt: new Date().toISOString() };
-        } else {
-          effects[index] = { ...record, status: error === undefined ? "completed" : "failed", lastError: error, updatedAt: new Date().toISOString() };
+        const now = new Date().toISOString();
+        const index = effects.findIndex(effect => {
+          if (effect.status !== "pending" || effect.dueAt > now) return false;
+          const entry = this.handlers.get(effect.kind);
+          if (!entry || entry.controller.signal.aborted) return false;
+          return !effects.some(other => other !== effect && other.kind === effect.kind && other.key === effect.key && other.status === "running");
+        });
+        if (index >= 0) {
+          const entry = this.handlers.get(effects[index]!.kind)!;
+          const record: EffectRecord = { ...effects[index]!, status: "running", attempts: effects[index]!.attempts + 1, updatedAt: now };
+          effects[index] = record;
+          await this.writeArray("_cache/effects.json", effects);
+          const runSignal = signal ? AbortSignal.any([signal, entry.controller.signal]) : entry.controller.signal;
+          let resolveSettled!: () => void;
+          const settled = new Promise<void>(resolve => { resolveSettled = resolve; });
+          const active: ActiveClaim = { kind: record.kind, key: record.key, runSignal, settled };
+          let set = activeClaims.get(identity);
+          if (!set) {
+            set = new Set();
+            activeClaims.set(identity, set);
+          }
+          set.add(active);
+          return { kind: "claimed", record, handler: entry.handler, runSignal, active, resolveSettled };
         }
-        await this.writeArray("_cache/effects.json", effects);
+        const claims = activeClaims.get(identity);
+        if (!claims || claims.size === 0) return { kind: "done" };
+        const waiters: { readonly settled: Promise<void>; readonly handlerSignal: AbortSignal }[] = [];
+        for (const active of claims) {
+          if (!active.runSignal.aborted) continue;
+          const entry = this.handlers.get(active.kind);
+          if (!entry || entry.controller.signal.aborted) continue;
+          waiters.push({ settled: active.settled, handlerSignal: entry.controller.signal });
+        }
+        return waiters.length > 0 ? { kind: "wait", waiters } : { kind: "done" };
       });
-      if (error !== undefined && runSignal.aborted) return processed;
+      if (step.kind === "done") return processed;
+      if (step.kind === "wait") {
+        await waitForSettled(step.waiters, signal);
+        if (signal?.aborted) return processed;
+        continue;
+      }
+      let error: string | undefined;
+      let abortedFailure = false;
+      try {
+        try { await step.handler(step.record.payload, step.runSignal); }
+        catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+        abortedFailure = error !== undefined && step.runSignal.aborted;
+        await this.queue.run(async () => {
+          const effects = await this.readArray<EffectRecord>("_cache/effects.json");
+          const index = effects.findIndex(effect => effect.kind === step.record.kind && effect.key === step.record.key && effect.status === "running");
+          if (index < 0) throw new Error("Claimed effect is missing");
+          const record = effects[index]!;
+          if (abortedFailure) {
+            effects[index] = { ...record, status: "pending", attempts: Math.max(0, record.attempts - 1), updatedAt: new Date().toISOString() };
+          } else {
+            effects[index] = { ...record, status: error === undefined ? "completed" : "failed", lastError: error, updatedAt: new Date().toISOString() };
+          }
+          await this.writeArray("_cache/effects.json", effects);
+        });
+      } finally {
+        const set = activeClaims.get(identity);
+        if (set) {
+          set.delete(step.active);
+          if (set.size === 0) activeClaims.delete(identity);
+        }
+        step.resolveSettled();
+      }
+      if (abortedFailure) return processed;
       processed++;
       if (signal?.aborted) return processed;
     }
