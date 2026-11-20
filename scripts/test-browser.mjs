@@ -113,21 +113,34 @@ console.error(`test-browser: ${files.length} files (test timeout ${hasTestTimeou
 
 let activeChild = null;
 let interrupted = false;
+let shutdownTarget = null;
+let shutdownTimer = null;
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => {
-    interrupted = true;
+  process.on(signal, () => {
     const exitCode = signal === "SIGINT" ? 130 : 143;
-    if (!activeChild || !activeChild.pid) process.exit(exitCode);
+    if (interrupted) {
+      if (shutdownTimer) {
+        clearInterval(shutdownTimer);
+        shutdownTimer = null;
+      }
+      if (shutdownTarget) killProcessGroup(shutdownTarget, "SIGKILL");
+      process.exit(exitCode);
+    }
+    interrupted = true;
     const target = activeChild;
+    if (!target || !target.pid) process.exit(exitCode);
+    shutdownTarget = target;
     killProcessGroup(target, signal);
     if (process.platform === "win32" || !isProcessGroupAlive(target.pid)) process.exit(exitCode);
     const deadline = Date.now() + 500;
-    const timer = setInterval(() => {
+    shutdownTimer = setInterval(() => {
       if (!isProcessGroupAlive(target.pid)) {
-        clearInterval(timer);
+        clearInterval(shutdownTimer);
+        shutdownTimer = null;
         process.exit(exitCode);
       } else if (Date.now() >= deadline) {
-        clearInterval(timer);
+        clearInterval(shutdownTimer);
+        shutdownTimer = null;
         killProcessGroup(target, "SIGKILL");
         process.exit(exitCode);
       }
