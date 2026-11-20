@@ -15,7 +15,7 @@ Pith 是一个宿主无关的**个人注意力与人类认知训练系统（Pers
    - **插件角色**：`Core` 之外皆插件。舞台（`Stage`）负责渲染文件；工具（`Toolkit`）以原位覆盖层寄生在舞台上，分为挂在材料上的阅读辅助与挂在课题上的训练工具。这个概念只叫 `Toolkit`，不使用 `dojo`。严禁在用户设置面板暴露底层插件开关列表。
    - **格式演进**：代码只读当前格式，不保留旧格式的读取代码或兼容别名。还没发布过的设计有问题就直接改设计并重构；已发布的磁盘格式只做加法（新增可选字段），确需破坏性变更时先由人确认，由发布任务附一次性迁移脚本，先备份再迁移，迁移完删掉脚本。
 4. **标准外部/按需语音协议与 Fail-Closed**：衍生音频通过材料目录标准文件解耦；实时 TTS/ASR 通过 OpenAI 兼容 HTTP 协议对接云端或 Vault 外本机按需神经语音网关（原生零 Python 依赖运行时），严禁回退系统低劣语音 API（`speechSynthesis`）或运行时调 `pip`，不可达时直接 Fail-Closed。
-5. **双环协作（拓扑 A：单宿主原生编排 + 异源审计）**：采用 `multi-agent-collab` 拓扑 A，由主会话兼任 **Brain + Router**（维护契约与 [`docs/TASKS.md`](docs/TASKS.md) 队列，原 Codex `.git/hooks/post-commit` 唤醒已停用为 `post-commit.codex-disabled`），调度独立 AGY 子 Agent（`pith-worker`、每里程碑全新 `pith-tester`）执行实现与真实用户验收；按失效机制归类并晋升 [`docs/LESSONS.md`](docs/LESSONS.md) 守卫单测。重大方案定稿前（`plan`）及合并/发版/跳过 Tester/周期节点（`diff`）优先经 `gpt-auditor` 调用本机只读一次性异源 CLI 执行四类实证交叉审计，由 Brain 逐条核实后再清零推进水位线。全部规则以 [`docs/ROLES.md`](docs/ROLES.md) 为准。
+5. **双环协作（拓扑 A：单宿主原生编排 + 异源审计）**：采用 `multi-agent-collab` 拓扑 A，由当前宿主主会话兼任 **Brain + Router**（维护契约与 [`docs/TASKS.md`](docs/TASKS.md) 队列，原 `.git/hooks/post-commit` 自动唤醒已停用为 `post-commit.codex-disabled`），调度独立的编码 Worker 与每里程碑全新 Tester 执行实现与真实用户验收；派发通道、实时动态选型、隔离生命周期与兜底策略统一服从当前宿主的全局模型路由规则（用户在当前对话的显式指定永远最高优先）；按失效机制归类并晋升 [`docs/LESSONS.md`](docs/LESSONS.md) 守卫单测。重大方案定稿前（`plan`）及合并/发版/跳过 Tester/周期节点（`diff`）由 Brain 驱动一次性只读异源 Auditor 执行四类实证交叉审计（模型与推理深度遵循本机只读审计配置，默认高推理深度），逐条核实后再清零推进水位线。全部规则以 [`docs/ROLES.md`](docs/ROLES.md) 为准。
 
 ## 修改与验证
 
