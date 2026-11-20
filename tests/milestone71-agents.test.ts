@@ -11,7 +11,7 @@ import {
   type DiscoveredAgentDescriptor,
   type WorkspaceStoragePort,
 } from "../src/core/index.ts";
-import { discoverLocalAgents, LocalAcpGuideProvider, runOneShotAcpPrompt } from "../src/plugins/guide-acp/index.ts";
+import { CachedAgentDetector, discoverLocalAgents, LocalAcpGuideProvider, runOneShotAcpPrompt } from "../src/plugins/guide-acp/index.ts";
 import { PithObsidianController, PithSettingTab } from "../src/shells/obsidian/index.ts";
 import { NodeToolServerPort } from "../src/shells/web/nodeToolServer.ts";
 import { NodeWorkspaceStorage } from "../src/shells/web/nodeStorage.ts";
@@ -806,4 +806,243 @@ test("M71: Web server POST /api/settings resets model and effort on cross-agent 
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("M71: discoverLocalAgents defaults probeExecutable timeoutMs to 10_000 and respects explicit timeoutMs", async () => {
+  const defaultTimeouts: Array<number | undefined> = [];
+  const explicitTimeouts: Array<number | undefined> = [];
+  let activeBucket = defaultTimeouts;
+  const { port } = createAcpTestPort({
+    installed: {
+      dsh: { path: "/bin/dsh", version: "0.2.2", helpText: "Agent Client Protocol (ACP)" },
+      "codex-acp": { path: "/bin/codex-acp", version: "2.2.2" },
+    },
+  });
+  const recordingPort: AgentProcessPort = {
+    ...port,
+    async probeExecutable(execPath, args, timeoutMs) {
+      activeBucket.push(timeoutMs);
+      return port.probeExecutable(execPath, args, timeoutMs);
+    },
+  };
+
+  await discoverLocalAgents({ processPort: recordingPort });
+  assert.ok(defaultTimeouts.length > 0);
+  assert.ok(defaultTimeouts.every((t) => t === 10_000), `expected all default timeouts to be 10_000, got ${JSON.stringify(defaultTimeouts)}`);
+
+  activeBucket = explicitTimeouts;
+  await discoverLocalAgents({ processPort: recordingPort, timeoutMs: 2_500 });
+  assert.ok(explicitTimeouts.length > 0);
+  assert.ok(explicitTimeouts.every((t) => t === 2_500), `expected all explicit timeouts to be 2_500, got ${JSON.stringify(explicitTimeouts)}`);
+});
+
+test("M71: CachedAgentDetector deduplicates cold concurrent detect + probeAgentOptions and records TTL at completion", async () => {
+  const { port: basePort, probeCalls, spawnedSpecs } = createAcpTestPort({
+    installed: {
+      dsh: { path: "/bin/dsh", version: "0.2.2", helpText: "Agent Client Protocol (ACP)" },
+      "codex-acp": { path: "/bin/codex-acp", version: "2.2.2" },
+    },
+    onSpawn(spec, wire) {
+      wire.onRequest((req) => {
+        if (req.method === "initialize") wire.reply(req, { agentCapabilities: { mcpCapabilities: { http: true } } });
+        else if (req.method === "session/new") {
+          const isDsh = spec.command === "/bin/dsh";
+          wire.reply(req, {
+            sessionId: isDsh ? "s-dsh" : "s-codex",
+            configOptions: [
+              { id: "model", name: "Model", type: "select", currentValue: isDsh ? "ds-v4" : "gpt-6", options: [{ value: isDsh ? "ds-v4" : "gpt-6", name: "Default" }] },
+            ],
+          });
+        }
+      });
+    },
+  });
+
+  const probeGate = deferred();
+  const port: AgentProcessPort = {
+    ...basePort,
+    async probeExecutable(execPath, args, timeoutMs) {
+      await probeGate.promise;
+      return basePort.probeExecutable(execPath, args, timeoutMs);
+    },
+  };
+
+  let clock = 1_000;
+  const detector = new CachedAgentDetector({ processPort: port }, 30_000, () => clock);
+
+  const concurrent = Promise.all([
+    detector.detect(true),
+    detector.probeAgentOptions("codex", false),
+    detector.probeAgentOptions("dsh", false),
+    detector.detect(false),
+  ]);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 15));
+  // Advance clock during slow probe so scan time (15s) would eat half the TTL if stamped at start
+  clock += 15_000;
+  probeGate.resolve();
+
+  const [forcedDetect, codexOpts, dshOpts, nonForcedDetect] = await concurrent;
+  assert.equal(forcedDetect.find((d) => d.id === "dsh")?.available, true);
+  assert.equal(forcedDetect.find((d) => d.id === "codex")?.available, true);
+  assert.equal(nonForcedDetect.find((d) => d.id === "dsh")?.available, true);
+  assert.equal(codexOpts[0]?.currentValue, "gpt-6");
+  assert.equal(dshOpts[0]?.currentValue, "ds-v4");
+
+  // Single discoverLocalAgents run: each candidate probe command runs once
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--version")).length, 1);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--help")).length, 1);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/codex-acp").length, 1);
+  assert.equal(spawnedSpecs.filter((s) => s.command === "/bin/dsh").length, 1);
+  assert.equal(spawnedSpecs.filter((s) => s.command === "/bin/codex-acp").length, 1);
+
+  // Returned descriptors are independent clones
+  (forcedDetect.find((d) => d.id === "dsh")!.args as string[]).push("--mutated");
+  assert.deepEqual(nonForcedDetect.find((d) => d.id === "dsh")!.args, ["--profile", "acp"]);
+
+  // 20s after completion (35s since start): cache timestamp was recorded at completion so still fresh
+  clock += 20_000;
+  const cachedDetect = await detector.detect(false);
+  assert.deepEqual(cachedDetect.find((d) => d.id === "dsh")!.args, ["--profile", "acp"]);
+  await detector.probeAgentOptions("dsh", false);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh").length, 2);
+  assert.equal(spawnedSpecs.filter((s) => s.command === "/bin/dsh").length, 1);
+});
+
+test("M71: CachedAgentDetector deduplicates refresh detect(true) + probeAgentOptions(true) and concurrent same-agent probes", async () => {
+  const { port: basePort, probeCalls, spawnedSpecs } = createAcpTestPort({
+    installed: {
+      dsh: { path: "/bin/dsh", version: "0.2.2", helpText: "Agent Client Protocol (ACP)" },
+    },
+    onSpawn(_spec, wire) {
+      wire.onRequest((req) => {
+        if (req.method === "initialize") wire.reply(req, { agentCapabilities: { mcpCapabilities: { http: true } } });
+        else if (req.method === "session/new") {
+          wire.reply(req, {
+            sessionId: "s-dsh-refresh",
+            configOptions: [{ id: "model", name: "Model", type: "select", currentValue: "ds-v4", options: [{ value: "ds-v4", name: "DS V4" }] }],
+          });
+        }
+      });
+    },
+  });
+
+  let probeGate = deferred();
+  let spawnGate = deferred();
+  const port: AgentProcessPort = {
+    ...basePort,
+    async probeExecutable(execPath, args, timeoutMs) {
+      await probeGate.promise;
+      return basePort.probeExecutable(execPath, args, timeoutMs);
+    },
+    async spawnStdio(spec) {
+      await spawnGate.promise;
+      return basePort.spawnStdio(spec);
+    },
+  };
+
+  let clock = 10_000;
+  const detector = new CachedAgentDetector({ processPort: port }, 30_000, () => clock);
+
+  // 1. Refresh concurrency: detect(true) + probeAgentOptions("dsh", true)
+  const refreshRun = Promise.all([
+    detector.detect(true),
+    detector.probeAgentOptions("dsh", true),
+  ]);
+  await new Promise<void>((resolve) => setTimeout(resolve, 15));
+  probeGate.resolve();
+  spawnGate.resolve();
+  const [refreshDescriptors, refreshOptions] = await refreshRun;
+  assert.equal(refreshDescriptors.find((d) => d.id === "dsh")?.available, true);
+  assert.equal(refreshOptions[0]?.currentValue, "ds-v4");
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--version")).length, 1);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--help")).length, 1);
+  assert.equal(spawnedSpecs.filter((s) => s.command === "/bin/dsh").length, 1);
+
+  // 2. Same-agent concurrent probes after TTL expiry: probeAgentOptions("dsh", true) + probeAgentOptions("dsh", false)
+  clock += 31_000;
+  probeCalls.length = 0;
+  spawnedSpecs.length = 0;
+  probeGate = deferred();
+  spawnGate = deferred();
+
+  const sameAgentRun = Promise.all([
+    detector.probeAgentOptions("dsh", true),
+    detector.probeAgentOptions("dsh", false),
+  ]);
+  await new Promise<void>((resolve) => setTimeout(resolve, 15));
+  probeGate.resolve();
+  spawnGate.resolve();
+  const [optsForced, optsNonForced] = await sameAgentRun;
+  assert.equal(optsForced[0]?.currentValue, "ds-v4");
+  assert.equal(optsNonForced[0]?.currentValue, "ds-v4");
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--version")).length, 1);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--help")).length, 1);
+  assert.equal(spawnedSpecs.filter((s) => s.command === "/bin/dsh").length, 1);
+});
+
+test("M71: CachedAgentDetector clears inflight slots and skips cache on detect or probeAgentOptions failure", async () => {
+  let failFind = true;
+  let failHandshake = true;
+  const { port: basePort, probeCalls, spawnedSpecs } = createAcpTestPort({
+    installed: {
+      dsh: { path: "/bin/dsh", version: "0.2.2", helpText: "Agent Client Protocol (ACP)" },
+    },
+    onSpawn(_spec, wire) {
+      wire.onRequest((req) => {
+        if (req.method === "initialize") {
+          wire.reply(req, { agentCapabilities: { mcpCapabilities: { http: true } } });
+        } else if (req.method === "session/new") {
+          if (failHandshake) wire.replyError(req, -32603, "temporary handshake error");
+          else {
+            wire.reply(req, {
+              sessionId: "s-recovered",
+              configOptions: [{ id: "model", name: "Model", type: "select", currentValue: "ds-v4", options: [{ value: "ds-v4", name: "DS V4" }] }],
+            });
+          }
+        }
+      });
+    },
+  });
+
+  const findGate = deferred();
+  const port: AgentProcessPort = {
+    ...basePort,
+    async findExecutable(command, paths) {
+      await findGate.promise;
+      if (failFind) throw new Error("temporary find failure");
+      return basePort.findExecutable(command, paths);
+    },
+  };
+
+  const detector = new CachedAgentDetector({ processPort: port });
+
+  // 1. In-flight detect failure clears inflightDetect and does not write cache
+  const failedDetectRun = Promise.allSettled([detector.detect(true), detector.detect(false)]);
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  findGate.resolve();
+  const detectOutcomes = await failedDetectRun;
+  assert.equal(detectOutcomes[0].status, "rejected");
+  assert.equal(detectOutcomes[1].status, "rejected");
+
+  failFind = false;
+  const recoveredDescriptors = await detector.detect(false);
+  assert.equal(recoveredDescriptors.find((d) => d.id === "dsh")?.available, true);
+  assert.equal(probeCalls.filter((c) => c.execPath === "/bin/dsh" && c.args.includes("--version")).length, 1);
+
+  // 2. In-flight probeAgentOptions failure clears inflightOptions and does not write optionCache
+  const failedProbeRun = Promise.allSettled([
+    detector.probeAgentOptions("dsh", false),
+    detector.probeAgentOptions("dsh", true),
+  ]);
+  const probeOutcomes = await failedProbeRun;
+  assert.equal(probeOutcomes[0].status, "rejected");
+  assert.equal(probeOutcomes[1].status, "rejected");
+  assert.match(String((probeOutcomes[0] as PromiseRejectedResult).reason), /检测 DeepSeek Harness 配置失败：temporary handshake error/);
+  assert.equal(spawnedSpecs.length, 1);
+
+  failHandshake = false;
+  const recoveredOptions = await detector.probeAgentOptions("dsh", false);
+  assert.equal(recoveredOptions[0]?.currentValue, "ds-v4");
+  assert.equal(spawnedSpecs.length, 2);
 });

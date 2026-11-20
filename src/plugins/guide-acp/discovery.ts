@@ -107,7 +107,7 @@ export async function discoverLocalAgents(
 ): Promise<DiscoveredAgentDescriptor[]> {
   const candidates = options.candidates ?? BUILTIN_LOCAL_AGENTS;
   const searchPaths = options.searchPaths ?? options.processPort?.searchPaths?.() ?? [];
-  const timeoutMs = options.timeoutMs ?? 4_000;
+  const timeoutMs = options.timeoutMs ?? 10_000;
 
   const findExec =
     options.findExecutable ??
@@ -195,10 +195,12 @@ export async function discoverLocalAgents(
 
 export class CachedAgentDetector {
   private cache: { at: number; descriptors: readonly DiscoveredAgentDescriptor[] } | null = null;
+  private inflightDetect: Promise<readonly DiscoveredAgentDescriptor[]> | null = null;
   private readonly ttlMs: number;
   private readonly options: DiscoverLocalAgentsOptions;
   private readonly now: () => number;
   private readonly optionCache = new Map<string, { at: number; options: readonly AcpConfigOptionDescriptor[] }>();
+  private readonly inflightOptions = new Map<string, Promise<readonly AcpConfigOptionDescriptor[]>>();
 
   constructor(options: DiscoverLocalAgentsOptions = {}, ttlMs = 30_000, now: () => number = () => Date.now()) {
     this.options = options;
@@ -215,25 +217,53 @@ export class CachedAgentDetector {
   }
 
   async detect(force = false): Promise<readonly DiscoveredAgentDescriptor[]> {
-    const timestamp = this.now();
-    if (!force && this.cache && timestamp - this.cache.at < this.ttlMs) {
+    if (!force && this.cache && this.now() - this.cache.at < this.ttlMs) {
       return this.cloneDescriptors(this.cache.descriptors);
     }
-    const descriptors = await discoverLocalAgents(this.options);
-    this.cache = { at: timestamp, descriptors };
-    return this.cloneDescriptors(descriptors);
+    if (this.inflightDetect) {
+      return this.cloneDescriptors(await this.inflightDetect);
+    }
+    const pending = (async () => {
+      const descriptors = await discoverLocalAgents(this.options);
+      this.cache = { at: this.now(), descriptors };
+      return descriptors;
+    })();
+    this.inflightDetect = pending;
+    try {
+      return this.cloneDescriptors(await pending);
+    } finally {
+      if (this.inflightDetect === pending) {
+        this.inflightDetect = null;
+      }
+    }
   }
 
   async probeAgentOptions(agentId: string, force = false): Promise<readonly AcpConfigOptionDescriptor[]> {
-    const cached = this.optionCache.get(agentId), timestamp = this.now();
-    if (!force && cached && timestamp - cached.at < this.ttlMs) return cached.options;
-    const descriptor = (await this.detect(force)).find(item => item.id === agentId);
-    if (!descriptor || !descriptor.available || !this.options.processPort) throw new Error("Agent 不可用");
-    let result;
-    try { result = await runOneShotAcpPrompt("", { descriptor, processPort: this.options.processPort, timeoutMs: this.options.timeoutMs, probeOnly: true }); }
-    catch (error) { throw new Error(`检测 ${descriptor.label} 配置失败：${error instanceof Error ? error.message : String(error)}`); }
-    const options = result.configOptions ?? [];
-    this.optionCache.set(agentId, { at: timestamp, options });
-    return options;
+    const cached = this.optionCache.get(agentId);
+    if (!force && cached && this.now() - cached.at < this.ttlMs) {
+      return cached.options;
+    }
+    const inflight = this.inflightOptions.get(agentId);
+    if (inflight) {
+      return inflight;
+    }
+    const pending = (async () => {
+      const descriptor = (await this.detect(force)).find(item => item.id === agentId);
+      if (!descriptor || !descriptor.available || !this.options.processPort) throw new Error("Agent 不可用");
+      let result;
+      try { result = await runOneShotAcpPrompt("", { descriptor, processPort: this.options.processPort, timeoutMs: this.options.timeoutMs, probeOnly: true }); }
+      catch (error) { throw new Error(`检测 ${descriptor.label} 配置失败：${error instanceof Error ? error.message : String(error)}`); }
+      const options = result.configOptions ?? [];
+      this.optionCache.set(agentId, { at: this.now(), options });
+      return options;
+    })();
+    this.inflightOptions.set(agentId, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.inflightOptions.get(agentId) === pending) {
+        this.inflightOptions.delete(agentId);
+      }
+    }
   }
 }
