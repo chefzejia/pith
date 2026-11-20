@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { LXGW_WENKAI_LICENSE, LXGW_WENKAI_WOFF2 } from "../src/plugins/stage-reader/lxgwWenKaiData.ts";
+import { testSandbox } from "./sandbox.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -111,6 +114,58 @@ test("the browser test command runs every test file that launches a browser, ins
   assert.equal(missing.stdout, "");
   assert.match(missing.stderr, /PITH_PLAYWRIGHT_MODULE/);
   assert.match(missing.stderr, /PITH_CHROME_PATH/);
+});
+
+test("the browser test command passes --test-timeout and kills a hanging file that leaks an open server", { timeout: 20000 }, async () => {
+  const launcher = join(ROOT, "scripts/test-browser.mjs");
+  const dir = await testSandbox("browser-runner-timeout-");
+  const portFile = join(dir, "port.txt");
+  const hangingTest = join(dir, "leaking-server.test.ts");
+  try {
+    writeFileSync(hangingTest, [
+      'import { writeFileSync } from "node:fs";',
+      'import { createServer } from "node:http";',
+      'import test from "node:test";',
+      `const portFile = ${JSON.stringify(portFile)};`,
+      'test("leaks open server past test timeout", async () => {',
+      '  const server = createServer((_req, res) => res.end("alive"));',
+      '  await new Promise<void>(ok => server.listen(0, "127.0.0.1", ok));',
+      '  const addr = server.address();',
+      '  if (addr && typeof addr !== "string") writeFileSync(portFile, String(addr.port));',
+      '  await new Promise(() => {});',
+      '});',
+    ].join("\n"));
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PITH_PLAYWRIGHT_MODULE: launcher,
+      PITH_CHROME_PATH: launcher,
+      PITH_BROWSER_TEST_TIMEOUT_MS: "400",
+      PITH_BROWSER_FILE_TIMEOUT_MS: "1800",
+    };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const started = Date.now();
+    const run = spawnSync(process.execPath, [launcher, hangingTest], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 15000,
+      env: childEnv,
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(run.signal, null, `launcher itself timed out instead of terminating the child: ${run.stderr}`);
+    assert.equal(run.status, 1, `expected non-zero exit for hung file:\n${run.stderr}`);
+    assert.ok(elapsed < 10000, `expected hard timeout under 10s, took ${elapsed}ms`);
+    assert.match(run.stdout, /✖ leaks open server past test timeout/);
+    assert.match(run.stderr, /timed out after 1800ms/);
+    const port = Number(readFileSync(portFile, "utf8").trim());
+    assert.ok(Number.isInteger(port) && port > 0, `expected leaked server port, got ${port}`);
+    const alive = await new Promise<boolean>(resolveConn => {
+      const socket = createConnection({ host: "127.0.0.1", port }, () => { socket.destroy(); resolveConn(true); });
+      socket.once("error", () => resolveConn(false));
+    });
+    assert.equal(alive, false, "leaked child server must be terminated when the per-file timeout fires");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 function walkMdFiles(dir: string): string[] {

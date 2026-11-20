@@ -71,11 +71,92 @@ if (!playwright.path || !chrome.path) {
   process.exit(1);
 }
 
-console.error(`test-browser: ${files.length} files, playwright ${playwright.path}, chrome ${chrome.path}`);
-const child = spawn(process.execPath, ["--experimental-strip-types", "--import", "./tests/setup.ts", "--test", "--test-concurrency=1", ...args.filter(arg => !named.includes(arg)), ...files], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, PITH_PLAYWRIGHT_MODULE: playwright.path, PITH_CHROME_PATH: chrome.path },
-});
-child.on("error", error => { console.error(`test-browser: ${error.message}`); process.exit(1); });
-child.on("exit", (code, signal) => process.exit(signal ? 1 : code ?? 1));
+function positiveMs(value, fallback, name) {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(`test-browser: ${name} must be a positive number of milliseconds, got ${JSON.stringify(value)}`);
+    process.exit(1);
+  }
+  return Math.floor(parsed);
+}
+
+function killProcessGroup(child, signal) {
+  if (!child.pid) return;
+  try {
+    if (process.platform !== "win32") process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+const extraArgs = args.filter(arg => !named.includes(arg));
+const testTimeoutMs = positiveMs(process.env.PITH_BROWSER_TEST_TIMEOUT_MS, 90_000, "PITH_BROWSER_TEST_TIMEOUT_MS");
+const fileTimeoutMs = positiveMs(process.env.PITH_BROWSER_FILE_TIMEOUT_MS, 180_000, "PITH_BROWSER_FILE_TIMEOUT_MS");
+const hasTestTimeout = extraArgs.some(arg => arg === "--test-timeout" || arg.startsWith("--test-timeout="));
+const runnerTimeoutArgs = hasTestTimeout ? [] : [`--test-timeout=${testTimeoutMs}`];
+
+console.error(`test-browser: ${files.length} files (test timeout ${hasTestTimeout ? "custom" : `${testTimeoutMs}ms`}, file timeout ${fileTimeoutMs}ms), playwright ${playwright.path}, chrome ${chrome.path}`);
+
+let activeChild = null;
+let interrupted = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    interrupted = true;
+    if (activeChild) killProcessGroup(activeChild, signal);
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
+}
+
+function runFile(file, index) {
+  return new Promise(resolveRun => {
+    console.error(`test-browser: [${index + 1}/${files.length}] ${file}`);
+    const child = spawn(process.execPath, ["--experimental-strip-types", "--import", "./tests/setup.ts", "--test", "--test-concurrency=1", ...runnerTimeoutArgs, ...extraArgs, file], {
+      cwd: root,
+      stdio: "inherit",
+      detached: process.platform !== "win32",
+      env: { ...process.env, PITH_PLAYWRIGHT_MODULE: playwright.path, PITH_CHROME_PATH: chrome.path },
+    });
+    activeChild = child;
+    let timedOut = false;
+    let settled = false;
+    let forceKillTimer = null;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fileTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (activeChild === child) activeChild = null;
+      resolveRun(result);
+    };
+    const fileTimer = setTimeout(() => {
+      timedOut = true;
+      console.error(`test-browser: ${file} timed out after ${fileTimeoutMs}ms; terminating process group`);
+      killProcessGroup(child, "SIGTERM");
+      forceKillTimer = setTimeout(() => killProcessGroup(child, "SIGKILL"), Math.min(3_000, Math.max(500, Math.floor(fileTimeoutMs / 2))));
+      forceKillTimer.unref();
+    }, fileTimeoutMs);
+    fileTimer.unref();
+    child.on("error", error => {
+      console.error(`test-browser: ${file}: ${error.message}`);
+      finish({ file, ok: false, timedOut, reason: error.message });
+    });
+    child.on("exit", (code, signal) => {
+      const ok = !timedOut && !signal && code === 0;
+      finish({ file, ok, timedOut, reason: timedOut ? `timed out after ${fileTimeoutMs}ms` : signal ? `signal ${signal}` : `exit ${code ?? 1}` });
+    });
+  });
+}
+
+const failures = [];
+for (let i = 0; i < files.length && !interrupted; i++) {
+  const result = await runFile(files[i], i);
+  if (!result.ok) failures.push(result);
+}
+if (failures.length > 0) {
+  console.error(`test-browser: ${failures.length}/${files.length} file(s) failed:`);
+  for (const failure of failures) console.error(`  - ${failure.file} (${failure.reason})`);
+  process.exit(1);
+}
+process.exit(0);

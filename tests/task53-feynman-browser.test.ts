@@ -16,6 +16,16 @@ function deferred<T>() {
   const promise = new Promise<T>(ok => { resolve = ok; });
   return { promise, resolve };
 }
+function onTimeoutCleanup(signal: AbortSignal, cleanup: () => Promise<void>) {
+  let done: Promise<void> | undefined;
+  const run = () => (done ??= cleanup().catch(() => {}));
+  const onAbort = () => { void run(); };
+  signal.addEventListener("abort", onAbort, { once: true });
+  return async () => {
+    signal.removeEventListener("abort", onAbort);
+    await (done ??= cleanup());
+  };
+}
 test("Feynman real rendered flow verifies references, reuses standards, saves attempt and never starts a topic turn", { skip: !enabled, timeout: 40000 }, async () => {
   const root = await testSandbox("task53-rendered-"); let browser: any;
   const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
@@ -107,7 +117,7 @@ test("Feynman failures save independent attempts, preserve draft and retry compa
   } finally { if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
 });
 
-test("leaving the real workbench during delayed comparison saves to its topic without reopening a guide", { skip: !enabled, timeout: 30000 }, async () => {
+test("leaving the real workbench during delayed comparison saves to its topic without reopening a guide", { skip: !enabled, timeout: 30000 }, async (t) => {
   const root = await testSandbox("task53-late-"); let browser: any, guides = 0;
   const gate = deferred<void>(), seen = deferred<void>(), aborted = deferred<void>();
   const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
@@ -123,19 +133,20 @@ test("leaving the real workbench during delayed comparison saves to its topic wi
       return JSON.stringify({ items: points.map(point => ({ id: point.id, status: "covered", quote: "离开前提交" })) });
     } finally { signal?.removeEventListener("abort", abort); }
   } }, guideProvider: { async run() { guides++; return { status: "completed" }; } } });
+  const finish = onTimeoutCleanup(t.signal, async () => { gate.resolve(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); });
   try {
     const address = server.address(); assert.ok(address && typeof address !== "string"); const base = `http://127.0.0.1:${address.port}`;
     const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!); browser = await chromium.launchPersistentContext(join(root, "profile"), { executablePath: process.env.PITH_CHROME_PATH, headless: true });
-    const page = await browser.newPage(); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click();
+    const page = await browser.newPage(); page.setDefaultTimeout(8000); await page.goto(base); await page.locator(`[data-topic="${topic.id}"]`).first().click(); await page.locator("#open-toolkit").click(); await page.locator('[data-toolkit-choose="feynman"]').click();
     await page.locator("[data-toolkit-produced]").fill("离开前提交"); await page.locator("[data-toolkit-submit]").click(); await seen.promise;
     await page.locator('[data-command="home"]').click(); await page.locator(".pith-home").waitFor();
     await page.waitForFunction(async (id: string) => (await (await fetch("/api/state")).json()).compass.exploring.find((topic: any) => topic.id === id).notes.length === 1, topic.id);
     assert.equal(guides, 0); assert.equal(await page.locator(".pith-guide").count(), 0); assert.equal(await page.locator(".pith-home").count(), 1);
     const note = (await store.getTopic(topic.id))!.notes[0]!; assert.equal(note.body, "离开前提交"); assert.equal(note.anchor!.file, "source.md"); assert.equal(note.result, undefined);
-  } finally { gate.resolve(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(); }
 });
 
-test("Web card close aborts the server Agent request during extraction and comparison", { skip: !enabled, timeout: 35000 }, async () => {
+test("Web card close aborts the server Agent request during extraction and comparison", { skip: !enabled, timeout: 35000 }, async (t) => {
   const root = await testSandbox("task63-abort-");
   let browser: any, holdExtraction = true;
   const storage = new NodeWorkspaceStorage(root);
@@ -158,6 +169,7 @@ test("Web card close aborts the server Agent request during extraction and compa
     try { return await Promise.race([release.promise, stage.aborted.promise.then(() => { throw signal?.reason; })]); }
     finally { signal?.removeEventListener("abort", abort); }
   } } });
+  const finish = onTimeoutCleanup(t.signal, async () => { release.resolve("{}"); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); });
   const waitForAbort = async (phase: number) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try { await Promise.race([observed[phase]!.aborted.promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Agent never aborted in phase ${phase}`)), 3000); })]); }
@@ -180,11 +192,11 @@ test("Web card close aborts the server Agent request during extraction and compa
     await page.locator("[data-toolkit-close]").click(); await waitForAbort(1);
     await page.waitForFunction(async (id: string) => (await (await fetch("/api/state")).json()).compass.exploring.find((entry: any) => entry.id === id).notes.length === 1, topic.id);
     assert.equal((await store.getTopic(topic.id))!.notes[0]!.result, undefined);
-  } finally { release.resolve("{}"); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+  } finally { await finish(); }
 });
 
 for (const scenario of ["mask after reconnect", "offline save", "offline retry gate"] as const) {
-  test(`active Feynman settings transition: ${scenario}`, { skip: !enabled, timeout: 35000 }, async () => {
+  test(`active Feynman settings transition: ${scenario}`, { skip: !enabled, timeout: 35000 }, async (t) => {
     const root = await testSandbox("task63-live-toggle-");
     const storage = new NodeWorkspaceStorage(root), store = new DefaultWorkspaceStore(storage);
     const topic = await store.createTopic({ title: "开卡切换向导", target: "解释", materialIds: [], toolkits: ["feynman"] });
@@ -203,6 +215,7 @@ for (const scenario of ["mask after reconnect", "offline save", "offline retry g
         return JSON.stringify({ items: points.map(point => ({ id: point.id, status: "covered", quote: produced })) });
       } },
     });
+    const finish = onTimeoutCleanup(t.signal, async () => { if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); });
     try {
       const address = server.address(); assert.ok(address && typeof address !== "string");
       const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
@@ -267,12 +280,12 @@ for (const scenario of ["mask after reconnect", "offline save", "offline retry g
         assert.equal((await attempts()).length, 2);
         assert.equal(compares, 2);
       }
-    } finally { if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+    } finally { await finish(); }
   });
 }
 
 for (const scenario of ["saved and unsaved", "in-flight receipt", "failed save"] as const) {
-  test(`offline Feynman close/reopen: ${scenario}`, { skip: !enabled, timeout: 35000 }, async () => {
+  test(`offline Feynman close/reopen: ${scenario}`, { skip: !enabled, timeout: 35000 }, async (t) => {
     const root = await testSandbox("task63-reopen-");
     const store = new DefaultWorkspaceStore(new NodeWorkspaceStorage(root));
     const topic = await store.createTopic({ title: "离线草稿", target: "解释", materialIds: [], toolkits: ["feynman"] });
@@ -280,6 +293,7 @@ for (const scenario of ["saved and unsaved", "in-flight receipt", "failed save"]
     const server = await createPithWebServer({ workspaceDir: root, processPort: { findExecutable: async () => null, probeExecutable: async () => null, spawnStdio: async () => { throw new Error("Explicitly offline"); } } });
     let browser: any;
     const release = deferred<void>();
+    const finish = onTimeoutCleanup(t.signal, async () => { release.resolve(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); });
     try {
       const address = server.address(); assert.ok(address && typeof address !== "string");
       const { chromium } = await import(process.env.PITH_PLAYWRIGHT_MODULE!);
@@ -369,7 +383,7 @@ for (const scenario of ["saved and unsaved", "in-flight receipt", "failed save"]
         assert.equal((await entries()).length, 1);
       }
       assert.ok((await entries()).every(note => note.author === "user" && note.kind === "practice" && !note.result));
-    } finally { release.resolve(); if (browser) await browser.close(); await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); }); await rm(root, { recursive: true, force: true }); }
+    } finally { await finish(); }
   });
 }
 

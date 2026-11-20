@@ -138,7 +138,7 @@ for (const host of ["web", "obsidian"] as const) test(`${host} keeps offline top
   } finally {
     if (host === "obsidian" && page) await page.evaluate(async () => { const state = (window as any).nativeTask52; if (state) { await state.view.onClose(); state.controller.dispose(); } }).catch(() => {});
     if (browser) await browser.close();
-    if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    if (server) await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections(); });
     await rm(root, { recursive: true, force: true });
   }
 });
