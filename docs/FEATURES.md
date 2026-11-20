@@ -16,7 +16,7 @@
 
 ## 发布与版本
 
-- **当前发布版本**：v0.4.1（#66 @9d1ad2b，已安装默认 ganfan-media Vault，附注标签 `v0.4.1`）。向导可搜索 MIT 课程，常见的 OCW 重定向可正常打开和导入。
+- **当前发布版本**：v0.4.2（#67 @c7c344e，已安装默认 ganfan-media Vault，附注标签 `v0.4.2`）。首页可一次导入多份材料，向导可选用已有材料并在课题中引用。
 - **发布与开发分开**：日常用发布版本，装在默认 Vault，版本号即 Obsidian 插件列表里的 `version`；开发在 `main` 上继续，只进 `.dev-vault` 与 `.tmp` 沙盒，不碰真实 Vault。发布、打标签与补丁的规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - **版本号**：次版本号只给新的能力方向（如学 GitHub 仓库、英伦腔），同一方向里的修复与设计调优只升修订号，规则见 [ROLES.md](ROLES.md)「发布步骤」。
 - 版本按使用优先级排列：
@@ -24,12 +24,12 @@
 | 版本 | 内容 | 状态 |
 | :--- | :--- | :--- |
 | v0.1.0 · 文本主链 | 学本地 Git 仓库（先克隆到本机，再在首页贴本地路径和想搞懂的问题）、读 PDF 与 EPUB、记笔记、费曼复述、结题。Web 与 Obsidian 各走一遍从投喂到结题的十段用户路径（G1–G10），覆盖 F-INTAKE-FILE、F-INTAKE-LINK、F-INTAKE-REPO、F-READ-REPO、F-READ-POS、F-READ-PDF、F-NOTES-MATERIAL、F-FROM-MATERIAL、F-INTAKE-TOPIC、F-LESSONS、F-ADD-MATERIAL、F-TOPIC-NOTES、F-TURN、F-TOOLKIT-MENU、F-FEYNMAN、F-SHELVE、F-OFFLINE、F-SANDBOX、F-SETTLE、F-PROFILE-OBS、F-UNREADABLE；不覆盖语音、影子跟读与音视频 | 已发布（#54；F2 为已知缺口，F-SANDBOX 待复验） |
-| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.1 已安装） |
+| 自用 | 在 ganfan-media 里用当前发布版本学真实仓库与课程；遇到的问题交给 Brain 分诊，确认要做的直接进 [TASKS.md](TASKS.md) 修复 | 进行中（v0.4.2 已安装） |
 | v0.2.0 · 学 GitHub 仓库 | F-REPO-SEARCH（#58）、F-INTAKE-GITHUB（#59）、F-REPO-VERSIONS 与 F-LESSON-VERSION（#60；批量调整由 #64 改为程序判断受影响的讲）。费曼保持 v0.1.0 行为。Web 与 Obsidian 均用 magpie、deepseek-harness（本地）与 herdr、t3code（GitHub）验收 | 已发布（#64 @00e7612） |
 | v0.3.0 · 费曼复述重做 | 去掉复述后的自动向导追问；看完原文可以「再复述一次」，变化的条目标出上一次的状态（#63） | 已发布（#63 @68c1a0e） |
 | v0.4.0 · 顶尖课程编排讲义 | 你的材料不够时，向导从名校公开课与经典教材里为你的问题挑讲次（F-SOURCE-COURSES），只读浏览、导入 PDF（F-GUIDE-INGEST），讲义出处可点到页码与时间点（F-LESSON-CITE），结题优先用官方题（#65）。这就是「规划阅读任务」：向导替你挑该读的那几讲、那几章；电子书沿用已验收的 EPUB 与 PDF 阅读 | 已发布（#65 @d24393e） |
 | v0.4.1 · OCW 链接与课程搜索 | 公网传输每一跳重新校验后跟随重定向，三个宿主共用一份实现；阅读器能读 JSON，向导用 MIT Learn 搜索接口找课程（#66） | 已发布（#66 @9d1ad2b） |
-| v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已排期 |
+| v0.4.2 · 向导知道你的材料库 | 立项与课题中，向导按状态与关联使用你已有的材料和课题（F-GUIDE-LIBRARY，#67）；首页可以一次投喂多份材料 | 已发布（#67 @c7c344e） |
 | v0.4.3 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#68） | 已排期 |
 | v0.5.0 · 英伦腔 | 先复验多媒体主链（F-READ-MEDIA、F-SPEECH-READ、F-SPEECH-RUNTIME、F-SHADOWING、F-MEDIA-CORPUS，4 条真实语音浏览器用例默认跳过），再设计 P-ACCENT | 待定义 |
 
@@ -46,11 +46,11 @@
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | F-INTAKE-FILE | 拖入或选择文件导入材料库；同名的音视频与字幕合成一份；只有一份时直接打开阅读 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮只用 Markdown 与一个可选字短 PDF；同名音视频/字幕合成沿用 #52，未作播放终验 |
-| F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 首页裸链接与课题内入口已覆盖；只用过 example.com 等少量公开页面，未扩外网故障矩阵 |
-| F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #59 @71260bf（11-18） | 双端 magpie/deepseek 副本绑定、同提交复用和嵌套阅读通过；原生补验课题内添加及复用通过。先前三轮原生立项失败的原因未知；Cleanup PASS |
+| F-INTAKE-LINK | 贴一个 http(s) 链接，抓取网页正文成为材料 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | #67 双端复验了混合批量中的 GitHub 链接，普通页面剪藏沿用 #54 验收。 |
+| F-INTAKE-REPO | 贴本地 Git 仓库路径，绑定当前提交成为材料 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 双端验证了带引号的两个本地仓库路径批量导入、绑定提交与改用新快照。 |
 | F-INTAKE-GITHUB | 贴 GitHub 仓库链接，克隆到 Pith 的仓库目录（Vault 外），绑定默认分支的最新提交成为材料；私有仓库用本机已有的 git 凭据 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 两端真实导入 herdr、t3code 并在课题引用；私有仓未覆盖。 |
 | F-REPO-VERSIONS | 仓库「检查更新」：有新提交就导入为新版本，旧版本不变；同一仓库的各版本在材料库合成一张卡片 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实 magpie 快进、合卡、再次检查和课题改用通过。 |
-| F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #52 @d9aa705（11-14） | 宽窄变化用视口模拟，没有拖拽系统窗口 |
+| F-LIBRARY | 首页材料库：封面、被几个课题引用、上次读到哪里，按最近打开排序 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 双端卡片与引用关系经过独立验收，完整元数据及分页边界另有受控回归。 |
 | F-UNREADABLE | 读不出来的课题和材料列在「无法读取」，写明路径与原因，不迁移、不修复 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 两份 #51 旧形状夹具被拒且原字节未变、合法项可用；不是旧应用生成的完整历史库，没有迁移或修复 |
 
 ### 阅读
@@ -78,11 +78,11 @@
 
 | ID | 用户能做什么 | 状态 | Web / Obsidian | 最近独立验收 | 已知缺口 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 没有自然观察到先反问；创建前停止沿用 #52，工具生效后的停止不承诺删除已写课题 |
+| F-INTAKE-TOPIC | 立项：一句话目标（可以带材料）交给向导，向导读材料后建课题，也可以先反问；失败或停止不留课题 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 真实向导双端用已有材料建课题，Obsidian 样本经一次追问完成首讲与选材解释。创建前停止沿用 #52。 |
 | F-FROM-MATERIAL | 在材料阅读里「以此立项」 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | G4 从既有 Markdown 材料立项；没有扩展材料格式矩阵 |
 | F-LESSONS | 课程大纲与逐讲讲义；目录里「待生成」的一讲点击即写 | 已验收 | ✓ / ✓ | #54 @0751ce1（11-16） | 本轮真实大纲/讲义与目录切换通过；待生成点击即写沿用 #52，仅 Web 实测 |
 | F-LESSON-VERSION | 讲义记下依据的仓库版本，出处只跳到这个版本；课题改用新版本时，引用的文件没变的讲自动改依据，变了的讲标出变化的文件，可以请向导按新版本重写这一讲 | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实单讲重写、旧笔记回旧版、受控失败及离线通过；重写实测耗时数分钟，Web 的稳定讲分支由玩具仓覆盖。 |
-| F-GUIDE-LIBRARY | 向导知道你的材料库：立项时看到材料与课题的状态和关联（被哪些课题引用、读到哪、有没有笔记、仓库是不是最新版本），从库里挑材料、不重复建课题；课题中能把库里的材料引用进来 | 契约 | – / – | 无 | — |
+| F-GUIDE-LIBRARY | 向导知道你的材料库：立项时看到材料与课题的状态和关联（被哪些课题引用、读到哪、有没有笔记、仓库是不是最新版本），从库里挑材料、不重复建课题；课题中能把库里的材料引用进来 | 已验收 | ✓ / ✓ | #67 @c7c344e（11-20） | 双端真实样本验证选材、建议复用课题和即时引用，选材解释与复用建议随模型表现变化。 |
 | F-SOURCE-COURSES | 你的材料不够时，向导从顶尖大学公开课（以 MIT OCW 为主）和经典教材里挑出回答你问题的那几讲，只导入相关的讲义、习题、考试与解答，说明为什么选、跳过了什么；结题优先用官方题检验，并给出下一个值得投入的问题 | 已验收 | ✓ / ✓ | #66 @9d1ad2b（11-20） | 真实向导已在双端用 MIT Learn 找课并完成官方题检验，选材深度、题目表述和自主定位视频时间点仍受模型表现影响。 |
 | F-LESSON-CITE | 讲义里的 PDF 页码与音视频时间点出处可以点，打开到那一页、那一刻 | 已验收 | ✓ / ✓ | #65 @d24393e（11-19） | 双端有效、无效、同名 PDF 与媒体暂停定位通过；窄原生栏长文件名完整换行并跳到第 2 页。未覆盖真实公网播放器的外跳播放。 |
 | F-REPO-SEARCH | 向导在仓库绑定的提交里搜代码，结果带 `path:line` | 已验收 | ✓ / ✓ | #64 @00e7612（11-19） | 双端真实搜索、读取及出处跳转通过；未导出完整原始 MCP 搜索响应、未穷尽审计模型的四仓结论。 |
@@ -168,11 +168,11 @@
 | ID | 测试 |
 | :--- | :--- |
 | F-INTAKE-FILE | [task33-intake.test.ts](../tests/task33-intake.test.ts)、[task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task52-browser.test.ts](../tests/task52-browser.test.ts) |
-| F-INTAKE-LINK | [task41-reading.test.ts](../tests/task41-reading.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts) |
-| F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
+| F-INTAKE-LINK | [task41-reading.test.ts](../tests/task41-reading.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[task67-library-browser.test.ts](../tests/task67-library-browser.test.ts) |
+| F-INTAKE-REPO | [task32-repository-guide.test.ts](../tests/task32-repository-guide.test.ts)、[task35-omnibox.test.ts](../tests/task35-omnibox.test.ts)、[task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts)、[task67-library-browser.test.ts](../tests/task67-library-browser.test.ts) |
 | F-INTAKE-GITHUB | [task59-remote.test.ts](../tests/task59-remote.test.ts)、[task59-remote-browser.test.ts](../tests/task59-remote-browser.test.ts) |
 | F-REPO-VERSIONS | [task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
-| F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts) |
+| F-LIBRARY | [task29-board.test.ts](../tests/task29-board.test.ts)、[audit11713-card-browser.test.ts](../tests/audit11713-card-browser.test.ts)、[audit11713-cover.test.ts](../tests/audit11713-cover.test.ts)、[task67-library.test.ts](../tests/task67-library.test.ts) |
 | F-UNREADABLE | [task44-unreadable.test.ts](../tests/task44-unreadable.test.ts)、[task51-store.test.ts](../tests/task51-store.test.ts) |
 | F-READ-MD | [track2-reader-speech.test.ts](../tests/track2-reader-speech.test.ts)、[wave2-trackA-plugins.test.ts](../tests/wave2-trackA-plugins.test.ts) |
 | F-READ-EPUB | [core-epub-and-typography.test.ts](../tests/core-epub-and-typography.test.ts)、[wave12-epub-links.test.ts](../tests/wave12-epub-links.test.ts)、[wave13-pagination-browser.test.ts](../tests/wave13-pagination-browser.test.ts)、[audit11713-cover-browser.test.ts](../tests/audit11713-cover-browser.test.ts) |
@@ -186,11 +186,11 @@
 | F-INTERLINE | [toolkit-interline.test.ts](../tests/toolkit-interline.test.ts)、[task14-interline-browser.test.ts](../tests/task14-interline-browser.test.ts)、[task41-interline-progress.test.ts](../tests/task41-interline-progress.test.ts) |
 | F-SPEECH-READ | [track2-reader-speech.test.ts](../tests/track2-reader-speech.test.ts)、[task15-speech-web-browser.test.ts](../tests/task15-speech-web-browser.test.ts)、[task15-speech-obsidian-browser.test.ts](../tests/task15-speech-obsidian-browser.test.ts) |
 | F-SPEECH-RUNTIME | [task15-speech-runtime.test.ts](../tests/task15-speech-runtime.test.ts)、[task28-speech-download.test.ts](../tests/task28-speech-download.test.ts)、[task30-speech-voices.test.ts](../tests/task30-speech-voices.test.ts) |
-| F-INTAKE-TOPIC | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts)、[engine.test.ts](../tests/engine.test.ts) |
+| F-INTAKE-TOPIC | [task52-workbench.test.ts](../tests/task52-workbench.test.ts)、[task51-tools.test.ts](../tests/task51-tools.test.ts)、[engine.test.ts](../tests/engine.test.ts)、[task67-library-browser.test.ts](../tests/task67-library-browser.test.ts) |
 | F-FROM-MATERIAL | [task52-browser.test.ts](../tests/task52-browser.test.ts) |
 | F-LESSONS | [task36-curriculum.test.ts](../tests/task36-curriculum.test.ts)、[task52-directory-browser.test.ts](../tests/task52-directory-browser.test.ts) |
 | F-LESSON-VERSION | [task64-lesson-versions.test.ts](../tests/task64-lesson-versions.test.ts)、[task60-versions.test.ts](../tests/task60-versions.test.ts)、[task60-versions-browser.test.ts](../tests/task60-versions-browser.test.ts) |
-| F-GUIDE-LIBRARY | — |
+| F-GUIDE-LIBRARY | [task67-library.test.ts](../tests/task67-library.test.ts)、[task67-library-browser.test.ts](../tests/task67-library-browser.test.ts)、[task64-lesson-versions.test.ts](../tests/task64-lesson-versions.test.ts) |
 | F-SOURCE-COURSES | [task65-external.test.ts](../tests/task65-external.test.ts)、[task66-external.test.ts](../tests/task66-external.test.ts) |
 | F-LESSON-CITE | [task65-citations-browser.test.ts](../tests/task65-citations-browser.test.ts) |
 | F-REPO-SEARCH | [task58-repository-search.test.ts](../tests/task58-repository-search.test.ts)、[task58-table-browser.test.ts](../tests/task58-table-browser.test.ts) |

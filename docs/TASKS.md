@@ -152,8 +152,8 @@
 ---
 
 ## [Milestone #67] 向导知道你的材料库，并发布 v0.4.2
-- **Status**: pending
-- **Verified-Commit**: none
+- **Status**: verified
+- **Verified-Commit**: c7c344ed11adf650c08de7ec54b34bc6205a0d7e
 - **Depends-On**: #66
 - **发布版本**: v0.4.2
 - **Features**: F-GUIDE-LIBRARY、F-INTAKE-TOPIC、F-INTAKE-REPO、F-INTAKE-LINK、F-LIBRARY
@@ -175,6 +175,7 @@
   4. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.2`。
 - **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：场景重新写入整库原始 JSON 或去掉上限；首页材料库另算一套引用关系、与 `libraryOverview` 结果不一致；`pith_attach_material` 允许同一仓库的第二个版本；`pith_list_library` 漏掉搁置的课题；分页不封顶 200。
 - **结案**：所列 Features 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.2。
+- **结果**：Web 与隔离 Obsidian 均通过混合批量投喂、只输入问题后从材料库立项、即时引用已有材料和通过「改用」切换同仓版本。新增其他仓库时讲义保持原依据，切换同仓版本时双端核对了出处与讲义字节。重复课题建议、同仓版本拒绝、复述和离线阅读见首轮报告。Cleanup PASS。复验及截图见 `.tmp/evidence/milestone-67/tester-recheck/report.md`。已在验收提交打附注标签 `v0.4.2` 并安装到默认 `ganfan-media` Vault。三个文件的 SHA-256 与验收构建一致，见 `.tmp/evidence/milestone-67/delivery.txt`。
 
 ---
 
