@@ -33,7 +33,7 @@
 | v0.4.3 · 打扫屋子 | 切换执行环到 AGY 协作；移除假开关 `SurfacePersona` 与退役的费曼追问动作残留；接通 Obsidian 壳 `F-NEXT-ACTION`（#69 @ea4adc9） | 已发布（#69 @ea4adc9） |
 | v0.4.4 · 课题引用材料改用纯 ID | `topic.md` 的 `materials` 从 Obsidian 双链改为纯材料 ID，与讲义和笔记的写法一致；发布时附一次性迁移，先备份（#70 @cbef1e0） | 已发布（#70 @cbef1e0） |
 | v0.4.5 · 全本机 ACP Agent 接入 | 全面接入并真机实测 `dsh`、`claude`、`codex`、`agy` 四个本机 ACP Agent，修复 Fail-Open 与跨 Agent 选项残留（#71 @ee6f759） | 已发布（#71 @ee6f759） |
-| v0.5.0 · 语言大类训练 | 重定义语言训练（耳训、程序化 IPA 口腔构音动画、语言无关 F0/重弱拍韵律引擎、口语表达对照），并转向独立原生 App（技术栈讨论中，详见 [V0.5-PLAN.md](V0.5-PLAN.md)） | 待定义 |
+| v0.5.0 · 语言大类训练 | 重定义语言训练（耳训、口腔构音图解、声学韵律对照与口语表达对照）；独立原生客户端演进已分叉至独立仓库 `pith-native`，本开源仓库冻结于 v0.4.5 基线 | 已分叉至 pith-native |
 
 - **之后**：处理各条目的已知缺口，或从「提议」里挑。
 
@@ -133,7 +133,7 @@
 
 ### P-ACCENT · 口语腔调与语言大类训练
 
-- **来源**：原 [3-toolkits](subsystems/3-toolkits.md) 第 5 节、原 `docs/subsystems/6-language-acquisition.md` 与阶段性对齐稿 [V0.5-PLAN.md](V0.5-PLAN.md)。
+- **来源**：原 [3-toolkits](subsystems/3-toolkits.md) 第 5 节与原 `docs/subsystems/6-language-acquisition.md`。
 - **目标**：通过 Pith 习得目标口音（典型是英伦 RP）。判断有没有学会的信号在声学层，不在文字层。
 - **已有基础**：影子跟读的四阶练习和词级漏词诊断；本机语音运行时（sherpa-onnx 上的 ZipVoice TTS 与 SenseVoice ASR，零 Python）。
 - **缺口**：现有诊断比对的是转写后的文字。元音音色（如 /ɒ/ 与 /ɑː/）、非卷舌 r、辅音丛省略、语调起伏，在转写时就丢了。
