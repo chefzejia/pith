@@ -7,7 +7,7 @@
 > 2. 格式演进按 [AGENTS.md](../AGENTS.md) 核心约束 3。被新契约取代的测试直接改写或删除，并在 Worker 报告里列出。
 > 3. 冻结的内核形状在 [1-core-store-engine.md](subsystems/1-core-store-engine.md) 第 4 节；契约自相矛盾或无法落地时标 `blocked`，不自行改契约。
 > 4. 默认门禁、验收方式与清理见 ROLES「默认门禁与验收」「归档与清理门禁」，区块里只写偏离项。
-> 5. 仓库类验收样本：本地 `/Users/zejiawu/Projects/Project-Atlas/infra/magpie` 与 `/Users/zejiawu/Projects/Project-Atlas/infra/deepseek-harness`（只读：先 `git clone` 到 `.tmp/` 再用副本，不在原仓库执行任何写操作），GitHub 上的 `https://github.com/herdrdev/herdr` 与 `https://github.com/pingdotgg/t3code`。
+> 5. 仓库类验收样本：本地 `/Users/zejiawu/Projects/_upstream/magpie` 与 `/Users/zejiawu/Projects/_upstream/deepseek-harness`（只读：先 `git clone` 到 `.tmp/` 再用副本，不在原仓库执行任何写操作），GitHub 上的 `https://github.com/herdrdev/herdr` 与 `https://github.com/pingdotgg/t3code`。
 
 ---
 
