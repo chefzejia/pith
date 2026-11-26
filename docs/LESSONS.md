@@ -1,4 +1,4 @@
-<!-- reviewed-through: ee6f759b005b3c3b6fb4b63b597b6545e2d9ae19 (2026-11-21) -->
+<!-- reviewed-through: cacc1747c1c152ce7de742643d062b997cb8acea (2026-11-21) -->
 # Lessons from Merged Work
 
 ## Active Lessons
@@ -50,20 +50,20 @@
 - Seen 1× (2026-11-14).
 
 **材料卡片须在真实宿主中检查内容与点击边界一致。**
-- `[周期审计 11713d0 A3 终验]` 原生材料库截图中，标题高于卡片边框、阅读状态低于边框且文字截断；上传和阅读功能通过不能代替卡片视觉验收。自检须覆盖有封面、无封面、长标题和阅读状态，核对全部内容落在卡片边界内，并检查宿主按钮样式的影响。
+- `[周期审计 3a24b06 A3 终验]` 原生材料库截图中，标题高于卡片边框、阅读状态低于边框且文字截断；上传和阅读功能通过不能代替卡片视觉验收。自检须覆盖有封面、无封面、长标题和阅读状态，核对全部内容落在卡片边界内，并检查宿主按钮样式的影响。
 - Seen 1× (2026-11-14).
 
 **可选封面提取不能阻断可阅读材料的正式导入。**
-- `[周期审计 11713d0 独立终验]` EPUB 由 Store 预置后可正常阅读，但首页上传同一样本报 `Invalid EPUB path`；自检绕过了真实导入准备链路。`inspectEpubPackage` 将章节内外链图片交给本地路径解析，令封面候选错误阻断整本材料。回归须从正式导入准备入口覆盖外链、越界等可选封面引用，同时保留必需包结构错误的拒绝语义。
+- `[周期审计 3a24b06 独立终验]` EPUB 由 Store 预置后可正常阅读，但首页上传同一样本报 `Invalid EPUB path`；自检绕过了真实导入准备链路。`inspectEpubPackage` 将章节内外链图片交给本地路径解析，令封面候选错误阻断整本材料。回归须从正式导入准备入口覆盖外链、越界等可选封面引用，同时保留必需包结构错误的拒绝语义。
 - Seen 1× (2026-11-14).
 
 **故障验收夹具须提供对应真实宿主的可执行入口。**
-- `[周期审计 11713d0 修复终验]` 交卷的故障启动器仅提供 Web 服务；原生 API 边界回归通过，但 Tester 无法据此在真实 Obsidian 中执行同一重试与撤销路径。交接须列出各宿主的准备、实际入口和受控边界，不能以边界测试替代真实应用的可运行复验方案。
+- `[周期审计 3a24b06 修复终验]` 交卷的故障启动器仅提供 Web 服务；原生 API 边界回归通过，但 Tester 无法据此在真实 Obsidian 中执行同一重试与撤销路径。交接须列出各宿主的准备、实际入口和受控边界，不能以边界测试替代真实应用的可运行复验方案。
 - `[Task #59]` Worker 持有 Playwright 控制句柄的 Web 自拍通过，但交给独立 Tester 的管理器仅公布页面 URL，未公布其唯一自有 Chrome 的可连接端点；独立工具无法接管同一浏览器。验收入口须同时交付实例身份、可用控制端点与关闭入口，不能以作者仍持有句柄的自拍证明交接可执行。现场记录见 `.tmp/evidence/task-59/tester/web-start.log`。
 - Seen 2× (2026-11-14, 2026-11-18).
 
 **阅读位置持久化须在重新打开材料后核对，不能只验证当前窗口翻页。**
-- `[周期审计 11713d0]` 普通 EPUB 翻到第 3 页后保存了章节起点 `text:section:0;block:0`，重开回到第 1 页；既有浏览器自检通过，但未检查翻页、实际写入坐标及重开后的可见内容是否一致。采样须定位当前可见正文，避开覆盖多页的章节容器，并对正文块跨页场景验证恢复精度。
+- `[周期审计 3a24b06]` 普通 EPUB 翻到第 3 页后保存了章节起点 `text:section:0;block:0`，重开回到第 1 页；既有浏览器自检通过，但未检查翻页、实际写入坐标及重开后的可见内容是否一致。采样须定位当前可见正文，避开覆盖多页的章节容器，并对正文块跨页场景验证恢复精度。
 - Seen 1× (2026-11-14).
 
 **固定页阅读的尺寸变化须保住当前页与批注锚点。**
@@ -86,7 +86,7 @@
 
 **结题的多步写入须覆盖中途失败。**
 - `[周期审计]` 结题先写画像观察，后续总结或状态写入失败时工具报错、课题仍在进行，但画像已改变且该失败回合没有撤销入口。回归须注入各写入阶段失败，核对画像、课题和可恢复性。
-- `[周期审计 11713d0]` 同一失败回合重试替换了旧工具步骤，已落盘观察仍在但撤销所需的 effect 记录消失。自检只覆盖重试消息去重及不自动重放写入，未覆盖重试后的既有副作用可追溯与可撤销性。
+- `[周期审计 3a24b06]` 同一失败回合重试替换了旧工具步骤，已落盘观察仍在但撤销所需的 effect 记录消失。自检只覆盖重试消息去重及不自动重放写入，未覆盖重试后的既有副作用可追溯与可撤销性。
 - Seen 2× (2026-11-13, 2026-11-14).
 
 **停止回合须贯通导入网络请求。**
@@ -330,7 +330,7 @@
 
 **外部或用户材料（EPUB / Markdown / 网页剪藏）净化渲染进 Pith 舞台时，必须剥离宿主保留命名空间（`pith-*` 类名与 `data-*` 属性），且章节容器查询必须使用直接子选择器或显式章节属性，不得依赖全局 `.querySelectorAll(".pith-epub-chapter")[i]`。**
 - 若原书 HTML 含 `class="pith-epub-chapter"` 或保留属性，全局选择器下标会错位，导致跨章链接、伴读章节识别与目录高亮跳向伪造节点。
-- 真实翻车证据：`[Task #12]`（`dc49e6d`）连续 3 轮修补链接目标，第 3 轮因原书正文可包含 `.pith-epub-chapter` 干扰 `article.querySelectorAll(".pith-epub-chapter")[target.chapter]` 而阻塞，后在 `e9c0f0f` 剥离 `pith-*` 类名修复。
+- 真实翻车证据：`[Task #12]`（`de5d134`）连续 3 轮修补链接目标，第 3 轮因原书正文可包含 `.pith-epub-chapter` 干扰 `article.querySelectorAll(".pith-epub-chapter")[target.chapter]` 而阻塞，后在 `38c8a18` 剥离 `pith-*` 类名修复。
 - Seen 3× (2026-11-04).
 
 **独立 Tester 首轮验收必须一次性穷尽同切面的所有静态边界与动态交互缺陷，严禁挤牙膏式每轮只报 1 个小点耗尽 3 轮额度。**
@@ -340,12 +340,12 @@
 
 **构建与真机验证脚本（`scripts/`）直接操作已列入 `.gitignore` 的 `.dev-vault` 与 `.tmp` 沙盒，严禁编写快照回滚还原、硬链接防御或 `assertNoObsidian` 全局进程拦截。**
 - 对专用测试沙盒做快照回滚不仅会在 `.tmp/` 堆积备份垃圾文件，还会在验收后把 `.dev-vault` 新构建的插件回滚成旧版本，且因宿主机开着用户正常 Obsidian 而拒绝执行测试。
-- 真实翻车证据：`920c1d5` 与 `56dfaba` 中 `scripts/obsidian-safety.mjs`、`scripts/verify-obsidian.mjs` 反复引入快照回滚与全局进程封锁，已在 `9c3ce87` 彻底删除。
+- 真实翻车证据：`a16b8f6` 与 `bf36535` 中 `scripts/obsidian-safety.mjs`、`scripts/verify-obsidian.mjs` 反复引入快照回滚与全局进程封锁，已在 `f4bb17a` 彻底删除。
 - Seen 3× (2026-11-03, 2026-11-04).
 
 **CSS 多列（Multi-column）分页阅读器测量跨列字符位置或执行连续窗口缩放时，必须使用 `range.getClientRects()` 过滤宽高非零的实际字符片段，且 `ResizeObserver` 重排恢复位置时不得用重采样覆盖原锚点。**
 - 跨列文本块的 `range.getBoundingClientRect()` 会返回横跨多列的合并外包矩形（`rect.left` 退化为首列左边界）；而重排后立即覆写 `readerPosition` 会导致连续拖拽窗口时阅读位置逐级向页首回退。
-- 真实翻车证据：`[Task #13]`（`34b6c6f`）在单栏大字号下将窗口从 `1600×900` 缩至 `1100×700` 时，跨页无空格中文段落从标记 `025–048` 回退至 `013–024`，在 `f36d6b3` 修复。
+- 真实翻车证据：`[Task #13]`（`099b3b5`）在单栏大字号下将窗口从 `1600×900` 缩至 `1100×700` 时，跨页无空格中文段落从标记 `025–048` 回退至 `013–024`，在 `d8d6475` 修复。
 - Seen 1× (2026-11-04).
 
 ## Moved to Guard Tests / Standards
@@ -354,11 +354,11 @@
 
 - **文本围栏工具解析与 `pith_remember` 通道已由标准 MCP 工具与 `pith_settle_topic` 门禁取代**（[Task #47] / #49）→ 仅 `pith_settle_topic` 可写画像观察条目，由 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`only the settlement tool accesses profile observation writes`）静态锁定。
 
-- **模型追问须验实际问题是否对应本次缺口，不能只验指令选中了正确条目**（#53 指令命中但追问走偏；#54 F2 首问泄题，Seen 2×，2026-11-16）→ #63 取消自动追问，改为逐条对照后自行复练，见 [3-toolkits 3.3](subsystems/3-toolkits.md#33-feynman费曼复述-训练工具)、[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 的退役通道守卫和 [`tests/task53-feynman-browser.test.ts`](../tests/task53-feynman-browser.test.ts) 的零课题回合断言（68c1a0e）。
+- **模型追问须验实际问题是否对应本次缺口，不能只验指令选中了正确条目**（#53 指令命中但追问走偏；#54 F2 首问泄题，Seen 2×，2026-11-16）→ #63 取消自动追问，改为逐条对照后自行复练，见 [3-toolkits 3.3](subsystems/3-toolkits.md#33-feynman费曼复述-训练工具)、[`tests/boundaries.test.ts`](../tests/boundaries.test.ts) 的退役通道守卫和 [`tests/task53-feynman-browser.test.ts`](../tests/task53-feynman-browser.test.ts) 的零课题回合断言（bbbce09）。
 
-- **费曼对照响应的未知 ID、重复 ID、非法状态与 missing 非空引文须分别拒绝**（周期审计 a0b1f1e A1，Seen 1×，2026-11-16）→ 已固化为 [`tests/task53-feynman.test.ts`](../tests/task53-feynman.test.ts) 的四个 `Feynman service rejects … from raw agent response` 服务入口回归（6c1a372）；Worker 与独立 Tester 各自逐项验证删除对应守卫只令该断言报红、恢复后全绿。
+- **费曼对照响应的未知 ID、重复 ID、非法状态与 missing 非空引文须分别拒绝**（周期审计 aaefeeb A1，Seen 1×，2026-11-16）→ 已固化为 [`tests/task53-feynman.test.ts`](../tests/task53-feynman.test.ts) 的四个 `Feynman service rejects … from raw agent response` 服务入口回归（c682c28）；Worker 与独立 Tester 各自逐项验证删除对应守卫只令该断言报红、恢复后全绿。
 
-- **浏览器用例不得因缺少环境变量而在门禁中静默跳过**（2026-11-11：默认门禁跳过全部浏览器用例，`2b8acbe`、`8e411ca`、`07fe545`、`187f9e6`、`2a569fa`、`3f8d2ac`、`35d00d6` 七个提交先后使 11 个浏览器用例过期而无人察觉）→ 已固化为 `npm run test:browser`（[`scripts/test-browser.mjs`](../scripts/test-browser.mjs) 缺 Playwright 或 Chrome 即报错退出）与守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`the browser test command runs every test file that launches a browser, inside the sandbox preload, and never without a browser`）。
+- **浏览器用例不得因缺少环境变量而在门禁中静默跳过**（2026-11-11：默认门禁跳过全部浏览器用例，`85ff373`、`3ac86dc`、`0534ca2`、`664f39d`、`7efa1a8`、`c9d515e`、`27d9ef2` 七个提交先后使 11 个浏览器用例过期而无人察觉）→ 已固化为 `npm run test:browser`（[`scripts/test-browser.mjs`](../scripts/test-browser.mjs) 缺 Playwright 或 Chrome 即报错退出）与守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`the browser test command runs every test file that launches a browser, inside the sandbox preload, and never without a browser`）。
 - **测试进程不得继承真实 HOME 与本机语音运行时**（`[Task #33]` Worker 门禁、`[Task #34]` 同模式、2026-11-11 评审中裸跑 `npm test` 改写真实语音目录的 `gateway.cjs` 并产生 5 个假失败，Seen 3×）→ 已固化为测试预加载 [`tests/setup.ts`](../tests/setup.ts)（`npm test` 与 `npm run test:file` 注入一次性沙盒）、守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`every test entry point loads the sandbox preload`）与行为测试 [`tests/test-sandbox.test.ts`](../tests/test-sandbox.test.ts)。
 - **禁止同名函数重赋值包装链（`const xBase = x; x = ...`）与 `stopImmediatePropagation()` 截胡死代码** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`source does not retain Base aliases for function wrappers` & `Web reader entry points have one definition and are never reassigned`）。
 - **禁止通过 `readFile("src/...")` 抠取源码字符串塞入 `vm.runInContext` 跑假测试** → 已固化为守卫测试 [`tests/boundaries.test.ts`](../tests/boundaries.test.ts)（`tests do not execute extracted source in a VM`）。

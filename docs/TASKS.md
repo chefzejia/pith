@@ -13,7 +13,7 @@
 
 ## [Milestone #60] 仓库版本与讲义绑定
 - **Status**: verified
-- **Verified-Commit**: 1280386219246c965e59080463e65ca562c921c1
+- **Verified-Commit**: 6ff9123c1d640713ef106f6a1464cd9331f965f5
 - **Depends-On**: #59
 - **Features**: F-REPO-VERSIONS、F-LESSON-VERSION
 - **结果**: 程序部分通过：版本导入、材料库合卡、改用、「基于旧版本」标记、出处按版本解析，原生玩具仓库的调整路径也通过。真实 magpie 上的「按新版本调整」没有改成任何讲义（Web 回合结束时没有写入，原生在调整前被取消），两行台账降为待复验，由 #61 补验。证据：`.tmp/evidence/task-60/tester/adjustment-v2/final-report.md`。
@@ -42,7 +42,7 @@
 
 ## [Milestone #63] 费曼复述：看完原文再复述一次
 - **Status**: verified
-- **Verified-Commit**: 68c1a0e99678dba9661d18ba68f75c3e46b6a9c4
+- **Verified-Commit**: bbbce09d29c10f1bacf6c06ece6741c59ee87b43
 - **Depends-On**: #61
 - **发布版本**: v0.3.0
 - **Features**: F-FEYNMAN
@@ -72,7 +72,7 @@
 
 ## [Milestone #64] 仓库新版本：程序判断哪些讲受影响，并发布 v0.2.0
 - **Status**: verified
-- **Verified-Commit**: 00e761223f2b227aef2f35d747eb4ce0e74b5686
+- **Verified-Commit**: 6c31af3bcd665e9d23476bdac66f859e5a53e848
 - **Depends-On**: —
 - **发布版本**: v0.2.0
 - **Features**: F-INTAKE-GITHUB、F-REPO-SEARCH、F-REPO-VERSIONS、F-LESSON-VERSION
@@ -102,7 +102,7 @@
 
 ## [Milestone #65] 向导用顶尖课程编排讲义，并发布 v0.4.0
 - **Status**: verified
-- **Verified-Commit**: d24393ee31919877635bf1b925c0e97c68c17381
+- **Verified-Commit**: 44415adb7e009daca0a012abf99da715b7f0fae4
 - **Depends-On**: #63
 - **发布版本**: v0.4.0
 - **Features**: F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE
@@ -121,13 +121,13 @@
 
 - **Worker 门禁**（默认门禁之外）：手动破壁各一次后恢复，对应断言须各自变红：只读工具写入了材料；多个链接中有一个失败时仍留下材料；视图另写一套出处匹配、与共享函数的结果不一致；越界页码仍可点击跳转。
 - **结案**：F-SOURCE-COURSES、F-GUIDE-INGEST、F-LESSON-CITE、F-SETTLE 按 ROLES「功能台账同步」更新。通过后按 ROLES「发布步骤」发布 v0.4.0。
-- **结果**：代码提交 `d24393ee31919877635bf1b925c0e97c68c17381`；Web 与 Obsidian 的首轮真实 Agent 均完成选课、三份 PDF 合为一份材料、官方题作答与结题。首轮发现沉淀后选项被隐藏及窄原生栏长出处溢出；修复后同一独立 Tester 在 Web 与真实隔离 Obsidian 实点当前/重开只读选项，并验证长出处完整换行且准确跳到第 2 页。后续真实 Agent 重试出现模型未完成、上游失败及普通 HTTP 301 被 fail-closed 拒绝，均记录为模型样本/预期安全拒绝，不改变安全边界；模型产出质量未作为程序门禁。双端普通 404 批导无残留、只读零写入、旧仓库/费曼/离线/搁置抽查通过；数量/大小边界依赖 Worker 门禁，不做不安全的真实内网或重定向请求。Cleanup PASS。v0.4.0 已安装默认 `ganfan-media`；附注标签 `v0.4.0` 指向本 Verified-Commit。提交、标签及三项 SHA-256：`.tmp/evidence/milestone-65/delivery.txt`；真实双端报告及截图：`.tmp/evidence/milestone-65/tester/`、`.tmp/evidence/milestone-65/tester-recheck-2/`、`.tmp/evidence/milestone-65/tester-recheck-3/`。
+- **结果**：代码提交 `44415adb7e009daca0a012abf99da715b7f0fae4`；Web 与 Obsidian 的首轮真实 Agent 均完成选课、三份 PDF 合为一份材料、官方题作答与结题。首轮发现沉淀后选项被隐藏及窄原生栏长出处溢出；修复后同一独立 Tester 在 Web 与真实隔离 Obsidian 实点当前/重开只读选项，并验证长出处完整换行且准确跳到第 2 页。后续真实 Agent 重试出现模型未完成、上游失败及普通 HTTP 301 被 fail-closed 拒绝，均记录为模型样本/预期安全拒绝，不改变安全边界；模型产出质量未作为程序门禁。双端普通 404 批导无残留、只读零写入、旧仓库/费曼/离线/搁置抽查通过；数量/大小边界依赖 Worker 门禁，不做不安全的真实内网或重定向请求。Cleanup PASS。v0.4.0 已安装默认 `ganfan-media`；附注标签 `v0.4.0` 指向本 Verified-Commit。提交、标签及三项 SHA-256：`.tmp/evidence/milestone-65/delivery.txt`；真实双端报告及截图：`.tmp/evidence/milestone-65/tester/`、`.tmp/evidence/milestone-65/tester-recheck-2/`、`.tmp/evidence/milestone-65/tester-recheck-3/`。
 
 ---
 
 ## [Milestone #66] OCW 链接直接可用：安全跟随重定向、能搜索课程，并发布 v0.4.1
 - **Status**: verified
-- **Verified-Commit**: 9d1ad2b0c48bcbc29cc4fb67ec95987e76fbb472
+- **Verified-Commit**: daa6712c6af3b22c555d87f826caa4640b509c96
 - **Depends-On**: —
 - **发布版本**: v0.4.1
 - **Features**: F-GUIDE-INGEST、F-SOURCE-COURSES
@@ -153,7 +153,7 @@
 
 ## [Milestone #67] 向导知道你的材料库，并发布 v0.4.2
 - **Status**: verified
-- **Verified-Commit**: c7c344ed11adf650c08de7ec54b34bc6205a0d7e
+- **Verified-Commit**: d3033686972d10beb3c72e2defa9b1f9ad875d0d
 - **Depends-On**: #66
 - **发布版本**: v0.4.2
 - **Features**: F-GUIDE-LIBRARY、F-INTAKE-TOPIC、F-INTAKE-REPO、F-INTAKE-LINK、F-LIBRARY
@@ -212,7 +212,7 @@
 
 ## [Milestone #69] 打扫屋子：清理假皮肤与退役残留、接通 Obsidian 下一步，并发布 v0.4.3
 - **Status**: verified
-- **Verified-Commit**: ea4adc9cd41cc1463801ae19a897f73bf2b1ffda
+- **Verified-Commit**: 4bf87a3e527b2edc1aac2af1c0cac8a79566ee79
 - **Depends-On**: #67
 - **发布版本**: v0.4.3
 - **Features**: F-NEXT-ACTION、F-FEYNMAN、F-TOOLKIT-MENU
@@ -238,7 +238,7 @@
 
 ## [Milestone #70] 课题引用材料改用纯 ID，并发布 v0.4.4
 - **Status**: verified
-- **Verified-Commit**: cbef1e008105fbf72f5329aca53039562afaef4a
+- **Verified-Commit**: 3ed32c8d3e61c0beb9c7d8334fb76659458cf15a
 - **Depends-On**: #69
 - **发布版本**: v0.4.4
 - **Features**: F-INTAKE-TOPIC、F-ADD-MATERIAL、F-UNREADABLE
@@ -270,7 +270,7 @@
 
 ## [Milestone #71] 全面接入本机 ACP Agent（dsh / claude / codex / agy），并发布 v0.4.5
 - **Status**: verified
-- **Verified-Commit**: ee6f759b005b3c3b6fb4b63b597b6545e2d9ae19
+- **Verified-Commit**: cacc1747c1c152ce7de742643d062b997cb8acea
 - **Depends-On**: #70
 - **发布版本**: v0.4.5
 - **Features**: F-AGENT、F-SANDBOX
@@ -292,4 +292,4 @@
   5. `manifest.json` 与 `package.json` 的 `version` 改为 `0.4.5`。
 - **Worker 门禁**（默认门禁之外）：覆盖 4-Agent 发现与裸 CLI 不可用、`agy` 能力白名单与显式 `http: false` 拒绝、`requiredSafeModes` 缺失/高权限定态/设置被拒 Fail-Closed、三种标题前缀精确匹配与近似伪造标题拒绝、Web/Obsidian 延迟保存与延迟探测竞态的边界单测与浏览器回归（禁内部 Mock），并做 5 项手动破壁先红后绿：`agy` 显式 `http: false` 放行；缺少安全 `mode` 仍发 `session/prompt`；`codex`/`agy` 工具标题匹配失灵；Obsidian `PithSettingTab` 跨 Agent 未同步清零（延迟保存竞态用例变红）；Web 跨 Agent 切换未清 `model`/`effort`。
 - **结案**：Tester 通过后跑 `gpt-auditor --mode diff --range "1d4afdd..HEAD"`（无已核实缺陷方可通过），按 ROLES「发布步骤」安装 `v0.4.5` 到默认 `ganfan-media` Vault 并打标签，按 ROLES「功能台账同步」更新 `F-AGENT` 与 `F-SANDBOX`（如实写明各 Agent 实测情况与 `claude` 未登录边界及 macOS 沙盒局限），并提示人类重启 Obsidian。
-- **结果**：产品切片提交 `9bb183d` + `66c699c`（修复首轮独立验收发现的 `CachedAgentDetector` 并发探测竞争与 4s 超时，详见 `docs/LESSONS.md` `dfaa116`），测试防挂死与进程组回收加固提交 `9e23053`、`1526522`、`ee6f759`（与 `66c699c` 产品代码及 `dist/obsidian/` 字节一致）。全量门禁通过（`npm run typecheck`、`npm test` 461 pass、`npm run test:browser` 63/63 文件通过）。独立 Tester 第 2 轮复验 `Verdict: PASS`、`Cleanup: PASS`（`.tmp/evidence/milestone-71/tester/report.md` 及 37 张核验 PNG）；发版前异源审计 `gpt-auditor --mode diff` 经 3 轮清创收口（`1d4afdd..66c699c` P2=2 排除 1 误报、修 1 项 -> `66c699c..1526522` P2=1 修 1 项 -> `1526522..ee6f759` `NO_ISSUES`，归档 `.tmp/evidence/audit/m71-gpt-audit*.md`）。已安装 `v0.4.5` 至默认 `ganfan-media` Vault 并核对三文件 SHA-256（`main.js` `606744283c01291a2ce9d7b5aa5a758be93d8b4c362294e3b60ec9f6c4b39b8b`，`styles.css` `34383d53a43efff497e43dc2b2d8aceaeccadf31ad358e31b0dae54ea48b24e3`，`manifest.json` `c843efb4e4b3c8e132fd4192317109aa14e448427a58c15d817b3e2b4a207d60`），在 `ee6f759b005b3c3b6fb4b63b597b6545e2d9ae19` 打附注标签 `v0.4.5`（`c22744a89cd79c959f4448bc5a6e3531a411a6c6`），交接记录见 `.tmp/evidence/milestone-71/delivery.txt`。
+- **结果**：产品切片提交 `d36d4de` + `2b80de5`（修复首轮独立验收发现的 `CachedAgentDetector` 并发探测竞争与 4s 超时，详见 `docs/LESSONS.md` `f629884`），测试防挂死与进程组回收加固提交 `337f3f7`、`9438ce4`、`cacc174`（与 `2b80de5` 产品代码及 `dist/obsidian/` 字节一致）。全量门禁通过（`npm run typecheck`、`npm test` 461 pass、`npm run test:browser` 63/63 文件通过）。独立 Tester 第 2 轮复验 `Verdict: PASS`、`Cleanup: PASS`（`.tmp/evidence/milestone-71/tester/report.md` 及 37 张核验 PNG）；发版前异源审计 `gpt-auditor --mode diff` 经 3 轮清创收口（`1d4afdd..2b80de5` P2=2 排除 1 误报、修 1 项 -> `66c699c..9438ce4` P2=1 修 1 项 -> `1526522..cacc174` `NO_ISSUES`，归档 `.tmp/evidence/audit/m71-gpt-audit*.md`）。已安装 `v0.4.5` 至默认 `ganfan-media` Vault 并核对三文件 SHA-256（`main.js` `606744283c01291a2ce9d7b5aa5a758be93d8b4c362294e3b60ec9f6c4b39b8b`，`styles.css` `34383d53a43efff497e43dc2b2d8aceaeccadf31ad358e31b0dae54ea48b24e3`，`manifest.json` `c843efb4e4b3c8e132fd4192317109aa14e448427a58c15d817b3e2b4a207d60`），在 `cacc1747c1c152ce7de742643d062b997cb8acea` 打附注标签 `v0.4.5`（`e2342a26224b012df48be6fe1d4c736509c8b076`），交接记录见 `.tmp/evidence/milestone-71/delivery.txt`。

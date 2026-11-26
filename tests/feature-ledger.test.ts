@@ -65,7 +65,7 @@ function git(...args: string[]): string {
   return execFileSync("git", ["-C", ROOT, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-const history = new Set(git("rev-list", "--all").split("\n"));
+const history = new Set(git("rev-list", "HEAD").split("\n"));
 const commits = new Map<string, string>();
 function commitInHistory(ref: string): string {
   assert.match(ref, /^[0-9a-f]{7,40}$/, `invalid commit: ${ref}`);
@@ -157,7 +157,7 @@ test("milestone features exist and verified acceptance never predates the milest
 
 test("verified feature ancestry accepts equal and descendant commits using the release ledger", () => {
   // #54 predates Features fields; these synthetic blocks exercise both ancestry cases against its real ledger row and Git history.
-  for (const verified of ["0751ce185f144694fe3e6d52c9dd57a810a06c35", "908aa0f9ad9bfb68941f09fdd3e4e49901edfee5"]) {
+  for (const verified of ["49ba7e1ceaff6ada1c6a83e424f3143b344e95b2", "d1b6042bfba44d7ea3cb25037695f08768a3cfbe"]) {
     checkTaskFeatures(`## [Milestone #54] release ancestry control\n- **Status**: verified\n- **Verified-Commit**: ${verified}\n- **Features**: F-OFFLINE\n`);
   }
 });
